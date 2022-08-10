@@ -119,7 +119,8 @@ fn add_paths(watcher: &mut RecommendedWatcher, config_paths: &[PathBuf]) -> Resu
     Ok(())
 }
 
-#[cfg(all(test, unix, not(target_os = "macos")))] // https://github.com/vectordotdev/vector/issues/5000
+// Too flaky
+#[cfg(all(test, unix, ignored_upstream_flaky))] // https://github.com/vectordotdev/vector/issues/5000
 mod tests {
     use std::{fs::File, io::Write, time::Duration};
 
