@@ -36,5 +36,14 @@ pipeline {
                 """
             }
         }
+        stage('Build image and publish') {
+            when {
+                branch pattern: "v\\d+\\.\\d+.\\d+.\\d+", comparator: "REGEXP"
+            }
+            steps {
+                sh 'make mezmo-build-image BUILD_VERSION=${BRANCH_NAME}'
+                sh 'make mezmo-publish-image BUILD_VERSION=${BRANCH_NAME}'
+            }
+        }
     }
 }

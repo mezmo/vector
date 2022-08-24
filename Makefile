@@ -111,7 +111,7 @@ define ENVIRONMENT_EXEC
 	@echo "Entering environment..."
 	@mkdir -p target
 	$(CONTAINER_TOOL) run \
-			--name vector-environment \
+			--name vector-environment-$(shell date +%s) \
 			--rm \
 			$(if $(findstring true,$(ENVIRONMENT_TTY)),--tty,) \
 			--init \
@@ -652,6 +652,16 @@ endif
 .PHONY: version
 version: ## Get the current Vector version
 	@scripts/version.sh
+
+.PHONY:mezmo-build-image
+mezmo-build-image:
+	@echo "Building image us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}"
+	docker build -t "us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}" --build-arg BUILD_VERSION=${BUILD_VERSION} -f distribution/docker/mezmo/Dockerfile --platform=linux/amd64 --progress=plain .
+
+.PHONY:mezmo-publish-image
+mezmo-publish-image:
+	@echo "Publishing image us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}"
+	docker push "us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}"
 
 .PHONY: git-hooks
 git-hooks: ## Add Vector-local git hooks for commit sign-off
