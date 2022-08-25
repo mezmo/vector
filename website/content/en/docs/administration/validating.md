@@ -55,6 +55,14 @@ These environment checks can be disabled using the [`--no-environment`][no_envir
 vector validate --no-environment /etc/vector/vector.toml
 ```
 
+Healthchecks are run as part of environment checks, but can be disabled separately using the
+`--no-health` flag:
+
+```bash
+vector validate --no-health /etc/vector/vector.toml
+```
+
+
 [components]: /components
 [no_environment]: /docs/reference/cli/#validate-no-environment
 [sinks]: /sinks

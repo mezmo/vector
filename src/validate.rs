@@ -18,6 +18,10 @@ pub struct Opts {
     #[clap(long)]
     pub no_environment: bool,
 
+    /// Disables health checks.
+    #[clap(long)]
+    pub no_health: bool,
+
     /// Fail validation on warnings that are probably a mistake in the configuration
     /// or are recommended to be fixed.
     #[clap(short, long)]
@@ -176,7 +180,11 @@ async fn validate_environment(opts: &Opts, config: &Config, fmt: &mut Formatter)
         return false;
     };
 
-    validate_healthchecks(opts, config, &diff, &mut pieces, fmt).await
+    if !opts.no_health {
+        validate_healthchecks(opts, config, &diff, &mut pieces, fmt).await
+    } else {
+        true
+    }
 }
 
 async fn validate_components(
