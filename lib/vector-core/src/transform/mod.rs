@@ -1,9 +1,11 @@
 use std::{collections::HashMap, pin::Pin};
 
 use futures::{Stream, StreamExt};
+use tokio::sync::mpsc::UnboundedSender;
 use vector_common::internal_event::{emit, EventsSent, DEFAULT_OUTPUT};
 use vector_common::EventDataEq;
 
+use crate::usage_metrics::{array_byte_size, track_output_usage, UsageMetrics};
 use crate::{
     config::Output,
     event::{into_event_stream, Event, EventArray, EventContainer, EventRef},
@@ -255,7 +257,11 @@ impl TransformOutputs {
         TransformOutputsBuf::new_with_capacity(self.outputs_spec.clone(), capacity)
     }
 
-    pub async fn send(&mut self, buf: &mut TransformOutputsBuf) {
+    pub async fn send(
+        &mut self,
+        buf: &mut TransformOutputsBuf,
+        output_metrics_tx: &Option<UnboundedSender<UsageMetrics>>,
+    ) {
         if let Some(primary) = self.primary_output.as_mut() {
             let count = buf.primary_buffer.as_ref().map_or(0, OutputBuffer::len);
             let byte_size = buf.primary_buffer.as_ref().map_or(0, ByteSizeOf::size_of);
@@ -273,6 +279,7 @@ impl TransformOutputs {
         for (key, buf) in &mut buf.named_buffers {
             let count = buf.len();
             let byte_size = buf.size_of();
+            let output_byte_size = buf.0.iter().map(array_byte_size).sum();
             buf.send(self.named_outputs.get_mut(key).expect("unknown output"))
                 .await;
             emit(EventsSent {
@@ -280,6 +287,14 @@ impl TransformOutputs {
                 byte_size,
                 output: Some(key.as_ref()),
             });
+
+            // Track the usage of this transform per each output
+            if count > 0 {
+                // Check for count because it will be reported as 0 for the rest of the outputs
+                if let Some(metrics_tx) = output_metrics_tx {
+                    track_output_usage(metrics_tx, count, output_byte_size, key.to_string());
+                }
+            }
         }
     }
 }

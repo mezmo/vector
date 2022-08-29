@@ -41,6 +41,7 @@ pub mod stream;
 mod test_util;
 pub mod time;
 pub mod transform;
+pub mod usage_metrics;
 
 use std::path::PathBuf;
 

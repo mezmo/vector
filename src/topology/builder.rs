@@ -9,8 +9,10 @@ use std::{
 use futures::{stream::FuturesOrdered, FutureExt, StreamExt};
 use once_cell::sync::Lazy;
 use stream_cancel::{StreamExt as StreamCancelExt, Trigger, Tripwire};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::{
     select,
+    sync::mpsc,
     time::{timeout, Duration},
 };
 use tracing::Instrument;
@@ -24,6 +26,7 @@ use vector_core::{
     },
     internal_event::EventsSent,
     schema::Definition,
+    usage_metrics::{start_publishing_metrics, track_usage, UsageMetrics},
     ByteSizeOf,
 };
 
@@ -50,6 +53,8 @@ use crate::{
 
 static ENRICHMENT_TABLES: Lazy<enrichment::TableRegistry> =
     Lazy::new(enrichment::TableRegistry::default);
+
+static INTERNAL_SHARED_SWIMLANES: &str = "v1:internal_transform:route:split_by_source";
 
 pub(crate) static SOURCE_SENDER_BUFFER_SIZE: Lazy<usize> =
     Lazy::new(|| *TRANSFORM_CONCURRENCY_LIMIT * CHUNK_SIZE);
@@ -149,6 +154,11 @@ pub async fn build_pieces(
     let (enrichment_tables, enrichment_errors) = load_enrichment_tables(config, diff).await;
     errors.extend(enrichment_errors);
 
+    let (metrics_tx, metrics_rx) = mpsc::unbounded_channel::<UsageMetrics>();
+    start_publishing_metrics(metrics_rx)
+        .await
+        .map_err(|_| vec!["Usage metrics publishing error".into()])?;
+
     // Build sources
     for (key, source) in config
         .sources()
@@ -178,9 +188,12 @@ pub async fn build_pieces(
             let mut rx = builder.add_output(output.clone());
 
             let (mut fanout, control) = Fanout::new();
+            let source_name = key.id().to_string();
+            let metrics_tx = metrics_tx.clone();
             let pump = async move {
                 debug!("Source pump starting.");
                 while let Some(array) = rx.next().await {
+                    track_usage(&metrics_tx, &array, &source_name);
                     fanout.send(array).await;
                 }
                 debug!("Source pump finished.");
@@ -314,7 +327,8 @@ pub async fn build_pieces(
 
         inputs.insert(key.clone(), (input_tx, node.inputs.clone()));
 
-        let (transform_task, transform_outputs) = build_transform(transform, node, input_rx);
+        let (transform_task, transform_outputs) =
+            build_transform(transform, node, input_rx, &metrics_tx);
 
         outputs.extend(transform_outputs);
         tasks.insert(key.clone(), transform_task);
@@ -388,6 +402,8 @@ pub async fn build_pieces(
         };
 
         let (trigger, tripwire) = Tripwire::new();
+        let metrics_tx = metrics_tx.clone();
+        let sink_name = key.id().to_string();
 
         let sink = async move {
             // Why is this Arc<Mutex<Option<_>>> needed you ask.
@@ -403,11 +419,15 @@ pub async fn build_pieces(
                 .expect("Task started but input has been taken.");
 
             let mut rx = wrap(rx);
+            let sink_name = sink_name;
 
             sink.run(
                 rx.by_ref()
                     .filter(|events: &EventArray| ready(filter_events_type(events, input_type)))
-                    .inspect(|events| {
+                    .inspect(move |events| {
+                        info!(message = "Sink received events.", count = events.len(),);
+                        track_usage(&metrics_tx, events, &sink_name);
+
                         emit!(EventsReceived {
                             count: events.len(),
                             byte_size: events.size_of(),
@@ -541,11 +561,12 @@ fn build_transform(
     transform: Transform,
     node: TransformNode,
     input_rx: BufferReceiver<EventArray>,
+    metrics_tx: &UnboundedSender<UsageMetrics>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
     match transform {
         // TODO: avoid the double boxing for function transforms here
-        Transform::Function(t) => build_sync_transform(Box::new(t), node, input_rx),
-        Transform::Synchronous(t) => build_sync_transform(t, node, input_rx),
+        Transform::Function(t) => build_sync_transform(Box::new(t), node, input_rx, metrics_tx),
+        Transform::Synchronous(t) => build_sync_transform(t, node, input_rx, metrics_tx),
         Transform::Task(t) => build_task_transform(
             t,
             input_rx,
@@ -560,10 +581,25 @@ fn build_sync_transform(
     t: Box<dyn SyncTransform>,
     node: TransformNode,
     input_rx: BufferReceiver<EventArray>,
+    metrics_tx: &UnboundedSender<UsageMetrics>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
     let (outputs, controls) = TransformOutputs::new(node.outputs);
+    let name = node.key.id().to_string();
 
-    let runner = Runner::new(t, input_rx, node.input_details.data_type(), outputs);
+    // At Mezmo, we use a specific name for the shared swimlanes
+    let metrics_tx = if name == INTERNAL_SHARED_SWIMLANES {
+        Some(metrics_tx.clone())
+    } else {
+        None
+    };
+
+    let runner = Runner::new(
+        t,
+        input_rx,
+        node.input_details.data_type(),
+        outputs,
+        metrics_tx,
+    );
     let transform = if node.enable_concurrency {
         runner.run_concurrently().boxed()
     } else {
@@ -590,6 +626,7 @@ struct Runner {
     outputs: TransformOutputs,
     timer: crate::utilization::Timer,
     last_report: Instant,
+    metrics_tx: Option<UnboundedSender<UsageMetrics>>,
 }
 
 impl Runner {
@@ -598,6 +635,7 @@ impl Runner {
         input_rx: BufferReceiver<EventArray>,
         input_type: DataType,
         outputs: TransformOutputs,
+        metrics_tx: Option<UnboundedSender<UsageMetrics>>,
     ) -> Self {
         Self {
             transform,
@@ -606,6 +644,7 @@ impl Runner {
             outputs,
             timer: crate::utilization::Timer::new(),
             last_report: Instant::now(),
+            metrics_tx,
         }
     }
 
@@ -624,7 +663,7 @@ impl Runner {
 
     async fn send_outputs(&mut self, outputs_buf: &mut TransformOutputsBuf) {
         self.timer.start_wait();
-        self.outputs.send(outputs_buf).await;
+        self.outputs.send(outputs_buf, &self.metrics_tx).await;
     }
 
     async fn run_inline(mut self) -> Result<TaskOutput, ()> {
