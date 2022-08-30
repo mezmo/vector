@@ -60,7 +60,6 @@ impl FromStr for ComponentKind {
         if to_parse == "sink" {
             return Ok(ComponentKind::Sink);
         }
-        println!("--Invalid format {}: {}", s, to_parse);
         Err(Self::Err::InvalidFormat)
     }
 }
@@ -266,32 +265,42 @@ pub fn track_output_usage(
 
 pub async fn start_publishing_metrics(
     rx: UnboundedReceiver<UsageMetrics>,
+    store_usage_metrics: bool,
 ) -> Result<(), MetricsPublishingError> {
+    let flusher = get_flusher(store_usage_metrics).await?;
+    start_publishing_metrics_with_flusher(rx, MAX_DELAY, flusher);
+    Ok(())
+}
+
+async fn get_flusher(
+    store_usage_metrics: bool,
+) -> Result<Arc<dyn MetricsFlusher + Send>, MetricsPublishingError> {
     // This method is indirectly invoked from most of the tests setups (when building topology).
     // We need a way to validate that the metrics db url is set when running
     // and also allow all existing tests to run without having to change the existing setup.
+    if !store_usage_metrics {
+        return Ok(Arc::new(NoopFlusher {}));
+    }
+
     let endpoint_url = env::var("MEZMO_METRICS_DB_URL").ok();
 
-    let flusher: Arc<dyn MetricsFlusher + Send> = if let Some(endpoint_url) = endpoint_url {
-        Arc::new(
+    if let Some(endpoint_url) = endpoint_url {
+        return Ok(Arc::new(
             DbFlusher::new(endpoint_url)
                 .await
                 .map_err(|_| MetricsPublishingError::FlusherError)?,
-        )
-    } else {
-        if cfg!(debug_assertions) {
-            // Debug build, it's OK to have the metrics db setting undefined
-            info!("MEZMO_METRICS_DB_URL environment variable not set, disabling usage metrics");
-            Arc::new(NoopFlusher {})
-        } else {
-            // Release build, we must have the url to the metrics db set
-            error!("MEZMO_METRICS_DB_URL environment variable not set");
-            return Err(MetricsPublishingError::DbEndpointUrlNotSet);
-        }
-    };
+        ));
+    }
 
-    start_publishing_metrics_with_flusher(rx, MAX_DELAY, flusher);
-    Ok(())
+    if cfg!(debug_assertions) {
+        // Debug build, it's OK to have the metrics db setting undefined
+        info!("MEZMO_METRICS_DB_URL environment variable not set, disabling usage metrics");
+        return Ok(Arc::new(NoopFlusher {}));
+    }
+
+    // Release build, we must have the url to the metrics db set
+    error!("MEZMO_METRICS_DB_URL environment variable not set");
+    Err(MetricsPublishingError::DbEndpointUrlNotSet)
 }
 
 fn start_publishing_metrics_with_flusher(

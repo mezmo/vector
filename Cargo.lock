@@ -8662,6 +8662,7 @@ dependencies = [
  "twox-hash",
  "typetag",
  "url",
+ "urlencoding",
  "value",
  "vector_buffers",
  "vector_common",

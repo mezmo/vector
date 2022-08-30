@@ -57,21 +57,29 @@ impl DbFlusher {
         // The library deadpool postgres does not support urls like tokio_postgres::connect
         // Implement our own
         let url = Url::parse(endpoint_url).map_err(|_| DbFlusherError::UrlInvalid)?;
-        if url.scheme() != "postgresql" {
+        if url.scheme() != "postgresql" && url.scheme() != "postgres" {
             error!(
                 message = "Invalid scheme for metrics db",
                 scheme = url.scheme()
             );
             return Err(DbFlusherError::UrlInvalid);
         }
+
         let mut cfg = Config::new();
         cfg.host = url.host().map(|h| h.to_string());
+        cfg.port = url.port();
         cfg.user = if url.username().len() > 0 {
-            Some(url.username().to_string())
+            Some(
+                urlencoding::decode(url.username())
+                    .expect("UTF-8")
+                    .to_string(),
+            )
         } else {
             None
         };
-        cfg.password = url.password().map(Into::into);
+        cfg.password = url
+            .password()
+            .map(|v| urlencoding::decode(v).expect("UTF-8").to_string());
         if let Some(mut path_segments) = url.path_segments() {
             if let Some(first) = path_segments.next() {
                 cfg.dbname = Some(first.into());
@@ -190,7 +198,7 @@ mod tests {
         assert_eq!(config.password, Some("pass".to_string()));
         assert_eq!(config.dbname, Some("db1".to_string()));
 
-        let config = DbFlusher::get_config("postgresql://user1:pass@server/db1?zzz=1").unwrap();
+        let config = DbFlusher::get_config("postgres://user1:pass@server/db1?zzz=1").unwrap();
         assert_eq!(config.host, Some("server".to_string()));
         assert_eq!(config.user, Some("user1".to_string()));
         assert_eq!(config.password, Some("pass".to_string()));
@@ -198,5 +206,15 @@ mod tests {
 
         assert!(DbFlusher::get_config("http://abc.com/sa").is_err());
         assert!(DbFlusher::get_config("http://abc.com/sa").is_err());
+
+        let config = DbFlusher::get_config("postgresql://metrics:A_%3EBX%2FWN%3E%3CZZ%3BBg@pipeline-primary.pipeline.svc:5432/metrics").unwrap();
+        assert_eq!(config.port, Some(5432));
+        assert_eq!(
+            config.host,
+            Some("pipeline-primary.pipeline.svc".to_string())
+        );
+        assert_eq!(config.user, Some("metrics".to_string()));
+        assert_eq!(config.password, Some("A_>BX/WN><ZZ;Bg".to_string()));
+        assert_eq!(config.dbname, Some("metrics".to_string()));
     }
 }

@@ -139,6 +139,7 @@ pub struct Pieces {
 pub async fn build_pieces(
     config: &super::Config,
     diff: &ConfigDiff,
+    store_usage_metrics: bool,
     mut buffers: HashMap<ComponentKey, BuiltBuffer>,
 ) -> Result<Pieces, Vec<String>> {
     let mut inputs = HashMap::new();
@@ -155,7 +156,7 @@ pub async fn build_pieces(
     errors.extend(enrichment_errors);
 
     let (metrics_tx, metrics_rx) = mpsc::unbounded_channel::<UsageMetrics>();
-    start_publishing_metrics(metrics_rx)
+    start_publishing_metrics(metrics_rx, store_usage_metrics)
         .await
         .map_err(|_| vec!["Usage metrics publishing error".into()])?;
 

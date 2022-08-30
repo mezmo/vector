@@ -102,7 +102,7 @@ pub async fn build_or_log_errors(
     diff: &ConfigDiff,
     buffers: HashMap<ComponentKey, BuiltBuffer>,
 ) -> Option<Pieces> {
-    match builder::build_pieces(config, diff, buffers).await {
+    match builder::build_pieces(config, diff, true, buffers).await {
         Err(errors) => {
             for error in errors {
                 error!(message = "Configuration error.", %error);

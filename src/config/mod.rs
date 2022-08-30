@@ -562,7 +562,7 @@ mod tests {
                 let c2 = config::load_from_str(config, format).unwrap();
                 match (
                     config::warnings(&c2),
-                    topology::builder::build_pieces(&c, &diff, HashMap::new()).await,
+                    topology::builder::build_pieces(&c, &diff, false, HashMap::new()).await,
                 ) {
                     (warnings, Ok(_pieces)) => Ok(warnings),
                     (_, Err(errors)) => Err(errors),
