@@ -265,23 +265,13 @@ pub fn track_output_usage(
 
 pub async fn start_publishing_metrics(
     rx: UnboundedReceiver<UsageMetrics>,
-    store_usage_metrics: bool,
 ) -> Result<(), MetricsPublishingError> {
-    let flusher = get_flusher(store_usage_metrics).await?;
+    let flusher = get_flusher().await?;
     start_publishing_metrics_with_flusher(rx, MAX_DELAY, flusher);
     Ok(())
 }
 
-async fn get_flusher(
-    store_usage_metrics: bool,
-) -> Result<Arc<dyn MetricsFlusher + Send>, MetricsPublishingError> {
-    // This method is indirectly invoked from most of the tests setups (when building topology).
-    // We need a way to validate that the metrics db url is set when running
-    // and also allow all existing tests to run without having to change the existing setup.
-    if !store_usage_metrics {
-        return Ok(Arc::new(NoopFlusher {}));
-    }
-
+async fn get_flusher() -> Result<Arc<dyn MetricsFlusher + Send>, MetricsPublishingError> {
     let endpoint_url = env::var("MEZMO_METRICS_DB_URL").ok();
 
     if let Some(endpoint_url) = endpoint_url {

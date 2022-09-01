@@ -26,7 +26,7 @@ use vector_core::{
     },
     internal_event::EventsSent,
     schema::Definition,
-    usage_metrics::{start_publishing_metrics, track_usage, UsageMetrics},
+    usage_metrics::{track_usage, UsageMetrics},
     ByteSizeOf,
 };
 
@@ -139,7 +139,7 @@ pub struct Pieces {
 pub async fn build_pieces(
     config: &super::Config,
     diff: &ConfigDiff,
-    store_usage_metrics: bool,
+    metrics_tx: Option<UnboundedSender<UsageMetrics>>,
     mut buffers: HashMap<ComponentKey, BuiltBuffer>,
 ) -> Result<Pieces, Vec<String>> {
     let mut inputs = HashMap::new();
@@ -155,10 +155,14 @@ pub async fn build_pieces(
     let (enrichment_tables, enrichment_errors) = load_enrichment_tables(config, diff).await;
     errors.extend(enrichment_errors);
 
-    let (metrics_tx, metrics_rx) = mpsc::unbounded_channel::<UsageMetrics>();
-    start_publishing_metrics(metrics_rx, store_usage_metrics)
-        .await
-        .map_err(|_| vec!["Usage metrics publishing error".into()])?;
+    let metrics_tx = if let Some(tx) = metrics_tx {
+        info!("Building pieces with metrics transmitter");
+        tx
+    } else {
+        // Create a dummy transmitter to simplify implementation (avoid adapting all test code)
+        let (tx, _) = mpsc::unbounded_channel::<UsageMetrics>();
+        tx
+    };
 
     // Build sources
     for (key, source) in config

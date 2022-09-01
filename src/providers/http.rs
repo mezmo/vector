@@ -66,7 +66,7 @@ async fn http_request(
     tls_options: &Option<TlsConfig>,
     headers: &IndexMap<String, String>,
     proxy: &ProxyConfig,
-) -> std::result::Result<bytes::Bytes, &'static str> {
+) -> std::result::Result<bytes::Bytes, String> {
     let tls_settings = TlsSettings::from_options(tls_options).map_err(|_| "Invalid TLS options")?;
     let http_client =
         HttpClient::<Body>::new(tls_settings, proxy).map_err(|_| "Invalid TLS settings")?;
@@ -82,7 +82,7 @@ async fn http_request(
 
     let request = builder
         .body(Body::empty())
-        .map_err(|_| "Couldn't create HTTP request")?;
+        .map_err(|_| "Couldn't create HTTP request".to_string())?;
 
     info!(
         message = "Attempting to retrieve configuration.",
@@ -95,10 +95,11 @@ async fn http_request(
             message = ?message,
             error = ?err,
             url = ?url.as_str());
-        message
+
+        format!("{message}. Error: {err:?}")
     })?;
 
-    info!(message = "Response received.", url = ?url.as_str());
+    info!(message = "Response received.", url = ?url.as_str(), status_code = ?response.status());
 
     hyper::body::to_bytes(response.into_body())
         .await
@@ -109,7 +110,7 @@ async fn http_request(
                     message = ?message,
                     error = ?cause);
 
-            message
+            format!("{message} Error: {cause:?}")
         })
 }
 
@@ -122,7 +123,7 @@ async fn http_request_to_config_builder(
 ) -> Result {
     let config_str = http_request(url, tls_options, headers, proxy)
         .await
-        .map_err(|e| vec![e.to_owned()])?;
+        .map_err(|e| vec![e])?;
 
     let (config_builder, warnings) =
         config::load(config_str.chunk(), crate::config::format::Format::Toml)?;
@@ -150,8 +151,13 @@ fn poll_http(
             interval.tick().await;
 
             match http_request_to_config_builder(&url, &tls_options, &headers, &proxy).await {
-                Ok(config_builder) => yield signal::SignalTo::ReloadFromConfigBuilder(config_builder),
-                Err(_) => {},
+                Ok(config_builder) => {
+                    info!("Sending reload config signal");
+                    yield signal::SignalTo::ReloadFromConfigBuilder(config_builder)
+                },
+                Err(e) => {
+                    error!("Error loading configuration from HTTP: {e:?}");
+                },
             };
 
             info!(

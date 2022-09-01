@@ -435,7 +435,7 @@ async fn build_unit_test(
     }
     let config = config_builder.build()?;
     let diff = config::ConfigDiff::initial(&config);
-    let pieces = builder::build_pieces(&config, &diff, false, HashMap::new()).await?;
+    let pieces = builder::build_pieces(&config, &diff, None, HashMap::new()).await?;
 
     Ok(UnitTest {
         name: test.name,

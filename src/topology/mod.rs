@@ -7,6 +7,7 @@
 //! each type of component.
 
 pub(super) use vector_core::fanout;
+use vector_core::usage_metrics::UsageMetrics;
 
 pub mod builder;
 mod ready_arrays;
@@ -25,7 +26,10 @@ use std::{
 
 use futures::{Future, FutureExt};
 pub(super) use running::RunningTopology;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{
+    mpsc::{self, UnboundedSender},
+    watch,
+};
 use vector_buffers::{
     topology::channel::{BufferReceiverStream, BufferSender},
     Acker,
@@ -100,9 +104,10 @@ pub async fn start_validated(
 pub async fn build_or_log_errors(
     config: &Config,
     diff: &ConfigDiff,
+    metrics_tx: Option<UnboundedSender<UsageMetrics>>,
     buffers: HashMap<ComponentKey, BuiltBuffer>,
 ) -> Option<Pieces> {
-    match builder::build_pieces(config, diff, true, buffers).await {
+    match builder::build_pieces(config, diff, metrics_tx, buffers).await {
         Err(errors) => {
             for error in errors {
                 error!(message = "Configuration error.", %error);

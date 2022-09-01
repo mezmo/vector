@@ -6,9 +6,10 @@ use futures_util::future::BoxFuture;
 use once_cell::race::OnceNonZeroUsize;
 use tokio::{
     runtime::{self, Runtime},
-    sync::mpsc,
+    sync::mpsc::{self, UnboundedSender},
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use vector_core::usage_metrics::{start_publishing_metrics, UsageMetrics};
 
 #[cfg(feature = "enterprise")]
 use crate::config::enterprise::{
@@ -51,6 +52,7 @@ pub struct ApplicationConfig {
     pub enterprise: Option<EnterpriseReporter<BoxFuture<'static, ()>>>,
     pub signal_handler: signal::SignalHandler,
     pub signal_rx: signal::SignalRx,
+    pub metrics_tx: UnboundedSender<UsageMetrics>,
 }
 
 pub struct Application {
@@ -215,10 +217,20 @@ impl Application {
                     Err(_) => None,
                 };
 
+                let (metrics_tx, metrics_rx) = mpsc::unbounded_channel::<UsageMetrics>();
+                start_publishing_metrics(metrics_rx).await.map_err(|_| {
+                    handle_config_errors(vec!["Usage metrics publishing error".into()])
+                })?;
+
                 let diff = config::ConfigDiff::initial(&config);
-                let pieces = topology::build_or_log_errors(&config, &diff, HashMap::new())
-                    .await
-                    .ok_or(exitcode::CONFIG)?;
+                let pieces = topology::build_or_log_errors(
+                    &config,
+                    &diff,
+                    Some(metrics_tx.clone()),
+                    HashMap::new(),
+                )
+                .await
+                .ok_or(exitcode::CONFIG)?;
 
                 #[cfg(feature = "api")]
                 let api = config.api;
@@ -236,6 +248,7 @@ impl Application {
                     enterprise,
                     signal_handler,
                     signal_rx,
+                    metrics_tx,
                 })
             })
         }?;
@@ -265,6 +278,7 @@ impl Application {
 
         let mut signal_handler = self.config.signal_handler;
         let mut signal_rx = self.config.signal_rx;
+        let metrics_tx = self.config.metrics_tx;
 
         // Any internal_logs sources will have grabbed a copy of the
         // early buffer by this point and set up a subscriber.
@@ -318,7 +332,7 @@ impl Application {
                                         }
 
                                         match topology
-                                            .reload_config_and_respawn(new_config)
+                                            .reload_config_and_respawn_with_metrics(new_config, Some(metrics_tx.clone()))
                                             .await
                                         {
                                             Ok(true) => {
@@ -373,7 +387,7 @@ impl Application {
                                     }
 
                                     match topology
-                                        .reload_config_and_respawn(new_config)
+                                        .reload_config_and_respawn_with_metrics(new_config, Some(metrics_tx.clone()))
                                         .await
                                     {
                                         Ok(true) => {

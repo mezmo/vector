@@ -99,7 +99,7 @@ uri = "http://{address2}/"
     )
     .unwrap();
     let diff = ConfigDiff::initial(&config);
-    let pieces = topology::build_or_log_errors(&config, &diff, HashMap::new())
+    let pieces = topology::build_or_log_errors(&config, &diff, None, HashMap::new())
         .await
         .unwrap();
     let (_topology, _shutdown) = topology::start_validated(config, diff, pieces)
