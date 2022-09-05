@@ -430,7 +430,6 @@ pub async fn build_pieces(
                 rx.by_ref()
                     .filter(|events: &EventArray| ready(filter_events_type(events, input_type)))
                     .inspect(move |events| {
-                        info!(message = "Sink received events.", count = events.len(),);
                         track_usage(&metrics_tx, events, &sink_name);
 
                         emit!(EventsReceived {
