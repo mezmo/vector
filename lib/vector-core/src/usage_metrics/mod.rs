@@ -288,10 +288,11 @@ pub async fn start_publishing_metrics(
 
 async fn get_flusher() -> Result<Arc<dyn MetricsFlusher + Send>, MetricsPublishingError> {
     let endpoint_url = env::var("MEZMO_METRICS_DB_URL").ok();
+    let pod_name = env::var("POD_NAME").unwrap_or("not-set".to_string());
 
     if let Some(endpoint_url) = endpoint_url {
         return Ok(Arc::new(
-            DbFlusher::new(endpoint_url)
+            DbFlusher::new(endpoint_url, &pod_name)
                 .await
                 .map_err(|_| MetricsPublishingError::FlusherError)?,
         ));

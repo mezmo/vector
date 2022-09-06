@@ -16,6 +16,7 @@ use super::{UsageMetricsKey, UsageMetricsValue};
 const INSERT_QUERY: &str =
     "INSERT INTO usage_metrics (event_ts, account_id, pipeline_id, component_id, processor, metric, value) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
 const DB_MAX_PARALLEL_EXECUTIONS: usize = 4;
+const VECTOR_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[async_trait]
 pub(crate) trait MetricsFlusher: Sync {
@@ -31,10 +32,14 @@ pub(crate) enum DbFlusherError {
 
 pub(crate) struct DbFlusher {
     pool: Pool,
+    processor_name: String,
 }
 
 impl DbFlusher {
-    pub(crate) async fn new(endpoint_url: String) -> Result<Self, DbFlusherError> {
+    pub(crate) async fn new(
+        endpoint_url: String,
+        pod_name: &String,
+    ) -> Result<Self, DbFlusherError> {
         let cfg = DbFlusher::get_config(&endpoint_url)?;
         let pool = cfg
             .create_pool(Some(Runtime::Tokio1), NoTls)
@@ -51,7 +56,11 @@ impl DbFlusher {
             DbFlusherError::QueryError
         })?;
 
-        Ok(Self { pool })
+        let processor_name = format!("app=vector,pod={pod_name},version={VECTOR_VERSION}");
+        Ok(Self {
+            pool,
+            processor_name,
+        })
     }
 
     fn get_config(endpoint_url: &str) -> Result<Config, DbFlusherError> {
@@ -97,7 +106,6 @@ impl DbFlusher {
 impl DbFlusher {
     async fn insert_metrics(&self, k: UsageMetricsKey, v: UsageMetricsValue) {
         let event_ts = Utc::now();
-        let processor = "vector".to_string();
         let metric = "count".to_string();
         let value = v.total_count as i32;
         let params_count: Vec<&(dyn ToSql + Sync)> = vec![
@@ -105,7 +113,7 @@ impl DbFlusher {
             &k.account_id,
             &k.pipeline_id,
             &k.component_id,
-            &processor,
+            &self.processor_name,
             &metric,
             &value,
         ];
@@ -117,7 +125,7 @@ impl DbFlusher {
             &k.account_id,
             &k.pipeline_id,
             &k.component_id,
-            &processor,
+            &self.processor_name,
             &metric,
             &value,
         ];
