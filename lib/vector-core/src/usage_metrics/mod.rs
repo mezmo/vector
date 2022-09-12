@@ -180,7 +180,7 @@ pub fn array_byte_size(array: &EventArray) -> usize {
                 let data = m.data();
 
                 let mut result = series.name().allocated_bytes();
-                if data.timestamp.is_some() {
+                if data.timestamp().is_some() {
                     result += 8;
                 }
                 result += metric_value_size(data.value());

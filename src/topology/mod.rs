@@ -8,11 +8,11 @@
 
 pub(super) use vector_core::fanout;
 use vector_core::usage_metrics::UsageMetrics;
+pub mod schema;
 
 pub mod builder;
 mod ready_arrays;
 mod running;
-mod schema;
 mod task;
 
 #[cfg(test)]
@@ -30,10 +30,7 @@ use tokio::sync::{
     mpsc::{self, UnboundedSender},
     watch,
 };
-use vector_buffers::{
-    topology::channel::{BufferReceiverStream, BufferSender},
-    Acker,
-};
+use vector_buffers::topology::channel::{BufferReceiverStream, BufferSender};
 
 use crate::{
     config::{ComponentKey, Config, ConfigDiff, OutputId},
@@ -49,7 +46,6 @@ type TaskHandle = tokio::task::JoinHandle<Result<TaskOutput, ()>>;
 type BuiltBuffer = (
     BufferSender<EventArray>,
     Arc<Mutex<Option<BufferReceiverStream<EventArray>>>>,
-    Acker,
 );
 
 /// A tappable output consisting of an output ID and associated metadata
@@ -86,6 +82,10 @@ pub async fn start_validated(
     mut pieces: Pieces,
 ) -> Option<(RunningTopology, mpsc::UnboundedReceiver<()>)> {
     let (abort_tx, abort_rx) = mpsc::unbounded_channel();
+
+    crate::metrics::Controller::get()
+        .expect("Metrics must be initialized")
+        .set_expiry(config.global.expire_metrics);
 
     let mut running_topology = RunningTopology::new(config, abort_tx);
 

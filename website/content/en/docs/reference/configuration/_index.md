@@ -62,7 +62,8 @@ region          = "us-east-1"
 bucket          = "my-log-archives"
 key_prefix      = "date=%Y-%m-%d"      # daily partitions, hive friendly format
 compression     = "gzip"               # compress final objects
-encoding        = "ndjson"             # new line delimited JSON
+framing.method  = "newline_delimited"  # new line delimited...
+encoding.codec  = "json"               # ...JSON
 batch.max_bytes = 10000000             # 10mb uncompressed
 ```
 
@@ -78,7 +79,7 @@ sources:
       - /var/log/apache2/*.log
     ignore_older: 86400
 transforms:
-  apache_parser:
+  remap:
     inputs:
       - apache_logs
     type: remap
@@ -104,7 +105,10 @@ sinks:
     bucket: my-log-archives
     key_prefix: date=%Y-%m-%d
     compression: gzip
-    encoding: ndjson
+    framing:
+      method: newline_delimited
+    encoding:
+      codec: json
     batch:
       max_bytes: 10000000
 ```
@@ -125,7 +129,7 @@ sinks:
     }
   },
   "transforms": {
-    "apache_parser": {
+    "remap": {
       "inputs": [
         "apache_logs"
       ],
@@ -158,7 +162,12 @@ sinks:
       "bucket": "my-log-archives",
       "key_prefix": "date=%Y-%m-%d",
       "compression": "gzip",
-      "encoding": "ndjson",
+      "framing": {
+        "method": "newline_delimited"
+      },
+      "encoding": {
+        "codec": "json"
+      },
       "batch": {
         "max_bytes": 10000000
       }
@@ -356,7 +365,8 @@ region          = "us-east-1"
 bucket          = "my-log-archives"
 key_prefix      = "date=%Y-%m-%d"      # daily partitions, hive friendly format
 compression     = "gzip"               # compress final objects
-encoding        = "ndjson"             # new line delimited JSON
+framing.method  = "newline_delimited"  # new line delimited...
+encoding.codec  = "json"               # ...JSON
 batch.max_bytes = 10000000             # 10mb uncompressed
 ```
 

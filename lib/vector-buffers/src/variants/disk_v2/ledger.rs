@@ -2,6 +2,7 @@ use std::{
     fmt, io, mem,
     path::PathBuf,
     sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering},
+    sync::Arc,
     time::Instant,
 };
 
@@ -9,9 +10,11 @@ use bytecheck::CheckBytes;
 use bytes::BytesMut;
 use crossbeam_utils::atomic::AtomicCell;
 use fslock::LockFile;
+use futures::StreamExt;
 use rkyv::{with::Atomic, Archive, Serialize};
 use snafu::{ResultExt, Snafu};
 use tokio::{fs, io::AsyncWriteExt, sync::Notify};
+use vector_common::{finalizer::OrderedFinalizer, shutdown::ShutdownSignal};
 
 use super::{
     backed_archive::BackedArchive,
@@ -202,7 +205,7 @@ impl ArchivedLedgerState {
 }
 
 /// Tracks the internal state of the buffer.
-pub struct Ledger<FS>
+pub(crate) struct Ledger<FS>
 where
     FS: Filesystem,
 {
@@ -271,12 +274,12 @@ where
     /// leads to behavior where writes and reads will change this value only by the size of the
     /// records being written and read, while data files on disk will grow incrementally, and be
     /// deleted in full.
-    pub(super) fn get_total_buffer_size(&self) -> u64 {
+    pub fn get_total_buffer_size(&self) -> u64 {
         self.total_buffer_size.load(Ordering::Acquire)
     }
 
     /// Increments the total number of bytes for all unread records in the buffer.
-    pub(super) fn increment_total_buffer_size(&self, amount: u64) {
+    pub fn increment_total_buffer_size(&self, amount: u64) {
         let last_total_buffer_size = self.total_buffer_size.fetch_add(amount, Ordering::AcqRel);
         trace!(
             previous_buffer_size = last_total_buffer_size,
@@ -286,7 +289,7 @@ where
     }
 
     /// Decrements the total number of bytes for all unread records in the buffer.
-    pub(super) fn decrement_total_buffer_size(&self, amount: u64) {
+    pub fn decrement_total_buffer_size(&self, amount: u64) {
         let last_total_buffer_size = self.total_buffer_size.fetch_sub(amount, Ordering::AcqRel);
         trace!(
             previous_buffer_size = last_total_buffer_size,
@@ -542,7 +545,7 @@ where
 
 impl<FS> Ledger<FS>
 where
-    FS: Filesystem,
+    FS: Filesystem + 'static,
     FS::File: Unpin,
 {
     /// Loads or creates a ledger for the given [`DiskBufferConfig`].
@@ -698,6 +701,18 @@ where
         self.increment_total_buffer_size(total_buffer_size);
 
         Ok(())
+    }
+
+    #[must_use]
+    pub(super) fn spawn_finalizer(self: Arc<Self>) -> OrderedFinalizer<u64> {
+        let (finalizer, mut stream) = OrderedFinalizer::new(ShutdownSignal::noop());
+        tokio::spawn(async move {
+            while let Some((_status, amount)) = stream.next().await {
+                self.increment_pending_acks(amount);
+                self.notify_writer_waiters();
+            }
+        });
+        finalizer
     }
 }
 
