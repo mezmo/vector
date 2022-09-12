@@ -158,24 +158,12 @@ impl Config {
     }
 
     pub fn propagate_acknowledgements(&mut self) -> Result<(), Vec<String>> {
-        if self.global.acknowledgements.enabled() {
-            for (name, sink) in &self.sinks {
-                if sink.inner.acknowledgements().is_none() {
-                    warn!(
-                        message = "Acknowledgements are globally enabled but sink does not support them.",
-                        sink = %name,
-                    );
-                }
-            }
-        }
-
         let inputs: Vec<_> = self
             .sinks
             .iter()
             .filter(|(_, sink)| {
                 sink.inner
                     .acknowledgements()
-                    .unwrap_or(&self.global.acknowledgements)
                     .merge_default(&self.global.acknowledgements)
                     .enabled()
             })
@@ -541,12 +529,7 @@ pub struct TestOutput<T = OutputId> {
     pub conditions: Option<Vec<conditions::AnyCondition>>,
 }
 
-#[cfg(all(
-    test,
-    feature = "sources-file",
-    feature = "sinks-console",
-    feature = "transforms-json_parser"
-))]
+#[cfg(all(test, feature = "sources-file", feature = "sinks-console"))]
 mod tests {
     use std::{collections::HashMap, path::PathBuf};
 
@@ -920,7 +903,7 @@ mod tests {
                 [sinks.out]
                   type = "console"
                   inputs = ["in"]
-                  encoding = "json"
+                  encoding.codec = "json"
             "#},
             Format::Toml,
         )
@@ -953,7 +936,7 @@ mod tests {
                 [sinks.out]
                   type = "console"
                   inputs = ["in"]
-                  encoding = "json"
+                  encoding.codec = "json"
             "#},
             Format::Toml,
         )
@@ -985,7 +968,7 @@ mod tests {
                 [sinks.out]
                   type = "console"
                   inputs = ["in"]
-                  encoding = "json"
+                  encoding.codec = "json"
             "#},
             Format::Toml,
         )
@@ -1079,7 +1062,6 @@ mod tests {
             indoc! {r#"
                 [enterprise]
                 api_key = "api_key"
-                application_key = "application_key"
                 configuration_key = "configuration_key"
 
                 [enterprise.tags]
@@ -1101,7 +1083,6 @@ mod tests {
             indoc! {r#"
                 [enterprise]
                 api_key = "api_key"
-                application_key = "application_key"
                 configuration_key = "configuration_key"
 
                 [enterprise.tags]
@@ -1123,12 +1104,7 @@ mod tests {
     }
 }
 
-#[cfg(all(
-    test,
-    feature = "sources-file",
-    feature = "sinks-file",
-    feature = "transforms-json_parser"
-))]
+#[cfg(all(test, feature = "sources-file", feature = "sinks-file"))]
 mod acknowledgements_tests {
     use indoc::indoc;
 
@@ -1150,23 +1126,25 @@ mod acknowledgements_tests {
                 [sources.in3]
                     type = "file"
                 [transforms.parse3]
-                    type = "json_parser"
+                    type = "basic_transform"
                     inputs = ["in3"]
+                    increase = 0.0
+                    suffix = ""
                 [sinks.out1]
                     type = "file"
                     inputs = ["in1"]
-                    encoding = "text"
+                    encoding.codec = "text"
                     path = "/path/to/out1"
                 [sinks.out2]
                     type = "file"
                     inputs = ["in2"]
-                    encoding = "text"
+                    encoding.codec = "text"
                     path = "/path/to/out2"
                     acknowledgements = true
                 [sinks.out3]
                     type = "file"
                     inputs = ["parse3"]
-                    encoding = "text"
+                    encoding.codec = "text"
                     path = "/path/to/out3"
                     acknowledgements.enabled = true
             "#},
@@ -1324,7 +1302,7 @@ mod resource_tests {
                 [sinks.out]
                   type = "console"
                   inputs = ["in0","in1"]
-                  encoding = "json"
+                  encoding.codec = "json"
             "#},
             Format::Toml,
         )
@@ -1371,7 +1349,7 @@ mod pipelines_tests {
                 [sinks.out]
                   type = "console"
                   inputs = ["processing"]
-                  encoding = "json"
+                  encoding.codec = "json"
             "#},
             Format::Toml,
         );

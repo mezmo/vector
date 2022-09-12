@@ -16,7 +16,7 @@ components: sinks: prometheus_exporter: {
 	}
 
 	features: {
-		acknowledgements: false
+		acknowledgements: true
 		healthcheck: enabled: false
 		exposes: {
 			tls: {
@@ -123,6 +123,12 @@ components: sinks: prometheus_exporter: {
 				"""
 			required:    false
 			type: bool: default: false
+		}
+		suppress_timestamp: {
+			common:      false
+			description: "Whether or not to strip metric timestamp in the response."
+			required:    false
+			type: bool: default: true
 		}
 	}
 

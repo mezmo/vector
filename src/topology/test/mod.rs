@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     config::{Config, ConfigDiff, SinkOuter},
-    event::{into_event_stream, Event, EventArray, EventContainer},
+    event::{into_event_stream, Event, EventArray, EventContainer, LogEvent},
     test_util::{
         mock::{
             basic_sink, basic_sink_failing_healthcheck, basic_sink_with_data, basic_source,
@@ -32,23 +32,17 @@ mod crash;
 #[cfg(all(feature = "sources-http", feature = "sinks-http"))]
 mod end_to_end;
 
-#[cfg(all(
-    feature = "sinks-blackhole",
-    feature = "sources-stdin",
-    feature = "transforms-json_parser"
-))]
+#[cfg(all(feature = "sinks-blackhole", feature = "sources-stdin"))]
 mod transient_state;
 
 #[cfg(all(feature = "sinks-console", feature = "sources-demo_logs"))]
 mod source_finished;
 
 #[cfg(all(
-    feature = "sinks-console",
-    feature = "sources-splunk_hec",
-    feature = "sources-demo_logs",
+    feature = "sources-prometheus",
     feature = "sinks-prometheus",
-    feature = "transforms-log_to_metric",
-    feature = "sinks-socket",
+    feature = "sources-internal_metrics",
+    feature = "sources-splunk_hec"
 ))]
 mod reload;
 
@@ -59,6 +53,8 @@ mod backpressure;
 mod compliance;
 
 fn basic_config() -> Config {
+    trace_init();
+
     let mut config = Config::builder();
     config.add_source("in1", basic_source().1);
     config.add_sink("out1", &["in1"], basic_sink(10).1);
@@ -66,6 +62,8 @@ fn basic_config() -> Config {
 }
 
 fn basic_config_with_sink_failing_healthcheck() -> Config {
+    trace_init();
+
     let mut config = Config::builder();
     config.add_source("in1", basic_source().1);
     config.add_sink("out1", &["in1"], basic_sink_failing_healthcheck(10).1);
@@ -102,7 +100,7 @@ async fn topology_shutdown_while_active() {
     let (topology, _crash) = start_topology(config.build().unwrap(), false).await;
 
     let pump_handle = tokio::spawn(async move {
-        let mut stream = futures::stream::repeat(Event::from("test"));
+        let mut stream = futures::stream::repeat(Event::Log(LogEvent::from("test")));
         in1.send_event_stream(&mut stream).await
     });
 
@@ -138,6 +136,8 @@ async fn topology_shutdown_while_active() {
 
 #[tokio::test]
 async fn topology_source_and_sink() {
+    trace_init();
+
     let (mut in1, source1) = basic_source();
     let (out1, sink1) = basic_sink(10);
 
@@ -147,7 +147,7 @@ async fn topology_source_and_sink() {
 
     let (topology, _crash) = start_topology(config.build().unwrap(), false).await;
 
-    let event = Event::from("this");
+    let event = Event::Log(LogEvent::from("this"));
     in1.send_event(event.clone()).await.unwrap();
 
     topology.stop().await;
@@ -159,6 +159,8 @@ async fn topology_source_and_sink() {
 
 #[tokio::test]
 async fn topology_multiple_sources() {
+    trace_init();
+
     let (mut in1, source1) = basic_source();
     let (mut in2, source2) = basic_source();
     let (mut out1, sink1) = basic_sink(10);
@@ -170,8 +172,8 @@ async fn topology_multiple_sources() {
 
     let (topology, _crash) = start_topology(config.build().unwrap(), false).await;
 
-    let event1 = Event::from("this");
-    let event2 = Event::from("that");
+    let event1 = Event::Log(LogEvent::from("this"));
+    let event2 = Event::Log(LogEvent::from("that"));
 
     in1.send_event(event1.clone()).await.unwrap();
 
@@ -204,7 +206,7 @@ async fn topology_multiple_sinks() {
     let (topology, _crash) = start_topology(config.build().unwrap(), false).await;
 
     // Send an event into source #1:
-    let event = Event::from("this");
+    let event = Event::Log(LogEvent::from("this"));
     in1.send_event(event.clone()).await.unwrap();
 
     // Drop the inputs to the two sources, which will ensure they drain all items and stop
@@ -223,6 +225,8 @@ async fn topology_multiple_sinks() {
 
 #[tokio::test]
 async fn topology_transform_chain() {
+    trace_init();
+
     let (mut in1, source1) = basic_source();
     let transform1 = basic_transform(" first", 0.0);
     let transform2 = basic_transform(" second", 0.0);
@@ -236,7 +240,7 @@ async fn topology_transform_chain() {
 
     let (topology, _crash) = start_topology(config.build().unwrap(), false).await;
 
-    let event = Event::from("this");
+    let event = Event::Log(LogEvent::from("this"));
 
     in1.send_event(event).await.unwrap();
 
@@ -274,8 +278,8 @@ async fn topology_remove_one_source() {
         .unwrap());
 
     // Send an event into both source #1 and source #2:
-    let event1 = Event::from("this");
-    let event2 = Event::from("that");
+    let event1 = Event::Log(LogEvent::from("this"));
+    let event2 = Event::Log(LogEvent::from("that"));
     let h_out1 = tokio::spawn(out1.flat_map(into_event_stream).collect::<Vec<_>>());
 
     in1.send_event(event1.clone()).await.unwrap();
@@ -293,6 +297,8 @@ async fn topology_remove_one_source() {
 
 #[tokio::test]
 async fn topology_remove_one_sink() {
+    trace_init();
+
     let (mut in1, source1) = basic_source();
     let (out1, sink1) = basic_sink(10);
     let (out2, sink2) = basic_sink(10);
@@ -313,7 +319,7 @@ async fn topology_remove_one_sink() {
         .await
         .unwrap());
 
-    let event = Event::from("this");
+    let event = Event::Log(LogEvent::from("this"));
 
     in1.send_event(event.clone()).await.unwrap();
 
@@ -360,7 +366,7 @@ async fn topology_remove_one_transform() {
         .unwrap());
 
     // Send the same event to both sources:
-    let event = Event::from("this");
+    let event = Event::Log(LogEvent::from("this"));
     let h_out1 = tokio::spawn(out1.flat_map(into_message_stream).collect::<Vec<_>>());
     let h_out2 = tokio::spawn(out2.flat_map(into_message_stream).collect::<Vec<_>>());
     in1.send_event(event.clone()).await.unwrap();
@@ -409,8 +415,8 @@ async fn topology_swap_source() {
         .unwrap());
 
     // Send an event into both source #1 and source #2:
-    let event1 = Event::from("this");
-    let event2 = Event::from("that");
+    let event1 = Event::Log(LogEvent::from("this"));
+    let event2 = Event::Log(LogEvent::from("that"));
 
     let h_out1 = tokio::spawn(out1.flat_map(into_event_stream).collect::<Vec<_>>());
     let h_out2 = tokio::spawn(out2.flat_map(into_event_stream).collect::<Vec<_>>());
@@ -467,8 +473,8 @@ async fn topology_swap_transform() {
         .unwrap());
 
     // Send an event into both source #1 and source #2:
-    let event1 = Event::from("this");
-    let event2 = Event::from("that");
+    let event1 = Event::Log(LogEvent::from("this"));
+    let event2 = Event::Log(LogEvent::from("that"));
 
     let h_out1 = tokio::spawn(out1.flat_map(into_message_stream).collect::<Vec<_>>());
     let h_out2 = tokio::spawn(out2.flat_map(into_message_stream).collect::<Vec<_>>());
@@ -519,8 +525,8 @@ async fn topology_swap_sink() {
         .unwrap());
 
     // Send an event into both source #1 and source #2:
-    let event1 = Event::from("this");
-    let event2 = Event::from("that");
+    let event1 = Event::Log(LogEvent::from("this"));
+    let event2 = Event::Log(LogEvent::from("that"));
 
     let h_out1 = tokio::spawn(out1.flat_map(into_event_stream).collect::<Vec<_>>());
     let h_out2 = tokio::spawn(out2.flat_map(into_event_stream).collect::<Vec<_>>());
@@ -546,6 +552,8 @@ async fn topology_swap_sink() {
 #[ignore] // TODO: issue #2186
 #[tokio::test]
 async fn topology_swap_transform_is_atomic() {
+    trace_init();
+
     let (mut in1, source1) = basic_source();
     let transform1v1 = basic_transform(" transformed", 0.0);
     let (out1, sink1) = basic_sink(10);
@@ -561,7 +569,7 @@ async fn topology_swap_transform_is_atomic() {
     let events = move || {
         if running.load(Ordering::Acquire) {
             send_counter.fetch_add(1, Ordering::Release);
-            Some(Event::from("this"))
+            Some(Event::Log(LogEvent::from("this")))
         } else {
             None
         }
@@ -633,8 +641,8 @@ async fn topology_rebuild_connected() {
         .await
         .unwrap());
 
-    let event1 = Event::from("this");
-    let event2 = Event::from("that");
+    let event1 = Event::Log(LogEvent::from("this"));
+    let event2 = Event::Log(LogEvent::from("that"));
     let h_out1 = tokio::spawn(out1.flat_map(into_event_stream).collect::<Vec<_>>());
     in1.send_event(event1.clone()).await.unwrap();
     in1.send_event(event2.clone()).await.unwrap();
@@ -679,7 +687,7 @@ async fn topology_rebuild_connected_transform() {
         .await
         .unwrap());
 
-    let event = Event::from("this");
+    let event = Event::Log(LogEvent::from("this"));
     let h_out1 = tokio::spawn(out1.flat_map(into_event_stream).collect::<Vec<_>>());
     let h_out2 = tokio::spawn(out2.flat_map(into_event_stream).collect::<Vec<_>>());
 
@@ -742,6 +750,8 @@ async fn topology_healthcheck_not_run_on_unchanged_reload() {
 
 #[tokio::test]
 async fn topology_healthcheck_run_for_changes_on_reload() {
+    trace_init();
+
     let mut config = Config::builder();
     // We can't just drop the sender side since that will close the source.
     let (_ch0, src) = basic_source();
@@ -766,7 +776,7 @@ async fn topology_disk_buffer_flushes_on_idle() {
     trace_init();
 
     let tmpdir = tempfile::tempdir().expect("no tmpdir");
-    let event = Event::from("foo");
+    let event = Event::Log(LogEvent::from("foo"));
 
     let (mut in1, source1) = basic_source();
     let transform1 = basic_transform("", 0.0);
