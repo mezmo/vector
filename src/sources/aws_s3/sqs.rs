@@ -15,12 +15,13 @@ use futures::{FutureExt, Stream, StreamExt, TryFutureExt};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use snafu::{ResultExt, Snafu};
-use tokio::{pin, select};
+use tokio::{pin, select, time::sleep};
 use tokio_util::codec::FramedRead;
 use tracing::Instrument;
 use vector_config::configurable_component;
 use vector_core::ByteSizeOf;
 
+use crate::sources::util::backoff::LogBackoff;
 use crate::tls::TlsConfig;
 use crate::{
     config::{log_schema, AcknowledgementsConfig, SourceContext},
@@ -33,6 +34,7 @@ use crate::{
     },
     line_agg::{self, LineAgg},
     shutdown::ShutdownSignal,
+    sources::util::backoff::Backoff,
     SourceSender,
 };
 use lookup::path;
@@ -253,6 +255,8 @@ impl Ingestor {
 pub struct IngestorProcess {
     state: Arc<State>,
     out: SourceSender,
+    backoff: Backoff,
+    log: LogBackoff,
     shutdown: ShutdownSignal,
     acknowledgements: bool,
 }
@@ -269,6 +273,8 @@ impl IngestorProcess {
             out,
             shutdown,
             acknowledgements,
+            backoff: Backoff::new(),
+            log: LogBackoff::new(),
         }
     }
 
@@ -286,6 +292,16 @@ impl IngestorProcess {
 
     async fn run_once(&mut self) {
         let messages = self.receive_messages().await;
+
+        if let Err(ref e) = messages {
+            emit!(SqsMessageReceiveError { error: e });
+            // Sleep for a while before returning
+            sleep(self.backoff.next()).await;
+            return;
+        }
+
+        self.backoff.reset();
+
         let messages = messages
             .map(|messages| {
                 emit!(SqsMessageReceiveSucceeded {
@@ -293,11 +309,7 @@ impl IngestorProcess {
                 });
                 messages
             })
-            .map_err(|err| {
-                emit!(SqsMessageReceiveError { error: &err });
-                err
-            })
-            .unwrap_or_default();
+            .unwrap();
 
         let mut delete_entries = Vec::new();
         for message in messages {
@@ -335,6 +347,7 @@ impl IngestorProcess {
                     emit!(SqsMessageProcessingError {
                         message_id: &message_id,
                         error: &err,
+                        should_log: self.log.should_log(),
                     });
                 }
             }
@@ -358,7 +371,8 @@ impl IngestorProcess {
                     if let Some(failed_entries) = &result.failed {
                         if !failed_entries.is_empty() {
                             emit!(SqsMessageDeletePartialError {
-                                entries: result.failed.unwrap_or_default()
+                                entries: result.failed.unwrap_or_default(),
+                                should_log: self.log.should_log(),
                             });
                         }
                     }
@@ -367,6 +381,7 @@ impl IngestorProcess {
                     emit!(SqsMessageDeleteBatchError {
                         entries: cloned_entries,
                         error: err,
+                        should_log: self.log.should_log(),
                     });
                 }
             }

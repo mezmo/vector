@@ -1,3 +1,4 @@
+pub(crate) mod backoff;
 #[cfg(any(feature = "sources-http"))]
 mod body_decoding;
 mod encoding_config;

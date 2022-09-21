@@ -29,6 +29,7 @@ mod s3 {
                 error_type = error_type::REQUEST_FAILED,
                 stage = error_stage::RECEIVING,
             );
+
             counter!(
                 "component_errors_total", 1,
                 "error_code" => "failed_fetching_sqs_events",
@@ -43,18 +44,22 @@ mod s3 {
     pub struct SqsMessageProcessingError<'a> {
         pub message_id: &'a str,
         pub error: &'a ProcessingError,
+        pub should_log: bool,
     }
 
     impl<'a> InternalEvent for SqsMessageProcessingError<'a> {
         fn emit(self) {
-            error!(
-                message = "Failed to process SQS message.",
-                message_id = %self.message_id,
-                error = %self.error,
-                error_code = "failed_processing_sqs_message",
-                error_type = error_type::PARSER_FAILED,
-                stage = error_stage::PROCESSING,
-            );
+            if self.should_log {
+                error!(
+                    message = "Failed to process SQS message.",
+                    message_id = %self.message_id,
+                    error = %self.error,
+                    error_code = "failed_processing_sqs_message",
+                    error_type = error_type::PARSER_FAILED,
+                    stage = error_stage::PROCESSING,
+                );
+            }
+
             counter!(
                 "component_errors_total", 1,
                 "error_code" => "failed_processing_sqs_message",
@@ -88,20 +93,24 @@ mod s3 {
     #[derive(Debug)]
     pub struct SqsMessageDeletePartialError {
         pub entries: Vec<BatchResultErrorEntry>,
+        pub should_log: bool,
     }
 
     impl InternalEvent for SqsMessageDeletePartialError {
         fn emit(self) {
-            error!(
-                message = "Deletion of SQS message(s) failed.",
-                message_ids = %self.entries.iter()
-                    .map(|x| format!("{}/{}", x.id.clone().unwrap_or_default(), x.code.clone().unwrap_or_default()))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                error_code = "failed_deleting_some_sqs_messages",
-                error_type = error_type::ACKNOWLEDGMENT_FAILED,
-                stage = error_stage::PROCESSING,
-            );
+            if self.should_log {
+                error!(
+                    message = "Deletion of SQS message(s) failed.",
+                    message_ids = %self.entries.iter()
+                        .map(|x| format!("{}/{}", x.id.clone().unwrap_or_default(), x.code.clone().unwrap_or_default()))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    error_code = "failed_deleting_some_sqs_messages",
+                    error_type = error_type::ACKNOWLEDGMENT_FAILED,
+                    stage = error_stage::PROCESSING,
+                );
+            }
+
             counter!(
                 "component_errors_total", 1,
                 "error_code" => "failed_deleting_some_sqs_messages",
@@ -117,21 +126,25 @@ mod s3 {
     pub struct SqsMessageDeleteBatchError<E> {
         pub entries: Vec<DeleteMessageBatchRequestEntry>,
         pub error: E,
+        pub should_log: bool,
     }
 
     impl<E: std::fmt::Display> InternalEvent for SqsMessageDeleteBatchError<E> {
         fn emit(self) {
-            error!(
-                message = "Deletion of SQS message(s) failed.",
-                message_ids = %self.entries.iter()
-                    .map(|x| x.id.clone().unwrap_or_default())
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                error = %self.error,
-                error_code = "failed_deleting_all_sqs_messages",
-                error_type = error_type::ACKNOWLEDGMENT_FAILED,
-                stage = error_stage::PROCESSING,
-            );
+            if self.should_log {
+                error!(
+                    message = "Deletion of SQS message(s) failed.",
+                    message_ids = %self.entries.iter()
+                        .map(|x| x.id.clone().unwrap_or_default())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    error = %self.error,
+                    error_code = "failed_deleting_all_sqs_messages",
+                    error_type = error_type::ACKNOWLEDGMENT_FAILED,
+                    stage = error_stage::PROCESSING,
+                );
+            }
+
             counter!(
                 "component_errors_total", 1,
                 "error_code" => "failed_deleting_all_sqs_messages",
