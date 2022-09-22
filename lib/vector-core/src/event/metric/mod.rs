@@ -19,6 +19,9 @@ use crate::{
     ByteSizeOf,
 };
 
+#[cfg(any(test, feature = "test"))]
+mod arbitrary;
+
 mod data;
 pub use self::data::*;
 
@@ -214,6 +217,12 @@ impl Metric {
         &self.data.value
     }
 
+    /// Gets a mutable reference to the value of this metric.
+    #[inline]
+    pub fn value_mut(&mut self) -> &mut MetricValue {
+        &mut self.data.value
+    }
+
     /// Gets the kind of this metric.
     #[inline]
     pub fn kind(&self) -> MetricKind {
@@ -270,7 +279,6 @@ impl Metric {
     #[allow(clippy::cast_precision_loss)]
     pub(crate) fn from_metric_kv(
         key: &metrics::Key,
-        kind: MetricKind,
         value: MetricValue,
         timestamp: DateTime<Utc>,
     ) -> Self {
@@ -279,7 +287,7 @@ impl Metric {
             .map(|label| (String::from(label.key()), String::from(label.value())))
             .collect::<MetricTags>();
 
-        Self::new(key.name().to_string(), kind, value)
+        Self::new(key.name().to_string(), MetricKind::Absolute, value)
             .with_namespace(Some("vector"))
             .with_timestamp(Some(timestamp))
             .with_tags((!labels.is_empty()).then(|| labels))
