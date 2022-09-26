@@ -214,25 +214,25 @@ components: sources: internal_metrics: {
 			description:       "The average round-trip time (RTT) for the current window."
 			type:              "histogram"
 			default_namespace: "vector"
-			tags:              _internal_metrics_tags
+			tags:              _component_tags
 		}
 		adaptive_concurrency_in_flight: {
 			description:       "The number of outbound requests currently awaiting a response."
 			type:              "histogram"
 			default_namespace: "vector"
-			tags:              _internal_metrics_tags
+			tags:              _component_tags
 		}
 		adaptive_concurrency_limit: {
 			description:       "The concurrency limit that the adaptive concurrency feature has decided on for this current window."
 			type:              "histogram"
 			default_namespace: "vector"
-			tags:              _internal_metrics_tags
+			tags:              _component_tags
 		}
 		adaptive_concurrency_observed_rtt: {
 			description:       "The observed round-trip time (RTT) for requests."
 			type:              "histogram"
 			default_namespace: "vector"
-			tags:              _internal_metrics_tags
+			tags:              _component_tags
 		}
 		checkpoint_write_errors_total: {
 			description:       "The total number of errors writing checkpoints. This metric is deprecated in favor of `component_errors_total`."
@@ -563,7 +563,8 @@ components: sources: internal_metrics: {
 		}
 		component_received_events_count: {
 			description: """
-				A histogram of Vector the number of events passed in each internal batch in Vector's internal topology.
+				A histogram of the number of events passed in each internal batch in Vector's internal topology.
+
 				Note that this is separate than sink-level batching. It is mostly useful for low level debugging
 				performance issues in Vector due to small internal batches.
 				"""
@@ -1080,7 +1081,7 @@ components: sources: internal_metrics: {
 			description:       "The total number of seconds the Vector instance has been up."
 			type:              "gauge"
 			default_namespace: "vector"
-			tags:              _component_tags
+			tags:              _internal_metrics_tags
 		}
 		utf8_convert_errors_total: {
 			description:       "The total number of errors converting bytes to a UTF-8 string in UDP mode."
