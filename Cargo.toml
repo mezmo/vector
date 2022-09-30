@@ -232,6 +232,7 @@ cidr-utils = { version = "0.5.7", default-features = false }
 clap = { version = "3.2.17", default-features = false, features = ["derive", "env", "std"] }
 colored = { version = "2.0.0", default-features = false }
 csv = { version = "1.1", default-features = false, optional = true }
+deadpool-postgres = { version = "0.10.2"}
 derivative = { version = "2.2.0", default-features = false }
 dirs-next = { version = "2.0.0", default-features = false, optional = true }
 dyn-clone = { version = "1.0.9", default-features = false }
@@ -299,6 +300,7 @@ tonic = { version = "0.7.2", optional = true, default-features = false, features
 trust-dns-proto = { version = "0.21.0", default-features = false, features = ["dnssec"], optional = true }
 typetag = { version = "0.2.3", default-features = false }
 url = { version = "2.2.2", default-features = false, features = ["serde"] }
+urlencoding = { version = "2.1.0", default-features = false }
 uuid = { version = "1", default-features = false, features = ["serde", "v4"] }
 warp = { version = "0.3.1", default-features = false }
 
@@ -620,6 +622,7 @@ sinks-logs = [
   "sinks-splunk_hec",
   "sinks-vector",
   "sinks-websocket",
+  "sinks-postgresql",
 ]
 sinks-metrics = [
   "sinks-aws_cloudwatch_metrics",
@@ -633,7 +636,8 @@ sinks-metrics = [
   "sinks-sematext",
   "sinks-statsd",
   "sinks-vector",
-  "sinks-splunk_hec"
+  "sinks-splunk_hec",
+  "sinks-postgresql"
 ]
 
 sinks-apex = []
@@ -679,6 +683,7 @@ sinks-statsd = ["sinks-utils-udp", "tokio-util/net"]
 sinks-utils-udp = []
 sinks-vector = ["sinks-utils-udp", "dep:tonic", "protobuf-build"]
 sinks-websocket = ["dep:tokio-tungstenite"]
+sinks-postgresql = []
 
 # Datadog integration
 enterprise = [

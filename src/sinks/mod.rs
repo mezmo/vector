@@ -93,6 +93,8 @@ pub mod statsd;
 pub mod vector;
 #[cfg(feature = "sinks-websocket")]
 pub mod websocket;
+#[cfg(feature = "sinks-postgresql")]
+pub mod postgresql;
 
 use vector_config::configurable_component;
 pub use vector_core::sink::VectorSink;
@@ -324,4 +326,8 @@ pub enum Sinks {
     /// Websocket.
     #[cfg(feature = "sinks-websocket")]
     Websocket(#[configurable(derived)] websocket::WebSocketSinkConfig),
+
+    /// PostgreSQL
+    #[cfg(feature = "sinks-postgresql")]
+    PostgreSQL(#[configurable(derived)] postgresql::config::PostgreSQLSinkConfig),
 }
