@@ -18,6 +18,8 @@ use crate::{
         util::{StreamSink, SinkBuilderExt},
     },
 };
+use crate::sinks::postgresql::metric_utils::get_from_metric;
+use crate::sinks::postgresql::PostgreSQLSinkError;
 
 pub struct PostgreSQLSink {
     schema_config: PostgreSQLSchemaConfig,
@@ -29,7 +31,7 @@ impl PostgreSQLSink {
         let pool_conf = pool_config(&config.connection)?;
         let connection_pool = pool_conf.create_pool(Some(Runtime::Tokio1), NoTls)?;
 
-        let sql = generate_sql(&config.schema.table, &config.schema.fields, &config.conflicts);
+        let sql = generate_sql(&config.schema.table, &config.schema.fields, &config.conflicts)?;
         debug!("generated sql from sink config: {sql}");
 
         let service = PostgreSQLService::new(connection_pool, sql);
@@ -66,7 +68,13 @@ fn pool_config(connect_url: &str) -> crate::Result<Config> {
         Ok(pool_conf)
 }
 
-fn generate_sql(table: &str, fields: &Vec<PostgreSQLFieldConfig>, conflicts: &Option<PostgreSQLConflictsConfig>) -> String {
+/// Build up the sql insert statement trying to avoid intermediate memory allocations while building
+/// up the statement string.
+fn generate_sql(
+    table: &str,
+    fields: &Vec<PostgreSQLFieldConfig>,
+    conflicts: &Option<PostgreSQLConflictsConfig>
+) -> crate::Result<String> {
     let mut field_list = String::new();
     let mut param_list = String::new();
     let mut field_iter = fields.iter().enumerate();
@@ -98,7 +106,13 @@ fn generate_sql(table: &str, fields: &Vec<PostgreSQLFieldConfig>, conflicts: &Op
                 let mut update_iter = update_fields.iter();
                 if let Some(u_field) = update_iter.next() {
                     let f_idx =
-                        fields.iter().position(|c| c.name == *u_field).unwrap() + 1;
+                        match fields.iter().position(|c| c.name == *u_field) {
+                            Some(i) => i + 1,
+                            None => {
+                                let field = u_field.to_owned();
+                                return Err(Box::new(PostgreSQLSinkError::UndefinedConflictField {field}));
+                            }
+                        };
                     conflict_chunk.push_str(&*u_field);
                     conflict_chunk.push_str("=$");
                     conflict_chunk.push_str(&*f_idx.to_string());
@@ -106,7 +120,13 @@ fn generate_sql(table: &str, fields: &Vec<PostgreSQLFieldConfig>, conflicts: &Op
                     for u_field in update_iter {
                         conflict_chunk.push(',');
                         let f_idx =
-                            fields.iter().position(|c| c.name == *u_field).unwrap() + 1;
+                            match fields.iter().position(|c| c.name == *u_field) {
+                                Some(i) => i + 1,
+                                None => {
+                                    let field = u_field.to_owned();
+                                    return Err(Box::new(PostgreSQLSinkError::UndefinedConflictField {field}));
+                                }
+                            };
                         conflict_chunk.push_str(&*u_field);
                         conflict_chunk.push_str("=$");
                         conflict_chunk.push_str(&*f_idx.to_string());
@@ -116,7 +136,7 @@ fn generate_sql(table: &str, fields: &Vec<PostgreSQLFieldConfig>, conflicts: &Op
         }
     }
 
-    format!("INSERT INTO {table} ({field_list}) VALUES ({param_list}){conflict_chunk}")
+    Ok(format!("INSERT INTO {table} ({field_list}) VALUES ({param_list}){conflict_chunk}"))
 }
 
 fn url_decode(input: &str) -> Result<String, FromUtf8Error> {
@@ -129,14 +149,19 @@ pub(crate) async fn healthcheck(_config: PostgreSQLSinkConfig) -> crate::Result<
     Ok(())
 }
 
-fn build_request(schema: &PostgreSQLSchemaConfig, mut e: Event) -> PostgreSQLRequest {
+fn build_request(schema: &PostgreSQLSchemaConfig, mut e: Event) -> crate::Result<PostgreSQLRequest> {
     let mut data = Vec::new();
     for field in &schema.fields {
-        let v = e.as_log().get(&*field.path).unwrap().clone();
-        data.push(v);
+        let value = match e {
+            Event::Log(_) => e.as_log().get(&*field.path).map(ToOwned::to_owned)
+                .ok_or(PostgreSQLSinkError::MissingField {field_name: field.path.to_owned()}),
+            Event::Metric(_) => get_from_metric(&e.as_metric(), &*field.path)
+                .ok_or(PostgreSQLSinkError::MissingField {field_name: field.path.to_owned()}),
+            _ => Err(PostgreSQLSinkError::UnsupportedEventType)
+        }?;
+        data.push(value);
     }
-
-    PostgreSQLRequest::new(data, e.take_finalizers())
+    Ok(PostgreSQLRequest::new(data, e.take_finalizers()))
 }
 
 #[async_trait]
@@ -145,8 +170,10 @@ impl StreamSink<Event> for PostgreSQLSink {
         let schema_config = self.schema_config.clone();
         let sink = input
             .filter_map(|e| {
-                let req = build_request(&schema_config, e);
-                future::ready(Some(req))
+                let req = build_request(&schema_config, e)
+                    .map_err(|err| error!("Failed to convert event into PostgresSQL request: {err}"))
+                    .ok();
+                future::ready(req)
             })
             .into_driver(self.service);
         sink.run().await
@@ -164,7 +191,7 @@ mod tests {
             name: "message".to_owned(),
             path: ".message".to_owned()
         });
-        let actual = generate_sql("tbl_123", &field_conf, &None);
+        let actual = generate_sql("tbl_123", &field_conf, &None).unwrap();
         assert_eq!(actual, "INSERT INTO tbl_123 (message) VALUES ($1)");
     }
 
@@ -179,7 +206,7 @@ mod tests {
             name: "message".to_owned(),
             path: ".message".to_owned()
         });
-        let actual = generate_sql("tbl_123", &field_conf, &None);
+        let actual = generate_sql("tbl_123", &field_conf, &None).unwrap();
         assert_eq!(actual, "INSERT INTO tbl_123 (timestamp,message) VALUES ($1,$2)");
     }
 
@@ -201,7 +228,7 @@ mod tests {
         let confict_conf = Some(PostgreSQLConflictsConfig::Nothing {
             target: vec!["host".to_owned(),"message".to_owned()],
         });
-        let actual = generate_sql("tbl_123", &field_conf, &confict_conf);
+        let actual = generate_sql("tbl_123", &field_conf, &confict_conf).unwrap();
         assert_eq!(
             actual,
             "INSERT INTO tbl_123 (timestamp,host,message) VALUES ($1,$2,$3) ON CONFLICT \
@@ -228,7 +255,7 @@ mod tests {
             target: vec!["message".to_owned()],
             fields: vec!["ratio".to_owned(), "timestamp".to_owned()]
         });
-        let actual = generate_sql("tbl_123", &field_conf, &confict_conf);
+        let actual = generate_sql("tbl_123", &field_conf, &confict_conf).unwrap();
         assert_eq!(
             actual,
             "INSERT INTO tbl_123 (timestamp,ratio,message) VALUES ($1,$2,$3) \

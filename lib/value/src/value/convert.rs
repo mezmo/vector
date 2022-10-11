@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::num::NonZeroU32;
 
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
@@ -400,6 +401,13 @@ impl From<u32> for Value {
         Self::Integer(value as i64)
     }
 }
+
+impl From<NonZeroU32> for Value {
+    fn from(value: NonZeroU32) -> Self {
+        Self::Integer(value.get() as i64)
+    }
+}
+
 impl From<isize> for Value {
     fn from(value: isize) -> Self {
         Self::Integer(value as i64)

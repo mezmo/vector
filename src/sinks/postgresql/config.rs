@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use vector_config::configurable_component;
 use futures::FutureExt;
 use typetag::serde;
+use vector_core::config::log_schema;
 use crate::{
     config::{
         AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext,
@@ -27,7 +28,7 @@ impl Default for PostgreSQLFieldConfig {
     fn default() -> Self {
         Self {
             name: "message".to_owned(),
-            path: ".message".to_owned()
+            path: log_schema().message_key().to_owned(),
         }
     }
 }
@@ -130,7 +131,7 @@ impl SinkConfig for PostgreSQLSinkConfig {
     }
 
     fn input(&self) -> Input {
-        Input::new(DataType::all())
+        Input::new(DataType::Log | DataType::Metric)
     }
 
     fn sink_type(&self) -> &'static str {

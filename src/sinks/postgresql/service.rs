@@ -6,21 +6,20 @@ use std::{
 };
 use bytes::BytesMut;
 use chrono::{DateTime, Utc};
-use deadpool_postgres::{Pool, PoolError};
+use deadpool_postgres::Pool;
 use tower::Service;
 use futures::future::BoxFuture;
-use tokio_postgres::{
-    types::{IsNull, to_sql_checked, ToSql, Type},
-    error::Error as PostgreSQLError
-};
+use tokio_postgres::types::{IsNull, to_sql_checked, ToSql, Type};
 use value::Value;
-use snafu::Snafu;
 use vector_common::finalization::{EventFinalizers, Finalizable};
 use vector_core::{
     internal_event::EventsSent,
     stream::DriverResponse,
 };
-use crate::event::EventStatus;
+use crate::{
+    event::EventStatus,
+    sinks::postgresql::PostgreSQLSinkError
+};
 
 pub struct PostgreSQLRequest {
     data: Vec<Value>,
@@ -58,15 +57,6 @@ impl DriverResponse for PostgreSQLResponse {
     }
 }
 
-#[derive(Debug, Snafu)]
-pub enum PostgreSQLServiceError {
-    #[snafu(display("Failed to obtain connection from pool: {}", source))]
-    PoolError {source: PoolError},
-
-    #[snafu(display("Failed to execute DB statement: {}", source))]
-    SqlError {source: PostgreSQLError}
-}
-
 pub struct PostgreSQLService {
     connection_pool: Arc<Pool>,
     sql: String,
@@ -81,7 +71,7 @@ impl PostgreSQLService {
 
 impl Service<PostgreSQLRequest> for PostgreSQLService {
     type Response = PostgreSQLResponse;
-    type Error = PostgreSQLServiceError;
+    type Error = PostgreSQLSinkError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -94,12 +84,12 @@ impl Service<PostgreSQLRequest> for PostgreSQLService {
         Box::pin(async move {
             let client = match connection_pool.get().await {
                 Ok(client) => client,
-                Err(source) => return Err(PostgreSQLServiceError::PoolError {source})
+                Err(source) => return Err(PostgreSQLSinkError::PoolError {source})
             };
 
             let prep_stmt = match client.prepare_cached(&sql).await {
                 Ok(prep_stmt) => prep_stmt,
-                Err(source) => return Err(PostgreSQLServiceError::SqlError {source})
+                Err(source) => return Err(PostgreSQLSinkError::SqlError {source})
             };
 
             let params =
@@ -109,7 +99,7 @@ impl Service<PostgreSQLRequest> for PostgreSQLService {
 
             let res = match client.execute_raw(&prep_stmt, params).await {
                 Ok(res) => res,
-                Err(source) => return Err(PostgreSQLServiceError::SqlError {source})
+                Err(source) => return Err(PostgreSQLSinkError::SqlError {source})
             };
 
             debug!("postgres execute successful; {res} rows modified");
