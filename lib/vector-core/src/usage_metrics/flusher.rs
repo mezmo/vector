@@ -128,7 +128,12 @@ impl DbFlusher {
                     let result_size = client.execute(&stmt, &params_size);
 
                     match tokio::try_join!(result_count, result_size) {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            trace!(
+                                message = "Flushed usage metrics records for component",
+                                component_id = k.component_id
+                            )
+                        }
                         Err(error) => {
                             error!(message = "Usage metrics insert failed", %error)
                         }
