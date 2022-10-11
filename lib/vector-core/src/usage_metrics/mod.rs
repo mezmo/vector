@@ -14,8 +14,7 @@ use flusher::{DbFlusher, MetricsFlusher};
 
 use self::flusher::NoopFlusher;
 
-const MAX_BUFFERED: usize = 2000;
-const MAX_DELAY: Duration = Duration::from_secs(2);
+const DEFAULT_FLUSH_INTERVAL_SECS: u64 = 20;
 const UNMATCHED_ROUTE: &str = "_unmatched";
 
 mod flusher;
@@ -266,8 +265,24 @@ pub fn track_output_usage(
 pub async fn start_publishing_metrics(
     rx: UnboundedReceiver<UsageMetrics>,
 ) -> Result<(), MetricsPublishingError> {
+    let agg_window = match std::env::var("USAGE_METRICS_FLUSH_INTERVAL_SECS") {
+        Ok(interval_str) => {
+            let secs = interval_str.parse().unwrap_or_else(|_| {
+                warn!(
+                    "USAGE_METRICS_FLUSH_INTERVAL_SECS environment variable invalid, using default"
+                );
+                DEFAULT_FLUSH_INTERVAL_SECS
+            });
+            Duration::from_secs(secs)
+        }
+        Err(_) => {
+            info!("USAGE_METRICS_FLUSH_INTERVAL_SECS environment variable not set, using default");
+            Duration::from_secs(DEFAULT_FLUSH_INTERVAL_SECS)
+        }
+    };
+
     let flusher = get_flusher().await?;
-    start_publishing_metrics_with_flusher(rx, MAX_DELAY, flusher);
+    start_publishing_metrics_with_flusher(rx, agg_window, flusher);
     Ok(())
 }
 
@@ -295,7 +310,7 @@ async fn get_flusher() -> Result<Arc<dyn MetricsFlusher + Send>, MetricsPublishi
 
 fn start_publishing_metrics_with_flusher(
     mut rx: UnboundedReceiver<UsageMetrics>,
-    delay: Duration,
+    agg_window: Duration,
     flusher: Arc<dyn MetricsFlusher + Send>,
 ) {
     tokio::spawn(async move {
@@ -304,22 +319,22 @@ fn start_publishing_metrics_with_flusher(
         let mut finished = false;
 
         while !finished {
-            let mut buffered = Vec::new();
-            let timeout = sleep(delay);
+            let mut event_count = 0;
+            let mut aggregated: HashMap<_, UsageMetricsValue> = HashMap::new();
+            let timeout = sleep(agg_window);
             tokio::pin!(timeout);
 
-            // Keep buffering until MAX_BUFFERED or MAX_DELAY are reached
+            // Aggregate all messages across this `agg_window`
             loop {
                 tokio::select! {
                     _ = &mut timeout => {
                         break;
                     },
                     Some(message) = rx.recv() => {
-                        buffered.push(message);
-                        if buffered.len() >= MAX_BUFFERED {
-                            // Send what we have at the moment
-                            break;
-                        }
+                        let mut value = aggregated.entry(message.key).or_default();
+                        value.total_count += message.events;
+                        value.total_size += message.total_size;
+                        event_count += message.events;
                     },
                     else => {
                         // Channel closed
@@ -329,33 +344,18 @@ fn start_publishing_metrics_with_flusher(
                 }
             }
 
-            if !buffered.is_empty() {
-                // Process buffered metrics
-                let buffered_len = buffered.len();
-                let metrics_map = aggregate_metrics(buffered);
+            if event_count > 0 {
+                // Flush aggregated metrics
                 debug!(
                     "Saving {} aggregated usage metrics from {} metrics events",
-                    buffered_len,
-                    metrics_map.len()
+                    aggregated.len(),
+                    event_count
                 );
 
-                flusher.save_metrics(metrics_map).await;
+                flusher.save_metrics(aggregated).await;
             }
         }
     });
-}
-
-/// Groups up the usage metrics by key and sums up the values.
-fn aggregate_metrics(list: Vec<UsageMetrics>) -> HashMap<UsageMetricsKey, UsageMetricsValue> {
-    // Use a factor of 0.01 of list length vs map capacity
-    let mut map: HashMap<_, UsageMetricsValue> = HashMap::with_capacity(list.len() / 100);
-    for item in list.into_iter() {
-        let mut value = map.entry(item.key).or_default();
-        value.total_count += item.events;
-        value.total_size += item.total_size;
-    }
-
-    map
 }
 
 #[cfg(test)]
