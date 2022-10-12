@@ -79,7 +79,7 @@ where
         let client = client_builder.build(proxy);
 
         let version = crate::get_version();
-        let user_agent = HeaderValue::from_str(&format!("Vector/{}", version))
+        let user_agent = HeaderValue::from_str(&format!("Mezmo/{}", version))
             .expect("Invalid header value for version!");
 
         Ok(HttpClient { client, user_agent })
