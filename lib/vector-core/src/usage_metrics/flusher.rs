@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use deadpool_postgres::{Config, Pool, Runtime};
+use deadpool_postgres::{Config, Pool, PoolConfig, Runtime};
 use futures::future::join_all;
 use std::cmp;
 use std::collections::hash_map::IntoIter;
@@ -14,7 +14,7 @@ use super::{UsageMetricsKey, UsageMetricsValue};
 
 const INSERT_QUERY: &str =
     "INSERT INTO usage_metrics (event_ts, account_id, pipeline_id, component_id, processor, metric, value) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
-const DB_MAX_PARALLEL_EXECUTIONS: usize = 32;
+const DB_MAX_PARALLEL_EXECUTIONS: usize = 4;
 
 #[async_trait]
 pub(crate) trait MetricsFlusher: Sync {
@@ -85,6 +85,9 @@ impl DbFlusher {
                 cfg.dbname = Some(first.into());
             }
         }
+
+        // Set the max_size on the pool to match the number of parallel inserts
+        cfg.pool = Some(PoolConfig::new(DB_MAX_PARALLEL_EXECUTIONS));
 
         Ok(cfg)
     }

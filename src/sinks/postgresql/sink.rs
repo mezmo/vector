@@ -1,25 +1,25 @@
-use std::string::FromUtf8Error;
-use async_trait::async_trait;
-use futures::{future, stream::BoxStream, StreamExt};
-use deadpool_postgres::{Config, Runtime};
-use tokio_postgres::NoTls;
-use url::Url;
-use vector_common::finalization::Finalizable;
+use crate::sinks::postgresql::metric_utils::get_from_metric;
+use crate::sinks::postgresql::PostgreSQLSinkError;
 use crate::{
-    event::{Event},
+    event::Event,
     sinks::{
         postgresql::{
             config::{
-                PostgreSQLSinkConfig, PostgreSQLConflictsConfig, PostgreSQLFieldConfig,
-                PostgreSQLSchemaConfig
+                PostgreSQLConflictsConfig, PostgreSQLFieldConfig, PostgreSQLSchemaConfig,
+                PostgreSQLSinkConfig,
             },
-            service::{PostgreSQLService, PostgreSQLRequest},
+            service::{PostgreSQLRequest, PostgreSQLService},
         },
-        util::{StreamSink, SinkBuilderExt},
+        util::{SinkBuilderExt, StreamSink},
     },
 };
-use crate::sinks::postgresql::metric_utils::get_from_metric;
-use crate::sinks::postgresql::PostgreSQLSinkError;
+use async_trait::async_trait;
+use deadpool_postgres::{Config, PoolConfig, Runtime};
+use futures::{future, stream::BoxStream, StreamExt};
+use std::string::FromUtf8Error;
+use tokio_postgres::NoTls;
+use url::Url;
+use vector_common::finalization::Finalizable;
 
 pub struct PostgreSQLSink {
     schema_config: PostgreSQLSchemaConfig,
@@ -28,44 +28,53 @@ pub struct PostgreSQLSink {
 
 impl PostgreSQLSink {
     pub(crate) fn new(config: PostgreSQLSinkConfig) -> crate::Result<Self> {
-        let pool_conf = pool_config(&config.connection)?;
+        let pool_conf = pool_config(&config.connection, config.max_pool_size)?;
         let connection_pool = pool_conf.create_pool(Some(Runtime::Tokio1), NoTls)?;
 
-        let sql = generate_sql(&config.schema.table, &config.schema.fields, &config.conflicts)?;
+        let sql = generate_sql(
+            &config.schema.table,
+            &config.schema.fields,
+            &config.conflicts,
+        )?;
         debug!("generated sql from sink config: {sql}");
 
         let service = PostgreSQLService::new(connection_pool, sql);
         let schema_config = config.schema;
-        Ok(Self {schema_config, service})
+        Ok(Self {
+            schema_config,
+            service,
+        })
     }
 }
 
-fn pool_config(connect_url: &str) -> crate::Result<Config> {
+fn pool_config(connect_url: &str, max_pool_size: usize) -> crate::Result<Config> {
     let url = Url::parse(connect_url)?;
-        if url.scheme() != "postgresql" && url.scheme() != "postgres" {
-            error!(
-                message = "Invalid scheme for sink connection string",
-                scheme = url.scheme()
-            );
-        }
+    if url.scheme() != "postgresql" && url.scheme() != "postgres" {
+        error!(
+            message = "Invalid scheme for sink connection string",
+            scheme = url.scheme()
+        );
+    }
 
-        let mut pool_conf = Config::new();
-        pool_conf.host = url.host().map(|h| h.to_string());
-        pool_conf.port = url.port();
-        if !url.username().is_empty() {
-            pool_conf.user = Some(url_decode(url.username())?);
+    let mut conf = Config::new();
+    conf.host = url.host().map(|h| h.to_string());
+    conf.port = url.port();
+    if !url.username().is_empty() {
+        conf.user = Some(url_decode(url.username())?);
+    }
+    if let Some(password) = url.password() {
+        let password = url_decode(password)?;
+        conf.password = Some(password);
+    }
+    if let Some(mut path_seg) = url.path_segments() {
+        if let Some(first) = path_seg.next() {
+            conf.dbname = Some(first.to_owned());
         }
-        if let Some(password) = url.password() {
-            let password = url_decode(password)?;
-            pool_conf.password = Some(password);
-        }
-        if let Some(mut path_seg) = url.path_segments() {
-            if let Some(first) = path_seg.next() {
-                pool_conf.dbname = Some(first.to_owned());
-            }
-        }
+    }
 
-        Ok(pool_conf)
+    conf.pool = Some(PoolConfig::new(max_pool_size));
+
+    Ok(conf)
 }
 
 /// Build up the sql insert statement trying to avoid intermediate memory allocations while building
@@ -73,7 +82,7 @@ fn pool_config(connect_url: &str) -> crate::Result<Config> {
 fn generate_sql(
     table: &str,
     fields: &Vec<PostgreSQLFieldConfig>,
-    conflicts: &Option<PostgreSQLConflictsConfig>
+    conflicts: &Option<PostgreSQLConflictsConfig>,
 ) -> crate::Result<String> {
     let mut field_list = String::new();
     let mut param_list = String::new();
@@ -95,38 +104,43 @@ fn generate_sql(
     if let Some(conflicts) = conflicts {
         conflict_chunk.push_str(" ON CONFLICT (");
         match &conflicts {
-            PostgreSQLConflictsConfig::Nothing {target} => {
+            PostgreSQLConflictsConfig::Nothing { target } => {
                 conflict_chunk.push_str(&target.join(","));
                 conflict_chunk.push_str(") DO NOTHING");
-            } ,
-            PostgreSQLConflictsConfig::Update {target, fields: update_fields} => {
+            }
+            PostgreSQLConflictsConfig::Update {
+                target,
+                fields: update_fields,
+            } => {
                 conflict_chunk.push_str(&target.join(","));
                 conflict_chunk.push_str(") DO UPDATE SET ");
 
                 let mut update_iter = update_fields.iter();
                 if let Some(u_field) = update_iter.next() {
-                    let f_idx =
-                        match fields.iter().position(|c| c.name == *u_field) {
-                            Some(i) => i + 1,
-                            None => {
-                                let field = u_field.to_owned();
-                                return Err(Box::new(PostgreSQLSinkError::UndefinedConflictField {field}));
-                            }
-                        };
+                    let f_idx = match fields.iter().position(|c| c.name == *u_field) {
+                        Some(i) => i + 1,
+                        None => {
+                            let field = u_field.to_owned();
+                            return Err(Box::new(PostgreSQLSinkError::UndefinedConflictField {
+                                field,
+                            }));
+                        }
+                    };
                     conflict_chunk.push_str(&*u_field);
                     conflict_chunk.push_str("=$");
                     conflict_chunk.push_str(&*f_idx.to_string());
 
                     for u_field in update_iter {
                         conflict_chunk.push(',');
-                        let f_idx =
-                            match fields.iter().position(|c| c.name == *u_field) {
-                                Some(i) => i + 1,
-                                None => {
-                                    let field = u_field.to_owned();
-                                    return Err(Box::new(PostgreSQLSinkError::UndefinedConflictField {field}));
-                                }
-                            };
+                        let f_idx = match fields.iter().position(|c| c.name == *u_field) {
+                            Some(i) => i + 1,
+                            None => {
+                                let field = u_field.to_owned();
+                                return Err(Box::new(
+                                    PostgreSQLSinkError::UndefinedConflictField { field },
+                                ));
+                            }
+                        };
                         conflict_chunk.push_str(&*u_field);
                         conflict_chunk.push_str("=$");
                         conflict_chunk.push_str(&*f_idx.to_string());
@@ -136,7 +150,9 @@ fn generate_sql(
         }
     }
 
-    Ok(format!("INSERT INTO {table} ({field_list}) VALUES ({param_list}){conflict_chunk}"))
+    Ok(format!(
+        "INSERT INTO {table} ({field_list}) VALUES ({param_list}){conflict_chunk}"
+    ))
 }
 
 fn url_decode(input: &str) -> Result<String, FromUtf8Error> {
@@ -149,15 +165,24 @@ pub(crate) async fn healthcheck(_config: PostgreSQLSinkConfig) -> crate::Result<
     Ok(())
 }
 
-fn build_request(schema: &PostgreSQLSchemaConfig, mut e: Event) -> crate::Result<PostgreSQLRequest> {
+fn build_request(
+    schema: &PostgreSQLSchemaConfig,
+    mut e: Event,
+) -> crate::Result<PostgreSQLRequest> {
     let mut data = Vec::new();
     for field in &schema.fields {
         let value = match e {
-            Event::Log(_) => e.as_log().get(&*field.path).map(ToOwned::to_owned)
-                .ok_or(PostgreSQLSinkError::MissingField {field_name: field.path.to_owned()}),
-            Event::Metric(_) => get_from_metric(&e.as_metric(), &*field.path)
-                .ok_or(PostgreSQLSinkError::MissingField {field_name: field.path.to_owned()}),
-            _ => Err(PostgreSQLSinkError::UnsupportedEventType)
+            Event::Log(_) => e.as_log().get(&*field.path).map(ToOwned::to_owned).ok_or(
+                PostgreSQLSinkError::MissingField {
+                    field_name: field.path.to_owned(),
+                },
+            ),
+            Event::Metric(_) => get_from_metric(&e.as_metric(), &*field.path).ok_or(
+                PostgreSQLSinkError::MissingField {
+                    field_name: field.path.to_owned(),
+                },
+            ),
+            _ => Err(PostgreSQLSinkError::UnsupportedEventType),
         }?;
         data.push(value);
     }
@@ -171,7 +196,9 @@ impl StreamSink<Event> for PostgreSQLSink {
         let sink = input
             .filter_map(|e| {
                 let req = build_request(&schema_config, e)
-                    .map_err(|err| error!("Failed to convert event into PostgresSQL request: {err}"))
+                    .map_err(|err| {
+                        error!("Failed to convert event into PostgresSQL request: {err}")
+                    })
                     .ok();
                 future::ready(req)
             })
@@ -189,7 +216,7 @@ mod tests {
         let mut field_conf = Vec::new();
         field_conf.push(PostgreSQLFieldConfig {
             name: "message".to_owned(),
-            path: ".message".to_owned()
+            path: ".message".to_owned(),
         });
         let actual = generate_sql("tbl_123", &field_conf, &None).unwrap();
         assert_eq!(actual, "INSERT INTO tbl_123 (message) VALUES ($1)");
@@ -198,35 +225,38 @@ mod tests {
     #[test]
     fn generate_sql_multi_field_test() {
         let mut field_conf = Vec::new();
-        field_conf.push( PostgreSQLFieldConfig {
+        field_conf.push(PostgreSQLFieldConfig {
             name: "timestamp".to_owned(),
-            path: ".timestamp".to_owned()
+            path: ".timestamp".to_owned(),
         });
         field_conf.push(PostgreSQLFieldConfig {
             name: "message".to_owned(),
-            path: ".message".to_owned()
+            path: ".message".to_owned(),
         });
         let actual = generate_sql("tbl_123", &field_conf, &None).unwrap();
-        assert_eq!(actual, "INSERT INTO tbl_123 (timestamp,message) VALUES ($1,$2)");
+        assert_eq!(
+            actual,
+            "INSERT INTO tbl_123 (timestamp,message) VALUES ($1,$2)"
+        );
     }
 
     #[test]
     fn generate_sql_confict_do_nothing_test() {
         let mut field_conf = Vec::new();
-        field_conf.push( PostgreSQLFieldConfig {
+        field_conf.push(PostgreSQLFieldConfig {
             name: "timestamp".to_owned(),
-            path: ".timestamp".to_owned()
+            path: ".timestamp".to_owned(),
         });
         field_conf.push(PostgreSQLFieldConfig {
             name: "host".to_owned(),
-            path: ".host".to_owned()
+            path: ".host".to_owned(),
         });
         field_conf.push(PostgreSQLFieldConfig {
             name: "message".to_owned(),
-            path: ".message".to_owned()
+            path: ".message".to_owned(),
         });
         let confict_conf = Some(PostgreSQLConflictsConfig::Nothing {
-            target: vec!["host".to_owned(),"message".to_owned()],
+            target: vec!["host".to_owned(), "message".to_owned()],
         });
         let actual = generate_sql("tbl_123", &field_conf, &confict_conf).unwrap();
         assert_eq!(
@@ -239,21 +269,21 @@ mod tests {
     #[test]
     fn generate_sql_on_conflict_set_test() {
         let mut field_conf = Vec::new();
-        field_conf.push( PostgreSQLFieldConfig {
+        field_conf.push(PostgreSQLFieldConfig {
             name: "timestamp".to_owned(),
-            path: ".timestamp".to_owned()
+            path: ".timestamp".to_owned(),
         });
         field_conf.push(PostgreSQLFieldConfig {
             name: "ratio".to_owned(),
-            path: ".ratio".to_owned()
+            path: ".ratio".to_owned(),
         });
         field_conf.push(PostgreSQLFieldConfig {
             name: "message".to_owned(),
-            path: ".message".to_owned()
+            path: ".message".to_owned(),
         });
         let confict_conf = Some(PostgreSQLConflictsConfig::Update {
             target: vec!["message".to_owned()],
-            fields: vec!["ratio".to_owned(), "timestamp".to_owned()]
+            fields: vec!["ratio".to_owned(), "timestamp".to_owned()],
         });
         let actual = generate_sql("tbl_123", &field_conf, &confict_conf).unwrap();
         assert_eq!(

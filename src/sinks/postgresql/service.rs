@@ -1,25 +1,19 @@
-use std::{
-    borrow::Cow,
-    error::Error,
-    task::{Context, Poll},
-    sync::Arc
-};
+use crate::{event::EventStatus, sinks::postgresql::PostgreSQLSinkError};
 use bytes::BytesMut;
 use chrono::{DateTime, Utc};
 use deadpool_postgres::Pool;
-use tower::Service;
 use futures::future::BoxFuture;
-use tokio_postgres::types::{IsNull, to_sql_checked, ToSql, Type};
+use std::{
+    borrow::Cow,
+    error::Error,
+    sync::Arc,
+    task::{Context, Poll},
+};
+use tokio_postgres::types::{to_sql_checked, IsNull, ToSql, Type};
+use tower::Service;
 use value::Value;
 use vector_common::finalization::{EventFinalizers, Finalizable};
-use vector_core::{
-    internal_event::EventsSent,
-    stream::DriverResponse,
-};
-use crate::{
-    event::EventStatus,
-    sinks::postgresql::PostgreSQLSinkError
-};
+use vector_core::{internal_event::EventsSent, stream::DriverResponse};
 
 pub struct PostgreSQLRequest {
     data: Vec<Value>,
@@ -27,10 +21,7 @@ pub struct PostgreSQLRequest {
 }
 
 impl PostgreSQLRequest {
-    pub (crate) fn new(
-        data: Vec<Value>,
-        finalizers: EventFinalizers
-    ) -> Self {
+    pub(crate) fn new(data: Vec<Value>, finalizers: EventFinalizers) -> Self {
         Self { data, finalizers }
     }
 }
@@ -63,9 +54,12 @@ pub struct PostgreSQLService {
 }
 
 impl PostgreSQLService {
-    pub (crate) fn new(connection_pool: Pool, sql: String) -> Self {
+    pub(crate) fn new(connection_pool: Pool, sql: String) -> Self {
         let connection_pool = Arc::new(connection_pool);
-        Self { connection_pool, sql }
+        Self {
+            connection_pool,
+            sql,
+        }
     }
 }
 
@@ -84,22 +78,20 @@ impl Service<PostgreSQLRequest> for PostgreSQLService {
         Box::pin(async move {
             let client = match connection_pool.get().await {
                 Ok(client) => client,
-                Err(source) => return Err(PostgreSQLSinkError::PoolError {source})
+                Err(source) => return Err(PostgreSQLSinkError::PoolError { source }),
             };
 
             let prep_stmt = match client.prepare_cached(&sql).await {
                 Ok(prep_stmt) => prep_stmt,
-                Err(source) => return Err(PostgreSQLSinkError::SqlError {source})
+                Err(source) => return Err(PostgreSQLSinkError::SqlError { source }),
             };
 
-            let params =
-                req.data.iter().map(ValueSqlAdapter).collect::<Vec<_>>();
-            let params =
-                params.iter().map(|x| x as &(dyn ToSql + Sync));
+            let params = req.data.iter().map(ValueSqlAdapter).collect::<Vec<_>>();
+            let params = params.iter().map(|x| x as &(dyn ToSql + Sync));
 
             let res = match client.execute_raw(&prep_stmt, params).await {
                 Ok(res) => res,
-                Err(source) => return Err(PostgreSQLSinkError::SqlError {source})
+                Err(source) => return Err(PostgreSQLSinkError::SqlError { source }),
             };
 
             debug!("postgres execute successful; {res} rows modified");
@@ -112,7 +104,10 @@ impl Service<PostgreSQLRequest> for PostgreSQLService {
 struct ValueSqlAdapter<'a>(&'a Value);
 
 impl ToSql for ValueSqlAdapter<'_> {
-    fn to_sql(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>> where Self: Sized {
+    fn to_sql(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
         let value = self.0;
         match value.kind_str() {
             "string" => {
@@ -142,7 +137,10 @@ impl ToSql for ValueSqlAdapter<'_> {
         }
     }
 
-    fn accepts(_ty: &Type) -> bool where Self: Sized {
+    fn accepts(_ty: &Type) -> bool
+    where
+        Self: Sized,
+    {
         true
     }
 

@@ -1,20 +1,21 @@
-use std::fmt::Debug;
+use lookup::lookup_v2::{BorrowedSegment, Path};
 use ordered_float::NotNan;
 use rand_distr::num_traits::FromPrimitive;
+use std::fmt::Debug;
 use value::Value;
-use lookup::lookup_v2::{BorrowedSegment, Path};
-use vector_core::event::{Metric, MetricValue};
 use vector_core::event::metric::MetricTags;
+use vector_core::event::{Metric, MetricValue};
 
 fn get_tag_value<'a>(
     tags: Option<&MetricTags>,
-    iter: impl Iterator<Item = BorrowedSegment<'a>> + Clone
+    iter: impl Iterator<Item = BorrowedSegment<'a>> + Clone,
 ) -> Option<Value> {
     let mut iter = iter.peekable();
     if let Some(tags) = tags {
         if let Some(BorrowedSegment::Field(tag_name)) = iter.next().as_ref() {
             if iter.peek().is_none() {
-                return tags.get(&tag_name.to_string())
+                return tags
+                    .get(&tag_name.to_string())
                     .map(|s| Value::from(s.as_str()));
             }
         }
@@ -24,11 +25,11 @@ fn get_tag_value<'a>(
 
 fn get_metric_value<'a>(
     value: &MetricValue,
-    iter: impl Iterator<Item = BorrowedSegment<'a>> + Clone
+    iter: impl Iterator<Item = BorrowedSegment<'a>> + Clone,
 ) -> Option<Value> {
     let mut iter = iter.peekable();
     match value {
-        MetricValue::Counter {value} | MetricValue::Gauge {value} => {
+        MetricValue::Counter { value } | MetricValue::Gauge { value } => {
             if let Some(BorrowedSegment::Field(tag_name)) = iter.next().as_ref() {
                 if iter.peek().is_none() && tag_name == "value" {
                     let value: Option<NotNan<f64>> = NotNan::from_f64(*value);
@@ -81,13 +82,11 @@ pub fn get_from_metric<'a>(metric: &'a Metric, key: impl Path<'a> + Debug) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        collections::BTreeSet, iter, num::NonZeroU32
-    };
+    use crate::event::metric::MetricTags;
     use chrono;
+    use std::{collections::BTreeSet, iter, num::NonZeroU32};
     use value::kind::Kind;
     use vector_core::event::MetricKind;
-    use crate::event::metric::MetricTags;
 
     fn new_metric() -> Metric {
         let ts = chrono::NaiveDate::from_ymd(2022, 10, 01).and_hms(13, 51, 30);
@@ -96,11 +95,15 @@ mod tests {
         let mut tags = MetricTags::new();
         tags.insert("component_name".to_owned(), "abc".to_owned());
 
-        Metric::new("component_request_total", MetricKind::Absolute, MetricValue::Counter { value: 123.0 })
-            .with_timestamp(Some(ts))
-            .with_interval_ms(Some(NonZeroU32::new(12345).unwrap()))
-            .with_namespace(Some("namespace-a"))
-            .with_tags(Some(tags))
+        Metric::new(
+            "component_request_total",
+            MetricKind::Absolute,
+            MetricValue::Counter { value: 123.0 },
+        )
+        .with_timestamp(Some(ts))
+        .with_interval_ms(Some(NonZeroU32::new(12345).unwrap()))
+        .with_namespace(Some("namespace-a"))
+        .with_tags(Some(tags))
     }
 
     #[test]
@@ -174,7 +177,9 @@ mod tests {
 
     #[test]
     fn test_get_metric_value_unsupported_type() {
-        let metric_value = MetricValue::Set { values: BTreeSet::new() };
+        let metric_value = MetricValue::Set {
+            values: BTreeSet::new(),
+        };
         let path_iter = ".values".segment_iter();
         let res = get_metric_value(&metric_value, path_iter);
         assert_eq!(res, None);
@@ -187,7 +192,7 @@ mod tests {
             (".interval_ms", Kind::is_integer, "12345"),
             (".namespace", Kind::is_bytes, "\"namespace-a\""),
             (".name", Kind::is_bytes, "\"component_request_total\""),
-            (".kind", Kind::is_bytes, "\"absolute\"")
+            (".kind", Kind::is_bytes, "\"absolute\""),
         ];
         let metric = new_metric();
         for (path, kind_fn, expected_val) in test_properties {
