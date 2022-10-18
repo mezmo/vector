@@ -1,7 +1,7 @@
 use std::string::FromUtf8Error;
 use async_trait::async_trait;
 use futures::{future, stream::BoxStream, StreamExt};
-use deadpool_postgres::{Config, Runtime};
+use deadpool_postgres::{Config, Runtime, PoolConfig};
 use tokio_postgres::NoTls;
 use url::Url;
 use vector_common::finalization::Finalizable;
@@ -28,7 +28,7 @@ pub struct PostgreSQLSink {
 
 impl PostgreSQLSink {
     pub(crate) fn new(config: PostgreSQLSinkConfig) -> crate::Result<Self> {
-        let pool_conf = pool_config(&config.connection)?;
+        let pool_conf = pool_config(&config.connection, config.max_pool_size)?;
         let connection_pool = pool_conf.create_pool(Some(Runtime::Tokio1), NoTls)?;
 
         let sql = generate_sql(&config.schema.table, &config.schema.fields, &config.conflicts)?;
@@ -40,7 +40,7 @@ impl PostgreSQLSink {
     }
 }
 
-fn pool_config(connect_url: &str) -> crate::Result<Config> {
+fn pool_config(connect_url: &str, max_pool_size: usize) -> crate::Result<Config> {
     let url = Url::parse(connect_url)?;
         if url.scheme() != "postgresql" && url.scheme() != "postgres" {
             error!(
@@ -49,23 +49,25 @@ fn pool_config(connect_url: &str) -> crate::Result<Config> {
             );
         }
 
-        let mut pool_conf = Config::new();
-        pool_conf.host = url.host().map(|h| h.to_string());
-        pool_conf.port = url.port();
+        let mut conf = Config::new();
+        conf.host = url.host().map(|h| h.to_string());
+        conf.port = url.port();
         if !url.username().is_empty() {
-            pool_conf.user = Some(url_decode(url.username())?);
+            conf.user = Some(url_decode(url.username())?);
         }
         if let Some(password) = url.password() {
             let password = url_decode(password)?;
-            pool_conf.password = Some(password);
+            conf.password = Some(password);
         }
         if let Some(mut path_seg) = url.path_segments() {
             if let Some(first) = path_seg.next() {
-                pool_conf.dbname = Some(first.to_owned());
+                conf.dbname = Some(first.to_owned());
             }
         }
+    
+        conf.pool = Some(PoolConfig::new(max_pool_size));
 
-        Ok(pool_conf)
+        Ok(conf)
 }
 
 /// Build up the sql insert statement trying to avoid intermediate memory allocations while building

@@ -100,6 +100,11 @@ pub struct PostgreSQLSinkConfig {
     )]
     pub conflicts: Option<PostgreSQLConflictsConfig>,
 
+    /// Maximum size of the Postgres connection pool for this instance.
+    /// Defaults to 4
+    #[serde(default = "default_max_pool_size")]
+    pub max_pool_size: usize,
+
     #[configurable(derived)]
     #[serde(
         default,
@@ -109,12 +114,17 @@ pub struct PostgreSQLSinkConfig {
     pub acknowledgements: AcknowledgementsConfig,
 }
 
+fn default_max_pool_size() -> usize {
+    4
+}
+
 impl GenerateConfig for PostgreSQLSinkConfig {
     fn generate_config() -> toml::Value {
         toml::Value::try_from(Self {
             connection: "postgresql://postgres@localhost:5431/vector".to_owned(),
             schema: Default::default(),
             conflicts: Default::default(),
+            max_pool_size: default_max_pool_size(),
             acknowledgements: AcknowledgementsConfig::default(),
         })
         .unwrap()
