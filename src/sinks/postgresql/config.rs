@@ -1,17 +1,15 @@
-use async_trait::async_trait;
-use vector_config::configurable_component;
-use futures::FutureExt;
-use typetag::serde;
-use vector_core::config::log_schema;
 use crate::{
-    config::{
-        AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext,
-    },
+    config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     sinks::{
-        postgresql::sink::{PostgreSQLSink, healthcheck},
-        Healthcheck, VectorSink
+        postgresql::sink::{healthcheck, PostgreSQLSink},
+        Healthcheck, VectorSink,
     },
 };
+use async_trait::async_trait;
+use futures::FutureExt;
+use typetag::serde;
+use vector_config::configurable_component;
+use vector_core::config::log_schema;
 
 /// Column/Event field mapping.
 #[configurable_component]
@@ -52,7 +50,7 @@ impl Default for PostgreSQLSchemaConfig {
     fn default() -> Self {
         Self {
             table: "vector_data".to_owned(),
-            fields: vec![Default::default()]
+            fields: vec![Default::default()],
         }
     }
 }
@@ -60,12 +58,12 @@ impl Default for PostgreSQLSchemaConfig {
 /// Supported options to deal with insert conflicts.
 #[configurable_component]
 #[derive(Clone, Debug, PartialEq)]
-#[serde(tag = "action", rename_all="kebab-case", deny_unknown_fields)]
+#[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum PostgreSQLConflictsConfig {
     /// Drop conflicting insert values without generating an error.
     Nothing {
         /// The list of unique constrained fields that would cause a conflict.
-        target: Vec<String>
+        target: Vec<String>,
     },
 
     /// Update fields of the existing row if the insert causes a conflict.
@@ -75,8 +73,8 @@ pub enum PostgreSQLConflictsConfig {
 
         /// The list of fields that should be updated with event object. These fields
         /// need to be defined in the schema configuration section.
-        fields: Vec<String>
-    }
+        fields: Vec<String>,
+    },
 }
 
 /// Configuration for the `postgresql` sink.

@@ -70,6 +70,8 @@ pub mod new_relic;
 pub mod new_relic_logs;
 #[cfg(feature = "sinks-papertrail")]
 pub mod papertrail;
+#[cfg(feature = "sinks-postgresql")]
+pub mod postgresql;
 #[cfg(feature = "sinks-prometheus")]
 pub mod prometheus;
 #[cfg(feature = "sinks-pulsar")]
@@ -93,8 +95,6 @@ pub mod statsd;
 pub mod vector;
 #[cfg(feature = "sinks-websocket")]
 pub mod websocket;
-#[cfg(feature = "sinks-postgresql")]
-pub mod postgresql;
 
 use vector_config::configurable_component;
 pub use vector_core::sink::VectorSink;
