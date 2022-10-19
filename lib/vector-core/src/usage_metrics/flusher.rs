@@ -1,11 +1,11 @@
 use async_trait::async_trait;
+use chrono::Utc;
 use deadpool_postgres::{Config, Pool, PoolConfig, Runtime};
 use futures::future::join_all;
 use std::cmp;
 use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_postgres::types::ToSql;
 use tokio_postgres::NoTls;
 use url::Url;
@@ -95,32 +95,29 @@ impl DbFlusher {
 
 impl DbFlusher {
     async fn insert_metrics(&self, k: UsageMetricsKey, v: UsageMetricsValue) {
-        let time_micros = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_micros() as i64;
+        let event_ts = Utc::now();
         let processor = "vector".to_string();
-        let measurement = "count".to_string();
+        let metric = "count".to_string();
         let value = v.total_count as i32;
         let params_count: Vec<&(dyn ToSql + Sync)> = vec![
-            &time_micros,
+            &event_ts,
             &k.account_id,
             &k.pipeline_id,
             &k.component_id,
             &processor,
-            &measurement,
+            &metric,
             &value,
         ];
 
         let value = v.total_size as i32;
-        let measurement = "byte_size".to_string();
+        let metric = "byte_size".to_string();
         let params_size: Vec<&(dyn ToSql + Sync)> = vec![
-            &time_micros,
+            &event_ts,
             &k.account_id,
             &k.pipeline_id,
             &k.component_id,
             &processor,
-            &measurement,
+            &metric,
             &value,
         ];
 
