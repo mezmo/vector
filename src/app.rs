@@ -298,6 +298,16 @@ impl Application {
             emit!(VectorStarted);
             tokio::spawn(heartbeat::heartbeat());
 
+            // Spawn a system thread outside of the tokio pool that puts a ready task
+            // into the execution queue that does nothing. This is the work around from
+            // the linked GitHub issue.
+            // See: https://github.com/tokio-rs/tokio/issues/4730
+            let monitor_rt = tokio::runtime::Handle::current();
+            std::thread::spawn(move || loop {
+                monitor_rt.spawn(std::future::ready(()));
+                std::thread::sleep(std::time::Duration::from_secs(3));
+            });
+
             // Configure the API server, if applicable.
             #[cfg(feature = "api")]
             // Assigned to prevent the API terminating when falling out of scope.
