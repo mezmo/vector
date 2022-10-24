@@ -327,6 +327,7 @@ fn start_publishing_metrics_with_flusher(
             // Aggregate all messages across this `agg_window`
             loop {
                 tokio::select! {
+                    biased; // ensure the timeout is handled promptly
                     _ = &mut timeout => {
                         break;
                     },

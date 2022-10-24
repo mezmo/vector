@@ -5,7 +5,8 @@ use futures::future::join_all;
 use std::cmp;
 use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::NoTls;
 use url::Url;
@@ -152,18 +153,17 @@ impl DbFlusher {
         &self,
         iter: Arc<Mutex<IntoIter<UsageMetricsKey, UsageMetricsValue>>>,
     ) {
-        while let Some((k, v)) = DbFlusher::get_next(iter.clone()) {
+        while let Some((k, v)) = DbFlusher::get_next(iter.clone()).await {
             self.insert_metrics(k, v).await;
         }
     }
 
-    fn get_next(
+    async fn get_next(
         iter: Arc<Mutex<IntoIter<UsageMetricsKey, UsageMetricsValue>>>,
     ) -> Option<(UsageMetricsKey, UsageMetricsValue)> {
-        if let Ok(mut i) = iter.lock() {
-            if let Some((k, v)) = i.next() {
-                return Some((k, v));
-            }
+        let mut i = iter.lock().await;
+        if let Some((k, v)) = i.next() {
+            return Some((k, v));
         }
         None
     }
