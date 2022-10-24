@@ -143,7 +143,7 @@ pub fn track_usage(tx: &UnboundedSender<UsageMetrics>, array: &EventArray, compo
         // This will likely spam the logs if there's an invalid component being tracked.
         // Maybe that's OK (i.e. "let's fix it") or maybe in the future we could use some kind of atomic op
         // to count the messages and silence it for a while
-        warn!(message = "Failed to parse the component name for usage metrics.", %component_name);
+        trace!(message = "Failed to parse the component name for usage metrics.", %component_name);
         return;
     }
 
@@ -241,7 +241,7 @@ pub fn track_output_usage(
         let parts: Vec<&str> = output_name.split(":").collect();
         if parts.len() != 3 {
             // This is only called from our specific internal route transform
-            warn!(message = "Failed to parse the route name for usage metrics.", %output_name);
+            trace!(message = "Failed to parse the route name for usage metrics.", %output_name);
             return;
         }
         UsageMetricsKey::new(
