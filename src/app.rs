@@ -262,17 +262,7 @@ impl Application {
 
     pub fn run(self) {
         let rt = self.runtime;
-
-        // Spawn a system thread outside of the tokio pool that puts a ready task
-        // into the execution queue that does nothing. This is the work around from
-        // the linked GitHub issue.
-        // See: https://github.com/tokio-rs/tokio/issues/4730
-        let monitor_rt = tokio::runtime::Handle::current();
-        std::thread::spawn(move || loop {
-            monitor_rt.spawn(std::future::ready(()));
-            std::thread::sleep(std::time::Duration::from_secs(3));
-        });
-
+    
         let mut graceful_crash = UnboundedReceiverStream::new(self.config.graceful_crash);
         let mut topology = self.config.topology;
 
