@@ -422,10 +422,15 @@ impl ReceivedMessage {
             // Using index-based for loop because rdkafka's `Headers` trait
             // does not provide Iterator-based API
             for i in 0..headers.count() {
-                if let Some(header) = headers.get(i) {
+                if let Some(header) = headers.try_get(i) {
+                    let value = if let Some(bytes) = header.value { 
+                        Bytes::from(bytes.to_owned()).into() 
+                    } else { 
+                        Value::Null 
+                    };
                     headers_map.insert(
-                        header.0.to_string(),
-                        Bytes::from(header.1.to_owned()).into(),
+                        header.key.to_string(),
+                        value,
                     );
                 }
             }
@@ -570,7 +575,7 @@ mod integration_test {
     use rdkafka::{
         config::{ClientConfig, FromClientConfig},
         consumer::BaseConsumer,
-        message::OwnedHeaders,
+        message::{Header, OwnedHeaders},
         producer::{FutureProducer, FutureRecord},
         util::Timeout,
         Offset, TopicPartitionList,
@@ -612,7 +617,7 @@ mod integration_test {
                 .payload(&text)
                 .key(key)
                 .timestamp(timestamp)
-                .headers(OwnedHeaders::new().add(header_key, header_value));
+                .headers(OwnedHeaders::new().insert(Header{ key: header_key, value: Some(header_value)}));
 
             if let Err(error) = producer.send(record, Timeout::Never).await {
                 panic!("Cannot send event to Kafka: {:?}", error);

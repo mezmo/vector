@@ -15,7 +15,7 @@ mod integration_test {
     use futures::StreamExt;
     use rdkafka::{
         consumer::{BaseConsumer, Consumer},
-        message::Headers,
+        message::{Headers, Header},
         Message, Offset, TopicPartitionList,
     };
     use vector_core::event::{BatchNotifier, BatchStatus};
@@ -320,9 +320,9 @@ mod integration_test {
                 Some(Ok(msg)) => {
                     let s: &str = msg.payload_view().unwrap().unwrap();
                     out.push(s.to_owned());
-                    let (header_key, header_val) = msg.headers().unwrap().get(0).unwrap();
+                    let Header { key: header_key, value: header_val} = msg.headers().unwrap().get(0);
                     assert_eq!(header_key, header_1_key);
-                    assert_eq!(header_val, header_1_value.as_bytes());
+                    assert_eq!(header_val.unwrap(), header_1_value.as_bytes());
                 }
                 None if out.len() >= input.len() => break,
                 _ => {
