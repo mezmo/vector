@@ -284,7 +284,7 @@ rand_distr = { version = "0.4.3", default-features = false }
 # https://github.com/fede1024/rust-rdkafka/pull/417. It include an incompatible
 # version of "zstd-sys" so the feature "ztd" is excluded.
 #rdkafka = { version = "0.28.0", default-features = false, features = ["tokio", "libz", "ssl", "zstd"], optional = true }
-rdkafka = { git = "https://github.com/fede1024/rust-rdkafka.git", tag = "v0.29.0", default-features = false, features = ["tokio", "libz", "ssl"], optional = true }
+rdkafka = { git = "https://github.com/answerbook/rust-rdkafka.git", branch = "fix-consumer-drop-hang", features = ["tokio", "libz", "ssl"], optional = true }
 
 redis = { version = "0.21.5", default-features = false, features = ["connection-manager", "tokio-comp", "tokio-native-tls-comp"], optional = true }
 regex = { version = "1.6.0", default-features = false, features = ["std", "perf"] }
