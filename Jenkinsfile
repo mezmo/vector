@@ -1,14 +1,8 @@
-library 'magic-butler-catalogue'
-
-def PROJECT_NAME = 'vector'
-def DEFAULT_BRANCH = 'master'
-def CURRENT_BRANCH = [env.CHANGE_BRANCH, env.BRANCH_NAME]?.find { branch -> branch != null }
-
 pipeline {
     agent {
         node {
             label "rust-x86_64"
-            customWorkspace "${PROJECT_NAME}-${BUILD_NUMBER}"
+            customWorkspace("/tmp/workspace/${env.BUILD_TAG}")
         }
     }
     options {
