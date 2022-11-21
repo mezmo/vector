@@ -1,4 +1,5 @@
 use std::sync::{Arc, RwLock};
+use std::str::FromStr;
 use std::time::Duration;
 
 pub use goauth::scopes::Scope;
@@ -65,9 +66,9 @@ pub enum GcpError {
 pub struct GcpAuthConfig {
     /// An API key. ([documentation](https://cloud.google.com/docs/authentication/api-keys))
     ///
-    /// Either an API key, or a path to a service account credentials JSON file can be specified.
+    /// Either an API key or JSON credentials (as a string, or a file path) can be specified.
     ///
-    /// If both are unset, Vector checks the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for a filename. If no
+    /// If all are unset, Vector checks the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for a filename. If no
     /// filename is named, Vector will attempt to fetch an instance service account for the compute instance the program is
     /// running on. If Vector is not running on a GCE instance, then you must define eith an API key or service account
     /// credentials JSON file.
@@ -75,13 +76,23 @@ pub struct GcpAuthConfig {
 
     /// Path to a service account credentials JSON file. ([documentation](https://cloud.google.com/docs/authentication/production#manually))
     ///
-    /// Either an API key, or a path to a service account credentials JSON file can be specified.
+    /// Either an API key or JSON credentials (as a string, or a file path) can be specified.
     ///
-    /// If both are unset, Vector checks the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for a filename. If no
+    /// If all are unset, Vector checks the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for a filename. If no
     /// filename is named, Vector will attempt to fetch an instance service account for the compute instance the program is
     /// running on. If Vector is not running on a GCE instance, then you must define eith an API key or service account
     /// credentials JSON file.
     pub credentials_path: Option<String>,
+
+    /// JSON Credentials as a string. ([documentation](https://cloud.google.com/docs/authentication/production#manually))
+    ///
+    /// Either an API key or JSON credentials (as a string, or a file path) can be specified.
+    ///
+    /// If all are unset, Vector checks the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for a filename. If no
+    /// filename is named, Vector will attempt to fetch an instance service account for the compute instance the program is
+    /// running on. If Vector is not running on a GCE instance, then you must define eith an API key or service account
+    /// credentials JSON file.
+    pub credentials_json: Option<String>,
 
     /// Skip all authentication handling. For use with integration tests only.
     #[serde(default, skip_serializing)]
@@ -93,12 +104,12 @@ impl GcpAuthConfig {
         Ok(if self.skip_authentication {
             GcpAuthenticator::None
         } else {
-            let gap = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").ok();
-            let creds_path = self.credentials_path.as_ref().or(gap.as_ref());
-            match (&creds_path, &self.api_key) {
-                (Some(path), _) => GcpAuthenticator::from_file(path, scope).await?,
-                (None, Some(api_key)) => GcpAuthenticator::from_api_key(api_key)?,
-                (None, None) => GcpAuthenticator::new_implicit().await?,
+            let creds_path = self.credentials_path.as_ref();
+            match (&creds_path, &self.credentials_json, &self.api_key) {
+                (Some(path), _, _) => GcpAuthenticator::from_file(path, scope).await?,
+                (None, Some(credentials_json), _) => GcpAuthenticator::from_str(credentials_json, scope).await?,
+                (None, None, Some(api_key)) => GcpAuthenticator::from_api_key(api_key)?,
+                (None, None, None) => GcpAuthenticator::None,
             }
         })
     }
@@ -125,9 +136,10 @@ impl GcpAuthenticator {
         Ok(Self::Credentials(Arc::new(InnerCreds { creds, token })))
     }
 
-    async fn new_implicit() -> crate::Result<Self> {
-        let token = RwLock::new(get_token_implicit().await?);
-        let creds = None;
+    async fn from_str(json_str: &str, scope: Scope) -> crate::Result<Self> {
+        let creds = Credentials::from_str(json_str).context(InvalidCredentialsSnafu)?;
+        let token = RwLock::new(fetch_token(&creds, &scope).await?);
+        let creds = Some((creds, scope));
         Ok(Self::Credentials(Arc::new(InnerCreds { creds, token })))
     }
 
@@ -324,11 +336,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn uses_credentials_json() {
+        let auth = GcpAuthenticator::from_str(r#"
+        {
+            "type": "service_account",
+            "project_id": "essential-topic-368917",
+            "private_key_id": "ca1b71ee693c444c8e6e641470e8bc35d1411964",
+            "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDcZAeDGq3NC8hV\nLMdpSNhMOdynPTPn1bdCui9IeqPNXM0JxHDJB7/GhpyjiJPjp2QK2sd+cC7oxrYS\nHrpJ3dJwhhMrI+cCQ3QPBHEPRdoG1T7P5twPl0zbOAbaBqAmds4kfykUoAMumb3n\nJ1RAZ25FXeRYYCYZ+dKdSo/Dha1eHgEZBylRWUqV2L6aG4wmoMcp4EcxR8CdWm3z\nB/lBVzFUle0fgkceT0OrCBrFvllkY1aecFWMGp1cdb0ooX+i5n1dtnLxM6X1dTcE\nstKCTGZ7c8SaZuucRGQr5e4chcT96ZLBz6C4ZelsgXPhdCNEe1Ntq+DglCi2cIbx\nr/f7bYPVAgMBAAECggEANbTQmdPOB7o30v3LCG6eexDcowqIlBXiB0o8zIJKWXik\nZJ1wyKRxSO0zzawyMddwSy7eT4MCA2qtIsRHLEn4hsA9epVQrZ4HccNo08p3Y5Pi\nryI4fTonGgLQtJ/JtiXcfUtZlPObYudHPkW4w8sQtam4RAsGLe1RtE/fsctpIJZm\nRqqMO190aqEj7jh/0Hq+163VAXc8fbz+Qi9ZDz7axWfV7WGVEMlG/cCDOj08uD5K\n1usg2DVIWjlhp9v0TD29bLYhVSjFel8dkvisV9PMO0oSiMgaRiXgQfh4oFFHgjgi\nmT83rtMwz6Oh581Wok5RaPrSz9EUALhlMagKWpeB7wKBgQD7JHM6tZVQKKi5Dm4G\nITMxoEIgRXtMrqA6ltbvIqMj0R7me/rkkmYxmbiG9ZIzuENBdxP3OcuQMb8u4Ewb\naRnfBWkVsnzspkCVXStLK3FFBmUZltCXR1vXdM0m/0FfQVKHC8E+9QQXpY9j/lxl\nXviE8Dx6R326cZYYjtKZzNRYiwKBgQDgp09qVXcGEhUr05BAxA7/IB3RA5EMSznk\nYTDqVwAg+CBXPWuhcMp7U0Ghy4AaRISie6L/mwJAu9tit+fPmskW4UQO8ah0koc5\ngEDG9egvkeO8VhbSSbOKnBt8ODjuWTyNxt/G7t1Cx7teVjaNNmOLpmUa6YaTjpMm\nLiPHDaLBHwKBgQDlpvI7+Ho+X7/R4XEY59khgzOUwRS8DV911CNdb6YRBZSlHTBT\nPdB3gOMtfnggFVpjDdnTFCWiiOsTmYXe9t/ygccTUTFNUcXzD8ycI3CjtvJSUQgT\nnexM/IDxLS+BRIGL/mLLCFCiswGJZbrl8897+RbEloVRLbccY9YPUC/JewKBgDhQ\nOEwDWG6hIcV2pvZVLx0sw8ydBEL8qGpjIovbeyDIkfLMZqp1R4xadl1EUbxD6KuC\nKn3AMXRgosHAL8+OkVG27gSA9yUhhdwYFiTJh4ZFH70aJ2ZXKzZXo1wkC8FThSZU\n78tCHRycTI99NPd45sMe1sFEQIPEfYZYkodXF7EpAoGABDOY+iD4OgEOAkjC8CNZ\nt4L+MgMRfw9QL17hPKeUnF9jL7idwjtFejZ+gEoa+u1dLjEEbyBPLggxbkhg2vHe\n+Y8N/NwmbJ8DqvyXBrKyye0BuVJ/H1uk77n1NLWmQn0K3DzfZmWUy/nP5+CX4Pqx\nkSSn1vL4ZJdLcgWSmtdqhHg=\n-----END PRIVATE KEY-----\n",
+            "client_email": "test-storage@essential-topic-368917.iam.gserviceaccount.com",
+            "client_id": "105388027426993183080",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-storage%40essential-topic-368917.iam.gserviceaccount.com"
+          }
+        "#, Scope::Compute)
+            .await
+            .expect("build_auth failed");
+        assert!(matches!(auth, GcpAuthenticator::Credentials(..)));
+    }
+
+    #[tokio::test]
     async fn fails_bad_api_key() {
         let error = build_auth(r#"api_key = "abc%xyz""#)
             .await
             .expect_err("build failed to error");
         assert_downcast_matches!(error, GcpError, GcpError::InvalidApiKey { .. });
+    }
+
+    #[tokio::test]
+    async fn fails_bad_credentials_json() {
+        let error = GcpAuthenticator::from_str(r#"
+        {
+            "type": "service_account",
+            "project_id": "test-project-id"
+        }
+    "#, Scope::Compute)
+            .await
+            .expect_err("build failed to error");
+        assert_downcast_matches!(error, GcpError, GcpError::InvalidCredentials { .. });
     }
 
     fn apply_uri(auth: &GcpAuthenticator, uri: &str) -> String {
