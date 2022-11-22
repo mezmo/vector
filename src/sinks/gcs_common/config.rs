@@ -101,24 +101,32 @@ pub enum GcsStorageClass {
 pub enum GcsError {
     #[snafu(display("Bucket {:?} not found", bucket))]
     BucketNotFound { bucket: String },
+
+    #[snafu(display("The authentication provided is invalid"))]
+    InvalidAuth,
 }
 
 pub fn build_healthcheck(
     bucket: String,
     client: HttpClient,
     base_url: String,
-    auth: GcpAuthenticator,
+    auth: Option<GcpAuthenticator>,
 ) -> crate::Result<Healthcheck> {
     let healthcheck = async move {
         let uri = base_url.parse::<Uri>()?;
         let mut request = http::Request::head(uri).body(Body::empty())?;
 
-        auth.apply(&mut request);
+        match auth {
+            Some(auth) => {
+                auth.apply(&mut request);
 
-        let not_found_error = GcsError::BucketNotFound { bucket }.into();
+                let not_found_error = GcsError::BucketNotFound { bucket }.into();
 
-        let response = client.send(request).await?;
-        healthcheck_response(response, auth, not_found_error)
+                let response = client.send(request).await?;
+                healthcheck_response(response, auth, not_found_error)
+            }
+            None => Err(GcsError::InvalidAuth.into()),
+        }
     };
 
     Ok(healthcheck.boxed())
@@ -156,16 +164,20 @@ impl RetryLogic for GcsRetryLogic {
     }
 
     fn should_retry_response(&self, response: &Self::Response) -> RetryAction {
-        let status = response.inner.status();
+        if let Some(inner) = &response.inner {
+            let status = inner.status();
 
-        match status {
-            StatusCode::TOO_MANY_REQUESTS => RetryAction::Retry("too many requests".into()),
-            StatusCode::NOT_IMPLEMENTED => {
-                RetryAction::DontRetry("endpoint not implemented".into())
-            }
-            _ if status.is_server_error() => RetryAction::Retry(status.to_string().into()),
-            _ if status.is_success() => RetryAction::Successful,
-            _ => RetryAction::DontRetry(format!("response status: {}", status).into()),
+            return match status {
+                StatusCode::TOO_MANY_REQUESTS => RetryAction::Retry("too many requests".into()),
+                StatusCode::NOT_IMPLEMENTED => {
+                    RetryAction::DontRetry("endpoint not implemented".into())
+                }
+                _ if status.is_server_error() => RetryAction::Retry(status.to_string().into()),
+                _ if status.is_success() => RetryAction::Successful,
+                _ => RetryAction::DontRetry(format!("response status: {}", status).into()),
+            };
         }
+
+        RetryAction::DontRetry("response unavilable".to_string().into())
     }
 }

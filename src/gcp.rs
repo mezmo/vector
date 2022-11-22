@@ -336,27 +336,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn uses_credentials_json() {
-        let auth = GcpAuthenticator::from_str(r#"
-        {
-            "type": "service_account",
-            "project_id": "essential-topic-368917",
-            "private_key_id": "ca1b71ee693c444c8e6e641470e8bc35d1411964",
-            "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDcZAeDGq3NC8hV\nLMdpSNhMOdynPTPn1bdCui9IeqPNXM0JxHDJB7/GhpyjiJPjp2QK2sd+cC7oxrYS\nHrpJ3dJwhhMrI+cCQ3QPBHEPRdoG1T7P5twPl0zbOAbaBqAmds4kfykUoAMumb3n\nJ1RAZ25FXeRYYCYZ+dKdSo/Dha1eHgEZBylRWUqV2L6aG4wmoMcp4EcxR8CdWm3z\nB/lBVzFUle0fgkceT0OrCBrFvllkY1aecFWMGp1cdb0ooX+i5n1dtnLxM6X1dTcE\nstKCTGZ7c8SaZuucRGQr5e4chcT96ZLBz6C4ZelsgXPhdCNEe1Ntq+DglCi2cIbx\nr/f7bYPVAgMBAAECggEANbTQmdPOB7o30v3LCG6eexDcowqIlBXiB0o8zIJKWXik\nZJ1wyKRxSO0zzawyMddwSy7eT4MCA2qtIsRHLEn4hsA9epVQrZ4HccNo08p3Y5Pi\nryI4fTonGgLQtJ/JtiXcfUtZlPObYudHPkW4w8sQtam4RAsGLe1RtE/fsctpIJZm\nRqqMO190aqEj7jh/0Hq+163VAXc8fbz+Qi9ZDz7axWfV7WGVEMlG/cCDOj08uD5K\n1usg2DVIWjlhp9v0TD29bLYhVSjFel8dkvisV9PMO0oSiMgaRiXgQfh4oFFHgjgi\nmT83rtMwz6Oh581Wok5RaPrSz9EUALhlMagKWpeB7wKBgQD7JHM6tZVQKKi5Dm4G\nITMxoEIgRXtMrqA6ltbvIqMj0R7me/rkkmYxmbiG9ZIzuENBdxP3OcuQMb8u4Ewb\naRnfBWkVsnzspkCVXStLK3FFBmUZltCXR1vXdM0m/0FfQVKHC8E+9QQXpY9j/lxl\nXviE8Dx6R326cZYYjtKZzNRYiwKBgQDgp09qVXcGEhUr05BAxA7/IB3RA5EMSznk\nYTDqVwAg+CBXPWuhcMp7U0Ghy4AaRISie6L/mwJAu9tit+fPmskW4UQO8ah0koc5\ngEDG9egvkeO8VhbSSbOKnBt8ODjuWTyNxt/G7t1Cx7teVjaNNmOLpmUa6YaTjpMm\nLiPHDaLBHwKBgQDlpvI7+Ho+X7/R4XEY59khgzOUwRS8DV911CNdb6YRBZSlHTBT\nPdB3gOMtfnggFVpjDdnTFCWiiOsTmYXe9t/ygccTUTFNUcXzD8ycI3CjtvJSUQgT\nnexM/IDxLS+BRIGL/mLLCFCiswGJZbrl8897+RbEloVRLbccY9YPUC/JewKBgDhQ\nOEwDWG6hIcV2pvZVLx0sw8ydBEL8qGpjIovbeyDIkfLMZqp1R4xadl1EUbxD6KuC\nKn3AMXRgosHAL8+OkVG27gSA9yUhhdwYFiTJh4ZFH70aJ2ZXKzZXo1wkC8FThSZU\n78tCHRycTI99NPd45sMe1sFEQIPEfYZYkodXF7EpAoGABDOY+iD4OgEOAkjC8CNZ\nt4L+MgMRfw9QL17hPKeUnF9jL7idwjtFejZ+gEoa+u1dLjEEbyBPLggxbkhg2vHe\n+Y8N/NwmbJ8DqvyXBrKyye0BuVJ/H1uk77n1NLWmQn0K3DzfZmWUy/nP5+CX4Pqx\nkSSn1vL4ZJdLcgWSmtdqhHg=\n-----END PRIVATE KEY-----\n",
-            "client_email": "test-storage@essential-topic-368917.iam.gserviceaccount.com",
-            "client_id": "105388027426993183080",
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/test-storage%40essential-topic-368917.iam.gserviceaccount.com"
-          }
-        "#, Scope::Compute)
-            .await
-            .expect("build_auth failed");
-        assert!(matches!(auth, GcpAuthenticator::Credentials(..)));
-    }
-
-    #[tokio::test]
     async fn fails_bad_api_key() {
         let error = build_auth(r#"api_key = "abc%xyz""#)
             .await

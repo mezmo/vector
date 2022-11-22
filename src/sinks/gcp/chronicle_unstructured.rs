@@ -2,6 +2,7 @@
 //! See https://cloud.google.com/chronicle/docs/reference/ingestion-api#unstructuredlogentries
 //! for more information.
 use bytes::{Bytes, BytesMut};
+use futures::future;
 use futures_util::{future::BoxFuture, task::Poll};
 use goauth::scopes::Scope;
 use http::{header::HeaderValue, Request, Uri};
@@ -53,6 +54,9 @@ pub enum GcsHealthcheckError {
 
     #[snafu(display("Endpoint not found"))]
     NotFound,
+
+    #[snafu(display("The authentication provided is invalid"))]
+    InvalidAuth,
 }
 
 /// Google Chronicle regions.
@@ -163,16 +167,22 @@ impl GenerateConfig for ChronicleUnstructuredConfig {
 pub fn build_healthcheck(
     client: HttpClient,
     base_url: &str,
-    auth: GcpAuthenticator,
+    auth: Option<GcpAuthenticator>,
 ) -> crate::Result<Healthcheck> {
     let uri = base_url.parse::<Uri>()?;
 
     let healthcheck = async move {
         let mut request = http::Request::get(&uri).body(Body::empty())?;
-        auth.apply(&mut request);
 
-        let response = client.send(request).await?;
-        healthcheck_response(response, auth, GcsHealthcheckError::NotFound.into())
+        match auth {
+            Some(auth) => {
+                auth.apply(&mut request);
+
+                let response = client.send(request).await?;
+                healthcheck_response(response, auth, GcsHealthcheckError::NotFound.into())
+            }
+            None => Err(GcsHealthcheckError::InvalidAuth.into()),
+        }
     };
 
     Ok(Box::pin(healthcheck))
@@ -190,7 +200,14 @@ pub enum ChronicleError {
 #[typetag::serde(name = "gcp_chronicle_unstructured")]
 impl SinkConfig for ChronicleUnstructuredConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
-        let creds = self.auth.build(Scope::MalachiteIngestion).await?;
+        // Unlike Vector's upstream behavior, if the initial `auth` result is an error
+        // we should continue building the topology. Convert the result into an option
+        // that can be shared with consumers, while logging the error in-place.
+        let auth = self.auth.build(Scope::MalachiteIngestion).await;
+        if let Err(err) = &auth {
+            warn!("Invalid authentication: {}", err)
+        }
+        let auth = auth.ok();
 
         let tls = TlsSettings::from_options(&self.tls)?;
         let client = HttpClient::new(tls, cx.proxy())?;
@@ -200,8 +217,8 @@ impl SinkConfig for ChronicleUnstructuredConfig {
         // For the healthcheck we see if we can fetch the list of available log types.
         let healthcheck_endpoint = self.create_endpoint("v2/logtypes")?;
 
-        let healthcheck = build_healthcheck(client.clone(), &healthcheck_endpoint, creds.clone())?;
-        let sink = self.build_sink(client, endpoint, creds)?;
+        let healthcheck = build_healthcheck(client.clone(), &healthcheck_endpoint, auth.clone())?;
+        let sink = self.build_sink(client, endpoint, auth)?;
 
         Ok((sink, healthcheck))
     }
@@ -224,7 +241,7 @@ impl ChronicleUnstructuredConfig {
         &self,
         client: HttpClient,
         base_url: String,
-        creds: GcpAuthenticator,
+        auth: Option<GcpAuthenticator>,
     ) -> crate::Result<VectorSink> {
         use crate::sinks::util::service::ServiceBuilderExt;
 
@@ -239,7 +256,7 @@ impl ChronicleUnstructuredConfig {
 
         let svc = ServiceBuilder::new()
             .settings(request, GcsRetryLogic)
-            .service(ChronicleService::new(client, base_url, creds));
+            .service(ChronicleService::new(client, base_url, auth));
 
         let request_settings = RequestSettings::new(self)?;
 
@@ -421,15 +438,15 @@ impl RequestSettings {
 pub struct ChronicleService {
     client: HttpClient,
     base_url: String,
-    creds: GcpAuthenticator,
+    auth: Option<GcpAuthenticator>,
 }
 
 impl ChronicleService {
-    pub const fn new(client: HttpClient, base_url: String, creds: GcpAuthenticator) -> Self {
+    pub const fn new(client: HttpClient, base_url: String, auth: Option<GcpAuthenticator>) -> Self {
         Self {
             client,
             base_url,
-            creds,
+            auth,
         }
     }
 }
@@ -456,13 +473,25 @@ impl Service<ChronicleRequest> for ChronicleService {
         );
 
         let mut http_request = builder.body(Body::from(request.body)).unwrap();
-        self.creds.apply(&mut http_request);
+
+        match &self.auth {
+            Some(auth) => {
+                auth.apply(&mut http_request);
+            }
+            None => {
+                return Box::pin(future::ok(GcsResponse {
+                    inner: None,
+                    protocol: "http",
+                    metadata: request.metadata,
+                }));
+            }
+        }
 
         let mut client = self.client.clone();
         Box::pin(async move {
             let result = client.call(http_request).await;
             result.map(|inner| GcsResponse {
-                inner,
+                inner: Some(inner),
                 protocol: "http",
                 metadata: request.metadata,
             })

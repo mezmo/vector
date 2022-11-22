@@ -1,6 +1,7 @@
 use std::task::Poll;
 
 use bytes::Bytes;
+use futures::future;
 use futures::future::BoxFuture;
 use http::{
     header::{HeaderName, HeaderValue},
@@ -22,11 +23,15 @@ use crate::{
 pub struct GcsService {
     client: HttpClient,
     base_url: String,
-    auth: GcpAuthenticator,
+    auth: Option<GcpAuthenticator>,
 }
 
 impl GcsService {
-    pub const fn new(client: HttpClient, base_url: String, auth: GcpAuthenticator) -> GcsService {
+    pub const fn new(
+        client: HttpClient,
+        base_url: String,
+        auth: Option<GcpAuthenticator>,
+    ) -> GcsService {
         GcsService {
             client,
             base_url,
@@ -64,19 +69,24 @@ pub struct GcsRequestSettings {
 
 #[derive(Debug)]
 pub struct GcsResponse {
-    pub inner: http::Response<Body>,
+    pub inner: Option<http::Response<Body>>,
     pub protocol: &'static str,
     pub metadata: RequestMetadata,
 }
 
 impl DriverResponse for GcsResponse {
     fn event_status(&self) -> EventStatus {
-        if self.inner.status().is_success() {
-            EventStatus::Delivered
-        } else if self.inner.status().is_server_error() {
-            EventStatus::Errored
-        } else {
-            EventStatus::Rejected
+        match &self.inner {
+            Some(inner) => {
+                if inner.status().is_success() {
+                    EventStatus::Delivered
+                } else if inner.status().is_server_error() {
+                    EventStatus::Errored
+                } else {
+                    EventStatus::Rejected
+                }
+            }
+            None => EventStatus::Rejected,
         }
     }
 
@@ -131,13 +141,25 @@ impl Service<GcsRequest> for GcsService {
         }
 
         let mut http_request = builder.body(Body::from(request.body)).unwrap();
-        self.auth.apply(&mut http_request);
+
+        match &self.auth {
+            Some(auth) => {
+                auth.apply(&mut http_request);
+            }
+            None => {
+                return Box::pin(future::ok(GcsResponse {
+                    inner: None,
+                    protocol,
+                    metadata,
+                }));
+            }
+        }
 
         let mut client = self.client.clone();
         Box::pin(async move {
             let result = client.call(http_request).await;
             result.map(|inner| GcsResponse {
-                inner,
+                inner: Some(inner),
                 protocol,
                 metadata,
             })
