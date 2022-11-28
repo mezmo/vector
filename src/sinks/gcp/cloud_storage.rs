@@ -192,7 +192,15 @@ impl GenerateConfig for GcsSinkConfig {
 #[typetag::serde(name = "gcp_cloud_storage")]
 impl SinkConfig for GcsSinkConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
-        let auth = self.auth.build(Scope::DevStorageReadWrite).await?;
+        // Unlike Vector's upstream behavior, if the initial `auth` result is an error
+        // we should continue building the topology. Convert the result into an option
+        // that can be shared with consumers, while logging the error in-place.
+        let auth = self.auth.build(Scope::DevStorageReadWrite).await;
+        if let Err(err) = &auth {
+            warn!("Invalid authentication: {}", err)
+        }
+        let auth = auth.ok();
+
         let base_url = format!("{}{}/", BASE_URL, self.bucket);
         let tls = TlsSettings::from_options(&self.tls)?;
         let client = HttpClient::new(tls, cx.proxy())?;
@@ -225,7 +233,7 @@ impl GcsSinkConfig {
         &self,
         client: HttpClient,
         base_url: String,
-        auth: GcpAuthenticator,
+        auth: Option<GcpAuthenticator>,
     ) -> crate::Result<VectorSink> {
         let request = self.request.unwrap_with(&TowerRequestConfig {
             rate_limit_num: Some(1000),
@@ -424,7 +432,11 @@ mod tests {
 
         let config = default_config((None::<FramingConfig>, JsonSerializerConfig::new()).into());
         let sink = config
-            .build_sink(client, mock_endpoint.to_string(), GcpAuthenticator::None)
+            .build_sink(
+                client,
+                mock_endpoint.to_string(),
+                Some(GcpAuthenticator::None),
+            )
             .expect("failed to build sink");
 
         let event = Event::Log(LogEvent::from("simple message"));

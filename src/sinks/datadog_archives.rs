@@ -322,7 +322,12 @@ impl DatadogArchivesSinkConfig {
                     .gcp_cloud_storage
                     .as_ref()
                     .expect("gcs config wasn't provided");
-                let auth = gcs_config.auth.build(Scope::DevStorageReadWrite).await?;
+                let auth = gcs_config.auth.build(Scope::DevStorageReadWrite).await;
+                if let Err(err) = &auth {
+                    warn!("Invalid authentication: {}", err)
+                }
+
+                let auth = auth.ok();
                 let base_url = format!("{}{}/", BASE_URL, self.bucket);
                 let tls = TlsSettings::from_options(&self.tls)?;
                 let client = HttpClient::new(tls, cx.proxy())?;
@@ -392,7 +397,7 @@ impl DatadogArchivesSinkConfig {
         &self,
         client: HttpClient,
         base_url: String,
-        auth: GcpAuthenticator,
+        auth: Option<GcpAuthenticator>,
     ) -> crate::Result<VectorSink> {
         let request = self.request.unwrap_with(&Default::default());
 

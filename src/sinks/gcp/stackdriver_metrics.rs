@@ -93,7 +93,14 @@ inventory::submit! {
 #[typetag::serde(name = "gcp_stackdriver_metrics")]
 impl SinkConfig for StackdriverConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
-        let auth = self.auth.build(Scope::MonitoringWrite).await?;
+        // Unlike Vector's upstream behavior, if the initial `auth` result is an error
+        // we should continue building the topology. Convert the result into an option
+        // that can be shared with consumers, while logging the error in-place.
+        let auth = self.auth.build(Scope::MonitoringWrite).await;
+        if let Err(err) = &auth {
+            warn!("Invalid authentication: {}", err)
+        }
+        let auth = auth.ok();
 
         let healthcheck = healthcheck().boxed();
         let started = chrono::Utc::now();
@@ -142,7 +149,7 @@ impl SinkConfig for StackdriverConfig {
 struct HttpEventSink {
     config: StackdriverConfig,
     started: DateTime<Utc>,
-    auth: GcpAuthenticator,
+    auth: Option<GcpAuthenticator>,
 }
 
 struct StackdriverMetricsEncoder;
@@ -247,7 +254,10 @@ impl HttpSink for HttpEventSink {
         let mut request = hyper::Request::post(uri)
             .header("content-type", "application/json")
             .body(body)?;
-        self.auth.apply(&mut request);
+
+        if let Some(auth) = &self.auth {
+            auth.apply(&mut request);
+        };
 
         Ok(request)
     }

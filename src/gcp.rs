@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -15,10 +16,7 @@ use snafu::{ResultExt, Snafu};
 use tokio::{sync::watch, time::Instant};
 use vector_config::configurable_component;
 
-use crate::{config::ProxyConfig, http::HttpClient, http::HttpError};
-
-const SERVICE_ACCOUNT_TOKEN_URL: &str =
-    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
+use crate::http::HttpError;
 
 pub const PUBSUB_URL: &str = "https://pubsub.googleapis.com";
 
@@ -43,8 +41,6 @@ pub enum GcpError {
     GetToken { source: GoErr },
     #[snafu(display("Failed to get OAuth token text: {}", source))]
     GetTokenBytes { source: hyper::Error },
-    #[snafu(display("Failed to get implicit GCP token: {}", source))]
-    GetImplicitToken { source: HttpError },
     #[snafu(display("Failed to parse OAuth token JSON: {}", source))]
     TokenFromJson { source: TokenErr },
     #[snafu(display("Failed to parse OAuth token JSON text: {}", source))]
@@ -65,9 +61,9 @@ pub enum GcpError {
 pub struct GcpAuthConfig {
     /// An API key. ([documentation](https://cloud.google.com/docs/authentication/api-keys))
     ///
-    /// Either an API key, or a path to a service account credentials JSON file can be specified.
+    /// Either an API key or JSON credentials (as a string, or a file path) can be specified.
     ///
-    /// If both are unset, Vector checks the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for a filename. If no
+    /// If all are unset, Vector checks the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for a filename. If no
     /// filename is named, Vector will attempt to fetch an instance service account for the compute instance the program is
     /// running on. If Vector is not running on a GCE instance, then you must define eith an API key or service account
     /// credentials JSON file.
@@ -75,13 +71,23 @@ pub struct GcpAuthConfig {
 
     /// Path to a service account credentials JSON file. ([documentation](https://cloud.google.com/docs/authentication/production#manually))
     ///
-    /// Either an API key, or a path to a service account credentials JSON file can be specified.
+    /// Either an API key or JSON credentials (as a string, or a file path) can be specified.
     ///
-    /// If both are unset, Vector checks the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for a filename. If no
+    /// If all are unset, Vector checks the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for a filename. If no
     /// filename is named, Vector will attempt to fetch an instance service account for the compute instance the program is
     /// running on. If Vector is not running on a GCE instance, then you must define eith an API key or service account
     /// credentials JSON file.
     pub credentials_path: Option<String>,
+
+    /// JSON Credentials as a string. ([documentation](https://cloud.google.com/docs/authentication/production#manually))
+    ///
+    /// Either an API key or JSON credentials (as a string, or a file path) can be specified.
+    ///
+    /// If all are unset, Vector checks the `GOOGLE_APPLICATION_CREDENTIALS` environment variable for a filename. If no
+    /// filename is named, Vector will attempt to fetch an instance service account for the compute instance the program is
+    /// running on. If Vector is not running on a GCE instance, then you must define eith an API key or service account
+    /// credentials JSON file.
+    pub credentials_json: Option<String>,
 
     /// Skip all authentication handling. For use with integration tests only.
     #[serde(default, skip_serializing)]
@@ -93,12 +99,14 @@ impl GcpAuthConfig {
         Ok(if self.skip_authentication {
             GcpAuthenticator::None
         } else {
-            let gap = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").ok();
-            let creds_path = self.credentials_path.as_ref().or(gap.as_ref());
-            match (&creds_path, &self.api_key) {
-                (Some(path), _) => GcpAuthenticator::from_file(path, scope).await?,
-                (None, Some(api_key)) => GcpAuthenticator::from_api_key(api_key)?,
-                (None, None) => GcpAuthenticator::new_implicit().await?,
+            let creds_path = self.credentials_path.as_ref();
+            match (&creds_path, &self.credentials_json, &self.api_key) {
+                (Some(path), _, _) => GcpAuthenticator::from_file(path, scope).await?,
+                (None, Some(credentials_json), _) => {
+                    GcpAuthenticator::from_str(credentials_json, scope).await?
+                }
+                (None, None, Some(api_key)) => GcpAuthenticator::from_api_key(api_key)?,
+                (None, None, None) => GcpAuthenticator::None,
             }
         })
     }
@@ -125,9 +133,10 @@ impl GcpAuthenticator {
         Ok(Self::Credentials(Arc::new(InnerCreds { creds, token })))
     }
 
-    async fn new_implicit() -> crate::Result<Self> {
-        let token = RwLock::new(get_token_implicit().await?);
-        let creds = None;
+    async fn from_str(json_str: &str, scope: Scope) -> crate::Result<Self> {
+        let creds = Credentials::from_str(json_str).context(InvalidCredentialsSnafu)?;
+        let token = RwLock::new(fetch_token(&creds, &scope).await?);
+        let creds = Some((creds, scope));
         Ok(Self::Credentials(Arc::new(InnerCreds { creds, token })))
     }
 
@@ -211,11 +220,11 @@ impl GcpAuthenticator {
 
 impl InnerCreds {
     async fn regenerate_token(&self) -> crate::Result<()> {
-        let token = match &self.creds {
-            Some((creds, scope)) => fetch_token(creds, scope).await?,
-            None => get_token_implicit().await?,
+        if let Some((creds, scope)) = &self.creds {
+            let token = fetch_token(creds, scope).await?;
+            *self.token.write().unwrap() = token;
         };
-        *self.token.write().unwrap() = token;
+
         Ok(())
     }
 
@@ -242,46 +251,10 @@ async fn fetch_token(creds: &Credentials, scope: &Scope) -> crate::Result<Token>
         .map_err(Into::into)
 }
 
-async fn get_token_implicit() -> Result<Token, GcpError> {
-    debug!("Fetching implicit GCP authentication token.");
-    let req = http::Request::get(SERVICE_ACCOUNT_TOKEN_URL)
-        .header("Metadata-Flavor", "Google")
-        .body(hyper::Body::empty())
-        .unwrap();
-
-    let proxy = ProxyConfig::from_env();
-    let res = HttpClient::new(None, &proxy)
-        .context(BuildHttpClientSnafu)?
-        .send(req)
-        .await
-        .context(GetImplicitTokenSnafu)?;
-
-    let body = res.into_body();
-    let bytes = hyper::body::to_bytes(body)
-        .await
-        .context(GetTokenBytesSnafu)?;
-
-    // Token::from_str is irresponsible and may panic!
-    match serde_json::from_slice::<Token>(&bytes) {
-        Ok(token) => Ok(token),
-        Err(error) => Err(match serde_json::from_slice::<TokenErr>(&bytes) {
-            Ok(error) => GcpError::TokenFromJson { source: error },
-            Err(_) => GcpError::TokenJsonFromStr { source: error },
-        }),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::assert_downcast_matches;
-
-    #[tokio::test]
-    async fn fails_missing_creds() {
-        let error = build_auth("").await.expect_err("build failed to error");
-        assert_downcast_matches!(error, GcpError, GcpError::GetImplicitToken { .. });
-        // This should be a more relevant error
-    }
 
     #[tokio::test]
     async fn skip_authentication() {
@@ -329,6 +302,22 @@ mod tests {
             .await
             .expect_err("build failed to error");
         assert_downcast_matches!(error, GcpError, GcpError::InvalidApiKey { .. });
+    }
+
+    #[tokio::test]
+    async fn fails_bad_credentials_json() {
+        let error = GcpAuthenticator::from_str(
+            r#"
+        {
+            "type": "service_account",
+            "project_id": "test-project-id"
+        }
+    "#,
+            Scope::Compute,
+        )
+        .await
+        .expect_err("build failed to error");
+        assert_downcast_matches!(error, GcpError, GcpError::InvalidCredentials { .. });
     }
 
     fn apply_uri(auth: &GcpAuthenticator, uri: &str) -> String {

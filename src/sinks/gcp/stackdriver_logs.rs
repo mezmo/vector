@@ -31,6 +31,9 @@ use crate::{
 enum HealthcheckError {
     #[snafu(display("Resource not found"))]
     NotFound,
+
+    #[snafu(display("The authentication provided is invalid"))]
+    InvalidAuth,
 }
 
 /// Configuration for the `gcp_stackdriver_logs` sink.
@@ -105,7 +108,7 @@ fn default_endpoint() -> String {
 #[derive(Clone, Debug)]
 struct StackdriverSink {
     config: StackdriverConfig,
-    auth: GcpAuthenticator,
+    auth: Option<GcpAuthenticator>,
     severity_key: Option<String>,
     uri: Uri,
 }
@@ -182,7 +185,14 @@ impl_generate_config_from_default!(StackdriverConfig);
 #[typetag::serde(name = "gcp_stackdriver_logs")]
 impl SinkConfig for StackdriverConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
-        let auth = self.auth.build(Scope::LoggingWrite).await?;
+        // Unlike Vector's upstream behavior, if the initial `auth` result is an error
+        // we should continue building the topology. Convert the result into an option
+        // that can be shared with consumers, while logging the error in-place.
+        let auth = self.auth.build(Scope::LoggingWrite).await;
+        if let Err(err) = &auth {
+            warn!("Invalid authentication: {}", err)
+        }
+        let auth = auth.ok();
 
         let batch = self
             .batch
@@ -320,7 +330,10 @@ impl HttpSink for StackdriverSink {
             .header("Content-Type", "application/json")
             .body(body)
             .unwrap();
-        self.auth.apply(&mut request);
+
+        if let Some(auth) = &self.auth {
+            auth.apply(&mut request);
+        };
 
         Ok(request)
     }
@@ -369,12 +382,13 @@ fn remap_severity(severity: Value) -> Value {
 async fn healthcheck(client: HttpClient, sink: StackdriverSink) -> crate::Result<()> {
     let request = sink.build_request(vec![]).await?.map(Body::from);
 
-    let response = client.send(request).await?;
-    healthcheck_response(
-        response,
-        sink.auth.clone(),
-        HealthcheckError::NotFound.into(),
-    )
+    match sink.auth {
+        Some(auth) => {
+            let response = client.send(request).await?;
+            healthcheck_response(response, auth.clone(), HealthcheckError::NotFound.into())
+        }
+        None => Err(HealthcheckError::InvalidAuth.into()),
+    }
 }
 
 impl StackdriverConfig {
@@ -449,7 +463,7 @@ mod tests {
 
         let sink = StackdriverSink {
             config,
-            auth: GcpAuthenticator::None,
+            auth: Some(GcpAuthenticator::None),
             severity_key: Some("anumber".into()),
             uri: default_endpoint().parse().unwrap(),
         };
@@ -491,7 +505,7 @@ mod tests {
 
         let sink = StackdriverSink {
             config,
-            auth: GcpAuthenticator::None,
+            auth: Some(GcpAuthenticator::None),
             severity_key: Some("anumber".into()),
             uri: default_endpoint().parse().unwrap(),
         };
@@ -560,7 +574,7 @@ mod tests {
 
         let sink = StackdriverSink {
             config,
-            auth: GcpAuthenticator::None,
+            auth: Some(GcpAuthenticator::None),
             severity_key: None,
             uri: default_endpoint().parse().unwrap(),
         };
@@ -624,15 +638,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fails_missing_creds() {
+    async fn fails_invalid_creds() {
         let config: StackdriverConfig = toml::from_str(indoc! {r#"
             project_id = "project"
             log_id = "testlogs"
+            api_key = "this is not valid"
             resource.type = "generic_node"
             resource.namespace = "office"
         "#})
         .unwrap();
-        if config.build(SinkContext::new_test()).await.is_ok() {
+        if config.auth.build(Scope::LoggingWrite).await.is_ok() {
             panic!("config.build failed to error");
         }
     }

@@ -32,6 +32,9 @@ use crate::{
 enum HealthcheckError {
     #[snafu(display("Configured topic not found"))]
     TopicNotFound,
+
+    #[snafu(display("The authentication provided is invalid"))]
+    InvalidAuth,
 }
 
 // 10MB maximum message size: https://cloud.google.com/pubsub/quotas#resource_limits
@@ -144,7 +147,7 @@ impl SinkConfig for PubsubConfig {
 }
 
 struct PubsubSink {
-    auth: GcpAuthenticator,
+    auth: Option<GcpAuthenticator>,
     uri_base: String,
     transformer: Transformer,
     encoder: Encoder<()>,
@@ -153,7 +156,15 @@ struct PubsubSink {
 impl PubsubSink {
     async fn from_config(config: &PubsubConfig) -> crate::Result<Self> {
         // We only need to load the credentials if we are not targeting an emulator.
-        let auth = config.auth.build(Scope::PubSub).await?;
+
+        // Unlike Vector's upstream behavior, if the initial `auth` result is an error
+        // we should continue building the topology. Convert the result into an option
+        // that can be shared with consumers, while logging the error in-place.
+        let auth = config.auth.build(Scope::PubSub).await;
+        if let Err(err) = &auth {
+            warn!("Invalid authentication: {}", err)
+        }
+        let auth = auth.ok();
 
         let uri_base = match config.endpoint.as_ref() {
             Some(host) => host.to_string(),
@@ -179,8 +190,14 @@ impl PubsubSink {
     fn uri(&self, suffix: &str) -> crate::Result<Uri> {
         let uri = format!("{}{}", self.uri_base, suffix);
         let mut uri = uri.parse::<Uri>().context(UriParseSnafu)?;
-        self.auth.apply_uri(&mut uri);
-        Ok(uri)
+
+        match &self.auth {
+            Some(auth) => {
+                auth.apply_uri(&mut uri);
+                Ok(uri)
+            }
+            None => Ok(uri),
+        }
     }
 }
 
@@ -222,18 +239,31 @@ impl HttpSink for PubsubSink {
         let builder = Request::post(uri).header("Content-Type", "application/json");
 
         let mut request = builder.body(body).unwrap();
-        self.auth.apply(&mut request);
+
+        if let Some(auth) = &self.auth {
+            auth.apply(&mut request);
+        };
 
         Ok(request)
     }
 }
 
-async fn healthcheck(client: HttpClient, uri: Uri, auth: GcpAuthenticator) -> crate::Result<()> {
+async fn healthcheck(
+    client: HttpClient,
+    uri: Uri,
+    auth: Option<GcpAuthenticator>,
+) -> crate::Result<()> {
     let mut request = Request::get(uri).body(Body::empty()).unwrap();
-    auth.apply(&mut request);
 
-    let response = client.send(request).await?;
-    healthcheck_response(response, auth, HealthcheckError::TopicNotFound.into())
+    match auth {
+        Some(auth) => {
+            auth.apply(&mut request);
+
+            let response = client.send(request).await?;
+            healthcheck_response(response, auth, HealthcheckError::TopicNotFound.into())
+        }
+        None => Err(HealthcheckError::InvalidAuth.into()),
+    }
 }
 
 #[cfg(test)]
@@ -248,15 +278,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fails_missing_creds() {
+    async fn fails_invalid_creds() {
         let config: PubsubConfig = toml::from_str(indoc! {r#"
                 project = "project"
                 topic = "topic"
+                api_key = "this is not valid"
                 encoding.codec = "json"
             "#})
         .unwrap();
-        if config.build(SinkContext::new_test()).await.is_ok() {
-            panic!("config.build failed to error");
+
+        if config.auth.build(Scope::PubSub).await.is_ok() {
+            panic!("config.auth.build failed to error");
         }
     }
 }
