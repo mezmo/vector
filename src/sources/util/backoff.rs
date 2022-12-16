@@ -41,6 +41,8 @@ pub struct LogBackoff {
 }
 
 impl LogBackoff {
+    // unused in tests and only relevant outside of this module
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             interval: LOGGING_INTERVAL,
