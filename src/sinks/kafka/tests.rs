@@ -94,6 +94,9 @@ mod integration_test {
         kafka_happy_path(kafka_address(9091), None, None, KafkaCompression::Snappy).await;
     }
 
+    // rdkafka zstd feature is not enabled
+    // https://github.com/answerbook/vector/blob/bda2442c3481ee8693f703f6ef1bcc7a029d791a/Cargo.toml#L283-L287
+    #[cfg(feature = "kafka-rdkafka-zstd")]
     #[tokio::test]
     async fn kafka_happy_path_zstd() {
         crate::test_util::trace_init();

@@ -648,7 +648,7 @@ mod integration_test {
     async fn send_receive(
         acknowledgements: bool,
         error_at: impl Fn(usize) -> bool,
-        receive_count: usize,
+        _receive_count: usize,
     ) {
         const SEND_COUNT: usize = 10;
 
@@ -700,11 +700,16 @@ mod integration_test {
         let tpl = client
             .committed_offsets(tpl, Duration::from_secs(1))
             .expect("Getting committed offsets failed");
+
+        // LOG-15410: This assertion no longer holds true with the changes
+        // we've implemented in our fork of rust-rdkafka, since the offsets
+        // are not written to the broker when the consumer is dropped on shutdown.
         assert_eq!(
             tpl.find_partition(&topic, 0)
                 .expect("TPL is missing topic")
                 .offset(),
-            Offset::from_raw(receive_count as i64)
+            // Offset::from_raw(receive_count as i64)
+            Offset::Invalid
         );
 
         assert_eq!(events.len(), SEND_COUNT);
