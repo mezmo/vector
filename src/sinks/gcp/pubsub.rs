@@ -10,10 +10,7 @@ use vector_config::configurable_component;
 
 use crate::{
     codecs::{Encoder, EncodingConfig, Transformer},
-    config::{
-        AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext,
-        SinkDescription,
-    },
+    config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     event::Event,
     gcp::{GcpAuthConfig, GcpAuthenticator, Scope, PUBSUB_URL},
     http::HttpClient,
@@ -50,7 +47,7 @@ impl SinkBatchSettings for PubsubDefaultBatchSettings {
 }
 
 /// Configuration for the `gcp_pubsub` sink.
-#[configurable_component(sink)]
+#[configurable_component(sink("gcp_pubsub"))]
 #[derive(Clone, Debug)]
 pub struct PubsubConfig {
     /// The project name to which to publish events.
@@ -90,10 +87,6 @@ pub struct PubsubConfig {
     acknowledgements: AcknowledgementsConfig,
 }
 
-inventory::submit! {
-    SinkDescription::new::<PubsubConfig>("gcp_pubsub")
-}
-
 impl GenerateConfig for PubsubConfig {
     fn generate_config() -> toml::Value {
         toml::from_str(indoc! {r#"
@@ -106,7 +99,6 @@ impl GenerateConfig for PubsubConfig {
 }
 
 #[async_trait::async_trait]
-#[typetag::serde(name = "gcp_pubsub")]
 impl SinkConfig for PubsubConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let sink = PubsubSink::from_config(self).await?;
@@ -135,10 +127,6 @@ impl SinkConfig for PubsubConfig {
 
     fn input(&self) -> Input {
         Input::new(self.encoding.config().input_type() & DataType::Log)
-    }
-
-    fn sink_type(&self) -> &'static str {
-        "gcp_pubsub"
     }
 
     fn acknowledgements(&self) -> &AcknowledgementsConfig {
@@ -293,7 +281,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "gcp-pubsub-integration-tests"))]
+#[cfg(all(test, feature = "gcp-integration-tests"))]
 mod integration_tests {
     use codecs::JsonSerializerConfig;
     use reqwest::{Client, Method, Response};
@@ -303,6 +291,7 @@ mod integration_tests {
 
     use super::*;
     use crate::gcp;
+    use crate::test_util::components::{run_and_assert_sink_error, COMPONENT_ERROR_TAGS};
     use crate::test_util::{
         components::{run_and_assert_sink_compliance, HTTP_SINK_TAGS},
         random_events_with_stream, random_string, trace_init,
@@ -370,7 +359,7 @@ mod integration_tests {
 
         let (batch, mut receiver) = BatchNotifier::new_with_receiver();
         let (_input, events) = random_events_with_stream(100, 100, Some(batch));
-        sink.run(events).await.expect("Sending events failed");
+        run_and_assert_sink_error(sink, events, &COMPONENT_ERROR_TAGS).await;
         assert_eq!(receiver.try_recv(), Ok(BatchStatus::Rejected));
     }
 

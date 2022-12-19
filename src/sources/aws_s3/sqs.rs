@@ -1,16 +1,17 @@
-use std::{future::ready, panic, sync::Arc};
+use std::{future::ready, num::NonZeroUsize, panic, sync::Arc};
 
-use aws_sdk_s3::error::GetObjectError;
-use aws_sdk_s3::Client as S3Client;
-use aws_sdk_sqs::error::{DeleteMessageBatchError, ReceiveMessageError};
-use aws_sdk_sqs::model::{DeleteMessageBatchRequestEntry, Message};
-use aws_sdk_sqs::output::DeleteMessageBatchOutput;
-use aws_sdk_sqs::Client as SqsClient;
+use aws_sdk_s3::{error::GetObjectError, Client as S3Client};
+use aws_sdk_sqs::{
+    error::{DeleteMessageBatchError, ReceiveMessageError},
+    model::{DeleteMessageBatchRequestEntry, Message},
+    output::DeleteMessageBatchOutput,
+    Client as SqsClient,
+};
 use aws_smithy_client::SdkError;
 use aws_types::region::Region;
 use bytes::Bytes;
 use chrono::{TimeZone, Utc};
-use codecs::{decoding::FramingError, CharacterDelimitedDecoder};
+use codecs::{decoding::FramingError, BytesDeserializer, CharacterDelimitedDecoder};
 use futures::{FutureExt, Stream, StreamExt, TryFutureExt};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -18,16 +19,18 @@ use snafu::{ResultExt, Snafu};
 use tokio::{pin, select, time::sleep};
 use tokio_util::codec::FramedRead;
 use tracing::Instrument;
-use vector_config::configurable_component;
-use vector_core::ByteSizeOf;
+use vector_common::internal_event::{
+    ByteSize, BytesReceived, InternalEventHandle as _, Protocol, Registered,
+};
+use vector_config::{configurable_component, NamedComponent};
 
 use crate::sources::util::backoff::LogBackoff;
 use crate::tls::TlsConfig;
 use crate::{
-    config::{log_schema, AcknowledgementsConfig, SourceContext},
-    event::{BatchNotifier, BatchStatus, LogEvent},
+    config::{SourceAcknowledgementsConfig, SourceContext},
+    event::{BatchNotifier, BatchStatus, EstimatedJsonEncodedSizeOf},
     internal_events::{
-        BytesReceived, OldEventsReceived, SqsMessageDeleteBatchError, SqsMessageDeletePartialError,
+        EventsReceived, SqsMessageDeleteBatchError, SqsMessageDeletePartialError,
         SqsMessageDeleteSucceeded, SqsMessageProcessingError, SqsMessageProcessingSucceeded,
         SqsMessageReceiveError, SqsMessageReceiveSucceeded, SqsS3EventRecordInvalidEventIgnored,
         StreamClosedError,
@@ -35,11 +38,13 @@ use crate::{
     line_agg::{self, LineAgg},
     shutdown::ShutdownSignal,
     sources::util::backoff::Backoff,
+    sources::aws_s3::AwsS3Config,
     SourceSender,
 };
-use lookup::path;
+use lookup::{metadata_path, path, PathPrefix};
+use vector_core::config::{log_schema, LegacyKey, LogNamespace};
 
-static SUPPORTED_S3S_EVENT_VERSION: Lazy<semver::VersionReq> =
+static SUPPORTED_S3_EVENT_VERSION: Lazy<semver::VersionReq> =
     Lazy::new(|| semver::VersionReq::parse("~2").unwrap());
 
 /// SQS configuration options.
@@ -89,9 +94,7 @@ pub(super) struct Config {
     /// high rate of messages being pushed into the queue and the objects being fetched are small. In these cases,
     /// Vector may not fully utilize system resources without fetching more messages per second, as the SQS message
     /// consumption rate affects the S3 object retrieval rate.
-    #[serde(default = "default_client_concurrency")]
-    #[derivative(Default(value = "default_client_concurrency()"))]
-    pub(super) client_concurrency: u32,
+    pub(super) client_concurrency: Option<NonZeroUsize>,
 
     #[configurable(derived)]
     #[serde(default)]
@@ -109,10 +112,6 @@ const fn default_visibility_timeout_secs() -> u32 {
 
 const fn default_true() -> bool {
     true
-}
-
-fn default_client_concurrency() -> u32 {
-    crate::num_threads() as u32
 }
 
 #[derive(Debug, Snafu)]
@@ -182,7 +181,7 @@ pub struct State {
 
     queue_url: String,
     poll_secs: i32,
-    client_concurrency: u32,
+    client_concurrency: usize,
     visibility_timeout_secs: i32,
     delete_message: bool,
 }
@@ -211,7 +210,10 @@ impl Ingestor {
 
             queue_url: config.queue_url,
             poll_secs: config.poll_secs as i32,
-            client_concurrency: config.client_concurrency,
+            client_concurrency: config
+                .client_concurrency
+                .map(|n| n.get())
+                .unwrap_or_else(crate::num_threads),
             visibility_timeout_secs: config.visibility_timeout_secs as i32,
             delete_message: config.delete_message,
         });
@@ -222,15 +224,17 @@ impl Ingestor {
     pub(super) async fn run(
         self,
         cx: SourceContext,
-        acknowledgements: AcknowledgementsConfig,
+        acknowledgements: SourceAcknowledgementsConfig,
+        log_namespace: LogNamespace,
     ) -> Result<(), ()> {
-        let acknowledgements = cx.do_acknowledgements(&acknowledgements);
+        let acknowledgements = cx.do_acknowledgements(acknowledgements);
         let mut handles = Vec::new();
         for _ in 0..self.state.client_concurrency {
             let process = IngestorProcess::new(
                 Arc::clone(&self.state),
                 cx.out.clone(),
                 cx.shutdown.clone(),
+                log_namespace,
                 acknowledgements,
             );
             let fut = process.run();
@@ -259,6 +263,8 @@ pub struct IngestorProcess {
     log: LogBackoff,
     shutdown: ShutdownSignal,
     acknowledgements: bool,
+    log_namespace: LogNamespace,
+    bytes_received: Registered<BytesReceived>,
 }
 
 impl IngestorProcess {
@@ -266,6 +272,7 @@ impl IngestorProcess {
         state: Arc<State>,
         out: SourceSender,
         shutdown: ShutdownSignal,
+        log_namespace: LogNamespace,
         acknowledgements: bool,
     ) -> Self {
         Self {
@@ -275,6 +282,8 @@ impl IngestorProcess {
             acknowledgements,
             backoff: Backoff::new(),
             log: LogBackoff::new(),
+            log_namespace,
+            bytes_received: register!(BytesReceived::from(Protocol::HTTP)),
         }
     }
 
@@ -389,17 +398,27 @@ impl IngestorProcess {
     }
 
     async fn handle_sqs_message(&mut self, message: Message) -> Result<(), ProcessingError> {
-        let s3_event: S3Event = serde_json::from_str(message.body.unwrap_or_default().as_ref())
+        let s3_event: Event = serde_json::from_str(message.body.unwrap_or_default().as_ref())
             .context(InvalidSqsMessageSnafu {
-                message_id: message.message_id.unwrap_or_else(|| "<empty>".to_owned()),
+                message_id: message
+                    .message_id
+                    .clone()
+                    .unwrap_or_else(|| "<empty>".to_owned()),
             })?;
 
-        self.handle_s3_event(s3_event).await
+        match s3_event {
+            Event::TestEvent(_s3_test_event) => {
+                debug!(?message.message_id, message = "Found S3 Test Event.");
+                Ok(())
+            }
+            Event::Event(s3_event) => self.handle_s3_event(s3_event).await,
+        }
     }
 
     async fn handle_s3_event(&mut self, s3_event: S3Event) -> Result<(), ProcessingError> {
         for record in s3_event.records {
-            self.handle_s3_event_record(record).await?
+            self.handle_s3_event_record(record, self.log_namespace)
+                .await?
         }
         Ok(())
     }
@@ -407,9 +426,10 @@ impl IngestorProcess {
     async fn handle_s3_event_record(
         &mut self,
         s3_event: S3EventRecord,
+        log_namespace: LogNamespace,
     ) -> Result<(), ProcessingError> {
         let event_version: semver::Version = s3_event.event_version.clone().into();
-        if !SUPPORTED_S3S_EVENT_VERSION.matches(&event_version) {
+        if !SUPPORTED_S3_EVENT_VERSION.matches(&event_version) {
             return Err(ProcessingError::UnsupportedS3EventVersion {
                 version: event_version.clone(),
             });
@@ -451,10 +471,10 @@ impl IngestorProcess {
         let object = object_result?;
 
         let metadata = object.metadata;
+
         let timestamp = object
             .last_modified
-            .map(|ts| Utc.timestamp(ts.secs(), ts.subsec_nanos()))
-            .unwrap_or_else(Utc::now);
+            .map(|ts| Utc.timestamp(ts.secs(), ts.subsec_nanos()));
 
         let (batch, receiver) = BatchNotifier::maybe_new_with_receiver(self.acknowledgements);
         let object_reader = super::s3_object_decoder(
@@ -479,14 +499,12 @@ impl IngestorProcess {
         // the offset of the object that has been read, but this would only be relevant in
         // the case that the same vector instance processes the same message.
         let mut read_error = None;
+        let bytes_received = self.bytes_received.clone();
         let lines: Box<dyn Stream<Item = Bytes> + Send + Unpin> = Box::new(
             FramedRead::new(object_reader, CharacterDelimitedDecoder::new(b'\n'))
                 .map(|res| {
                     res.map(|bytes| {
-                        emit!(BytesReceived {
-                            byte_size: bytes.len(),
-                            protocol: "http",
-                        });
+                        bytes_received.emit(ByteSize(bytes.len()));
                         bytes
                     })
                     .map_err(|err| {
@@ -509,40 +527,85 @@ impl IngestorProcess {
             None => lines,
         };
 
-        let bucket_name = Bytes::from(s3_event.s3.bucket.name.as_str().as_bytes().to_vec());
-        let object_key = Bytes::from(s3_event.s3.object.key.as_str().as_bytes().to_vec());
-        let aws_region = Bytes::from(s3_event.aws_region.as_str().as_bytes().to_vec());
+        let mut stream = lines.map(|line| {
+            let deserializer = BytesDeserializer::new();
+            let mut log = deserializer
+                .parse_single(line, log_namespace)
+                .with_batch_notifier_option(&batch);
 
-        let mut stream = lines.filter_map(move |line| {
-            let mut log = LogEvent::from_bytes_legacy(&line).with_batch_notifier_option(&batch);
-
-            log.insert(path!("bucket"), bucket_name.clone());
-            log.insert(path!("object"), object_key.clone());
-            log.insert(path!("region"), aws_region.clone());
-            log.insert(log_schema().source_type_key(), Bytes::from("aws_s3"));
-            log.insert(log_schema().timestamp_key(), timestamp);
+            log_namespace.insert_source_metadata(
+                AwsS3Config::NAME,
+                &mut log,
+                Some(LegacyKey::Overwrite(path!("bucket"))),
+                path!("bucket"),
+                Bytes::from(s3_event.s3.bucket.name.as_bytes().to_vec()),
+            );
+            log_namespace.insert_source_metadata(
+                AwsS3Config::NAME,
+                &mut log,
+                Some(LegacyKey::Overwrite(path!("object"))),
+                path!("object"),
+                Bytes::from(s3_event.s3.object.key.as_bytes().to_vec()),
+            );
+            log_namespace.insert_source_metadata(
+                AwsS3Config::NAME,
+                &mut log,
+                Some(LegacyKey::Overwrite(path!("region"))),
+                path!("region"),
+                Bytes::from(s3_event.aws_region.as_bytes().to_vec()),
+            );
 
             if let Some(metadata) = &metadata {
                 for (key, value) in metadata {
-                    log.insert(key.as_str(), value.clone());
+                    log_namespace.insert_source_metadata(
+                        AwsS3Config::NAME,
+                        &mut log,
+                        Some(LegacyKey::Overwrite(key.as_str())),
+                        path!("metadata", key.as_str()),
+                        value.clone(),
+                    );
                 }
             }
 
-            emit!(OldEventsReceived {
+            log_namespace.insert_vector_metadata(
+                &mut log,
+                path!(log_schema().source_type_key()),
+                path!("source_type"),
+                Bytes::from_static(AwsS3Config::NAME.as_bytes()),
+            );
+
+            // This handles the transition from the original timestamp logic. Originally the
+            // `timestamp_key` was populated by the `last_modified` time on the object, falling
+            // back to calling `now()`.
+            match log_namespace {
+                LogNamespace::Vector => {
+                    if let Some(timestamp) = timestamp {
+                        log.insert(metadata_path!(AwsS3Config::NAME, "timestamp"), timestamp);
+                    }
+
+                    log.insert(metadata_path!("vector", "ingest_timestamp"), Utc::now());
+                }
+                LogNamespace::Legacy => {
+                    log.try_insert(
+                        (PathPrefix::Event, log_schema().timestamp_key()),
+                        timestamp.unwrap_or_else(Utc::now),
+                    );
+                }
+            };
+
+            emit!(EventsReceived {
                 count: 1,
-                byte_size: log.size_of()
+                byte_size: log.estimated_json_encoded_size_of()
             });
 
-            ready(Some(log))
+            log
         });
 
         let send_error = match self.out.send_event_stream(&mut stream).await {
             Ok(_) => None,
             Err(error) => {
-                // count is set to 0 to have no discarded events considering
-                // the events are not yet acknowledged and will be retried in
-                // case of error
-                emit!(StreamClosedError { error, count: 0 });
+                let (count, _) = stream.size_hint();
+                emit!(StreamClosedError { error, count });
                 Some(crate::source_sender::ClosedError)
             }
         };
@@ -570,10 +633,7 @@ impl IngestorProcess {
                     BatchStatus::Delivered => Ok(()),
                     BatchStatus::Errored => Err(ProcessingError::ErrorAcknowledgement),
                     BatchStatus::Rejected => {
-                        error!(
-                            message = "Sink reported events were rejected.",
-                            internal_log_rate_secs = 5,
-                        );
+                        // Sinks are responsible for emitting ComponentEventsDropped.
                         // Failed events cannot be retried, so continue to delete the SQS source message.
                         Ok(())
                     }
@@ -607,6 +667,22 @@ impl IngestorProcess {
             .send()
             .await
     }
+}
+
+// https://docs.aws.amazon.com/AmazonS3/latest/userguide/how-to-enable-disable-notification-intro.html
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+enum Event {
+    Event(S3Event),
+    TestEvent(S3TestEvent),
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct S3TestEvent {
+    pub service: String,
+    pub event: S3EventName,
+    pub bucket: String,
 }
 
 // https://docs.aws.amazon.com/AmazonS3/latest/dev/notification-content-structure.html
@@ -799,4 +875,24 @@ fn test_key_deserialize() {
         },
         value
     );
+}
+
+#[test]
+fn test_s3_testevent() {
+    let value: S3TestEvent = serde_json::from_str(
+        r#"{
+        "Service":"Amazon S3",
+        "Event":"s3:TestEvent",
+        "Time":"2014-10-13T15:57:02.089Z",
+        "Bucket":"bucketname",
+        "RequestId":"5582815E1AEA5ADF",
+        "HostId":"8cLeGAmw098X5cv4Zkwcmo8vvZa3eH3eKxsPzbB9wrR+YstdA6Knx4Ip8EXAMPLE"
+     }"#,
+    )
+    .unwrap();
+
+    assert_eq!(value.service, "Amazon S3".to_string());
+    assert_eq!(value.bucket, "bucketname".to_string());
+    assert_eq!(value.event.kind, "s3".to_string());
+    assert_eq!(value.event.name, "TestEvent".to_string());
 }

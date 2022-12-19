@@ -6,7 +6,7 @@ use futures::future;
 use http::StatusCode;
 use ordered_float::NotNan;
 use prost::Message;
-use vector_core::ByteSizeOf;
+use vector_core::EstimatedJsonEncodedSizeOf;
 use warp::{filters::BoxedFilter, path, path::FullPath, reply::Response, Filter, Rejection, Reply};
 
 use crate::{
@@ -132,7 +132,7 @@ fn handle_dd_trace_payload_v1(
         .collect();
 
     emit!(EventsReceived {
-        byte_size: trace_events.size_of(),
+        byte_size: trace_events.estimated_json_encoded_size_of(),
         count: trace_events.len(),
     });
 
@@ -178,6 +178,7 @@ fn convert_dd_tracer_payload(payload: ddtrace_proto::TracerPayload) -> Vec<Trace
             let mut trace_tags = convert_tags(trace.tags);
             trace_tags.extend(tags.clone());
             trace_event.insert("tags", Value::from(trace_tags));
+
             trace_event.insert(
                 "spans",
                 trace
@@ -186,6 +187,7 @@ fn convert_dd_tracer_payload(payload: ddtrace_proto::TracerPayload) -> Vec<Trace
                     .map(|s| Value::from(convert_span(s)))
                     .collect::<Vec<Value>>(),
             );
+
             trace_event.insert("container_id", payload.container_id.clone());
             trace_event.insert("language_name", payload.language_name.clone());
             trace_event.insert("language_version", payload.language_version.clone());
@@ -214,6 +216,10 @@ fn handle_dd_trace_payload_v0(
         .into_iter()
         .map(|dd_trace| {
             let mut trace_event = TraceEvent::default();
+
+            // TODO trace_id is being forced into an i64 but
+            // the incoming payload is u64. This is a bug and needs to be fixed per:
+            // https://github.com/vectordotdev/vector/issues/14687
             trace_event.insert("trace_id", dd_trace.trace_id as i64);
             trace_event.insert("start_time", Utc.timestamp_nanos(dd_trace.start_time));
             trace_event.insert("end_time", Utc.timestamp_nanos(dd_trace.end_time));
@@ -236,7 +242,7 @@ fn handle_dd_trace_payload_v0(
         })).collect();
 
     emit!(EventsReceived {
-        byte_size: trace_events.size_of(),
+        byte_size: trace_events.estimated_json_encoded_size_of(),
         count: trace_events.len(),
     });
 
@@ -269,7 +275,12 @@ fn convert_span(dd_span: ddtrace_proto::Span) -> BTreeMap<String, Value> {
     let mut span = BTreeMap::<String, Value>::new();
     span.insert("service".into(), Value::from(dd_span.service));
     span.insert("name".into(), Value::from(dd_span.name));
+
     span.insert("resource".into(), Value::from(dd_span.resource));
+
+    // TODO trace_id, span_id and parent_id are being forced into an i64 but
+    // the incoming payload is u64. This is a bug and needs to be fixed per:
+    // https://github.com/vectordotdev/vector/issues/14687
     span.insert("trace_id".into(), Value::from(dd_span.trace_id as i64));
     span.insert("span_id".into(), Value::from(dd_span.span_id as i64));
     span.insert("parent_id".into(), Value::from(dd_span.parent_id as i64));
@@ -308,6 +319,7 @@ fn convert_span(dd_span: ddtrace_proto::Span) -> BTreeMap<String, Value> {
                 .collect::<BTreeMap<String, Value>>(),
         ),
     );
+
     span
 }
 

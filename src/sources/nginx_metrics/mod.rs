@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, convert::TryFrom, time::Instant};
+use std::{convert::TryFrom, time::Instant};
 
 use bytes::Bytes;
 use chrono::Utc;
@@ -9,11 +9,11 @@ use snafu::{ResultExt, Snafu};
 use tokio::time;
 use tokio_stream::wrappers::IntervalStream;
 use vector_config::configurable_component;
-use vector_core::ByteSizeOf;
+use vector_core::{metric_tags, EstimatedJsonEncodedSizeOf};
 
 use crate::{
-    config::{DataType, Output, SourceConfig, SourceContext, SourceDescription},
-    event::metric::{Metric, MetricKind, MetricValue},
+    config::{DataType, Output, SourceConfig, SourceContext},
+    event::metric::{Metric, MetricKind, MetricTags, MetricValue},
     http::{Auth, HttpClient},
     internal_events::{
         CollectionCompleted, EndpointBytesReceived, NginxMetricsEventsReceived,
@@ -55,7 +55,7 @@ enum NginxError {
 }
 
 /// Configuration for the `nginx_metrics` source.
-#[configurable_component(source)]
+#[configurable_component(source("nginx_metrics"))]
 #[derive(Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct NginxMetricsConfig {
@@ -92,14 +92,9 @@ pub fn default_namespace() -> String {
     "nginx".to_string()
 }
 
-inventory::submit! {
-    SourceDescription::new::<NginxMetricsConfig>("nginx_metrics")
-}
-
 impl_generate_config_from_default!(NginxMetricsConfig);
 
 #[async_trait::async_trait]
-#[typetag::serde(name = "nginx_metrics")]
 impl SourceConfig for NginxMetricsConfig {
     async fn build(&self, mut cx: SourceContext) -> crate::Result<super::Source> {
         let tls = TlsSettings::from_options(&self.tls)?;
@@ -145,10 +140,6 @@ impl SourceConfig for NginxMetricsConfig {
         vec![Output::default(DataType::Metric)]
     }
 
-    fn source_type(&self) -> &'static str {
-        "nginx_metrics"
-    }
-
     fn can_acknowledge(&self) -> bool {
         false
     }
@@ -160,7 +151,7 @@ struct NginxMetrics {
     endpoint: String,
     auth: Option<Auth>,
     namespace: Option<String>,
-    tags: BTreeMap<String, String>,
+    tags: MetricTags,
 }
 
 impl NginxMetrics {
@@ -170,9 +161,10 @@ impl NginxMetrics {
         auth: Option<Auth>,
         namespace: Option<String>,
     ) -> crate::Result<Self> {
-        let mut tags = BTreeMap::new();
-        tags.insert("endpoint".into(), endpoint.clone());
-        tags.insert("host".into(), Self::get_endpoint_host(&endpoint)?);
+        let tags = metric_tags!(
+            "endpoint" => endpoint.clone(),
+            "host" => Self::get_endpoint_host(&endpoint)?,
+        );
 
         Ok(Self {
             http_client,
@@ -197,7 +189,7 @@ impl NginxMetrics {
             Err(()) => (0.0, vec![]),
         };
 
-        let byte_size = metrics.size_of();
+        let byte_size = metrics.estimated_json_encoded_size_of();
 
         metrics.push(self.create_metric("up", gauge!(up_value)));
 
@@ -330,7 +322,7 @@ mod integration_tests {
             url,
             Some(Auth::Basic {
                 user: "vector".to_owned(),
-                password: "vector".to_owned(),
+                password: "vector".to_owned().into(),
             }),
             ProxyConfig::default(),
         )

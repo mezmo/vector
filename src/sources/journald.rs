@@ -9,17 +9,6 @@ use std::{
     time::Duration,
 };
 
-use crate::{
-    config::{
-        log_schema, AcknowledgementsConfig, DataType, Output, SourceConfig, SourceContext,
-        SourceDescription,
-    },
-    event::{BatchNotifier, BatchStatus, BatchStatusReceiver, LogEvent, Value},
-    internal_events::{BytesReceived, JournaldInvalidRecordError, OldEventsReceived},
-    serde::bool_or_struct,
-    shutdown::ShutdownSignal,
-    SourceSender,
-};
 use bytes::Bytes;
 use chrono::TimeZone;
 use codecs::{decoding::BoxedFramingError, CharacterDelimitedDecoder};
@@ -39,9 +28,28 @@ use tokio::{
     time::sleep,
 };
 use tokio_util::codec::FramedRead;
-use vector_common::{byte_size_of::ByteSizeOf, finalizer::OrderedFinalizer};
+use vector_common::finalizer::OrderedFinalizer;
+use vector_common::internal_event::{
+    ByteSize, BytesReceived, InternalEventHandle as _, Protocol, Registered,
+};
 use vector_config::configurable_component;
 use vector_core::config::LogNamespace;
+use vector_core::EstimatedJsonEncodedSizeOf;
+
+use crate::{
+    config::{
+        log_schema, DataType, Output, SourceAcknowledgementsConfig, SourceConfig, SourceContext,
+    },
+    event::{BatchNotifier, BatchStatus, BatchStatusReceiver, LogEvent, Value},
+    internal_events::{
+        EventsReceived, JournaldCheckpointFileOpenError, JournaldCheckpointSetError,
+        JournaldInvalidRecordError, JournaldReadError, JournaldStartJournalctlError,
+        StreamClosedError,
+    },
+    serde::bool_or_struct,
+    shutdown::ShutdownSignal,
+    SourceSender,
+};
 
 const DEFAULT_BATCH_SIZE: usize = 16;
 const BATCH_TIMEOUT: Duration = Duration::from_millis(10);
@@ -80,7 +88,7 @@ enum BuildError {
 type Matches = HashMap<String, HashSet<String>>;
 
 /// Configuration for the `journald` source.
-#[configurable_component(source)]
+#[configurable_component(source("journald"))]
 #[derive(Clone, Debug, Default)]
 #[serde(deny_unknown_fields, default)]
 pub struct JournaldConfig {
@@ -137,7 +145,7 @@ pub struct JournaldConfig {
 
     #[configurable(derived)]
     #[serde(default, deserialize_with = "bool_or_struct")]
-    acknowledgements: AcknowledgementsConfig,
+    acknowledgements: SourceAcknowledgementsConfig,
 
     /// Enables remapping the `PRIORITY` field from an integer to string value.
     ///
@@ -175,16 +183,11 @@ impl JournaldConfig {
     }
 }
 
-inventory::submit! {
-    SourceDescription::new::<JournaldConfig>("journald")
-}
-
 impl_generate_config_from_default!(JournaldConfig);
 
 type Record = HashMap<String, String>;
 
 #[async_trait::async_trait]
-#[typetag::serde(name = "journald")]
 impl SourceConfig for JournaldConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<super::Source> {
         if self.remap_priority {
@@ -228,7 +231,7 @@ impl SourceConfig for JournaldConfig {
         );
 
         let batch_size = self.batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
-        let acknowledgements = cx.do_acknowledgements(&self.acknowledgements);
+        let acknowledgements = cx.do_acknowledgements(self.acknowledgements);
 
         Ok(Box::pin(
             JournaldSource {
@@ -247,10 +250,6 @@ impl SourceConfig for JournaldConfig {
 
     fn outputs(&self, _global_log_namespace: LogNamespace) -> Vec<Output> {
         vec![Output::default(DataType::Log)]
-    }
-
-    fn source_type(&self) -> &'static str {
-        "journald"
     }
 
     fn can_acknowledge(&self) -> bool {
@@ -274,11 +273,14 @@ impl JournaldSource {
         let checkpointer = StatefulCheckpointer::new(self.checkpoint_path.clone())
             .await
             .map_err(|error| {
-                error!(
-                    message = "Unable to open checkpoint file.",
-                    path = ?self.checkpoint_path,
-                    %error,
-                );
+                emit!(JournaldCheckpointFileOpenError {
+                    error,
+                    path: self
+                        .checkpoint_path
+                        .to_str()
+                        .unwrap_or("unknown")
+                        .to_string(),
+                });
             })?;
 
         let checkpointer = SharedCheckpointer::new(checkpointer);
@@ -315,7 +317,7 @@ impl JournaldSource {
                     drop(running);
                 }
                 Err(error) => {
-                    error!(message = "Error starting journalctl process.", %error);
+                    emit!(JournaldStartJournalctlError { error });
                 }
             }
 
@@ -336,6 +338,8 @@ impl JournaldSource {
         finalizer: &'a Finalizer,
         mut shutdown: ShutdownSignal,
     ) -> bool {
+        let bytes_received = register!(BytesReceived::from(Protocol::from("journald")));
+
         let batch_size = self.batch_size;
         loop {
             let mut batch = Batch::new(self);
@@ -363,7 +367,7 @@ impl JournaldSource {
                     }
                 }
             }
-            if let Some(x) = batch.finish(finalizer).await {
+            if let Some(x) = batch.finish(finalizer, &bytes_received).await {
                 break x;
             }
         }
@@ -402,10 +406,7 @@ impl<'a> Batch<'a> {
                 false
             }
             Some(Err(error)) => {
-                error!(
-                    message = "Could not read from journald source.",
-                    %error,
-                );
+                emit!(JournaldReadError { error });
                 false
             }
             Some(Ok(bytes)) => {
@@ -437,20 +438,22 @@ impl<'a> Batch<'a> {
         }
     }
 
-    async fn finish(mut self, finalizer: &Finalizer) -> Option<bool> {
+    async fn finish(
+        mut self,
+        finalizer: &Finalizer,
+        bytes_received: &'a Registered<BytesReceived>,
+    ) -> Option<bool> {
         drop(self.batch);
 
         if self.record_size > 0 {
-            emit!(BytesReceived {
-                byte_size: self.record_size,
-                protocol: "journald",
-            });
+            bytes_received.emit(ByteSize(self.record_size));
         }
 
         if !self.events.is_empty() {
-            emit!(OldEventsReceived {
-                count: self.events.len(),
-                byte_size: self.events.size_of(),
+            let count = self.events.len();
+            emit!(EventsReceived {
+                count,
+                byte_size: self.events.estimated_json_encoded_size_of(),
             });
 
             match self.source.out.send_batch(self.events).await {
@@ -460,7 +463,7 @@ impl<'a> Batch<'a> {
                     }
                 }
                 Err(error) => {
-                    error!(message = "Could not send journald log.", %error);
+                    emit!(StreamClosedError { error, count });
                     // `out` channel is closed, don't restart journalctl.
                     self.exiting = Some(false);
                 }
@@ -772,11 +775,15 @@ impl StatefulCheckpointer {
     async fn set(&mut self, token: impl Into<String>) {
         let token = token.into();
         if let Err(error) = self.checkpointer.set(&token).await {
-            error!(
-                message = "Could not set journald checkpoint.",
-                %error,
-                filename = ?self.checkpointer.filename,
-            );
+            emit!(JournaldCheckpointSetError {
+                error,
+                filename: self
+                    .checkpointer
+                    .filename
+                    .to_str()
+                    .unwrap_or("unknown")
+                    .to_string(),
+            });
         }
         self.cursor = Some(token);
     }

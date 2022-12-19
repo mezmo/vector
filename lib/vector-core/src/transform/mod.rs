@@ -1,23 +1,24 @@
-use std::{collections::HashMap, pin::Pin};
+use std::{collections::HashMap, error, pin::Pin};
 
 use futures::{Stream, StreamExt};
 use tokio::sync::mpsc::UnboundedSender;
-use vector_common::internal_event::{emit, EventsSent, DEFAULT_OUTPUT};
-use vector_common::EventDataEq;
+use vector_common::{
+    internal_event::{emit, EventsSent, DEFAULT_OUTPUT},
+    EventDataEq,
+};
 
 use crate::usage_metrics::{array_byte_size, track_output_usage, UsageMetrics};
 use crate::{
     config::Output,
-    event::{into_event_stream, Event, EventArray, EventContainer, EventRef},
+    event::{
+        into_event_stream, EstimatedJsonEncodedSizeOf, Event, EventArray, EventContainer, EventRef,
+    },
     fanout::{self, Fanout},
     ByteSizeOf,
 };
 
 #[cfg(any(feature = "lua"))]
 pub mod runtime_transform;
-pub use config::{InnerTopology, InnerTopologyTransform, TransformConfig, TransformContext};
-
-mod config;
 
 /// Transforms come in two variants. Functions, or tasks.
 ///
@@ -257,31 +258,45 @@ impl TransformOutputs {
         TransformOutputsBuf::new_with_capacity(self.outputs_spec.clone(), capacity)
     }
 
+    /// Sends the events in the buffer to their respective outputs.
+    ///
+    /// # Errors
+    ///
+    /// If an error occurs while sending events to their respective output, an error variant will be
+    /// returned detailing the cause.
     pub async fn send(
         &mut self,
         buf: &mut TransformOutputsBuf,
         output_metrics_tx: &Option<UnboundedSender<UsageMetrics>>,
-    ) {
+    ) -> Result<(), Box<dyn error::Error + Send + Sync>> {
         if let Some(primary) = self.primary_output.as_mut() {
             let count = buf.primary_buffer.as_ref().map_or(0, OutputBuffer::len);
-            let byte_size = buf.primary_buffer.as_ref().map_or(0, ByteSizeOf::size_of);
+            let byte_size = buf.primary_buffer.as_ref().map_or(
+                0,
+                EstimatedJsonEncodedSizeOf::estimated_json_encoded_size_of,
+            );
             buf.primary_buffer
                 .as_mut()
                 .expect("mismatched outputs")
                 .send(primary)
-                .await;
+                .await?;
             emit(EventsSent {
                 count,
                 byte_size,
                 output: Some(DEFAULT_OUTPUT),
             });
         }
+
         for (key, buf) in &mut buf.named_buffers {
             let count = buf.len();
-            let byte_size = buf.size_of();
+            let byte_size = buf.estimated_json_encoded_size_of();
+
+            // TODO(mdeltito): we should evaluate and likely swap in the new
+            // `estimated_json_encoded_size_of` method in place of our own implementation
             let output_byte_size = buf.0.iter().map(array_byte_size).sum();
+
             buf.send(self.named_outputs.get_mut(key).expect("unknown output"))
-                .await;
+                .await?;
             emit(EventsSent {
                 count,
                 byte_size,
@@ -296,6 +311,8 @@ impl TransformOutputs {
                 }
             }
         }
+
+        Ok(())
     }
 }
 
@@ -471,10 +488,15 @@ impl OutputBuffer {
         self.0.drain(..).flat_map(EventArray::into_events)
     }
 
-    async fn send(&mut self, output: &mut Fanout) {
+    async fn send(
+        &mut self,
+        output: &mut Fanout,
+    ) -> Result<(), Box<dyn error::Error + Send + Sync>> {
         for array in std::mem::take(&mut self.0) {
-            output.send(array).await;
+            output.send(array).await?;
         }
+
+        Ok(())
     }
 
     fn iter_events(&self) -> impl Iterator<Item = EventRef> {
@@ -503,6 +525,15 @@ impl EventDataEq<Vec<Event>> for OutputBuffer {
         }
 
         self.iter_events().map(Comparator).eq(other.iter())
+    }
+}
+
+impl EstimatedJsonEncodedSizeOf for OutputBuffer {
+    fn estimated_json_encoded_size_of(&self) -> usize {
+        self.0
+            .iter()
+            .map(EstimatedJsonEncodedSizeOf::estimated_json_encoded_size_of)
+            .sum()
     }
 }
 

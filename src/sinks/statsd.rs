@@ -16,9 +16,7 @@ use super::util::SinkBatchSettings;
 #[cfg(unix)]
 use crate::sinks::util::unix::UnixSinkConfig;
 use crate::{
-    config::{
-        AcknowledgementsConfig, GenerateConfig, Input, SinkConfig, SinkContext, SinkDescription,
-    },
+    config::{AcknowledgementsConfig, GenerateConfig, Input, SinkConfig, SinkContext},
     event::{
         metric::{Metric, MetricKind, MetricTags, MetricValue, StatisticKind},
         Event,
@@ -38,7 +36,7 @@ pub struct StatsdSvc {
 }
 
 /// Configuration for the `statsd` sink.
-#[configurable_component(sink)]
+#[configurable_component(sink("statsd"))]
 #[derive(Clone, Debug)]
 pub struct StatsdSinkConfig {
     /// Sets the default namespace for any metrics sent.
@@ -97,10 +95,6 @@ pub struct StatsdUdpConfig {
     pub batch: BatchConfig<StatsdDefaultBatchSettings>,
 }
 
-inventory::submit! {
-    SinkDescription::new::<StatsdSinkConfig>("statsd")
-}
-
 fn default_address() -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8125)
 }
@@ -120,7 +114,6 @@ impl GenerateConfig for StatsdSinkConfig {
 }
 
 #[async_trait::async_trait]
-#[typetag::serde(name = "statsd")]
 impl SinkConfig for StatsdSinkConfig {
     async fn build(
         &self,
@@ -149,6 +142,8 @@ impl SinkConfig for StatsdSinkConfig {
                     stream::iter({
                         let byte_size = event.size_of();
                         let mut bytes = BytesMut::new();
+
+                        // Errors are handled by `Encoder`.
                         encoder
                             .encode(event, &mut bytes)
                             .map(|_| Ok(EncodedEvent::new(bytes, byte_size)))
@@ -166,10 +161,6 @@ impl SinkConfig for StatsdSinkConfig {
         Input::metric()
     }
 
-    fn sink_type(&self) -> &'static str {
-        "statsd"
-    }
-
     fn acknowledgements(&self) -> &AcknowledgementsConfig {
         &self.acknowledgements
     }
@@ -177,7 +168,7 @@ impl SinkConfig for StatsdSinkConfig {
 
 fn encode_tags(tags: &MetricTags) -> String {
     let parts: Vec<_> = tags
-        .iter()
+        .iter_single()
         .map(|(name, value)| {
             if value == "true" {
                 name.to_string()
@@ -293,10 +284,12 @@ impl Service<BytesMut> for StatsdSvc {
     type Error = crate::Error;
     type Future = future::BoxFuture<'static, Result<(), Self::Error>>;
 
+    // Emission of Error internal event is handled upstream by the caller
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx).map_err(Into::into)
     }
 
+    // Emission of Error internal event is handled upstream by the caller
     fn call(&mut self, frame: BytesMut) -> Self::Future {
         self.inner.call(frame).err_into().boxed()
     }
@@ -308,6 +301,7 @@ mod test {
     use futures::{channel::mpsc, StreamExt, TryStreamExt};
     use tokio::net::UdpSocket;
     use tokio_util::{codec::BytesCodec, udp::UdpFramed};
+    use vector_core::metric_tags;
     #[cfg(feature = "sources-statsd")]
     use {crate::sources::statsd::parser::parse, std::str::from_utf8};
 
@@ -315,7 +309,7 @@ mod test {
     use crate::{
         event::Metric,
         test_util::{
-            components::{run_and_assert_sink_compliance, SINK_TAGS},
+            components::{assert_sink_compliance, SINK_TAGS},
             *,
         },
     };
@@ -326,13 +320,11 @@ mod test {
     }
 
     fn tags() -> MetricTags {
-        vec![
-            ("normal_tag".to_owned(), "value".to_owned()),
-            ("true_tag".to_owned(), "true".to_owned()),
-            ("empty_tag".to_owned(), "".to_owned()),
-        ]
-        .into_iter()
-        .collect()
+        metric_tags!(
+            "normal_tag" => "value",
+            "true_tag" => "true",
+            "empty_tag" => "",
+        )
     }
 
     #[test]
@@ -509,9 +501,6 @@ mod test {
             acknowledgements: Default::default(),
         };
 
-        let context = SinkContext::new_test();
-        let (sink, _healthcheck) = config.build(context).await.unwrap();
-
         let events = vec![
             Event::Metric(
                 Metric::new(
@@ -536,18 +525,26 @@ mod test {
         ];
         let (mut tx, rx) = mpsc::channel(0);
 
-        let socket = UdpSocket::bind(addr).await.unwrap();
-        tokio::spawn(async move {
-            let mut stream = UdpFramed::new(socket, BytesCodec::new())
-                .map_err(|error| error!(message = "Error reading line.", %error))
-                .map_ok(|(bytes, _addr)| bytes.freeze());
+        let context = SinkContext::new_test();
+        assert_sink_compliance(&SINK_TAGS, async move {
+            let (sink, _healthcheck) = config.build(context).await.unwrap();
 
-            while let Some(Ok(item)) = stream.next().await {
-                tx.send(item).await.unwrap();
-            }
-        });
+            let socket = UdpSocket::bind(addr).await.unwrap();
+            tokio::spawn(async move {
+                let mut stream = UdpFramed::new(socket, BytesCodec::new())
+                    .map_err(|error| error!(message = "Error reading line.", %error))
+                    .map_ok(|(bytes, _addr)| bytes.freeze());
 
-        run_and_assert_sink_compliance(sink, stream::iter(events), &SINK_TAGS).await;
+                while let Some(Ok(item)) = stream.next().await {
+                    tx.send(item).await.unwrap();
+                }
+            });
+
+            sink.run(stream::iter(events).map(Into::into))
+                .await
+                .expect("Running sink failed")
+        })
+        .await;
 
         let messages = collect_n(rx, 1).await;
         assert_eq!(

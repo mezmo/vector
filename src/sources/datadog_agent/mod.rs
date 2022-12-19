@@ -7,7 +7,7 @@ pub mod logs;
 pub mod metrics;
 pub mod traces;
 
-#[allow(warnings)]
+#[allow(warnings, clippy::pedantic, clippy::nursery)]
 pub(crate) mod ddmetric_proto {
     include!(concat!(env!("OUT_DIR"), "/datadog.agentpayload.rs"));
 }
@@ -25,21 +25,22 @@ use codecs::decoding::{DeserializerConfig, FramingConfig};
 use flate2::read::{MultiGzDecoder, ZlibDecoder};
 use futures::FutureExt;
 use http::StatusCode;
+use lookup::owned_value_path;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 use tracing::Span;
 use value::Kind;
-use vector_config::configurable_component;
-use vector_core::config::LogNamespace;
+use vector_config::{configurable_component, NamedComponent};
+use vector_core::config::{LegacyKey, LogNamespace};
 use vector_core::event::{BatchNotifier, BatchStatus};
 use warp::{filters::BoxedFilter, reject::Rejection, reply::Response, Filter, Reply};
 
 use crate::{
     codecs::{Decoder, DecodingConfig},
     config::{
-        log_schema, AcknowledgementsConfig, DataType, GenerateConfig, Output, Resource,
-        SourceConfig, SourceContext, SourceDescription,
+        log_schema, DataType, GenerateConfig, Output, Resource, SourceAcknowledgementsConfig,
+        SourceConfig, SourceContext,
     },
     event::Event,
     internal_events::{HttpBytesReceived, HttpDecompressError, StreamClosedError},
@@ -55,7 +56,7 @@ pub const METRICS: &str = "metrics";
 pub const TRACES: &str = "traces";
 
 /// Configuration for the `datadog_agent` source.
-#[configurable_component(source)]
+#[configurable_component(source("datadog_agent"))]
 #[derive(Clone, Debug)]
 pub struct DatadogAgentConfig {
     /// The address to accept connections on.
@@ -89,6 +90,7 @@ pub struct DatadogAgentConfig {
 
     /// The namespace to use for logs. This overrides the global settings
     #[serde(default)]
+    #[configurable(metadata(docs::hidden))]
     log_namespace: Option<bool>,
 
     #[configurable(derived)]
@@ -104,7 +106,7 @@ pub struct DatadogAgentConfig {
 
     #[configurable(derived)]
     #[serde(default, deserialize_with = "bool_or_struct")]
-    acknowledgements: AcknowledgementsConfig,
+    acknowledgements: SourceAcknowledgementsConfig,
 }
 
 impl GenerateConfig for DatadogAgentConfig {
@@ -115,7 +117,7 @@ impl GenerateConfig for DatadogAgentConfig {
             store_api_key: true,
             framing: default_framing_message_based(),
             decoding: default_decoding(),
-            acknowledgements: AcknowledgementsConfig::default(),
+            acknowledgements: SourceAcknowledgementsConfig::default(),
             disable_logs: false,
             disable_metrics: false,
             disable_traces: false,
@@ -126,12 +128,7 @@ impl GenerateConfig for DatadogAgentConfig {
     }
 }
 
-inventory::submit! {
-    SourceDescription::new::<DatadogAgentConfig>("datadog_agent")
-}
-
 #[async_trait::async_trait]
-#[typetag::serde(name = "datadog_agent")]
 impl SourceConfig for DatadogAgentConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<sources::Source> {
         let log_namespace = cx.log_namespace(self.log_namespace);
@@ -163,7 +160,7 @@ impl SourceConfig for DatadogAgentConfig {
             log_namespace,
         );
         let listener = tls.bind(&self.address).await?;
-        let acknowledgements = cx.do_acknowledgements(&self.acknowledgements);
+        let acknowledgements = cx.do_acknowledgements(self.acknowledgements);
         let filters = source.build_warp_filters(cx.out, acknowledgements, self)?;
         let shutdown = cx.shutdown;
 
@@ -199,51 +196,44 @@ impl SourceConfig for DatadogAgentConfig {
             .decoding
             .schema_definition(global_log_namespace.merge(self.log_namespace))
             .with_source_metadata(
-                self.source_type(),
-                "message",
-                "message",
-                Kind::bytes(),
-                Some("message"),
-            )
-            .with_source_metadata(
-                self.source_type(),
-                "status",
-                "status",
+                Self::NAME,
+                Some(LegacyKey::InsertIfEmpty(owned_value_path!("status"))),
+                &owned_value_path!("status"),
                 Kind::bytes(),
                 Some("severity"),
             )
             .with_source_metadata(
-                self.source_type(),
-                "timestamp",
-                "timestamp",
+                Self::NAME,
+                Some(LegacyKey::InsertIfEmpty(owned_value_path!("timestamp"))),
+                &owned_value_path!("timestamp"),
                 Kind::timestamp(),
                 Some("timestamp"),
             )
             .with_source_metadata(
-                self.source_type(),
-                "hostname",
-                "hostname",
+                Self::NAME,
+                Some(LegacyKey::InsertIfEmpty(owned_value_path!("hostname"))),
+                &owned_value_path!("hostname"),
                 Kind::bytes(),
                 Some("host"),
             )
             .with_source_metadata(
-                self.source_type(),
-                "service",
-                "service",
+                Self::NAME,
+                Some(LegacyKey::InsertIfEmpty(owned_value_path!("service"))),
+                &owned_value_path!("service"),
                 Kind::bytes(),
                 Some("service"),
             )
             .with_source_metadata(
-                self.source_type(),
-                "ddsource",
-                "ddsource",
+                Self::NAME,
+                Some(LegacyKey::InsertIfEmpty(owned_value_path!("ddsource"))),
+                &owned_value_path!("ddsource"),
                 Kind::bytes(),
                 Some("source"),
             )
             .with_source_metadata(
-                self.source_type(),
-                "ddtags",
-                "ddtags",
+                Self::NAME,
+                Some(LegacyKey::InsertIfEmpty(owned_value_path!("ddtags"))),
+                &owned_value_path!("ddtags"),
                 Kind::bytes(),
                 Some("tags"),
             )
@@ -260,10 +250,6 @@ impl SourceConfig for DatadogAgentConfig {
         } else {
             vec![Output::default(DataType::all()).with_schema_definition(definition)]
         }
-    }
-
-    fn source_type(&self) -> &'static str {
-        "datadog_agent"
     }
 
     fn resources(&self) -> Vec<Resource> {
@@ -294,7 +280,6 @@ pub struct ApiKeyQueryParams {
 pub(crate) struct DatadogAgentSource {
     pub(crate) api_key_extractor: ApiKeyExtractor,
     pub(crate) log_schema_host_key: &'static str,
-    pub(crate) log_schema_timestamp_key: &'static str,
     pub(crate) log_schema_source_type_key: &'static str,
     pub(crate) log_namespace: LogNamespace,
     pub(crate) decoder: Decoder,
@@ -347,7 +332,6 @@ impl DatadogAgentSource {
             },
             log_schema_host_key: log_schema().host_key(),
             log_schema_source_type_key: log_schema().source_type_key(),
-            log_schema_timestamp_key: log_schema().timestamp_key(),
             decoder,
             protocol,
             logs_schema_definition: Arc::new(logs_schema_definition),

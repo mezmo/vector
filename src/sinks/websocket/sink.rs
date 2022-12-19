@@ -8,13 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 use bytes::BytesMut;
-use futures::{
-    future::{self},
-    pin_mut,
-    sink::SinkExt,
-    stream::BoxStream,
-    Sink, Stream, StreamExt,
-};
+use futures::{pin_mut, sink::SinkExt, stream::BoxStream, Sink, Stream, StreamExt};
 use snafu::{ResultExt, Snafu};
 use tokio::{net::TcpStream, time};
 use tokio_tungstenite::{
@@ -30,8 +24,8 @@ use tokio_tungstenite::{
 };
 use tokio_util::codec::Encoder as _;
 use vector_core::{
-    internal_event::{BytesSent, EventsSent},
-    ByteSizeOf,
+    internal_event::{ByteSize, BytesSent, EventsSent, InternalEventHandle as _, Protocol},
+    EstimatedJsonEncodedSizeOf,
 };
 
 use crate::{
@@ -189,7 +183,7 @@ impl PingInterval {
     }
 
     async fn tick(&mut self) -> time::Instant {
-        future::poll_fn(|cx| self.poll_tick(cx)).await
+        std::future::poll_fn(|cx| self.poll_tick(cx)).await
     }
 }
 
@@ -260,6 +254,8 @@ impl WebSocketSink {
         }
         let mut last_pong = Instant::now();
 
+        let bytes_sent = register!(BytesSent::from(Protocol("websocket".into())));
+
         loop {
             let result = tokio::select! {
                 _ = ping_interval.tick() => {
@@ -292,7 +288,7 @@ impl WebSocketSink {
 
                     self.transformer.transform(&mut event);
 
-                    let event_byte_size = event.size_of();
+                    let event_byte_size = event.estimated_json_encoded_size_of();
 
                     let mut bytes = BytesMut::new();
                     let res = match self.encoder.encode(event, &mut bytes) {
@@ -308,10 +304,7 @@ impl WebSocketSink {
                                     byte_size: event_byte_size,
                                     output: None
                                 });
-                                emit!(BytesSent {
-                                    byte_size: message_len,
-                                    protocol: "websocket"
-                                });
+                                bytes_sent.emit(ByteSize(message_len));
                             })
                         },
                         Err(_) => {
@@ -375,7 +368,7 @@ const fn is_closed(error: &WsError) -> bool {
     )
 }
 
-#[cfg(all(test, feature = "sources-utils-tls"))]
+#[cfg(test)]
 mod tests {
     use std::net::SocketAddr;
 
@@ -423,7 +416,7 @@ mod tests {
         trace_init();
 
         let auth = Some(Auth::Bearer {
-            token: "OiJIUzI1NiIsInR5cCI6IkpXVCJ".to_string(),
+            token: "OiJIUzI1NiIsInR5cCI6IkpXVCJ".to_string().into(),
         });
         let auth_clone = auth.clone();
         let addr = next_addr();
@@ -561,7 +554,7 @@ mod tests {
                                     if let Some(h) = hdr {
                                         match a {
                                             Auth::Bearer { token } => {
-                                                if format!("Bearer {}", token)
+                                                if format!("Bearer {}", token.inner())
                                                     != h.to_str().unwrap()
                                                 {
                                                     return Err(

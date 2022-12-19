@@ -14,10 +14,14 @@ use std::{
 
 use serde::{de, Deserialize, Deserializer};
 use serde_with::serde_as;
-use vector_config::{configurable_component, schema::generate_root_schema, ConfigurableString};
+use vector_config::{
+    component::GenerateConfig, configurable_component, schema::generate_root_schema,
+    ConfigurableString,
+};
 
 /// A templated string.
 #[configurable_component]
+#[configurable(metadata(docs::templateable))]
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 #[serde(try_from = "String", into = "String")]
 pub struct Template {
@@ -164,7 +168,7 @@ where
 
 /// A source for collecting events over TCP.
 #[serde_as]
-#[configurable_component(source)]
+#[configurable_component(source("simple"))]
 #[derive(Clone)]
 #[configurable(metadata(status = "beta"))]
 pub struct SimpleSourceConfig {
@@ -176,6 +180,16 @@ pub struct SimpleSourceConfig {
     #[serde(default = "default_simple_source_timeout")]
     #[serde_as(as = "serde_with::DurationSeconds<u64>")]
     timeout: Duration,
+}
+
+impl GenerateConfig for SimpleSourceConfig {
+    fn generate_config() -> toml::Value {
+        toml::Value::try_from(Self {
+            listen_addr: default_simple_source_listen_addr(),
+            timeout: default_simple_source_timeout(),
+        })
+        .unwrap()
+    }
 }
 
 const fn default_simple_source_timeout() -> Duration {
@@ -191,7 +205,7 @@ fn default_simple_source_listen_addr() -> SocketListenAddr {
 
 /// A sink for sending events to the `simple` service.
 #[derive(Clone)]
-#[configurable_component(sink)]
+#[configurable_component(sink("simple"))]
 #[configurable(metadata(status = "beta"))]
 pub struct SimpleSinkConfig {
     /// The endpoint to send events to.
@@ -207,7 +221,6 @@ pub struct SimpleSinkConfig {
     encoding: Encoding,
 
     /// The filepath to write the events to.
-    #[configurable(metadata(templateable))]
     output_path: Template,
 
     /// The tags to apply to each event.
@@ -216,6 +229,20 @@ pub struct SimpleSinkConfig {
 
     #[serde(skip)]
     meaningless_field: String,
+}
+
+impl GenerateConfig for SimpleSinkConfig {
+    fn generate_config() -> toml::Value {
+        toml::Value::try_from(Self {
+            endpoint: default_simple_sink_endpoint(),
+            batch: default_simple_sink_batch(),
+            encoding: default_simple_sink_encoding(),
+            output_path: Template::try_from("basic".to_string()).expect("should not fail to parse"),
+            tags: HashMap::new(),
+            meaningless_field: "foo".to_string(),
+        })
+        .unwrap()
+    }
 }
 
 fn default_simple_sink_batch() -> BatchConfig {
@@ -236,7 +263,7 @@ fn default_simple_sink_endpoint() -> String {
 
 /// A sink for sending events to the `advanced` service.
 #[derive(Clone)]
-#[configurable_component(sink)]
+#[configurable_component(sink("advanced"))]
 #[configurable(metadata(status = "stable"))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct AdvancedSinkConfig {
@@ -263,7 +290,7 @@ pub struct AdvancedSinkConfig {
     tls: Option<TlsEnablableConfig>,
 
     /// The partition key to use for each event.
-    #[configurable(metadata(templateable))]
+    #[configurable(metadata(docs::templateable))]
     #[serde(default = "default_partition_key")]
     partition_key: String,
 
@@ -271,6 +298,21 @@ pub struct AdvancedSinkConfig {
     ///
     /// Both the keys and values are templateable.
     tags: HashMap<Template, Template>,
+}
+
+impl GenerateConfig for AdvancedSinkConfig {
+    fn generate_config() -> toml::Value {
+        toml::Value::try_from(Self {
+            endpoint: default_advanced_sink_endpoint(),
+            agent_version: String::from("v1.2.3"),
+            batch: default_advanced_sink_batch(),
+            encoding: default_advanced_sink_encoding(),
+            tls: None,
+            partition_key: default_partition_key(),
+            tags: HashMap::new(),
+        })
+        .unwrap()
+    }
 }
 
 fn default_advanced_sink_batch() -> BatchConfig {
@@ -293,40 +335,10 @@ fn default_advanced_sink_endpoint() -> String {
     String::from("https://zalgohtml5.io")
 }
 
-pub mod vector_v1 {
-    use vector_config::configurable_component;
-
-    use crate::SocketListenAddr;
-
-    /// Configuration for version one of the `vector` source.
-    #[configurable_component]
-    #[derive(Clone, Debug)]
-    #[serde(deny_unknown_fields)]
-    pub(crate) struct VectorConfig {
-        /// The address to listen for connections on.
-        ///
-        /// It _must_ include a port.
-        address: SocketListenAddr,
-
-        /// The timeout, in seconds, before a connection is forcefully closed during shutdown.
-        #[serde(default = "default_shutdown_timeout_secs")]
-        shutdown_timeout_secs: u64,
-
-        /// The size, in bytes, of the receive buffer used for each connection.
-        ///
-        /// This should not typically needed to be changed.
-        receive_buffer_bytes: Option<usize>,
-    }
-
-    const fn default_shutdown_timeout_secs() -> u64 {
-        30
-    }
-}
-
 pub mod vector_v2 {
     use std::net::SocketAddr;
 
-    use vector_config::configurable_component;
+    use vector_config::{component::GenerateConfig, configurable_component};
 
     /// Configuration for version two of the `vector` source.
     #[configurable_component]
@@ -346,26 +358,16 @@ pub mod vector_v2 {
     const fn default_shutdown_timeout_secs() -> u64 {
         30
     }
-}
 
-/// Marker type for the version one of the configuration for the `vector` source.
-#[configurable_component]
-#[derive(Clone, Debug)]
-enum V1 {
-    /// Marker value for version one.
-    #[serde(rename = "1")]
-    V1,
-}
-
-/// Configuration for version two of the `vector` source.
-#[configurable_component]
-#[derive(Clone, Debug)]
-pub struct VectorConfigV1 {
-    /// Version of the configuration.
-    version: V1,
-
-    #[serde(flatten)]
-    config: self::vector_v1::VectorConfig,
+    impl GenerateConfig for VectorConfig {
+        fn generate_config() -> toml::Value {
+            toml::Value::try_from(Self {
+                address: "0.0.0.0:6000".parse().unwrap(),
+                shutdown_timeout_secs: default_shutdown_timeout_secs(),
+            })
+            .unwrap()
+        }
+    }
 }
 
 /// Marker type for the version two of the configuration for the `vector` source.
@@ -389,15 +391,26 @@ pub struct VectorConfigV2 {
 }
 
 /// Configurable for the `vector` source.
-#[configurable_component(source)]
+#[configurable_component(source("vector"))]
 #[derive(Clone, Debug)]
 #[serde(untagged)]
 pub enum VectorSourceConfig {
-    /// Configuration for version one.
-    V1(#[configurable(derived)] VectorConfigV1),
-
     /// Configuration for version two.
     V2(#[configurable(derived)] VectorConfigV2),
+}
+
+impl GenerateConfig for VectorSourceConfig {
+    fn generate_config() -> toml::Value {
+        let config = toml::Value::try_into::<self::vector_v2::VectorConfig>(
+            self::vector_v2::VectorConfig::generate_config(),
+        )
+        .unwrap();
+        toml::Value::try_from(VectorConfigV2 {
+            version: Some(V2::V2),
+            config,
+        })
+        .unwrap()
+    }
 }
 
 /// Collection of various sources available in Vector.
@@ -448,9 +461,13 @@ pub struct VectorConfig {
 
 #[test]
 fn generate_semi_real_schema() {
-    let root_schema = generate_root_schema::<VectorConfig>();
-    let json = serde_json::to_string_pretty(&root_schema)
-        .expect("rendering root schema to JSON should not fail");
+    match generate_root_schema::<VectorConfig>() {
+        Ok(schema) => {
+            let json = serde_json::to_string_pretty(&schema)
+                .expect("rendering root schema to JSON should not fail");
 
-    println!("{}", json);
+            println!("{}", json);
+        }
+        Err(e) => eprintln!("error while generating schema: {:?}", e),
+    }
 }

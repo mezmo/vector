@@ -5,15 +5,21 @@ use serde::{ser::SerializeSeq, Serialize};
 use vector_buffers::EventCount;
 use vector_core::{
     event::{EventFinalizers, Finalizable},
-    ByteSizeOf,
+    ByteSizeOf, EstimatedJsonEncodedSizeOf,
 };
 
-use crate::sinks::util::encoding::Encoder;
+use crate::sinks::util::encoding::{write_all, Encoder};
 
 pub type Labels = Vec<(String, String)>;
 
-#[derive(Clone, Default)]
-pub struct LokiBatchEncoder;
+#[derive(Clone)]
+pub enum LokiBatchEncoding {
+    Json,
+    Protobuf,
+}
+
+#[derive(Clone)]
+pub struct LokiBatchEncoder(pub LokiBatchEncoding);
 
 impl Encoder<Vec<LokiRecord>> for LokiBatchEncoder {
     fn encode_input(
@@ -21,10 +27,30 @@ impl Encoder<Vec<LokiRecord>> for LokiBatchEncoder {
         input: Vec<LokiRecord>,
         writer: &mut dyn io::Write,
     ) -> io::Result<usize> {
+        let count = input.len();
         let batch = LokiBatch::from(input);
-        let body = serde_json::json!({ "streams": [batch] });
-        let body = serde_json::to_vec(&body)?;
-        writer.write_all(&body).map(|()| body.len())
+        let body = match self.0 {
+            LokiBatchEncoding::Json => {
+                let body = serde_json::json!({ "streams": [batch] });
+                serde_json::to_vec(&body)?
+            }
+            LokiBatchEncoding::Protobuf => {
+                let labels = batch.stream;
+                let entries = batch
+                    .values
+                    .iter()
+                    .map(|event| {
+                        loki_logproto::util::Entry(
+                            event.timestamp,
+                            String::from_utf8_lossy(&event.event).into_owned(),
+                        )
+                    })
+                    .collect();
+                let batch = loki_logproto::util::Batch(labels, entries);
+                batch.encode()
+            }
+        };
+        write_all(writer, count, &body).map(|()| body.len())
     }
 }
 
@@ -63,6 +89,21 @@ impl ByteSizeOf for LokiEvent {
     }
 }
 
+/// This implementation approximates the `Serialize` implementation below, without any allocations.
+impl EstimatedJsonEncodedSizeOf for LokiEvent {
+    fn estimated_json_encoded_size_of(&self) -> usize {
+        static BRACKETS_SIZE: usize = 2;
+        static COLON_SIZE: usize = 1;
+        static QUOTES_SIZE: usize = 2;
+
+        BRACKETS_SIZE
+            + QUOTES_SIZE
+            + self.timestamp.estimated_json_encoded_size_of()
+            + COLON_SIZE
+            + self.event.estimated_json_encoded_size_of()
+    }
+}
+
 impl Serialize for LokiEvent {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -91,6 +132,12 @@ impl ByteSizeOf for LokiRecord {
                 res + item.0.allocated_bytes() + item.1.allocated_bytes()
             })
             + self.event.allocated_bytes()
+    }
+}
+
+impl EstimatedJsonEncodedSizeOf for LokiRecord {
+    fn estimated_json_encoded_size_of(&self) -> usize {
+        self.event.estimated_json_encoded_size_of()
     }
 }
 

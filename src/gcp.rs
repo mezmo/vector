@@ -14,6 +14,7 @@ use once_cell::sync::Lazy;
 use smpl_jwt::Jwt;
 use snafu::{ResultExt, Snafu};
 use tokio::{sync::watch, time::Instant};
+use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
 
 use crate::http::HttpError;
@@ -67,7 +68,7 @@ pub struct GcpAuthConfig {
     /// filename is named, Vector will attempt to fetch an instance service account for the compute instance the program is
     /// running on. If Vector is not running on a GCE instance, then you must define eith an API key or service account
     /// credentials JSON file.
-    pub api_key: Option<String>,
+    pub api_key: Option<SensitiveString>,
 
     /// Path to a service account credentials JSON file. ([documentation](https://cloud.google.com/docs/authentication/production#manually))
     ///
@@ -87,6 +88,9 @@ pub struct GcpAuthConfig {
     /// filename is named, Vector will attempt to fetch an instance service account for the compute instance the program is
     /// running on. If Vector is not running on a GCE instance, then you must define eith an API key or service account
     /// credentials JSON file.
+
+    // TODO(mdeltito): this should use the new `SensitiveString` type, which just elides
+    // the contents from log output and the like
     pub credentials_json: Option<String>,
 
     /// Skip all authentication handling. For use with integration tests only.
@@ -105,7 +109,7 @@ impl GcpAuthConfig {
                 (None, Some(credentials_json), _) => {
                     GcpAuthenticator::from_str(credentials_json, scope).await?
                 }
-                (None, None, Some(api_key)) => GcpAuthenticator::from_api_key(api_key)?,
+                (None, None, Some(api_key)) => GcpAuthenticator::from_api_key(api_key.inner())?,
                 (None, None, None) => GcpAuthenticator::None,
             }
         })

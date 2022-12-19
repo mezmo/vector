@@ -18,10 +18,11 @@ use uuid::Uuid;
 use value::Kind;
 use vector_core::config::LogNamespace;
 
-use self::unit_test_components::{
+pub use self::unit_test_components::{
     UnitTestSinkCheck, UnitTestSinkConfig, UnitTestSinkResult, UnitTestSourceConfig,
+    UnitTestStreamSinkConfig, UnitTestStreamSourceConfig,
 };
-use super::{compiler::expand_globs, graph::Graph, OutputId};
+use super::{compiler::expand_globs, graph::Graph, OutputId, TransformConfig};
 use crate::{
     conditions::Condition,
     config::{
@@ -29,9 +30,7 @@ use crate::{
         SinkOuter, SourceOuter, TestDefinition, TestInput, TestInputValue, TestOutput,
     },
     event::{Event, LogEvent, Value},
-    schema,
-    serde::OneOrMany,
-    signal,
+    schema, signal,
     topology::{
         self,
         builder::{self, Pieces},
@@ -166,7 +165,7 @@ impl UnitTestBuildMetadata {
                 .get(key)
                 .expect("Missing test source for a transform")
                 .clone();
-            transform.inputs.push(test_source_id);
+            transform.inputs.extend(Some(test_source_id));
 
             template_sources.insert(key.clone(), UnitTestSourceConfig::default());
         }
@@ -272,7 +271,7 @@ impl UnitTestBuildMetadata {
             let sink_ids = ids.clone();
             let sink_config = UnitTestSinkConfig {
                 test_name: test_name.to_string(),
-                transform_ids: ids.stringify().into_vec(),
+                transform_ids: ids.iter().map(|id| id.to_string()).collect(),
                 result_tx: Arc::new(Mutex::new(Some(tx))),
                 check: UnitTestSinkCheck::Checks(checks),
             };
@@ -292,15 +291,17 @@ impl UnitTestBuildMetadata {
             };
 
             test_result_rxs.push(rx);
-            template_sinks.insert(id.clone().into(), sink_config);
+            template_sinks.insert(vec![id.clone()], sink_config);
         }
 
         let sinks = template_sinks
             .into_iter()
             .map(|(transform_ids, sink_config)| {
-                let transform_ids_str = transform_ids.stringify().into_vec();
+                let transform_ids_str = transform_ids
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>();
                 let sink_ids = transform_ids
-                    .into_vec()
                     .iter()
                     .map(|transform_id| {
                         self.sink_ids
@@ -312,7 +313,7 @@ impl UnitTestBuildMetadata {
                 let sink_id = sink_ids.join(",");
                 (
                     ComponentKey::from(sink_id),
-                    SinkOuter::new(transform_ids_str, Box::new(sink_config)),
+                    SinkOuter::new(transform_ids_str, sink_config),
                 )
             })
             .collect::<IndexMap<_, _>>();
@@ -430,7 +431,7 @@ async fn build_unit_test(
         transform.inputs = inputs
             .into_iter()
             .filter(|input| valid_inputs.contains_key(input))
-            .collect::<Vec<_>>();
+            .collect();
     }
 
     if let Some(sink) = get_loose_end_outputs_sink(&config_builder) {
@@ -501,7 +502,7 @@ fn get_loose_end_outputs_sink(config: &ConfigBuilder) -> Option<SinkOuter<String
             result_tx: Arc::new(Mutex::new(None)),
             check: UnitTestSinkCheck::NoOp,
         };
-        Some(SinkOuter::new(loose_end_outputs, Box::new(noop_sink)))
+        Some(SinkOuter::new(loose_end_outputs, noop_sink))
     }
 }
 
@@ -546,8 +547,8 @@ fn build_and_validate_inputs(
 
 fn build_outputs(
     test_outputs: &[TestOutput],
-) -> Result<IndexMap<OneOrMany<OutputId>, Vec<Vec<Condition>>>, Vec<String>> {
-    let mut outputs: IndexMap<OneOrMany<OutputId>, Vec<Vec<Condition>>> = IndexMap::new();
+) -> Result<IndexMap<Vec<OutputId>, Vec<Vec<Condition>>>, Vec<String>> {
+    let mut outputs: IndexMap<Vec<OutputId>, Vec<Vec<Condition>>> = IndexMap::new();
     let mut errors = Vec::new();
 
     for output in test_outputs {
@@ -569,7 +570,7 @@ fn build_outputs(
         }
 
         outputs
-            .entry(output.extract_from.clone())
+            .entry(output.extract_from.clone().to_vec())
             .and_modify(|existing_conditions| existing_conditions.push(conditions.clone()))
             .or_insert(vec![conditions.clone()]);
     }
