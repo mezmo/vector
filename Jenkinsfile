@@ -32,7 +32,7 @@ pipeline {
         }
         stage('Build image and publish') {
             when {
-                branch pattern: "v\\d+\\.\\d+.\\d+.\\d+", comparator: "REGEXP"
+                branch pattern: "v\\d+\\.\\d+.\\d+.\\d+(-[a-z_\\-0-9]+)?", comparator: "REGEXP"
             }
             steps {
                 sh 'make mezmo-build-image BUILD_VERSION=${BRANCH_NAME}'
