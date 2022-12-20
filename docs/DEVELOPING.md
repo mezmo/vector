@@ -385,7 +385,7 @@ times:
 
    ```sh
    cargo watch -s clear -s \
-     'cargo test --lib --no-default-features --features=<component type>-<component id> <component type>::<component id>'
+     'cargo test --lib --no-default-features --features=<component type>-<component id> -- <component type>::<component id> [--nocapture]'
    ```
 
    For example, if the component is `reduce` transform, the command above
@@ -393,7 +393,7 @@ times:
 
    ```sh
    cargo watch -s clear -s \
-     'cargo test --lib --no-default-features --features=transforms-reduce transforms::reduce'
+     'cargo test --lib --no-default-features --features=transforms-reduce -- transforms::reduce --nocapture'
    ```
 
 #### Generating sample logs
