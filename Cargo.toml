@@ -31,7 +31,10 @@ split-debuginfo = "unpacked" # Faster debug builds on macOS
 debug = false # Do not include debug symbols in the executable.
 
 [profile.bench]
-debug = true
+debug = false
+
+[profile.test]
+debug = false
 
 [package.metadata.deb]
 name = "vector"
