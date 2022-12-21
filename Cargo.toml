@@ -565,6 +565,7 @@ transforms-logs = [
   "transforms-metric_to_log",
   "transforms-pipelines",
   "transforms-reduce",
+  "transforms-mezmo_reduce",
   "transforms-remap",
   "transforms-route",
   "transforms-sample",
@@ -589,6 +590,7 @@ transforms-lua = ["dep:mlua", "vector-core/lua", "dep:serde_with"]
 transforms-metric_to_log = []
 transforms-pipelines = ["transforms-filter", "transforms-route"]
 transforms-reduce = ["dep:serde_with"]
+transforms-mezmo_reduce = ["dep:serde_with"]
 transforms-remap = []
 transforms-route = []
 transforms-sample = []

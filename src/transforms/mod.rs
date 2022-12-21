@@ -100,6 +100,10 @@ pub enum Transforms {
     #[cfg(feature = "transforms-reduce")]
     Reduce(#[configurable(derived)] reduce::ReduceConfig),
 
+    /// Mezmo Reduce.
+    #[cfg(feature = "transforms-mezmo_reduce")]
+    MezmoReduce(#[configurable(derived)] reduce::mezmo_reduce::MezmoReduceConfig),
+
     /// Remap.
     #[cfg(feature = "transforms-remap")]
     Remap(#[configurable(derived)] remap::RemapConfig),
@@ -154,6 +158,8 @@ impl NamedComponent for Transforms {
             Transforms::Pipelines(config) => config.get_component_name(),
             #[cfg(feature = "transforms-reduce")]
             Transforms::Reduce(config) => config.get_component_name(),
+            #[cfg(feature = "transforms-mezmo_reduce")]
+            Transforms::MezmoReduce(config) => config.get_component_name(),
             #[cfg(feature = "transforms-remap")]
             Transforms::Remap(config) => config.get_component_name(),
             #[cfg(feature = "transforms-route")]

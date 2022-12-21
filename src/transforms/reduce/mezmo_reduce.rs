@@ -4,10 +4,6 @@
 // to return date fields in the same format as originally received. For example, an epoch field
 // can be an integer or a string, and it will match the output type based on the incoming data.
 
-use async_stream::stream;
-use chrono::{TimeZone, Utc};
-use futures::{stream, Stream, StreamExt};
-use indexmap::IndexMap;
 use std::collections::BTreeMap;
 use std::{
     collections::{hash_map, HashMap},
@@ -15,59 +11,90 @@ use std::{
     sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
-use vector_config::configurable_component;
 
-use super::merge_strategy::*;
 use crate::{
     conditions::{AnyCondition, Condition},
-    config::{DataType, Input, Output, TransformConfig, TransformContext, TransformDescription},
-    event::{discriminant::Discriminant, Event, EventMetadata, LogEvent, Value},
+    config::{DataType, Input, Output, TransformConfig, TransformContext},
+    event::{discriminant::Discriminant, Event, EventMetadata, LogEvent},
     internal_events::ReduceStaleEventFlushed,
     schema,
     transforms::{TaskTransform, Transform},
 };
+use async_stream::stream;
+use chrono::{TimeZone, Utc};
+use futures::{stream, Stream, StreamExt};
+use indexmap::IndexMap;
+use lookup::lookup_v2::parse_target_path;
+use lookup::PathPrefix;
+use serde_with::serde_as;
+use vector_config::configurable_component;
 
-/// Configuration for the `mezmo-reduce` transform.
-#[configurable_component(transform)]
-#[derive(Clone, Debug, Default)]
-#[serde(deny_unknown_fields, default)]
+pub use super::merge_strategy::*;
+
+use crate::event::Value;
+use value::kind::Collection;
+use value::Kind;
+
+/// Configuration for the `mezmo_reduce` transform.
+#[serde_as]
+#[configurable_component(transform("mezmo_reduce"))]
+#[derive(Clone, Debug, Derivative)]
+#[derivative(Default)]
+#[serde(deny_unknown_fields)]
 pub struct MezmoReduceConfig {
-    /// The maximum period of time to wait after the last event is received, in milliseconds, before a combined event should be considered complete.
-    pub expire_after_ms: Option<u64>,
+    /// The maximum period of time to wait after the last event is received, in milliseconds, before
+    /// a combined event should be considered complete.
+    #[serde(default = "default_expire_after_ms")]
+    #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+    #[derivative(Default(value = "default_expire_after_ms()"))]
+    pub expire_after_ms: Duration,
 
     /// The interval to check for and flush any expired events, in milliseconds.
-    pub flush_period_ms: Option<u64>,
+    #[serde(default = "default_flush_period_ms")]
+    #[serde_as(as = "serde_with::DurationMilliSeconds<u64>")]
+    #[derivative(Default(value = "default_flush_period_ms()"))]
+    pub flush_period_ms: Duration,
 
     /// An ordered list of fields by which to group events.
     ///
-    /// Each group with matching values for the specified keys is reduced independently, allowing you to keep
-    /// independent event streams separate. When no fields are specified, all events will be combined in a single group.
+    /// Each group with matching values for the specified keys is reduced independently, allowing
+    /// you to keep independent event streams separate. When no fields are specified, all events
+    /// will be combined in a single group.
     ///
-    /// For example, if `group_by = ["host", "region"]`, then all incoming events that have the same host and region
-    /// will be grouped together before being reduced.
+    /// For example, if `group_by = ["host", "region"]`, then all incoming events that have the same
+    /// host and region will be grouped together before being reduced.
     #[serde(default)]
+    #[configurable(metadata(
+        docs::examples = "request_id",
+        docs::examples = "user_id",
+        docs::examples = "transaction_id",
+    ))]
     pub group_by: Vec<String>,
 
     /// A map of field names to custom merge strategies.
     ///
-    /// For each field specified, the given strategy will be used for combining events rather than the default behavior.
+    /// For each field specified, the given strategy will be used for combining events rather than
+    /// the default behavior.
     ///
     /// The default behavior is as follows:
     ///
     /// - The first value of a string field is kept, subsequent values are discarded.
-    /// - For timestamp fields the first is kept and a new field `[field-name]_end` is added with the last received timestamp value.
+    /// - For timestamp fields the first is kept and a new field `[field-name]_end` is added with
+    ///   the last received timestamp value.
     /// - Numeric values are summed.
     #[serde(default)]
     pub merge_strategies: IndexMap<String, MergeStrategy>,
 
     /// A condition used to distinguish the final event of a transaction.
     ///
-    /// If this condition resolves to `true` for an event, the current transaction is immediately flushed with this event.
+    /// If this condition resolves to `true` for an event, the current transaction is immediately
+    /// flushed with this event.
     pub ends_when: Option<AnyCondition>,
 
     /// A condition used to distinguish the first event of a transaction.
     ///
-    /// If this condition resolves to `true` for an event, the previous transaction is flushed (without this event) and a new transaction is started.
+    /// If this condition resolves to `true` for an event, the previous transaction is flushed
+    /// (without this event) and a new transaction is started.
     pub starts_when: Option<AnyCondition>,
 
     /// Mezmo-specific. Since dates can be serialized, users can specify which properties should be dates, and what format can
@@ -117,14 +144,17 @@ impl MezmoMetadata {
     }
 }
 
-inventory::submit! {
-    TransformDescription::new::<MezmoReduceConfig>("mezmo-reduce")
+const fn default_expire_after_ms() -> Duration {
+    Duration::from_millis(30000)
+}
+
+const fn default_flush_period_ms() -> Duration {
+    Duration::from_millis(1000)
 }
 
 impl_generate_config_from_default!(MezmoReduceConfig);
 
 #[async_trait::async_trait]
-#[typetag::serde(name = "mezmo-reduce")]
 impl TransformConfig for MezmoReduceConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
         MezmoReduce::new(self, &context.enrichment_tables).map(Transform::event_task)
@@ -134,12 +164,91 @@ impl TransformConfig for MezmoReduceConfig {
         Input::log()
     }
 
-    fn outputs(&self, _: &schema::Definition) -> Vec<Output> {
-        vec![Output::default(DataType::Log)]
-    }
+    fn outputs(&self, input: &schema::Definition) -> Vec<Output> {
+        let mut schema_definition = input.clone();
 
-    fn transform_type(&self) -> &'static str {
-        "mezmo-reduce"
+        for (key, merge_strategy) in self.merge_strategies.iter() {
+            let key = if let Ok(key) = parse_target_path(key) {
+                key
+            } else {
+                continue;
+            };
+
+            let input_kind = match key.prefix {
+                PathPrefix::Event => schema_definition.event_kind().at_path(&key.path),
+                PathPrefix::Metadata => schema_definition.metadata_kind().at_path(&key.path),
+            };
+
+            let new_kind = match merge_strategy {
+                MergeStrategy::Discard | MergeStrategy::Retain => {
+                    /* does not change the type */
+                    input_kind.clone()
+                }
+                MergeStrategy::Sum | MergeStrategy::Max | MergeStrategy::Min => {
+                    // only keeps integer / float values
+                    match (input_kind.contains_integer(), input_kind.contains_float()) {
+                        (true, true) => Kind::float().or_integer(),
+                        (true, false) => Kind::integer(),
+                        (false, true) => Kind::float(),
+                        (false, false) => Kind::undefined(),
+                    }
+                }
+                MergeStrategy::Array => {
+                    let unknown_kind = input_kind.clone();
+                    Kind::array(Collection::empty().with_unknown(unknown_kind))
+                }
+                MergeStrategy::Concat => {
+                    let mut new_kind = Kind::never();
+
+                    if input_kind.contains_bytes() {
+                        new_kind.add_bytes();
+                    }
+                    if let Some(array) = input_kind.as_array() {
+                        // array elements can be either any type that the field can be, or any
+                        // element of the array
+                        let array_elements = array.reduced_kind().union(input_kind.without_array());
+                        new_kind.add_array(Collection::empty().with_unknown(array_elements));
+                    }
+                    new_kind
+                }
+                MergeStrategy::ConcatNewline | MergeStrategy::ConcatRaw => {
+                    // can only produce bytes (or undefined)
+                    if input_kind.contains_bytes() {
+                        Kind::bytes()
+                    } else {
+                        Kind::undefined()
+                    }
+                }
+                MergeStrategy::ShortestArray | MergeStrategy::LongestArray => {
+                    if let Some(array) = input_kind.as_array() {
+                        Kind::array(array.clone())
+                    } else {
+                        Kind::undefined()
+                    }
+                }
+                MergeStrategy::FlatUnique => {
+                    let mut array_elements = input_kind.without_array().without_object();
+                    if let Some(array) = input_kind.as_array() {
+                        array_elements = array_elements.union(array.reduced_kind());
+                    }
+                    if let Some(object) = input_kind.as_object() {
+                        array_elements = array_elements.union(object.reduced_kind());
+                    }
+                    Kind::array(Collection::empty().with_unknown(array_elements))
+                }
+            };
+
+            // all of the merge strategies are optional. They won't produce a value unless a value actually exists
+            let new_kind = if input_kind.contains_undefined() {
+                new_kind.or_undefined()
+            } else {
+                new_kind
+            };
+
+            schema_definition = schema_definition.with_field(&key, new_kind, None);
+        }
+
+        vec![Output::default(DataType::Log).with_schema_definition(schema_definition)]
     }
 }
 
@@ -241,7 +350,7 @@ impl ReduceState {
         let date_formats = &self.mezmo_metadata.date_formats;
         if date_formats.len() == 0 {
             debug!(message = "There are no custom date formats to coerce");
-            return ();
+            return;
         }
 
         let message_obj = log_event.get_mut("message").unwrap();
@@ -301,7 +410,6 @@ impl ReduceState {
                 }
             }
         }
-        ()
     }
 
     fn flush(mut self) -> LogEvent {
@@ -353,8 +461,8 @@ impl MezmoReduce {
         let group_by = config.group_by.clone().into_iter().collect();
 
         Ok(MezmoReduce {
-            expire_after: Duration::from_millis(config.expire_after_ms.unwrap_or(30000)),
-            flush_period: Duration::from_millis(config.flush_period_ms.unwrap_or(1000)),
+            expire_after: config.expire_after_ms,
+            flush_period: config.flush_period_ms,
             group_by,
             merge_strategies: config.merge_strategies.clone(),
             reduce_merge_states: HashMap::new(),
@@ -410,7 +518,8 @@ impl MezmoReduce {
         for (prop, format) in self.mezmo_metadata.date_formats.iter() {
             let prop_str = prop.as_str();
             if let Some(value) = log_event.get(prop_str) {
-                let parse_result = Utc.datetime_from_str(value.to_string_lossy().as_str(), format);
+                let parse_result =
+                    Utc.datetime_from_str(value.to_string_lossy().into_owned().as_str(), format);
                 match parse_result {
                     Ok(date) => {
                         let value_kind = value.kind_str();
@@ -544,12 +653,13 @@ impl TaskTransform<Event> for MezmoReduce {
 #[cfg(test)]
 mod test {
     use serde_json::json;
+    use tokio::sync::mpsc;
+    use tokio_stream::wrappers::ReceiverStream;
 
     use super::*;
-    use crate::{
-        config::TransformConfig,
-        event::{LogEvent, Value},
-    };
+    use crate::event::{LogEvent, Value};
+    use crate::test_util::components::assert_transform_compliance;
+    use crate::transforms::test::create_topology;
     use chrono::{TimeZone, Utc};
 
     #[test]
@@ -559,77 +669,83 @@ mod test {
 
     #[tokio::test]
     async fn mezmo_reduce_default_behavior() {
-        let reduce = toml::from_str::<MezmoReduceConfig>(r#""#)
-            .unwrap()
-            .build(&TransformContext::default())
-            .await
-            .unwrap();
-        let reduce = reduce.into_task();
-        let start_date = Utc::now();
-        let end_date = Utc.timestamp(1_500_000_000, 0);
+        let reduce_config = toml::from_str::<MezmoReduceConfig>("").unwrap();
 
-        let mut e_1 = LogEvent::default();
-        e_1.insert(
-            "message",
-            BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("first string")),
-                ("my_date".to_owned(), Value::from(start_date)),
-            ]),
-        );
-        let metadata_1 = e_1.metadata().clone();
+        assert_transform_compliance(async move {
+            let (tx, rx) = mpsc::channel(1);
 
-        let mut e_2 = LogEvent::default();
-        e_2.insert(
-            "message",
-            BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("second string")),
-                (
-                    "e2_string".to_owned(),
-                    Value::from("Added in the second event"),
-                ),
-            ]),
-        );
+            // _topology isn't used but need to be bound to a name so it's not dropped before the
+            // rest of the test can run.
+            let (_topology, mut out) =
+                create_topology(ReceiverStream::new(rx), reduce_config).await;
 
-        let mut e_3 = LogEvent::default();
-        e_3.insert(
-            "message",
-            BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("third string")),
-                (
-                    "e2_string".to_owned(),
-                    Value::from("Ignored, cause it's added in the THIRD event"),
-                ),
-                ("my_date".to_owned(), Value::from(end_date)),
-            ]),
-        );
+            let start_date = Utc::now();
+            let end_date = Utc.timestamp(1_500_000_000, 0);
 
-        let inputs = vec![e_1.into(), e_2.into(), e_3.into()];
-        let in_stream = Box::pin(stream::iter(inputs));
-        let mut out_stream = reduce.transform_events(in_stream);
+            let mut e_1 = LogEvent::default();
+            e_1.insert(
+                "message",
+                BTreeMap::from([
+                    ("my_num".to_owned(), Value::from(10)),
+                    ("my_string".to_owned(), Value::from("first string")),
+                    ("my_date".to_owned(), Value::from(start_date)),
+                ]),
+            );
+            let metadata_1 = e_1.metadata().clone();
 
-        let output_1 = out_stream.next().await.unwrap().into_log();
-        assert_eq!(output_1["message.my_num"], 30.into());
-        assert_eq!(output_1["message.my_string"], "first string".into());
-        assert_eq!(
-            output_1["message.e2_string"],
-            "Added in the second event".into()
-        );
-        assert_eq!(output_1["message.my_date"], start_date.into());
-        assert_eq!(output_1["message.my_date_end"], end_date.into());
-        assert_eq!(output_1.metadata(), &metadata_1);
+            let mut e_2 = LogEvent::default();
+            e_2.insert(
+                "message",
+                BTreeMap::from([
+                    ("my_num".to_owned(), Value::from(10)),
+                    ("my_string".to_owned(), Value::from("second string")),
+                    (
+                        "e2_string".to_owned(),
+                        Value::from("Added in the second event"),
+                    ),
+                ]),
+            );
+
+            let mut e_3 = LogEvent::default();
+            e_3.insert(
+                "message",
+                BTreeMap::from([
+                    ("my_num".to_owned(), Value::from(10)),
+                    ("my_string".to_owned(), Value::from("third string")),
+                    (
+                        "e2_string".to_owned(),
+                        Value::from("Ignored, cause it's added in the THIRD event"),
+                    ),
+                    ("my_date".to_owned(), Value::from(end_date)),
+                ]),
+            );
+
+            for event in vec![e_1.into(), e_2.into(), e_3.into()] {
+                tx.send(event).await.unwrap();
+            }
+
+            let output_1 = out.recv().await.unwrap().into_log();
+            assert_eq!(output_1["message.my_num"], 30.into());
+            assert_eq!(output_1["message.my_string"], "first string".into());
+            assert_eq!(
+                output_1["message.e2_string"],
+                "Added in the second event".into()
+            );
+            assert_eq!(output_1["message.my_date"], start_date.into());
+            assert_eq!(output_1["message.my_date_end"], end_date.into());
+            assert_eq!(output_1.metadata(), &metadata_1);
+        })
+        .await;
     }
 
     #[tokio::test]
     async fn mezmo_reduce_from_end_condition() {
         let reduce = toml::from_str::<MezmoReduceConfig>(
             r#"
-[ends_when]
-  type = "check_fields"
-  ".test_end.exists" = true
-"#,
+    [ends_when]
+      type = "vrl"
+      source = "exists(.test_end)"
+    "#,
         )
         .unwrap()
         .build(&TransformContext::default())
@@ -719,10 +835,10 @@ mod test {
 
         let reduce = toml::from_str::<MezmoReduceConfig>(
             r#"
-[starts_when]
-  type = "vrl"
-  source = ".start_new_here == true"
-"#,
+    [starts_when]
+      type = "vrl"
+      source = ".start_new_here == true"
+    "#,
         )
         .unwrap()
         .build(&TransformContext::default())
@@ -809,12 +925,12 @@ mod test {
     async fn mezmo_reduce_with_group_by() {
         let reduce = toml::from_str::<MezmoReduceConfig>(
             r#"
-group_by = [ "request_id" ]
+    group_by = [ "request_id" ]
 
-[ends_when]
-  type = "vrl"
-  source = ".stop_here == true"
-"#,
+    [ends_when]
+      type = "vrl"
+      source = ".stop_here == true"
+    "#,
         )
         .unwrap()
         .build(&TransformContext::default())
@@ -914,16 +1030,16 @@ group_by = [ "request_id" ]
     async fn mezmo_reduce_merge_strategies() {
         let reduce = toml::from_str::<MezmoReduceConfig>(
             r#"
-    group_by = [ "request_id" ]
+        group_by = [ "request_id" ]
 
-    merge_strategies.foo = "concat"
-    merge_strategies.bar = "array"
-    merge_strategies.baz = "max"
+        merge_strategies.foo = "concat"
+        merge_strategies.bar = "array"
+        merge_strategies.baz = "max"
 
-    [ends_when]
-      type = "check_fields"
-      "test_end.exists" = true
-    "#,
+        [ends_when]
+          type = "vrl"
+          source = "exists(.test_end)"
+        "#,
         )
         .unwrap()
         .build(&TransformContext::default())
@@ -983,12 +1099,12 @@ group_by = [ "request_id" ]
     async fn mezmo_reduce_missing_group_by() {
         let reduce = toml::from_str::<MezmoReduceConfig>(
             r#"
-    group_by = [ "request_id" ]
+        group_by = [ "request_id" ]
 
-    [ends_when]
-      type = "check_fields"
-      "test_end.exists" = true
-    "#,
+        [ends_when]
+          type = "vrl"
+          source = "exists(.test_end)"
+        "#,
         )
         .unwrap()
         .build(&TransformContext::default())
@@ -1056,15 +1172,15 @@ group_by = [ "request_id" ]
     async fn mezmo_reduce_arrays_in_payload() {
         let reduce = toml::from_str::<MezmoReduceConfig>(
             r#"
-    group_by = [ "request_id" ]
+        group_by = [ "request_id" ]
 
-    merge_strategies.foo = "array"
-    merge_strategies.bar = "concat"
+        merge_strategies.foo = "array"
+        merge_strategies.bar = "concat"
 
-    [ends_when]
-      type = "check_fields"
-      "test_end.exists" = true
-    "#,
+        [ends_when]
+          type = "vrl"
+          source = "exists(.test_end)"
+        "#,
         )
         .unwrap()
         .build(&TransformContext::default())
@@ -1166,15 +1282,15 @@ group_by = [ "request_id" ]
     async fn mezmo_reduce_timestamps_with_path_notation() {
         let reduce = toml::from_str::<MezmoReduceConfig>(
             r#"
-    [date_formats]
-      ".ts" = "%Y-%m-%d %H:%M:%S"
-      ".epoch" = "%s"
-      ".epoch_str" = "%s"
+        [date_formats]
+          ".ts" = "%Y-%m-%d %H:%M:%S"
+          ".epoch" = "%s"
+          ".epoch_str" = "%s"
 
-    [ends_when]
-      type = "check_fields"
-      "test_end.exists" = true
-    "#,
+        [ends_when]
+          type = "vrl"
+          source = "exists(.test_end)"
+        "#,
         )
         .unwrap()
         .build(&TransformContext::default())
