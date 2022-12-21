@@ -23,6 +23,7 @@ use crate::{
 };
 
 mod merge_strategy;
+mod mezmo_reduce;
 
 use crate::event::Value;
 pub use merge_strategy::*;
