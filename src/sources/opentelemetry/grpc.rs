@@ -1,8 +1,5 @@
 use crate::{
     internal_events::{EventsReceived, StreamClosedError},
-    opentelemetry::LogService::{
-        logs_service_server::LogsService, ExportLogsServiceRequest, ExportLogsServiceResponse,
-    },
     sources::opentelemetry::LOGS,
     SourceSender,
 };
@@ -10,9 +7,12 @@ use futures::TryFutureExt;
 
 use tonic::{Request, Response, Status};
 
+use opentelemetry_proto::proto::collector::logs::v1::{
+    logs_service_server::LogsService, ExportLogsServiceRequest, ExportLogsServiceResponse,
+};
 use vector_core::{
     event::{BatchNotifier, BatchStatus, BatchStatusReceiver, Event},
-    ByteSizeOf,
+    EstimatedJsonEncodedSizeOf,
 };
 
 #[derive(Debug, Clone)]
@@ -35,7 +35,7 @@ impl LogsService for Service {
             .collect();
 
         let count = events.len();
-        let byte_size = events.size_of();
+        let byte_size = events.estimated_json_encoded_size_of();
 
         emit!(EventsReceived { count, byte_size });
 

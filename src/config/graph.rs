@@ -2,7 +2,8 @@ use indexmap::{set::IndexSet, IndexMap};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::{
-    schema, ComponentKey, DataType, Output, OutputId, SinkOuter, SourceOuter, TransformOuter,
+    schema, ComponentKey, DataType, Output, OutputId, SinkConfig, SinkOuter, SourceConfig,
+    SourceOuter, TransformConfig, TransformOuter,
 };
 
 #[derive(Debug, Clone)]
@@ -359,7 +360,7 @@ impl Graph {
 
 #[cfg(test)]
 mod test {
-    use pretty_assertions::assert_eq;
+    use similar_asserts::assert_eq;
 
     use super::*;
 

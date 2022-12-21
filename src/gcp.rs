@@ -14,6 +14,7 @@ use once_cell::sync::Lazy;
 use smpl_jwt::Jwt;
 use snafu::{ResultExt, Snafu};
 use tokio::{sync::watch, time::Instant};
+use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
 
 use crate::http::HttpError;
@@ -67,7 +68,7 @@ pub struct GcpAuthConfig {
     /// filename is named, Vector will attempt to fetch an instance service account for the compute instance the program is
     /// running on. If Vector is not running on a GCE instance, then you must define eith an API key or service account
     /// credentials JSON file.
-    pub api_key: Option<String>,
+    pub api_key: Option<SensitiveString>,
 
     /// Path to a service account credentials JSON file. ([documentation](https://cloud.google.com/docs/authentication/production#manually))
     ///
@@ -87,7 +88,7 @@ pub struct GcpAuthConfig {
     /// filename is named, Vector will attempt to fetch an instance service account for the compute instance the program is
     /// running on. If Vector is not running on a GCE instance, then you must define eith an API key or service account
     /// credentials JSON file.
-    pub credentials_json: Option<String>,
+    pub credentials_json: Option<SensitiveString>,
 
     /// Skip all authentication handling. For use with integration tests only.
     #[serde(default, skip_serializing)]
@@ -103,9 +104,9 @@ impl GcpAuthConfig {
             match (&creds_path, &self.credentials_json, &self.api_key) {
                 (Some(path), _, _) => GcpAuthenticator::from_file(path, scope).await?,
                 (None, Some(credentials_json), _) => {
-                    GcpAuthenticator::from_str(credentials_json, scope).await?
+                    GcpAuthenticator::from_str(credentials_json.inner(), scope).await?
                 }
-                (None, None, Some(api_key)) => GcpAuthenticator::from_api_key(api_key)?,
+                (None, None, Some(api_key)) => GcpAuthenticator::from_api_key(api_key.inner())?,
                 (None, None, None) => GcpAuthenticator::None,
             }
         })

@@ -1,11 +1,11 @@
-use std::{collections::BTreeMap, num::NonZeroU32, sync::Arc};
+use std::{num::NonZeroU32, sync::Arc};
 
 use bytes::Bytes;
 use chrono::{TimeZone, Utc};
 use http::StatusCode;
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use vector_core::{metrics::AgentDDSketch, ByteSizeOf};
+use vector_core::{metrics::AgentDDSketch, EstimatedJsonEncodedSizeOf};
 use warp::{filters::BoxedFilter, path, path::FullPath, reply::Response, Filter};
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
     config::log_schema,
     event::{
         metric::{Metric, MetricValue},
-        Event, MetricKind,
+        Event, MetricKind, MetricTags,
     },
     internal_events::EventsReceived,
     schema,
@@ -194,7 +194,7 @@ fn decode_datadog_sketches(
         // The datadog agent may send an empty payload as a keep alive
         debug!(
             message = "Empty payload ignored.",
-            internal_log_rate_secs = 30
+            internal_log_rate_limit = true
         );
         return Ok(Vec::new());
     }
@@ -207,7 +207,7 @@ fn decode_datadog_sketches(
     })?;
 
     emit!(EventsReceived {
-        byte_size: metrics.size_of(),
+        byte_size: metrics.estimated_json_encoded_size_of(),
         count: metrics.len(),
     });
 
@@ -223,7 +223,7 @@ fn decode_datadog_series_v2(
         // The datadog agent may send an empty payload as a keep alive
         debug!(
             message = "Empty payload ignored.",
-            internal_log_rate_secs = 30
+            internal_log_rate_limit = true
         );
         return Ok(Vec::new());
     }
@@ -236,7 +236,7 @@ fn decode_datadog_series_v2(
     })?;
 
     emit!(EventsReceived {
-        byte_size: metrics.size_of(),
+        byte_size: metrics.estimated_json_encoded_size_of(),
         count: metrics.len(),
     });
 
@@ -254,14 +254,7 @@ pub(crate) fn decode_ddseries_v2(
         .into_iter()
         .flat_map(|serie| {
             let (namespace, name) = namespace_name_from_dd_metric(&serie.metric);
-            let mut tags: BTreeMap<String, String> = serie
-                .tags
-                .iter()
-                .map(|tag| {
-                    let kv = tag.split_once(':').unwrap_or((tag, ""));
-                    (kv.0.trim().into(), kv.1.trim().into())
-                })
-                .collect();
+            let mut tags = into_metric_tags(serie.tags);
 
             serie.resources.into_iter().for_each(|r| {
                 // As per https://github.com/DataDog/datadog-agent/blob/a62ac9fb13e1e5060b89e731b8355b2b20a07c5b/pkg/serializer/internal/metrics/iterable_series.go#L180-L189
@@ -351,7 +344,7 @@ pub(crate) fn decode_ddseries_v2(
         .collect();
 
     emit!(EventsReceived {
-        byte_size: decoded_metrics.size_of(),
+        byte_size: decoded_metrics.estimated_json_encoded_size_of(),
         count: decoded_metrics.len(),
     });
 
@@ -367,7 +360,7 @@ fn decode_datadog_series_v1(
         // The datadog agent may send an empty payload as a keep alive
         debug!(
             message = "Empty payload ignored.",
-            internal_log_rate_secs = 30
+            internal_log_rate_limit = true
         );
         return Ok(Vec::new());
     }
@@ -386,11 +379,20 @@ fn decode_datadog_series_v1(
         .collect();
 
     emit!(EventsReceived {
-        byte_size: decoded_metrics.size_of(),
+        byte_size: decoded_metrics.estimated_json_encoded_size_of(),
         count: decoded_metrics.len(),
     });
 
     Ok(decoded_metrics)
+}
+
+fn into_metric_tags(tags: Vec<String>) -> MetricTags {
+    tags.iter()
+        .map(|tag| {
+            let kv = tag.split_once(':').unwrap_or((tag, ""));
+            (kv.0.trim().to_string(), kv.1.trim().to_string())
+        })
+        .collect()
 }
 
 fn into_vector_metric(
@@ -398,15 +400,7 @@ fn into_vector_metric(
     api_key: Option<Arc<str>>,
     schema_definition: &Arc<schema::Definition>,
 ) -> Vec<Event> {
-    let mut tags: BTreeMap<String, String> = dd_metric
-        .tags
-        .unwrap_or_default()
-        .iter()
-        .map(|tag| {
-            let kv = tag.split_once(':').unwrap_or((tag, ""));
-            (kv.0.trim().into(), kv.1.trim().into())
-        })
-        .collect();
+    let mut tags = into_metric_tags(dd_metric.tags.unwrap_or_default());
 
     dd_metric
         .host
@@ -496,11 +490,6 @@ fn namespace_name_from_dd_metric(dd_metric_name: &str) -> (Option<&str>, &str) {
     }
 }
 
-#[allow(warnings)]
-mod dd_proto {
-    include!(concat!(env!("OUT_DIR"), "/datadog.agentpayload.rs"));
-}
-
 pub(crate) fn decode_ddsketch(
     frame: Bytes,
     api_key: &Option<Arc<str>>,
@@ -513,15 +502,7 @@ pub(crate) fn decode_ddsketch(
         .into_iter()
         .flat_map(|sketch_series| {
             // sketch_series.distributions is also always empty from payload coming from dd agents
-            let mut tags: BTreeMap<String, String> = sketch_series
-                .tags
-                .iter()
-                .map(|tag| {
-                    let kv = tag.split_once(':').unwrap_or((tag, ""));
-                    (kv.0.trim().into(), kv.1.trim().into())
-                })
-                .collect();
-
+            let mut tags = into_metric_tags(sketch_series.tags);
             tags.insert(
                 log_schema().host_key().to_string(),
                 sketch_series.host.clone(),

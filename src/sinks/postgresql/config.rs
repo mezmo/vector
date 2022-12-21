@@ -78,7 +78,7 @@ pub enum PostgreSQLConflictsConfig {
 }
 
 /// Configuration for the `postgresql` sink.
-#[configurable_component(sink)]
+#[configurable_component(sink("postgresql"))]
 #[derive(Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct PostgreSQLSinkConfig {
@@ -130,7 +130,6 @@ impl GenerateConfig for PostgreSQLSinkConfig {
 }
 
 #[async_trait]
-#[typetag::serde(name = "postgresql")]
 impl SinkConfig for PostgreSQLSinkConfig {
     async fn build(&self, _cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let sink = PostgreSQLSink::new(self.clone())?;
@@ -140,10 +139,6 @@ impl SinkConfig for PostgreSQLSinkConfig {
 
     fn input(&self) -> Input {
         Input::new(DataType::Log | DataType::Metric)
-    }
-
-    fn sink_type(&self) -> &'static str {
-        "postgresql"
     }
 
     fn acknowledgements(&self) -> &AcknowledgementsConfig {

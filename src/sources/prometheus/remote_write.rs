@@ -10,24 +10,20 @@ use warp::http::{HeaderMap, StatusCode};
 use super::parser;
 use crate::{
     config::{
-        self, AcknowledgementsConfig, GenerateConfig, Output, SourceConfig, SourceContext,
-        SourceDescription,
+        self, GenerateConfig, Output, SourceAcknowledgementsConfig, SourceConfig, SourceContext,
     },
     event::Event,
     internal_events::PrometheusRemoteWriteParseError,
     serde::bool_or_struct,
     sources::{
         self,
-        http::HttpMethod,
-        util::{decode, ErrorMessage, HttpSource, HttpSourceAuthConfig},
+        util::{decode, http::HttpMethod, ErrorMessage, HttpSource, HttpSourceAuthConfig},
     },
     tls::TlsEnableableConfig,
 };
 
-const SOURCE_NAME: &str = "prometheus_remote_write";
-
 /// Configuration for the `prometheus_remote_write` source.
-#[configurable_component(source)]
+#[configurable_component(source("prometheus_remote_write"))]
 #[derive(Clone, Debug)]
 pub struct PrometheusRemoteWriteConfig {
     /// The address to accept connections on.
@@ -43,7 +39,7 @@ pub struct PrometheusRemoteWriteConfig {
 
     #[configurable(derived)]
     #[serde(default, deserialize_with = "bool_or_struct")]
-    acknowledgements: AcknowledgementsConfig,
+    acknowledgements: SourceAcknowledgementsConfig,
 }
 
 impl PrometheusRemoteWriteConfig {
@@ -58,24 +54,19 @@ impl PrometheusRemoteWriteConfig {
     }
 }
 
-inventory::submit! {
-    SourceDescription::new::<PrometheusRemoteWriteConfig>(SOURCE_NAME)
-}
-
 impl GenerateConfig for PrometheusRemoteWriteConfig {
     fn generate_config() -> toml::Value {
         toml::Value::try_from(Self {
             address: "127.0.0.1:9090".parse().unwrap(),
             tls: None,
             auth: None,
-            acknowledgements: AcknowledgementsConfig::default(),
+            acknowledgements: SourceAcknowledgementsConfig::default(),
         })
         .unwrap()
     }
 }
 
 #[async_trait::async_trait]
-#[typetag::serde(name = "prometheus_remote_write")]
 impl SourceConfig for PrometheusRemoteWriteConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<sources::Source> {
         let source = RemoteWriteSource;
@@ -93,10 +84,6 @@ impl SourceConfig for PrometheusRemoteWriteConfig {
 
     fn outputs(&self, _global_log_namespace: LogNamespace) -> Vec<Output> {
         vec![Output::default(config::DataType::Metric)]
-    }
-
-    fn source_type(&self) -> &'static str {
-        SOURCE_NAME
     }
 
     fn can_acknowledge(&self) -> bool {
@@ -194,7 +181,7 @@ mod test {
                 address,
                 auth: None,
                 tls: tls.clone(),
-                acknowledgements: AcknowledgementsConfig::default(),
+                acknowledgements: SourceAcknowledgementsConfig::default(),
             };
             let source = source
                 .build(SourceContext::new_test(tx, None))
@@ -300,7 +287,7 @@ mod integration_tests {
             address: source_receive_address().parse().unwrap(),
             auth: None,
             tls: None,
-            acknowledgements: AcknowledgementsConfig::default(),
+            acknowledgements: SourceAcknowledgementsConfig::default(),
         };
 
         let events = run_and_assert_source_compliance(

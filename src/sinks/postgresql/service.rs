@@ -13,7 +13,8 @@ use tokio_postgres::types::{to_sql_checked, IsNull, ToSql, Type};
 use tower::Service;
 use value::Value;
 use vector_common::finalization::{EventFinalizers, Finalizable};
-use vector_core::{internal_event::EventsSent, stream::DriverResponse};
+use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
+use vector_core::{internal_event::CountByteSize, stream::DriverResponse};
 
 pub struct PostgreSQLRequest {
     data: Vec<Value>,
@@ -32,6 +33,14 @@ impl Finalizable for PostgreSQLRequest {
     }
 }
 
+impl MetaDescriptive for PostgreSQLRequest {
+    fn get_metadata(&self) -> RequestMetadata {
+        // RequestMetadata is not relevant for the output of this sink, but
+        // is required by the trait bounds of service driver
+        RequestMetadata::new(0, 0, 0, 0, 0)
+    }
+}
+
 pub struct PostgreSQLResponse {}
 
 impl DriverResponse for PostgreSQLResponse {
@@ -39,12 +48,8 @@ impl DriverResponse for PostgreSQLResponse {
         EventStatus::Delivered
     }
 
-    fn events_sent(&self) -> EventsSent {
-        EventsSent {
-            count: 1,
-            byte_size: 0,
-            output: None,
-        }
+    fn events_sent(&self) -> CountByteSize {
+        CountByteSize(1, 0)
     }
 }
 

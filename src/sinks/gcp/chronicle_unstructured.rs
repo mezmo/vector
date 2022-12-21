@@ -5,7 +5,7 @@ use bytes::{Bytes, BytesMut};
 use futures::future;
 use futures_util::{future::BoxFuture, task::Poll};
 use goauth::scopes::Scope;
-use http::{header::HeaderValue, Request, Uri};
+use http::{header::HeaderValue, Request, StatusCode, Uri};
 use hyper::Body;
 use indoc::indoc;
 use serde_json::json;
@@ -13,6 +13,7 @@ use snafu::Snafu;
 use std::io;
 use tokio_util::codec::Encoder as _;
 use tower::{Service, ServiceBuilder};
+use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_config::configurable_component;
 use vector_core::{
     config::{AcknowledgementsConfig, Input},
@@ -22,9 +23,9 @@ use vector_core::{
 
 use crate::{
     codecs::{self, EncodingConfig},
-    config::{log_schema, GenerateConfig, SinkConfig, SinkContext, SinkDescription},
+    config::{log_schema, GenerateConfig, SinkConfig, SinkContext},
     gcp::{GcpAuthConfig, GcpAuthenticator},
-    http::{HttpClient, HttpError},
+    http::HttpClient,
     sinks::{
         gcs_common::{
             config::{healthcheck_response, GcsRetryLogic},
@@ -33,7 +34,7 @@ use crate::{
         },
         util::{
             encoding::{as_tracked_write, Encoder},
-            metadata::{RequestMetadata, RequestMetadataBuilder},
+            metadata::RequestMetadataBuilder,
             partitioner::KeyPartitioner,
             request_builder::EncodeResult,
             BatchConfig, Compression, RequestBuilder, SinkBatchSettings, TowerRequestConfig,
@@ -43,8 +44,6 @@ use crate::{
     template::{Template, TemplateParseError},
     tls::{TlsConfig, TlsSettings},
 };
-
-const NAME: &str = "gcp_chronicle_unstructured";
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
@@ -100,7 +99,7 @@ impl SinkBatchSettings for ChronicleUnstructuredDefaultBatchSettings {
 }
 
 /// Configuration for the `gcp_chronicle_unstructured` sink.
-#[configurable_component(sink)]
+#[configurable_component(sink("gcp_chronicle_unstructured"))]
 #[derive(Clone, Debug)]
 pub struct ChronicleUnstructuredConfig {
     /// The endpoint to send data to.
@@ -136,7 +135,6 @@ pub struct ChronicleUnstructuredConfig {
     /// Chronicle will reject the entry with an error.
     ///
     /// [unstructured_log_types_doc]: https://cloud.google.com/chronicle/docs/ingestion/parser-list/supported-default-parsers
-    #[configurable(metadata(templateable))]
     pub log_type: Template,
 
     #[configurable(derived)]
@@ -146,10 +144,6 @@ pub struct ChronicleUnstructuredConfig {
         skip_serializing_if = "crate::serde::skip_serializing_if_default"
     )]
     acknowledgements: AcknowledgementsConfig,
-}
-
-inventory::submit! {
-    SinkDescription::new::<ChronicleUnstructuredConfig>(NAME)
 }
 
 impl GenerateConfig for ChronicleUnstructuredConfig {
@@ -197,7 +191,6 @@ pub enum ChronicleError {
 }
 
 #[async_trait::async_trait]
-#[typetag::serde(name = "gcp_chronicle_unstructured")]
 impl SinkConfig for ChronicleUnstructuredConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         // Unlike Vector's upstream behavior, if the initial `auth` result is an error
@@ -225,10 +218,6 @@ impl SinkConfig for ChronicleUnstructuredConfig {
 
     fn input(&self) -> Input {
         Input::log()
-    }
-
-    fn sink_type(&self) -> &'static str {
-        NAME
     }
 
     fn acknowledgements(&self) -> &AcknowledgementsConfig {
@@ -287,12 +276,18 @@ impl ChronicleUnstructuredConfig {
 pub struct ChronicleRequest {
     pub body: Bytes,
     pub finalizers: EventFinalizers,
-    pub metadata: RequestMetadata,
+    metadata: RequestMetadata,
 }
 
 impl Finalizable for ChronicleRequest {
     fn take_finalizers(&mut self) -> EventFinalizers {
         std::mem::take(&mut self.finalizers)
+    }
+}
+
+impl MetaDescriptive for ChronicleRequest {
+    fn get_metadata(&self) -> RequestMetadata {
+        self.metadata
     }
 }
 
@@ -379,7 +374,7 @@ impl AsRef<[u8]> for ChronicleRequestPayload {
 }
 
 impl RequestBuilder<(String, Vec<Event>)> for RequestSettings {
-    type Metadata = (EventFinalizers, RequestMetadataBuilder);
+    type Metadata = EventFinalizers;
     type Events = (String, Vec<Event>);
     type Encoder = ChronicleEncoder;
     type Payload = ChronicleRequestPayload;
@@ -394,26 +389,25 @@ impl RequestBuilder<(String, Vec<Event>)> for RequestSettings {
         &self.encoder
     }
 
-    fn split_input(&self, input: (String, Vec<Event>)) -> (Self::Metadata, Self::Events) {
+    fn split_input(
+        &self,
+        input: (String, Vec<Event>),
+    ) -> (Self::Metadata, RequestMetadataBuilder, Self::Events) {
         let (partition_key, mut events) = input;
         let finalizers = events.take_finalizers();
 
-        let metadata = RequestMetadata::builder(&events);
-        ((finalizers, metadata), (partition_key, events))
+        let builder = RequestMetadataBuilder::from_events(&events);
+        (finalizers, builder, (partition_key, events))
     }
 
     fn build_request(
         &self,
-        metadata: Self::Metadata,
+        finalizers: Self::Metadata,
+        metadata: RequestMetadata,
         payload: EncodeResult<Self::Payload>,
     ) -> Self::Request {
-        let (finalizers, metadata_builder) = metadata;
-
-        let metadata = metadata_builder.build(&payload);
-        let body = payload.into_payload().bytes;
-
         ChronicleRequest {
-            body,
+            body: payload.into_payload().bytes,
             finalizers,
             metadata,
         }
@@ -451,9 +445,17 @@ impl ChronicleService {
     }
 }
 
+#[derive(Debug, Snafu)]
+pub enum ChronicleResponseError {
+    #[snafu(display("Server responded with an error: {}", code))]
+    ServerError { code: StatusCode },
+    #[snafu(display("Failed to make HTTP(S) request: {}", error))]
+    HttpError { error: crate::http::HttpError },
+}
+
 impl Service<ChronicleRequest> for ChronicleService {
     type Response = GcsResponse;
-    type Error = HttpError;
+    type Error = ChronicleResponseError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -472,6 +474,8 @@ impl Service<ChronicleRequest> for ChronicleService {
             HeaderValue::from_str(&request.body.len().to_string()).unwrap(),
         );
 
+        let metadata = request.get_metadata();
+
         let mut http_request = builder.body(Body::from(request.body)).unwrap();
 
         match &self.auth {
@@ -489,12 +493,21 @@ impl Service<ChronicleRequest> for ChronicleService {
 
         let mut client = self.client.clone();
         Box::pin(async move {
-            let result = client.call(http_request).await;
-            result.map(|inner| GcsResponse {
-                inner: Some(inner),
-                protocol: "http",
-                metadata: request.metadata,
-            })
+            match client.call(http_request).await {
+                Ok(response) => {
+                    let status = response.status();
+                    if status.is_success() {
+                        Ok(GcsResponse {
+                            inner: Some(response),
+                            protocol: "http",
+                            metadata,
+                        })
+                    } else {
+                        Err(ChronicleResponseError::ServerError { code: status })
+                    }
+                }
+                Err(error) => Err(ChronicleResponseError::HttpError { error }),
+            }
         })
     }
 }
@@ -507,7 +520,10 @@ mod integration_tests {
 
     use super::*;
     use crate::test_util::{
-        components::{run_and_assert_sink_compliance, SINK_TAGS},
+        components::{
+            run_and_assert_sink_compliance, run_and_assert_sink_error, COMPONENT_ERROR_TAGS,
+            SINK_TAGS,
+        },
         random_events_with_stream, random_string, trace_init,
     };
 
@@ -593,7 +609,7 @@ mod integration_tests {
 
         let (batch, mut receiver) = BatchNotifier::new_with_receiver();
         let (_input, events) = random_events_with_stream(100, 100, Some(batch));
-        let _ = sink.run(events).await;
+        run_and_assert_sink_error(sink, events, &COMPONENT_ERROR_TAGS).await;
         assert_eq!(receiver.try_recv(), Ok(BatchStatus::Rejected));
     }
 

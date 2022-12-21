@@ -24,23 +24,24 @@ use kube::{
     },
     Client, Config as ClientConfig,
 };
+use vector_common::internal_event::{ByteSize, BytesReceived, InternalEventHandle as _, Protocol};
 use vector_common::TimeZone;
-use vector_config::configurable_component;
-use vector_core::{transform::TaskTransform, ByteSizeOf};
+use vector_config::{configurable_component, NamedComponent};
+use vector_core::{transform::TaskTransform, EstimatedJsonEncodedSizeOf};
 
 use crate::{
     config::{
         log_schema, ComponentKey, DataType, GenerateConfig, GlobalOptions, Output, SourceConfig,
-        SourceContext, SourceDescription,
+        SourceContext,
     },
     event::{Event, LogEvent},
     internal_events::{
-        BytesReceived, FileSourceInternalEventsEmitter, KubernetesLifecycleError,
+        FileSourceInternalEventsEmitter, KubernetesLifecycleError,
         KubernetesLogsEventAnnotationError, KubernetesLogsEventNamespaceAnnotationError,
         KubernetesLogsEventNodeAnnotationError, KubernetesLogsEventsReceived,
         KubernetesLogsPodInfo, StreamClosedError,
     },
-    kubernetes::custom_reflector,
+    kubernetes::{custom_reflector, meta_cache::MetaCache},
     shutdown::ShutdownSignal,
     sources,
     transforms::{FunctionTransform, OutputBuffer},
@@ -74,7 +75,7 @@ const FILE_KEY: &str = "file";
 const SELF_NODE_NAME_ENV_KEY: &str = "VECTOR_SELF_NODE_NAME";
 
 /// Configuration for the `kubernetes_logs` source.
-#[configurable_component(source)]
+#[configurable_component(source("kubernetes_logs"))]
 #[derive(Clone, Debug)]
 #[serde(deny_unknown_fields, default)]
 pub struct Config {
@@ -152,10 +153,6 @@ pub struct Config {
     delay_deletion_ms: usize,
 }
 
-inventory::submit! {
-    SourceDescription::new::<Config>(COMPONENT_ID)
-}
-
 impl GenerateConfig for Config {
     fn generate_config() -> toml::Value {
         toml::Value::try_from(&Self {
@@ -192,10 +189,7 @@ impl Default for Config {
     }
 }
 
-const COMPONENT_ID: &str = "kubernetes_logs";
-
 #[async_trait::async_trait]
-#[typetag::serde(name = "kubernetes_logs")]
 impl SourceConfig for Config {
     async fn build(&self, cx: SourceContext) -> crate::Result<sources::Source> {
         let source = Source::new(self, &cx.globals, &cx.key).await?;
@@ -208,10 +202,6 @@ impl SourceConfig for Config {
 
     fn outputs(&self, _global_log_namespace: LogNamespace) -> Vec<Output> {
         vec![Output::default(DataType::Log)]
-    }
-
-    fn source_type(&self) -> &'static str {
-        COMPONENT_ID
     }
 
     fn can_acknowledge(&self) -> bool {
@@ -348,6 +338,7 @@ impl Source {
         let mut reflectors = Vec::new();
 
         let pods = Api::<Pod>::all(client.clone());
+
         let pod_watcher = watcher(
             pods,
             ListParams {
@@ -358,9 +349,11 @@ impl Source {
         );
         let pod_store_w = reflector::store::Writer::default();
         let pod_state = pod_store_w.as_reader();
+        let pod_cacher = MetaCache::new();
 
         reflectors.push(tokio::spawn(custom_reflector(
             pod_store_w,
+            pod_cacher,
             pod_watcher,
             delay_deletion,
         )));
@@ -377,9 +370,11 @@ impl Source {
         );
         let ns_store_w = reflector::store::Writer::default();
         let ns_state = ns_store_w.as_reader();
+        let ns_cacher = MetaCache::new();
 
         reflectors.push(tokio::spawn(custom_reflector(
             ns_store_w,
+            ns_cacher,
             ns_watcher,
             delay_deletion,
         )));
@@ -396,9 +391,11 @@ impl Source {
         );
         let node_store_w = reflector::store::Writer::default();
         let node_state = node_store_w.as_reader();
+        let node_cacher = MetaCache::new();
 
         reflectors.push(tokio::spawn(custom_reflector(
             node_store_w,
+            node_cacher,
             node_watcher,
             delay_deletion,
         )));
@@ -472,12 +469,10 @@ impl Source {
 
         let checkpoints = checkpointer.view();
         let events = file_source_rx.flat_map(futures::stream::iter);
+        let bytes_received = register!(BytesReceived::from(Protocol::HTTP));
         let events = events.map(move |line| {
             let byte_size = line.text.len();
-            emit!(BytesReceived {
-                byte_size,
-                protocol: "http",
-            });
+            bytes_received.emit(ByteSize(byte_size));
 
             let mut event = create_event(
                 line.text,
@@ -488,7 +483,7 @@ impl Source {
 
             emit!(KubernetesLogsEventsReceived {
                 file: &line.filename,
-                byte_size: event.size_of(),
+                byte_size: event.estimated_json_encoded_size_of(),
                 pod_info: file_info.as_ref().map(|info| KubernetesLogsPodInfo {
                     name: info.pod_name.to_owned(),
                     namespace: info.pod_namespace.to_owned(),
@@ -537,6 +532,7 @@ impl Source {
                     Err(error) => emit!(KubernetesLifecycleError {
                         message: "File server exited with an error.",
                         error,
+                        count: events_count,
                     }),
                 });
             slot.bind(Box::pin(fut));
@@ -558,6 +554,7 @@ impl Source {
                     Err(error) => emit!(KubernetesLifecycleError {
                         error,
                         message: "Event processing loop timed out during the shutdown.",
+                        count: events_count,
                     }),
                 };
             });
@@ -578,7 +575,10 @@ fn create_event(line: Bytes, file: &str, ingestion_timestamp_field: Option<&str>
     let mut event = LogEvent::from_bytes_legacy(&line);
 
     // Add source type.
-    event.insert(log_schema().source_type_key(), COMPONENT_ID.to_owned());
+    event.insert(
+        log_schema().source_type_key(),
+        Bytes::from_static(Config::NAME.as_bytes()),
+    );
 
     // Add file.
     event.insert(FILE_KEY, file.to_owned());

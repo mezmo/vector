@@ -5,8 +5,8 @@ use futures::{stream::BoxStream, StreamExt};
 use tokio::{io, io::AsyncWriteExt};
 use tokio_util::codec::Encoder as _;
 use vector_core::{
-    internal_event::{BytesSent, EventsSent},
-    ByteSizeOf,
+    internal_event::{ByteSize, BytesSent, EventsSent, InternalEventHandle as _, Protocol},
+    EstimatedJsonEncodedSizeOf,
 };
 
 use crate::{
@@ -27,8 +27,9 @@ where
     T: io::AsyncWrite + Send + Sync + Unpin,
 {
     async fn run(mut self: Box<Self>, mut input: BoxStream<'_, Event>) -> Result<(), ()> {
+        let bytes_sent = register!(BytesSent::from(Protocol("console".into(),)));
         while let Some(mut event) = input.next().await {
-            let event_byte_size = event.size_of();
+            let event_byte_size = event.estimated_json_encoded_size_of();
             self.transformer.transform(&mut event);
 
             let finalizers = event.take_finalizers();
@@ -54,10 +55,7 @@ where
                         count: 1,
                         output: None,
                     });
-                    emit!(BytesSent {
-                        byte_size: bytes.len(),
-                        protocol: "console"
-                    });
+                    bytes_sent.emit(ByteSize(bytes.len()));
                 }
             }
         }

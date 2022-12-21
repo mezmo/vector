@@ -1,4 +1,4 @@
-use lookup::lookup_v2::{BorrowedSegment, Path};
+use lookup::lookup_v2::{BorrowedSegment, ValuePath};
 use ordered_float::NotNan;
 use rand_distr::num_traits::FromPrimitive;
 use std::fmt::Debug;
@@ -16,7 +16,7 @@ fn get_tag_value<'a>(
             if iter.peek().is_none() {
                 return tags
                     .get(&tag_name.to_string())
-                    .map(|s| Value::from(s.as_str()));
+                    .map(|s| Value::from(s));
             }
         }
     }
@@ -61,7 +61,7 @@ fn get_metric_property(metric: &Metric, key: &str) -> Option<Value> {
     }
 }
 
-pub fn get_from_metric<'a>(metric: &'a Metric, key: impl Path<'a> + Debug) -> Option<Value> {
+pub fn get_from_metric<'a>(metric: &'a Metric, key: impl ValuePath<'a> + Debug) -> Option<Value> {
     let mut iter = key.segment_iter().peekable();
     iter.next().and_then(move |path_seg| {
         if let BorrowedSegment::Field(field) = path_seg {
@@ -82,7 +82,7 @@ pub fn get_from_metric<'a>(metric: &'a Metric, key: impl Path<'a> + Debug) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::metric::MetricTags;
+    use vector_core::metric_tags;
     use chrono;
     use std::{collections::BTreeSet, iter, num::NonZeroU32};
     use value::kind::Kind;
@@ -92,9 +92,6 @@ mod tests {
         let ts = chrono::NaiveDate::from_ymd(2022, 10, 01).and_hms(13, 51, 30);
         let ts = chrono::DateTime::from_utc(ts, chrono::Utc);
 
-        let mut tags = MetricTags::new();
-        tags.insert("component_name".to_owned(), "abc".to_owned());
-
         Metric::new(
             "component_request_total",
             MetricKind::Absolute,
@@ -103,7 +100,7 @@ mod tests {
         .with_timestamp(Some(ts))
         .with_interval_ms(Some(NonZeroU32::new(12345).unwrap()))
         .with_namespace(Some("namespace-a"))
-        .with_tags(Some(tags))
+        .with_tags(Some(metric_tags!("component_name" => "abc")))
     }
 
     #[test]

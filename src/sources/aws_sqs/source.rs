@@ -6,14 +6,17 @@ use aws_sdk_sqs::{
 };
 use chrono::{DateTime, TimeZone, Utc};
 use futures::{FutureExt, StreamExt};
-use tokio::{pin, select, time::Duration};
+use tokio::{pin, select};
 use tracing_futures::Instrument;
 use vector_common::finalizer::UnorderedFinalizer;
+use vector_core::config::LogNamespace;
 
 use crate::{
     codecs::Decoder,
     event::{BatchNotifier, BatchStatus},
-    internal_events::{EndpointBytesReceived, SqsMessageDeleteError, StreamClosedError},
+    internal_events::{
+        EndpointBytesReceived, SqsMessageDeleteError, SqsMessageReceiveError, StreamClosedError,
+    },
     shutdown::ShutdownSignal,
     sources::util,
     SourceSender,
@@ -32,7 +35,7 @@ pub struct SqsSource {
     pub poll_secs: u32,
     pub visibility_timeout_secs: u32,
     pub delete_message: bool,
-    pub concurrency: u32,
+    pub concurrency: usize,
     pub(super) acknowledgements: bool,
 }
 
@@ -105,9 +108,7 @@ impl SqsSource {
         let receive_message_output = match result {
             Ok(output) => output,
             Err(err) => {
-                error!("SQS receive message error: {:?}.", err);
-                // prevent rapid errors from flooding the logs
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                emit!(SqsMessageReceiveError { error: &err });
                 return;
             }
         };
@@ -135,12 +136,16 @@ impl SqsSource {
                         receipts_to_ack.push(receipt_handle);
                     }
                     let timestamp = get_timestamp(&message.attributes);
+                    // Error is logged by `crate::codecs::Decoder`, no further handling
+                    // is needed here.
                     let decoded = util::decode_message(
                         self.decoder.clone(),
                         "aws_sqs",
                         body.as_bytes(),
                         timestamp,
                         &batch,
+                        // TODO: Update this when updating the source to use log_namespaces.
+                        LogNamespace::Legacy,
                     );
                     events.extend(decoded);
                 }
@@ -210,9 +215,15 @@ mod tests {
     async fn test_decode() {
         let message = "test";
         let now = Utc::now();
-        let events: Vec<_> =
-            util::decode_message(Decoder::default(), "aws_sqs", b"test", Some(now), &None)
-                .collect();
+        let events: Vec<_> = util::decode_message(
+            Decoder::default(),
+            "aws_sqs",
+            b"test",
+            Some(now),
+            &None,
+            LogNamespace::Legacy,
+        )
+        .collect();
         assert_eq!(events.len(), 1);
         assert_eq!(
             events[0]

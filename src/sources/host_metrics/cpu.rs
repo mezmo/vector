@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
-
+use crate::internal_events::{HostMetricsScrapeDetailError, HostMetricsScrapeError};
 use futures::StreamExt;
 #[cfg(target_os = "linux")]
 use heim::cpu::os::linux::CpuTimeExt;
 use heim::units::time::second;
+use vector_core::{event::MetricTags, metric_tags};
 
 use super::{filter_result, HostMetrics};
 
@@ -23,12 +23,7 @@ impl HostMetrics {
                     .await;
                 output.name = "cpu";
                 for (index, times) in times.into_iter().enumerate() {
-                    let tags = |name: &str| {
-                        BTreeMap::from([
-                            (String::from(MODE), String::from(name)),
-                            (String::from("cpu"), index.to_string()),
-                        ])
-                    };
+                    let tags = |name: &str| metric_tags!(MODE => name, "cpu" => index.to_string());
                     output.counter(CPU_SECS_TOTAL, times.idle().get::<second>(), tags("idle"));
                     #[cfg(target_os = "linux")]
                     output.counter(
@@ -47,27 +42,35 @@ impl HostMetrics {
                 }
             }
             Err(error) => {
-                error!(message = "Failed to load CPU times.", %error, internal_log_rate_secs = 60);
+                emit!(HostMetricsScrapeDetailError {
+                    message: "Failed to load CPU times.",
+                    error,
+                });
             }
         }
         // adds the logical cpu count gauge
         match heim::cpu::logical_count().await {
-            Ok(count) => output.gauge(LOGICAL_CPUS, count as f64, BTreeMap::new()),
+            Ok(count) => output.gauge(LOGICAL_CPUS, count as f64, MetricTags::default()),
             Err(error) => {
-                error!(message = "Failed to load logical CPU count.", %error, internal_log_rate_secs = 60);
+                emit!(HostMetricsScrapeDetailError {
+                    message: "Failed to load logical CPU count.",
+                    error,
+                });
             }
         }
         // adds the physical cpu count gauge
         match heim::cpu::physical_count().await {
-            Ok(Some(count)) => output.gauge(PHYSICAL_CPUS, count as f64, BTreeMap::new()),
+            Ok(Some(count)) => output.gauge(PHYSICAL_CPUS, count as f64, MetricTags::default()),
             Ok(None) => {
-                error!(
-                    message = "Unable to determine physical CPU count.",
-                    internal_log_rate_secs = 60
-                );
+                emit!(HostMetricsScrapeError {
+                    message: "Unable to determine physical CPU count.",
+                });
             }
             Err(error) => {
-                error!(message = "Failed to load physical CPU count.", %error, internal_log_rate_secs = 60);
+                emit!(HostMetricsScrapeDetailError {
+                    message: "Failed to load physical CPU count.",
+                    error,
+                });
             }
         }
     }

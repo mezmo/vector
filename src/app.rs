@@ -25,7 +25,7 @@ use crate::{api, internal_events::ApiStarted};
 use crate::{
     cli::{handle_config_errors, Color, LogFormat, Opts, RootOpts, SubCommand},
     config::{self},
-    generate, graph, heartbeat, list,
+    generate, generate_schema, graph, heartbeat, list,
     signal::{self, SignalTo},
     topology::{self, RunningTopology},
     trace, unit_test, validate,
@@ -90,13 +90,13 @@ impl Application {
                     "tower_limit=trace".to_owned(),
                     format!("rdkafka={}", level),
                     format!("buffers={}", level),
+                    format!("lapin={}", level),
                     format!("kube={}", level),
                 ]
                 .join(","),
             });
 
         let root_opts = opts.root;
-
         let sub_command = opts.sub_command;
 
         let color = match root_opts.color {
@@ -121,7 +121,10 @@ impl Application {
 
         if let Some(threads) = root_opts.threads {
             if threads < 1 {
-                error!("The `threads` argument must be greater or equal to 1.");
+                #[allow(clippy::print_stderr)]
+                {
+                    eprintln!("The `threads` argument must be greater or equal to 1.");
+                }
                 return Err(exitcode::CONFIG);
             } else {
                 WORKER_THREADS
@@ -139,7 +142,17 @@ impl Application {
             let require_healthy = root_opts.require_healthy;
 
             rt.block_on(async move {
-                trace::init(color, json, &level);
+                #[cfg(feature = "allocation-tracing")]
+                if root_opts.allocation_tracing {
+                    use std::sync::atomic::Ordering;
+                    crate::internal_telemetry::allocations::TRACK_ALLOCATIONS
+                        .store(true, Ordering::Relaxed);
+                }
+                trace::init(color, json, &level, root_opts.internal_log_rate_limit);
+                info!(
+                    message = "Internal log rate limit configured.",
+                    internal_log_rate_secs = root_opts.internal_log_rate_limit
+                );
                 // Signal handler for OS and provider messages.
                 let (mut signal_handler, signal_rx) = signal::SignalHandler::new();
                 signal_handler.forever(signal::os_signals());
@@ -147,6 +160,7 @@ impl Application {
                 if let Some(s) = sub_command {
                     let code = match s {
                         SubCommand::Generate(g) => generate::cmd(&g),
+                        SubCommand::GenerateSchema => generate_schema::cmd(),
                         SubCommand::Graph(g) => graph::cmd(&g),
                         SubCommand::Config(c) => config::cmd(&c),
                         SubCommand::List(l) => list::cmd(&l),
