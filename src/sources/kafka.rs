@@ -163,7 +163,7 @@ pub struct KafkaSourceConfig {
 }
 
 const fn default_session_timeout_ms() -> u64 {
-    10000 // default in librdkafka
+    30000
 }
 
 const fn default_socket_timeout_ms() -> u64 {
@@ -175,7 +175,7 @@ const fn default_fetch_wait_max_ms() -> u64 {
 }
 
 const fn default_commit_interval_ms() -> u64 {
-    5000 // default in librdkafka
+    1000
 }
 
 fn default_auto_offset_reset() -> String {
