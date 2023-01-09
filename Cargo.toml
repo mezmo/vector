@@ -469,6 +469,7 @@ sources-logs = [
   "sources-aws_sqs",
   "sources-datadog_agent",
   "sources-demo_logs",
+  "sources-mezmo_demo_logs",
   "sources-docker_logs",
   "sources-exec",
   "sources-file",
@@ -514,6 +515,7 @@ sources-aws_s3 = ["aws-core", "dep:aws-sdk-sqs", "dep:aws-sdk-s3", "dep:semver",
 sources-aws_sqs = ["aws-core", "dep:aws-sdk-sqs"]
 sources-datadog_agent = ["sources-utils-http-error", "protobuf-build"]
 sources-demo_logs = ["dep:fakedata"]
+sources-mezmo_demo_logs = ["dep:fakedata"]
 sources-dnstap = ["dep:base64", "dep:trust-dns-proto", "dep:dnsmsg-parser", "protobuf-build"]
 sources-docker_logs = ["docker"]
 sources-eventstoredb_metrics = []
@@ -819,14 +821,16 @@ splunk-integration-tests = ["sinks-splunk_hec"]
 dnstap-integration-tests = ["sources-dnstap"]
 disable-resolv-conf = []
 shutdown-tests = ["api", "sinks-blackhole", "sinks-console", "sinks-prometheus", "sources", "transforms-lua", "transforms-remap", "unix"]
-cli-tests = ["sinks-blackhole", "sinks-socket", "sources-demo_logs", "sources-file"]
+cli-tests = ["sinks-blackhole", "sinks-socket", "sources-demo_logs", "sources-file", "sources-mezmo_demo_logs"]
 vector-api-tests = [
   "sources-demo_logs",
+  "sources-mezmo_demo_logs",
   "transforms-remap",
   "sinks-blackhole"
 ]
 vector-unit-test-tests = [
   "sources-demo_logs",
+  "sources-mezmo_demo_logs",
   "transforms-remap",
   "transforms-route",
   "transforms-filter",
@@ -836,6 +840,7 @@ vector-unit-test-tests = [
 enterprise-tests = [
   "enterprise",
   "sources-demo_logs",
+  "sources-mezmo_demo_logs",
   "sinks-blackhole",
   "sinks-loki",
   "api",

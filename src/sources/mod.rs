@@ -56,6 +56,8 @@ pub mod kafka;
 pub mod kubernetes_logs;
 #[cfg(all(feature = "sources-logstash"))]
 pub mod logstash;
+#[cfg(feature = "sources-mezmo_demo_logs")]
+pub mod mezmo_demo_logs;
 #[cfg(feature = "sources-mongodb_metrics")]
 pub mod mongodb_metrics;
 #[cfg(all(feature = "sources-nats"))]
@@ -137,6 +139,10 @@ pub enum Sources {
     /// Demo logs.
     #[cfg(feature = "sources-demo_logs")]
     DemoLogs(#[configurable(derived)] demo_logs::DemoLogsConfig),
+
+    /// Mezmo specfic demo logs.
+    #[cfg(feature = "sources-mezmo_demo_logs")]
+    MezmoDemoLogs(#[configurable(derived)] mezmo_demo_logs::MezmoDemoLogsConfig),
 
     /// DNSTAP.
     #[cfg(all(unix, feature = "sources-dnstap"))]
@@ -323,6 +329,8 @@ impl NamedComponent for Sources {
             Self::DatadogAgent(config) => config.get_component_name(),
             #[cfg(feature = "sources-demo_logs")]
             Self::DemoLogs(config) => config.get_component_name(),
+            #[cfg(feature = "sources-mezmo_demo_logs")]
+            Self::MezmoDemoLogs(config) => config.get_component_name(),
             #[cfg(all(unix, feature = "sources-dnstap"))]
             Self::Dnstap(config) => config.get_component_name(),
             #[cfg(feature = "sources-docker_logs")]
