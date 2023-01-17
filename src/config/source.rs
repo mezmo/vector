@@ -11,6 +11,7 @@ use vector_core::{
 };
 
 use super::{schema, ComponentKey, ProxyConfig, Resource};
+use crate::mezmo::MezmoContext;
 use crate::{shutdown::ShutdownSignal, sources::Sources, SourceSender};
 
 /// Fully resolved source component.
@@ -100,6 +101,8 @@ pub struct SourceContext {
     /// Given a source can expose multiple [`Output`] channels, the ID is tied to the identifier of
     /// that `Output`.
     pub schema_definitions: HashMap<Option<String>, schema::Definition>,
+
+    pub mezmo_ctx: Option<MezmoContext>,
 }
 
 impl SourceContext {
@@ -120,6 +123,7 @@ impl SourceContext {
                 acknowledgements: false,
                 schema_definitions: HashMap::default(),
                 schema: Default::default(),
+                mezmo_ctx: None,
             },
             shutdown,
         )
@@ -139,6 +143,7 @@ impl SourceContext {
             acknowledgements: false,
             schema_definitions: schema_definitions.unwrap_or_default(),
             schema: Default::default(),
+            mezmo_ctx: None,
         }
     }
 

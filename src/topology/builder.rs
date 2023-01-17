@@ -39,6 +39,7 @@ use super::{
     task::{Task, TaskOutput, TaskResult},
     BuiltBuffer, ConfigDiff,
 };
+use crate::mezmo::MezmoContext;
 use crate::{
     config::{
         ComponentKey, DataType, EnrichmentTableConfig, Input, Inputs, Output, OutputId,
@@ -275,6 +276,7 @@ pub async fn build_pieces(
 
         let (shutdown_signal, force_shutdown_tripwire) = shutdown_coordinator.register_source(key);
 
+        let mezmo_ctx = MezmoContext::try_from(key.clone().into_id()).ok();
         let context = SourceContext {
             key: key.clone(),
             globals: config.global.clone(),
@@ -284,6 +286,7 @@ pub async fn build_pieces(
             acknowledgements: source.sink_acknowledgements,
             schema_definitions,
             schema: config.schema,
+            mezmo_ctx,
         };
         let server = match source.inner.build(context).await {
             Err(error) => {
@@ -372,12 +375,14 @@ pub async fn build_pieces(
             schema_definitions.insert(output.port, definition);
         }
 
+        let mezmo_ctx = MezmoContext::try_from(key.clone().into_id()).ok();
         let context = TransformContext {
             key: Some(key.clone()),
             globals: config.global.clone(),
             enrichment_tables: enrichment_tables.clone(),
             schema_definitions,
             merged_schema_definition: merged_definition.clone(),
+            mezmo_ctx,
         };
 
         let node = TransformNode::from_parts(key.clone(), transform, &merged_definition);
@@ -453,11 +458,13 @@ pub async fn build_pieces(
             }
         };
 
+        let mezmo_ctx = MezmoContext::try_from(key.clone().into_id()).ok();
         let cx = SinkContext {
             healthcheck,
             globals: config.global.clone(),
             proxy: ProxyConfig::merge_with_env(&config.global.proxy, sink.proxy()),
             schema: config.schema,
+            mezmo_ctx,
         };
 
         let (sink, healthcheck) = match sink.inner.build(cx).await {

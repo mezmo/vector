@@ -854,6 +854,7 @@ mod test {
                 acknowledgements: false,
                 schema: Default::default(),
                 schema_definitions: HashMap::default(),
+                mezmo_ctx: Default::default(),
             })
             .await
             .unwrap();

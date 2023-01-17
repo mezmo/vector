@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::mezmo::MezmoContext;
 use async_trait::async_trait;
 use enum_dispatch::enum_dispatch;
 use indexmap::IndexMap;
@@ -140,6 +141,8 @@ pub struct TransformContext {
     /// information, such as the `remap` transform, which passes this information along to the VRL
     /// compiler such that type coercion becomes less of a need for operators writing VRL programs.
     pub merged_schema_definition: schema::Definition,
+
+    pub mezmo_ctx: Option<MezmoContext>,
 }
 
 impl Default for TransformContext {
@@ -150,6 +153,7 @@ impl Default for TransformContext {
             enrichment_tables: Default::default(),
             schema_definitions: HashMap::from([(None, schema::Definition::any())]),
             merged_schema_definition: schema::Definition::any(),
+            mezmo_ctx: Default::default(),
         }
     }
 }

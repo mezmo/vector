@@ -1,3 +1,4 @@
+use crate::mezmo::MezmoContext;
 use async_trait::async_trait;
 use enum_dispatch::enum_dispatch;
 use serde::Serialize;
@@ -211,6 +212,7 @@ pub struct SinkContext {
     pub globals: GlobalOptions,
     pub proxy: ProxyConfig,
     pub schema: schema::Options,
+    pub mezmo_ctx: Option<MezmoContext>,
 }
 
 impl SinkContext {
@@ -221,6 +223,7 @@ impl SinkContext {
             globals: GlobalOptions::default(),
             proxy: ProxyConfig::default(),
             schema: schema::Options::default(),
+            mezmo_ctx: None,
         }
     }
 
