@@ -1,13 +1,12 @@
 use std::{collections::HashMap, error, pin::Pin};
 
 use futures::{Stream, StreamExt};
-use tokio::sync::mpsc::UnboundedSender;
 use vector_common::{
     internal_event::{emit, EventsSent, DEFAULT_OUTPUT},
     EventDataEq,
 };
 
-use crate::usage_metrics::{array_byte_size, track_output_usage, UsageMetrics};
+use crate::usage_metrics::{mezmo_byte_size, OutputUsageTracker};
 use crate::{
     config::Output,
     event::{
@@ -267,7 +266,7 @@ impl TransformOutputs {
     pub async fn send(
         &mut self,
         buf: &mut TransformOutputsBuf,
-        output_metrics_tx: &Option<UnboundedSender<UsageMetrics>>,
+        usage_tracker: &Box<dyn OutputUsageTracker>,
     ) -> Result<(), Box<dyn error::Error + Send + Sync>> {
         if let Some(primary) = self.primary_output.as_mut() {
             let count = buf.primary_buffer.as_ref().map_or(0, OutputBuffer::len);
@@ -275,6 +274,12 @@ impl TransformOutputs {
                 0,
                 EstimatedJsonEncodedSizeOf::estimated_json_encoded_size_of,
             );
+
+            let output_byte_size = buf
+                .primary_buffer
+                .as_ref()
+                .map_or(0, |o| o.0.iter().map(mezmo_byte_size).sum());
+
             buf.primary_buffer
                 .as_mut()
                 .expect("mismatched outputs")
@@ -285,15 +290,17 @@ impl TransformOutputs {
                 byte_size,
                 output: Some(DEFAULT_OUTPUT),
             });
+
+            // We only want to track the primary transform output.
+            // Named outputs are for stuff like route/swimlanes that we don't want to track atm.
+            // We only want to capture the traffic of the remap transform after the node representing
+            // the source (kafka / route transform)
+            usage_tracker.track_output(count, output_byte_size);
         }
 
         for (key, buf) in &mut buf.named_buffers {
             let count = buf.len();
             let byte_size = buf.estimated_json_encoded_size_of();
-
-            // TODO(mdeltito): we should evaluate and likely swap in the new
-            // `estimated_json_encoded_size_of` method in place of our own implementation
-            let output_byte_size = buf.0.iter().map(array_byte_size).sum();
 
             buf.send(self.named_outputs.get_mut(key).expect("unknown output"))
                 .await?;
@@ -302,14 +309,6 @@ impl TransformOutputs {
                 byte_size,
                 output: Some(key.as_ref()),
             });
-
-            // Track the usage of this transform per each output
-            if count > 0 {
-                // Check for count because it will be reported as 0 for the rest of the outputs
-                if let Some(metrics_tx) = output_metrics_tx {
-                    track_output_usage(metrics_tx, count, output_byte_size, key.to_string());
-                }
-            }
         }
 
         Ok(())

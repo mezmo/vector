@@ -199,6 +199,19 @@ impl MetricsFlusher for NoopFlusher {
     }
 }
 
+pub(crate) struct StdErrFlusher {}
+
+#[async_trait]
+impl MetricsFlusher for StdErrFlusher {
+    async fn save_metrics(&self, metrics_map: HashMap<UsageMetricsKey, UsageMetricsValue>) {
+        for (k, v) in metrics_map {
+            let key = serde_json::to_string(&k).unwrap();
+            let value = serde_json::to_string(&v).unwrap();
+            eprintln!("usage_metrics: {{\"key\":{key}, \"value\":{value}}}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

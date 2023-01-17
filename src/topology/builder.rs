@@ -29,7 +29,7 @@ use vector_core::{
     },
     internal_event::EventsSent,
     schema::Definition,
-    usage_metrics::{track_usage, UsageMetrics},
+    usage_metrics::{get_component_usage_tracker, UsageMetrics, get_transform_usage_tracker, OutputUsageTracker},
     EstimatedJsonEncodedSizeOf,
 };
 
@@ -59,8 +59,6 @@ use crate::{
 
 static ENRICHMENT_TABLES: Lazy<enrichment::TableRegistry> =
     Lazy::new(enrichment::TableRegistry::default);
-
-static INTERNAL_SHARED_SWIMLANES: &str = "v1:internal_transform:route:split_by_source";
 
 pub(crate) static SOURCE_SENDER_BUFFER_SIZE: Lazy<usize> =
     Lazy::new(|| *TRANSFORM_CONCURRENCY_LIMIT * CHUNK_SIZE);
@@ -201,18 +199,19 @@ pub async fn build_pieces(
         let mut pumps = Vec::new();
         let mut controls = HashMap::new();
         let mut schema_definitions = HashMap::with_capacity(source_outputs.len());
+        let source_name = key.id().parse().ok();
 
         for output in source_outputs {
             let mut rx = builder.add_output(output.clone());
 
             let (mut fanout, control) = Fanout::new();
-            let source_name = key.id().to_string();
-            let metrics_tx = metrics_tx.clone();
+            let usage_tracker = get_component_usage_tracker(&source_name, &metrics_tx.clone());
             let pump = async move {
                 debug!("Source pump starting.");
 
                 while let Some(array) = rx.next().await {
-                    track_usage(&metrics_tx, &array, &source_name);
+                    usage_tracker.track(&array);
+
                     fanout.send(array).await.map_err(|e| {
                         debug!("Source pump finished with an error.");
                         TaskError::wrapped(e)
@@ -399,9 +398,10 @@ pub async fn build_pieces(
             TopologyBuilder::standalone_memory(TOPOLOGY_BUFFER_SIZE, WhenFull::Block).await;
 
         inputs.insert(key.clone(), (input_tx, node.inputs.clone()));
+        let usage_tracker = get_transform_usage_tracker(&key.id().parse().ok(), &metrics_tx);
 
         let (transform_task, transform_outputs) =
-            build_transform(transform, node, input_rx, &metrics_tx);
+            build_transform(transform, node, input_rx, usage_tracker);
 
         outputs.extend(transform_outputs);
         tasks.insert(key.clone(), transform_task);
@@ -495,13 +495,14 @@ pub async fn build_pieces(
                 .expect("Task started but input has been taken.");
 
             let mut rx = wrap(rx);
-            let sink_name = sink_name;
+            let usage_tracker =
+                get_component_usage_tracker(&sink_name.parse().ok(), &metrics_tx.clone());
 
             sink.run(
                 rx.by_ref()
                     .filter(|events: &EventArray| ready(filter_events_type(events, input_type)))
                     .inspect(move |events| {
-                        track_usage(&metrics_tx, events, &sink_name);
+                        usage_tracker.track(events);
 
                         emit!(EventsReceived {
                             count: events.len(),
@@ -640,12 +641,12 @@ fn build_transform(
     transform: Transform,
     node: TransformNode,
     input_rx: BufferReceiver<EventArray>,
-    metrics_tx: &UnboundedSender<UsageMetrics>,
+    usage_tracker: Box<dyn OutputUsageTracker>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
     match transform {
         // TODO: avoid the double boxing for function transforms here
-        Transform::Function(t) => build_sync_transform(Box::new(t), node, input_rx, metrics_tx),
-        Transform::Synchronous(t) => build_sync_transform(t, node, input_rx, metrics_tx),
+        Transform::Function(t) => build_sync_transform(Box::new(t), node, input_rx, usage_tracker),
+        Transform::Synchronous(t) => build_sync_transform(t, node, input_rx, usage_tracker),
         Transform::Task(t) => build_task_transform(
             t,
             input_rx,
@@ -660,24 +661,16 @@ fn build_sync_transform(
     t: Box<dyn SyncTransform>,
     node: TransformNode,
     input_rx: BufferReceiver<EventArray>,
-    metrics_tx: &UnboundedSender<UsageMetrics>,
+    usage_tracker: Box<dyn OutputUsageTracker>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
     let (outputs, controls) = TransformOutputs::new(node.outputs);
-    let name = node.key.id().to_string();
-
-    // At Mezmo, we use a specific name for the shared swimlanes
-    let metrics_tx = if name == INTERNAL_SHARED_SWIMLANES {
-        Some(metrics_tx.clone())
-    } else {
-        None
-    };
 
     let runner = Runner::new(
         t,
         input_rx,
         node.input_details.data_type(),
         outputs,
-        metrics_tx,
+        usage_tracker,
     );
     let transform = if node.enable_concurrency {
         runner.run_concurrently().boxed()
@@ -720,7 +713,7 @@ struct Runner {
     outputs: TransformOutputs,
     timer: crate::utilization::Timer,
     last_report: Instant,
-    metrics_tx: Option<UnboundedSender<UsageMetrics>>,
+    usage_tracker: Box<dyn OutputUsageTracker>,
 }
 
 impl Runner {
@@ -729,7 +722,7 @@ impl Runner {
         input_rx: BufferReceiver<EventArray>,
         input_type: DataType,
         outputs: TransformOutputs,
-        metrics_tx: Option<UnboundedSender<UsageMetrics>>,
+        usage_tracker: Box<dyn OutputUsageTracker>,
     ) -> Self {
         Self {
             transform,
@@ -738,7 +731,7 @@ impl Runner {
             outputs,
             timer: crate::utilization::Timer::new(),
             last_report: Instant::now(),
-            metrics_tx,
+            usage_tracker,
         }
     }
 
@@ -757,7 +750,7 @@ impl Runner {
 
     async fn send_outputs(&mut self, outputs_buf: &mut TransformOutputsBuf) -> crate::Result<()> {
         self.timer.start_wait();
-        self.outputs.send(outputs_buf, &self.metrics_tx).await
+        self.outputs.send(outputs_buf, &self.usage_tracker).await
     }
 
     async fn run_inline(mut self) -> TaskResult {
