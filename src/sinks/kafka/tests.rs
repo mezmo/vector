@@ -15,7 +15,7 @@ mod integration_test {
     use futures::StreamExt;
     use rdkafka::{
         consumer::{BaseConsumer, Consumer},
-        message::{Headers},
+        message::Headers,
         Message, Offset, TopicPartitionList,
     };
     use vector_core::event::{BatchNotifier, BatchStatus};
