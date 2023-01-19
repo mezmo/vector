@@ -58,6 +58,8 @@ pub mod kubernetes_logs;
 pub mod logstash;
 #[cfg(feature = "sources-mezmo_demo_logs")]
 pub mod mezmo_demo_logs;
+#[cfg(feature = "sources-mezmo_user_logs")]
+pub mod mezmo_user_logs;
 #[cfg(feature = "sources-mongodb_metrics")]
 pub mod mongodb_metrics;
 #[cfg(all(feature = "sources-nats"))]
@@ -201,6 +203,10 @@ pub enum Sources {
     /// Internal Logs.
     #[cfg(feature = "sources-internal_logs")]
     InternalLogs(#[configurable(derived)] internal_logs::InternalLogsConfig),
+
+    /// Mezmo User logs.
+    #[cfg(feature = "sources-mezmo_user_logs")]
+    MezmoUserLogs(#[configurable(derived)] mezmo_user_logs::MezmoUserLogsConfig),
 
     /// Internal Metrics.
     #[cfg(feature = "sources-internal_metrics")]
@@ -359,6 +365,8 @@ impl NamedComponent for Sources {
             Self::HttpServer(config) => config.get_component_name(),
             #[cfg(feature = "sources-internal_logs")]
             Self::InternalLogs(config) => config.get_component_name(),
+            #[cfg(feature = "sources-mezmo_user_logs")]
+            Self::MezmoUserLogs(config) => config.get_component_name(),
             #[cfg(feature = "sources-internal_metrics")]
             Self::InternalMetrics(config) => config.get_component_name(),
             #[cfg(all(unix, feature = "sources-journald"))]
