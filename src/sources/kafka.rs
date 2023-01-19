@@ -14,7 +14,7 @@ use codecs::{
 use futures::{Stream, StreamExt};
 use once_cell::sync::OnceCell;
 use rdkafka::{
-    consumer::{CommitMode, Consumer, ConsumerContext, Rebalance, StreamConsumer},
+    consumer::{Consumer, ConsumerContext, Rebalance, StreamConsumer},
     message::{BorrowedMessage, Headers as _, Message},
     ClientConfig, ClientContext, Statistics,
 };
@@ -287,13 +287,6 @@ async fn kafka_source(
         }
     }
 
-    // Since commits are async internally, we try one last sync commit inside the interval
-    // in case there have been acks.
-    if let Ok(current_assignment) = consumer.assignment() {
-        // not logging on error because it will error if there are no offsets stored for a partition,
-        // and this is best-effort cleanup anyway
-        let _ = consumer.commit(&current_assignment, CommitMode::Sync);
-    }
     Ok(())
 }
 
@@ -691,7 +684,7 @@ mod integration_test {
     async fn send_receive(
         acknowledgements: bool,
         error_at: impl Fn(usize) -> bool,
-        _receive_count: usize,
+        receive_count: usize,
     ) {
         const SEND_COUNT: usize = 10;
 
@@ -715,11 +708,8 @@ mod integration_test {
         })
         .await;
 
-        // LOG-15410: This assertion no longer holds true with the changes
-        // we've implemented in our fork of rust-rdkafka, since the offsets
-        // are not written to the broker when the consumer is dropped on shutdown.
-        // let offset = fetch_tpl_offset(&group_id, &topic, 0);
-        // assert_eq!(offset, Offset::from_raw(receive_count as i64));
+        let offset = fetch_tpl_offset(&group_id, &topic, 0);
+        assert_eq!(offset, Offset::from_raw(receive_count as i64));
 
         assert_eq!(events.len(), SEND_COUNT);
         for (i, event) in events.into_iter().enumerate() {
