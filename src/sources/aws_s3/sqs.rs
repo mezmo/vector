@@ -37,8 +37,8 @@ use crate::{
     },
     line_agg::{self, LineAgg},
     shutdown::ShutdownSignal,
-    sources::util::backoff::Backoff,
     sources::aws_s3::AwsS3Config,
+    sources::util::backoff::Backoff,
     SourceSender,
 };
 use lookup::{metadata_path, path, PathPrefix};

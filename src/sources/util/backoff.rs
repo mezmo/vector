@@ -83,7 +83,10 @@ mod tests {
         sleep(INTERVAL).await;
         sleep(TIMER_PRECISION).await;
 
-        assert!(backoff.should_log(), "after time passes, it should log once");
+        assert!(
+            backoff.should_log(),
+            "after time passes, it should log once"
+        );
         assert!(!backoff.should_log(), "should log only once");
     }
 

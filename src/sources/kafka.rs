@@ -14,7 +14,7 @@ use codecs::{
 use futures::{Stream, StreamExt};
 use once_cell::sync::OnceCell;
 use rdkafka::{
-    consumer::{Consumer, ConsumerContext, Rebalance, StreamConsumer, CommitMode},
+    consumer::{CommitMode, Consumer, ConsumerContext, Rebalance, StreamConsumer},
     message::{BorrowedMessage, Headers as _, Message},
     ClientConfig, ClientContext, Statistics,
 };
@@ -509,7 +509,7 @@ fn create_consumer(config: &KafkaSourceConfig) -> crate::Result<StreamConsumer<C
     }
 
     if let Some(group_instance_id) = &config.group_instance_id {
-      client_config.set("group.instance.id", group_instance_id);
+        client_config.set("group.instance.id", group_instance_id);
     }
 
     let consumer = client_config
