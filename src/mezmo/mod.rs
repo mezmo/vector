@@ -5,6 +5,7 @@ use value::Value;
 
 #[allow(dead_code)]
 pub mod user_trace;
+pub mod vrl;
 
 #[derive(Debug, Snafu)]
 pub enum ContextParseError {

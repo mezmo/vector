@@ -30,6 +30,7 @@ use crate::{
     },
     event::{Event, TargetEvents, VrlTarget},
     internal_events::{RemapMappingAbort, RemapMappingError},
+    mezmo::{vrl as mezmo_vrl_functions, MezmoContext},
     schema,
     transforms::{SyncTransform, Transform, TransformOutputsBuf},
     Result,
@@ -125,6 +126,7 @@ impl RemapConfig {
         &self,
         enrichment_tables: enrichment::TableRegistry,
         merged_schema_definition: schema::Definition,
+        mezmo_ctx: Option<MezmoContext>,
     ) -> Result<(
         vrl::Program,
         String,
@@ -149,6 +151,7 @@ impl RemapConfig {
         let mut functions = vrl_stdlib::all();
         functions.append(&mut enrichment::vrl_functions());
         functions.append(&mut vector_vrl_functions::vrl_functions());
+        functions.append(&mut mezmo_vrl_functions::vrl_functions());
 
         let state = TypeState {
             local: Default::default(),
@@ -161,6 +164,7 @@ impl RemapConfig {
 
         config.set_custom(enrichment_tables);
         config.set_custom(MeaningList::default());
+        mezmo_ctx.map(|ctx| config.set_custom(ctx));
 
         compile_vrl(&source, &functions, &state, config)
             .map_err(|diagnostics| {
@@ -215,6 +219,7 @@ impl TransformConfig for RemapConfig {
             .compile_vrl_program(
                 enrichment::TableRegistry::default(),
                 input_definition.clone(),
+                None,
             )
             .map(|(program, _, _, external_context)| {
                 let meaning = external_context
@@ -358,9 +363,11 @@ impl Remap<AstRunner> {
         config: RemapConfig,
         context: &TransformContext,
     ) -> crate::Result<(Self, String)> {
+        let mezmo_ctx = context.mezmo_ctx.clone();
         let (program, warnings, _, _) = config.compile_vrl_program(
             context.enrichment_tables.clone(),
             context.merged_schema_definition.clone(),
+            mezmo_ctx,
         )?;
 
         let runtime = Runtime::default();

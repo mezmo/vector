@@ -49,27 +49,27 @@ impl UserLogSubscription {
 /// Defines a set of methods that can be used to generate log messages that are intended for
 /// the end user of the pipeline to see.
 pub trait MezmoUserLog {
-    fn log(&self, level: Level, msg: &str);
+    fn log(&self, level: Level, msg: Value);
 
-    fn debug(&self, msg: &str) {
-        self.log(Level::Debug, msg);
+    fn debug(&self, msg: impl Into<Value>) {
+        self.log(Level::Debug, msg.into());
     }
 
-    fn info(&self, msg: &str) {
-        self.log(Level::Info, msg);
+    fn info(&self, msg: impl Into<Value>) {
+        self.log(Level::Info, msg.into());
     }
 
-    fn warn(&self, msg: &str) {
-        self.log(Level::Warn, msg);
+    fn warn(&self, msg: impl Into<Value>) {
+        self.log(Level::Warn, msg.into());
     }
 
-    fn error(&self, msg: &str) {
-        self.log(Level::Error, msg);
+    fn error(&self, msg: impl Into<Value>) {
+        self.log(Level::Error, msg.into());
     }
 }
 
 impl MezmoUserLog for Option<MezmoContext> {
-    fn log(&self, level: Level, msg: &str) {
+    fn log(&self, level: Level, msg: Value) {
         if let Some(ctx) = self {
             let mut event = LogEvent::default();
             event.insert("meta.mezmo.level", Value::from(level.to_string()));
@@ -84,7 +84,7 @@ impl MezmoUserLog for Option<MezmoContext> {
                 Value::from(&ctx.component_kind),
             );
             event.insert("meta.mezmo.internal", Value::from(ctx.internal));
-            event.insert("message", Value::from(msg));
+            event.insert("message", msg);
             try_send_user_log(event);
         }
     }
@@ -124,8 +124,8 @@ where
             let res = res.await;
             if let Err(value) = &res {
                 // Expand this as we learn more about specific use cases for the logs
-                let log_msg = format!("{value:?}");
-                ctx.error(&log_msg);
+                let log_msg = Value::from(format!("{value:?}"));
+                ctx.error(log_msg);
             }
             res
         })
