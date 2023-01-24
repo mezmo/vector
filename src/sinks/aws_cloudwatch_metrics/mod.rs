@@ -24,6 +24,7 @@ use crate::{
         metric::{Metric, MetricTags, MetricValue},
         Event,
     },
+    mezmo::user_trace::MezmoLoggingService,
     sinks::util::{
         batch::BatchConfig,
         buffer::metrics::{MetricNormalize, MetricNormalizer, MetricSet, MetricsBuffer},
@@ -121,7 +122,7 @@ impl SinkConfig for CloudWatchMetricsSinkConfig {
     ) -> crate::Result<(super::VectorSink, super::Healthcheck)> {
         let client = self.create_client(&cx.proxy).await?;
         let healthcheck = self.clone().healthcheck(client.clone()).boxed();
-        let sink = CloudWatchMetricsSvc::new(self.clone(), client)?;
+        let sink = CloudWatchMetricsSvc::new(self.clone(), client, cx)?;
         Ok((sink, healthcheck))
     }
 
@@ -212,6 +213,7 @@ impl CloudWatchMetricsSvc {
     pub fn new(
         config: CloudWatchMetricsSinkConfig,
         client: CloudwatchClient,
+        cx: SinkContext,
     ) -> crate::Result<VectorSink> {
         let default_namespace = config.default_namespace.clone();
         let batch = config.batch.into_batch_settings()?;
@@ -222,6 +224,8 @@ impl CloudWatchMetricsSvc {
         });
 
         let service = CloudWatchMetricsSvc { client };
+        let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
+
         let buffer = PartitionBuffer::new(MetricsBuffer::new(batch.size));
         let mut normalizer = MetricNormalizer::<AwsCloudwatchMetricNormalize>::default();
 

@@ -217,8 +217,8 @@ impl GenerateConfig for KafkaSinkConfig {
 
 #[async_trait::async_trait]
 impl SinkConfig for KafkaSinkConfig {
-    async fn build(&self, _cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
-        let sink = KafkaSink::new(self.clone())?;
+    async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
+        let sink = KafkaSink::new(self.clone(), cx)?;
         let hc = healthcheck(self.clone()).boxed();
         Ok((VectorSink::from_event_streamsink(sink), hc))
     }

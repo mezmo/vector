@@ -13,6 +13,7 @@ use vector_common::request_metadata::RequestMetadata;
 use vector_config::configurable_component;
 use vector_core::event::{EventFinalizers, Finalizable};
 
+use crate::mezmo::user_trace::MezmoLoggingService;
 use crate::sinks::util::metadata::RequestMetadataBuilder;
 use crate::{
     codecs::{Encoder, EncodingConfigWithFraming, SinkType, Transformer},
@@ -199,7 +200,7 @@ impl SinkConfig for GcsSinkConfig {
             base_url.clone(),
             auth.clone(),
         )?;
-        let sink = self.build_sink(client, base_url, auth)?;
+        let sink = self.build_sink(client, base_url, auth, cx)?;
 
         Ok((sink, healthcheck))
     }
@@ -219,6 +220,7 @@ impl GcsSinkConfig {
         client: HttpClient,
         base_url: String,
         auth: Option<GcpAuthenticator>,
+        cx: SinkContext,
     ) -> crate::Result<VectorSink> {
         let request = self.request.unwrap_with(&TowerRequestConfig {
             rate_limit_num: Some(1000),
@@ -235,6 +237,7 @@ impl GcsSinkConfig {
 
         let request_settings = RequestSettings::new(self)?;
 
+        let svc = MezmoLoggingService::new(svc, cx.mezmo_ctx);
         let sink = GcsSink::new(svc, request_settings, partitioner, batch_settings);
 
         Ok(VectorSink::from_event_streamsink(sink))
@@ -423,6 +426,7 @@ mod tests {
                 client,
                 mock_endpoint.to_string(),
                 Some(GcpAuthenticator::None),
+                context,
             )
             .expect("failed to build sink");
 

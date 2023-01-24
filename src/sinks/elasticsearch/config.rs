@@ -14,6 +14,7 @@ use crate::{
     event::{EventRef, LogEvent, Value},
     http::HttpClient,
     internal_events::TemplateRenderingError,
+    mezmo::user_trace::MezmoLoggingService,
     sinks::{
         elasticsearch::{
             health::ElasticsearchHealthLogic,
@@ -421,6 +422,7 @@ impl SinkConfig for ElasticsearchConfig {
             ElasticsearchHealthLogic,
         );
 
+        let service = MezmoLoggingService::new(service, cx.mezmo_ctx.clone());
         let sink = ElasticsearchSink::new(&common, self, service)?;
 
         let stream = VectorSink::from_event_streamsink(sink);

@@ -11,7 +11,8 @@ use vector_core::{
 use crate::{
     aws::{AwsAuthentication, RegionOrEndpoint},
     codecs::{Encoder, EncodingConfig},
-    config::AcknowledgementsConfig,
+    config::{AcknowledgementsConfig, SinkContext},
+    mezmo::user_trace::MezmoLoggingService,
     sinks::util::{retries::RetryLogic, Compression, ServiceBuilderExt, TowerRequestConfig},
     tls::TlsConfig,
 };
@@ -81,6 +82,7 @@ pub async fn build_sink<C, R, RR, E, RT>(
     partition_key_field: Option<String>,
     batch_settings: BatcherSettings,
     client: C,
+    cx: SinkContext,
 ) -> crate::Result<VectorSink>
 where
     C: SendRecord + Clone + Send + Sync + 'static,
@@ -115,6 +117,7 @@ where
         _phantom: PhantomData,
     };
 
+    let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
     let sink = KinesisSink {
         batch_settings,
         service,

@@ -111,7 +111,7 @@ impl SinkConfig for SqsSinkConfig {
     ) -> crate::Result<(crate::sinks::VectorSink, crate::sinks::Healthcheck)> {
         let client = self.create_client(&cx.proxy).await?;
         let healthcheck = self.clone().healthcheck(client.clone()).boxed();
-        let sink = super::sink::SqsSink::new(self.clone(), client)?;
+        let sink = super::sink::SqsSink::new(self.clone(), client, cx)?;
         Ok((
             crate::sinks::VectorSink::from_event_streamsink(sink),
             healthcheck,

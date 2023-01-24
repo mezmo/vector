@@ -16,8 +16,10 @@ use vector_core::config::log_schema;
 use super::config::{KafkaRole, KafkaSinkConfig};
 use crate::{
     codecs::{Encoder, Transformer},
+    config::SinkContext,
     event::{Event, LogEvent},
     kafka::KafkaStatisticsContext,
+    mezmo::user_trace::MezmoLoggingService,
     sinks::{
         kafka::{
             config::QUEUED_MIN_MESSAGES, request_builder::KafkaRequestBuilder,
@@ -39,7 +41,7 @@ pub(super) enum BuildError {
 pub struct KafkaSink {
     transformer: Transformer,
     encoder: Encoder<()>,
-    service: KafkaService,
+    service: MezmoLoggingService<KafkaService>,
     topic: Template,
     key_field: Option<String>,
     headers_key: Option<String>,
@@ -55,18 +57,19 @@ pub(crate) fn create_producer(
 }
 
 impl KafkaSink {
-    pub(crate) fn new(config: KafkaSinkConfig) -> crate::Result<Self> {
+    pub(crate) fn new(config: KafkaSinkConfig, cx: SinkContext) -> crate::Result<Self> {
         let producer_config = config.to_rdkafka(KafkaRole::Producer)?;
         let producer = create_producer(producer_config)?;
         let transformer = config.encoding.transformer();
         let serializer = config.encoding.build()?;
         let encoder = Encoder::<()>::new(serializer);
 
+        let service = MezmoLoggingService::new(KafkaService::new(producer), cx.mezmo_ctx);
         Ok(KafkaSink {
             headers_key: config.headers_key,
             transformer,
             encoder,
-            service: KafkaService::new(producer),
+            service,
             topic: Template::try_from(config.topic).context(TopicTemplateSnafu)?,
             key_field: config.key_field,
         })

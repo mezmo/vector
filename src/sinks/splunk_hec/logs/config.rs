@@ -12,6 +12,7 @@ use crate::{
     codecs::{Encoder, EncodingConfig},
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     http::HttpClient,
+    mezmo::user_trace::MezmoLoggingService,
     sinks::{
         splunk_hec::common::{
             acknowledgements::HecClientAcknowledgementsConfig,
@@ -228,6 +229,7 @@ impl HecLogsSinkConfig {
 
         let batch_settings = self.batch.into_batcher_settings()?;
 
+        let service = MezmoLoggingService::new(service, cx.mezmo_ctx.clone());
         let sink = HecLogsSink {
             service,
             request_builder,

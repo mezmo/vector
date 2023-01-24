@@ -13,6 +13,7 @@ use crate::{
     codecs::Transformer,
     config::{AcknowledgementsConfig, GenerateConfig, Input, SinkConfig, SinkContext},
     http::HttpClient,
+    mezmo::user_trace::MezmoLoggingService,
     schema,
     sinks::{
         datadog::{get_api_validate_endpoint, healthcheck, logs::service::LogApiService, Region},
@@ -140,7 +141,11 @@ impl DatadogLogsConfig {
 }
 
 impl DatadogLogsConfig {
-    pub fn build_processor(&self, client: HttpClient) -> crate::Result<VectorSink> {
+    pub fn build_processor(
+        &self,
+        client: HttpClient,
+        cx: SinkContext,
+    ) -> crate::Result<VectorSink> {
         let default_api_key: Arc<str> = Arc::from(self.default_api_key.inner());
         let request_limits = self.request.unwrap_with(&Default::default());
 
@@ -157,6 +162,7 @@ impl DatadogLogsConfig {
             .settings(request_limits, LogApiRetry)
             .service(LogApiService::new(client, self.get_uri(), self.enterprise));
 
+        let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
         let sink = LogSinkBuilder::new(self.encoding.clone(), service, default_api_key, batch)
             .compression(self.compression.unwrap_or_default())
             .build();
@@ -193,7 +199,7 @@ impl SinkConfig for DatadogLogsConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let client = self.create_client(&cx.proxy)?;
         let healthcheck = self.build_healthcheck(client.clone())?;
-        let sink = self.build_processor(client)?;
+        let sink = self.build_processor(client, cx)?;
         Ok((sink, healthcheck))
     }
 

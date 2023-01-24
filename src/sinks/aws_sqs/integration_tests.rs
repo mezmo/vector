@@ -12,7 +12,7 @@ use super::{config::SqsSinkConfig, sink::SqsSink};
 use crate::{
     aws::{create_client, AwsAuthentication, RegionOrEndpoint},
     common::sqs::SqsClientBuilder,
-    config::ProxyConfig,
+    config::{ProxyConfig, SinkContext},
     sinks::VectorSink,
     test_util::{
         components::{run_and_assert_sink_compliance, AWS_SINK_TAGS},
@@ -64,7 +64,7 @@ async fn sqs_send_message_batch() {
 
     config.clone().healthcheck(client.clone()).await.unwrap();
 
-    let sink = SqsSink::new(config, client.clone()).unwrap();
+    let sink = SqsSink::new(config, client.clone(), SinkContext::new_test()).unwrap();
     let sink = VectorSink::from_event_streamsink(sink);
 
     let (mut input_lines, events) = random_lines_with_stream(100, 10, None);
