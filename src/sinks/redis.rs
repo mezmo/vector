@@ -17,6 +17,7 @@ use crate::{
     config::{self, AcknowledgementsConfig, GenerateConfig, Input, SinkConfig, SinkContext},
     event::Event,
     internal_events::TemplateRenderingError,
+    mezmo::user_trace::MezmoLoggingService,
     sinks::util::{
         batch::BatchConfig,
         retries::{RetryAction, RetryLogic},
@@ -171,14 +172,14 @@ impl GenerateConfig for RedisSinkConfig {
 impl SinkConfig for RedisSinkConfig {
     async fn build(
         &self,
-        _cx: SinkContext,
+        cx: SinkContext,
     ) -> crate::Result<(super::VectorSink, super::Healthcheck)> {
         if self.key.is_empty() {
             return Err("`key` cannot be empty.".into());
         }
         let conn = self.build_client().await.context(RedisCreateFailedSnafu)?;
         let healthcheck = RedisSinkConfig::healthcheck(conn.clone()).boxed();
-        let sink = self.new(conn)?;
+        let sink = self.new(conn, cx)?;
         Ok((sink, healthcheck))
     }
 
@@ -192,7 +193,11 @@ impl SinkConfig for RedisSinkConfig {
 }
 
 impl RedisSinkConfig {
-    pub fn new(&self, conn: ConnectionManager) -> crate::Result<super::VectorSink> {
+    pub fn new(
+        &self,
+        conn: ConnectionManager,
+        cx: SinkContext,
+    ) -> crate::Result<super::VectorSink> {
         let request = self.request.unwrap_with(&TowerRequestConfig {
             concurrency: Concurrency::Fixed(1),
             ..Default::default()
@@ -225,6 +230,7 @@ impl RedisSinkConfig {
             .settings(request, RedisRetryLogic)
             .service(redis);
 
+        let svc = MezmoLoggingService::new(svc, cx.mezmo_ctx);
         let sink = BatchSink::new(svc, buffer, batch.timeout)
             .with_flat_map(move |event| {
                 // Errors are handled by `Encoder`.
@@ -520,7 +526,10 @@ mod integration_tests {
         let cnf2 = cnf.clone();
         assert_sink_compliance(&SINK_TAGS, async move {
             let conn = cnf2.build_client().await.unwrap();
-            cnf2.new(conn).unwrap().run(input).await
+            cnf2.new(conn, SinkContext::new_test())
+                .unwrap()
+                .run(input)
+                .await
         })
         .await
         .expect("Running sink failed");
@@ -583,7 +592,10 @@ mod integration_tests {
         let cnf2 = cnf.clone();
         assert_sink_compliance(&SINK_TAGS, async move {
             let conn = cnf2.build_client().await.unwrap();
-            cnf2.new(conn).unwrap().run(input).await
+            cnf2.new(conn, SinkContext::new_test())
+                .unwrap()
+                .run(input)
+                .await
         })
         .await
         .expect("Running sink failed");
@@ -651,7 +663,7 @@ mod integration_tests {
         // Publish events.
         assert_sink_compliance(&SINK_TAGS, async move {
             let conn = cnf.build_client().await.unwrap();
-            let sink = cnf.new(conn).unwrap();
+            let sink = cnf.new(conn, SinkContext::new_test()).unwrap();
             let (_input, events) = random_lines_with_stream(100, num_events, None);
             sink.run(events).await
         })

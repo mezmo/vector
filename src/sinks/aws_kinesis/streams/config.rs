@@ -147,6 +147,7 @@ impl SinkConfig for KinesisStreamsSinkConfig {
             None,
             batch_settings,
             KinesisStreamClient { client },
+            cx,
         )
         .await?;
 

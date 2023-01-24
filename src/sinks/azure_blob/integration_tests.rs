@@ -17,6 +17,7 @@ use vector_core::ByteSizeOf;
 
 use super::config::AzureBlobSinkConfig;
 use crate::{
+    config::SinkContext,
     event::{Event, EventArray, LogEvent},
     sinks::{
         azure_common,
@@ -243,7 +244,8 @@ impl AzureBlobSinkConfig {
         )
         .expect("Failed to create client");
 
-        self.build_processor(client).expect("Failed to create sink")
+        self.build_processor(client, SinkContext::new_test())
+            .expect("Failed to create sink")
     }
 
     async fn run_assert(&self, input: impl Stream<Item = EventArray> + Send) {

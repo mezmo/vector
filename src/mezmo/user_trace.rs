@@ -1,8 +1,8 @@
 use super::MezmoContext;
+use futures_util::future::BoxFuture;
 use futures_util::{future::ready, Stream, StreamExt};
 use once_cell::sync::OnceCell;
 use std::fmt::Debug;
-use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::sync::broadcast::{self, Receiver, Sender};
 use tokio_stream::wrappers::BroadcastStream;
@@ -92,7 +92,8 @@ impl MezmoUserLog for Option<MezmoContext> {
 
 /// A wrapping service that tries to log any error results from the inner service to
 /// the Mezmo user logs, if defined.
-struct MezmoLoggingService<S> {
+#[derive(Clone)]
+pub struct MezmoLoggingService<S> {
     inner: S,
     ctx: Option<MezmoContext>,
 }
@@ -105,13 +106,13 @@ impl<S> MezmoLoggingService<S> {
 
 impl<S, Req> Service<Req> for MezmoLoggingService<S>
 where
-    S: Service<Req>,
-    S::Future: 'static,
-    S::Error: Debug,
+    S: Service<Req> + Send,
+    S::Future: 'static + Send,
+    S::Error: Debug + Send,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = Pin<Box<dyn core::future::Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)

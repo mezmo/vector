@@ -10,6 +10,7 @@ use super::request_builder::AzureBlobRequestOptions;
 use crate::{
     codecs::{Encoder, EncodingConfigWithFraming, SinkType},
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
+    mezmo::user_trace::MezmoLoggingService,
     sinks::{
         azure_common::{
             self, config::AzureBlobRetryLogic, service::AzureBlobService, sink::AzureBlobSink,
@@ -134,7 +135,7 @@ impl GenerateConfig for AzureBlobSinkConfig {
 
 #[async_trait::async_trait]
 impl SinkConfig for AzureBlobSinkConfig {
-    async fn build(&self, _cx: SinkContext) -> Result<(VectorSink, Healthcheck)> {
+    async fn build(&self, cx: SinkContext) -> Result<(VectorSink, Healthcheck)> {
         let client = azure_common::config::build_client(
             self.connection_string
                 .as_ref()
@@ -147,7 +148,7 @@ impl SinkConfig for AzureBlobSinkConfig {
             self.container_name.clone(),
             Arc::clone(&client),
         )?;
-        let sink = self.build_processor(client)?;
+        let sink = self.build_processor(client, cx)?;
         Ok((sink, healthcheck))
     }
 
@@ -168,7 +169,11 @@ const DEFAULT_FILENAME_TIME_FORMAT: &str = "%s";
 const DEFAULT_FILENAME_APPEND_UUID: bool = true;
 
 impl AzureBlobSinkConfig {
-    pub fn build_processor(&self, client: Arc<ContainerClient>) -> crate::Result<VectorSink> {
+    pub fn build_processor(
+        &self,
+        client: Arc<ContainerClient>,
+        cx: SinkContext,
+    ) -> crate::Result<VectorSink> {
         let request_limits = self.request.unwrap_with(&DEFAULT_REQUEST_LIMITS);
         let service = ServiceBuilder::new()
             .settings(request_limits, AzureBlobRetryLogic)
@@ -198,6 +203,7 @@ impl AzureBlobSinkConfig {
             compression: self.compression,
         };
 
+        let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
         let sink = AzureBlobSink::new(
             service,
             request_options,

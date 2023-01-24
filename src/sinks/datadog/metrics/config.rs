@@ -16,6 +16,7 @@ use crate::{
     common::datadog::get_base_domain,
     config::{AcknowledgementsConfig, Input, SinkConfig, SinkContext},
     http::HttpClient,
+    mezmo::user_trace::MezmoLoggingService,
     sinks::{
         datadog::{get_api_validate_endpoint, healthcheck, Region},
         util::{
@@ -152,7 +153,7 @@ impl SinkConfig for DatadogMetricsConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let client = self.build_client(&cx.proxy)?;
         let healthcheck = self.build_healthcheck(client.clone())?;
-        let sink = self.build_sink(client)?;
+        let sink = self.build_sink(client, cx)?;
 
         Ok((sink, healthcheck))
     }
@@ -224,7 +225,7 @@ impl DatadogMetricsConfig {
         .boxed())
     }
 
-    fn build_sink(&self, client: HttpClient) -> crate::Result<VectorSink> {
+    fn build_sink(&self, client: HttpClient, cx: SinkContext) -> crate::Result<VectorSink> {
         let batcher_settings = self.batch.into_batcher_settings()?;
 
         let request_limits = self.request.unwrap_with(&DEFAULT_REQUEST_LIMITS);
@@ -236,6 +237,7 @@ impl DatadogMetricsConfig {
                 self.default_api_key.inner(),
             ));
 
+        let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
         let request_builder = DatadogMetricsRequestBuilder::new(
             endpoint_configuration,
             self.default_namespace.clone(),

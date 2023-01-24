@@ -21,6 +21,7 @@ mod integration_test {
     use vector_core::event::{BatchNotifier, BatchStatus};
 
     use crate::{
+        config::SinkContext,
         event::Value,
         kafka::{KafkaAuthConfig, KafkaCompression, KafkaSaslConfig},
         sinks::{
@@ -128,7 +129,7 @@ mod integration_test {
         config.clone().to_rdkafka(KafkaRole::Consumer)?;
         config.clone().to_rdkafka(KafkaRole::Producer)?;
         self::sink::healthcheck(config.clone()).await?;
-        KafkaSink::new(config)
+        KafkaSink::new(config, SinkContext::new_test())
     }
 
     #[tokio::test]
@@ -278,7 +279,7 @@ mod integration_test {
             events
         });
         assert_sink_compliance(&SINK_TAGS, async move {
-            let sink = KafkaSink::new(config).unwrap();
+            let sink = KafkaSink::new(config, SinkContext::new_test()).unwrap();
             let sink = VectorSink::from_event_streamsink(sink);
             sink.run(input_events).await
         })

@@ -8,7 +8,9 @@ use vector_core::sink::StreamSink;
 use super::{config::SqsSinkConfig, request_builder::SqsRequestBuilder, service::SqsService};
 use crate::internal_events::SinkRequestBuildError;
 use crate::{
+    config::SinkContext,
     event::Event,
+    mezmo::user_trace::MezmoLoggingService,
     sinks::util::{
         builder::SinkBuilderExt, ServiceBuilderExt, SinkBatchSettings, TowerRequestConfig,
     },
@@ -28,15 +30,17 @@ pub(crate) struct SqsSink {
     request_builder: SqsRequestBuilder,
     service: SqsService,
     request: TowerRequestConfig,
+    cx: SinkContext,
 }
 
 impl SqsSink {
-    pub fn new(config: SqsSinkConfig, client: SqsClient) -> crate::Result<Self> {
+    pub fn new(config: SqsSinkConfig, client: SqsClient, cx: SinkContext) -> crate::Result<Self> {
         let request = config.request;
         Ok(SqsSink {
             request_builder: SqsRequestBuilder::new(config)?,
             service: SqsService::new(client),
             request,
+            cx,
         })
     }
 
@@ -50,6 +54,7 @@ impl SqsSink {
             .settings(request, super::retry::SqsRetryLogic)
             .service(self.service);
 
+        let service = MezmoLoggingService::new(service, self.cx.mezmo_ctx);
         let sink = input
             .request_builder(request_builder_concurrency_limit, self.request_builder)
             .filter_map(|req| async move {

@@ -58,7 +58,7 @@ async fn s3_insert_message_into_with_flat_key_prefix() {
     config.key_prefix = Some("test-prefix".to_string());
     let prefix = config.key_prefix.clone();
     let service = config.create_service(&cx.globals.proxy).await.unwrap();
-    let sink = config.build_processor(service).unwrap();
+    let sink = config.build_processor(service, cx).unwrap();
 
     let (lines, events, receiver) = make_events_batch(100, 10);
     run_and_assert_sink_compliance(sink, events, &AWS_SINK_TAGS).await;
@@ -92,7 +92,7 @@ async fn s3_insert_message_into_with_folder_key_prefix() {
     config.key_prefix = Some("test-prefix/".to_string());
     let prefix = config.key_prefix.clone();
     let service = config.create_service(&cx.globals.proxy).await.unwrap();
-    let sink = config.build_processor(service).unwrap();
+    let sink = config.build_processor(service, cx).unwrap();
 
     let (lines, events, receiver) = make_events_batch(100, 10);
     run_and_assert_sink_compliance(sink, events, &AWS_SINK_TAGS).await;
@@ -129,7 +129,7 @@ async fn s3_insert_message_into_with_ssekms_key_id() {
     config.options.ssekms_key_id = Some("alias/aws/s3".to_string());
 
     let service = config.create_service(&cx.globals.proxy).await.unwrap();
-    let sink = config.build_processor(service).unwrap();
+    let sink = config.build_processor(service, cx).unwrap();
 
     let (lines, events, receiver) = make_events_batch(100, 10);
     run_and_assert_sink_compliance(sink, events, &AWS_SINK_TAGS).await;
@@ -167,7 +167,7 @@ async fn s3_rotate_files_after_the_buffer_size_is_reached() {
     };
     let prefix = config.key_prefix.clone();
     let service = config.create_service(&cx.globals.proxy).await.unwrap();
-    let sink = config.build_processor(service).unwrap();
+    let sink = config.build_processor(service, cx).unwrap();
 
     let (lines, _events) = random_lines_with_stream(100, 30, None);
 
@@ -226,7 +226,7 @@ async fn s3_gzip() {
 
     let prefix = config.key_prefix.clone();
     let service = config.create_service(&cx.globals.proxy).await.unwrap();
-    let sink = config.build_processor(service).unwrap();
+    let sink = config.build_processor(service, cx).unwrap();
 
     let (lines, events, receiver) = make_events_batch(100, batch_size * batch_multiplier);
     run_and_assert_sink_compliance(sink, events, &AWS_SINK_TAGS).await;
@@ -288,7 +288,7 @@ async fn s3_insert_message_into_object_lock() {
     let config = config(&bucket, 1000000);
     let prefix = config.key_prefix.clone();
     let service = config.create_service(&cx.globals.proxy).await.unwrap();
-    let sink = config.build_processor(service).unwrap();
+    let sink = config.build_processor(service, cx).unwrap();
 
     let (lines, events, receiver) = make_events_batch(100, 10);
     run_and_assert_sink_compliance(sink, events, &AWS_SINK_TAGS).await;
@@ -320,7 +320,7 @@ async fn acknowledges_failures() {
     config.bucket = format!("BREAK{}IT", config.bucket);
     let prefix = config.key_prefix.clone();
     let service = config.create_service(&cx.globals.proxy).await.unwrap();
-    let sink = config.build_processor(service).unwrap();
+    let sink = config.build_processor(service, cx).unwrap();
 
     let (_lines, events, receiver) = make_events_batch(1, 1);
     run_and_assert_sink_error(sink, events, &COMPONENT_ERROR_TAGS).await;

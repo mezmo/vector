@@ -16,6 +16,7 @@ use crate::{
         AcknowledgementsConfig, GenerateConfig, Input, ProxyConfig, SinkConfig, SinkContext,
         SinkHealthcheckOptions,
     },
+    mezmo::user_trace::MezmoLoggingService,
     proto::vector as proto,
     sinks::{
         util::{
@@ -111,6 +112,7 @@ impl SinkConfig for VectorConfig {
             .settings(request_settings, VectorGrpcRetryLogic)
             .service(service);
 
+        let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
         let sink = VectorSink {
             batch_settings,
             service,
