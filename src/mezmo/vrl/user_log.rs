@@ -98,15 +98,41 @@ impl FunctionExpression for UserLogFn {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use vector_common::TimeZone;
+    use vector_core::event::{LogEvent, VrlTarget};
+    use vrl::{CompileConfig, ProgramInfo};
 
-    test_function! [
-        user_log => UserLog;
+    #[test]
+    fn user_log_doesnotcrash() {
+        let state = TypeState::default();
+        let mut compile_ctx =
+            FunctionCompileContext::new(vrl::diagnostic::Span::new(0, 0), CompileConfig::default());
 
-          doesnotcrash {
-            args: func_args! [ value: value!(42),
-                               level: value!("warn")],
-            want: Ok(Value::Null),
-            tdef: TypeDef::null().infallible(),
-        }
-    ];
+        let user_log = UserLog {};
+        let args: HashMap<&'static str, ::value::Value> =
+            vec![("value", 42.into()), ("level", "warn".into())]
+                .into_iter()
+                .collect();
+        let expression = user_log
+            .compile(&state, &mut compile_ctx, args.into())
+            .expect("expression should compile");
+
+        let program_info = ProgramInfo {
+            fallible: false,
+            abortable: false,
+            target_queries: vec![],
+            target_assignments: vec![],
+        };
+        let event = LogEvent::default();
+        let mut target = VrlTarget::new(event.into(), &program_info);
+        let mut runtime_state = state::Runtime::default();
+        let mut ctx = Context::new(&mut target, &mut runtime_state, &TimeZone::Local);
+
+        let res = expression.resolve(&mut ctx);
+        assert_eq!(res, Ok(Value::Null));
+
+        let res_tdef = expression.type_def(&state);
+        assert_eq!(res_tdef, TypeDef::null().infallible());
+    }
 }

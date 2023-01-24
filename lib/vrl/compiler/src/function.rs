@@ -10,7 +10,8 @@ use std::{
 use value::{kind::Collection, Value};
 
 use crate::{
-    expression::{container::Variant, Block, Container, Expr, Expression},
+    expression::{container::Variant, Block, Container, Expr, Expression, FunctionArgument},
+    parser::Node,
     state::TypeState,
     value::{kind, Kind},
     CompileConfig, Span, TypeDef,
@@ -430,39 +431,35 @@ fn required<T>(argument: Option<T>) -> T {
     argument.expect("invalid function signature")
 }
 
-#[cfg(any(test, feature = "test"))]
-mod test_impls {
-    use super::*;
-    use crate::expression::FunctionArgument;
-    use crate::parser::Node;
-
-    impl From<HashMap<&'static str, Value>> for ArgumentList {
-        fn from(map: HashMap<&'static str, Value>) -> Self {
-            Self {
-                arguments: map
-                    .into_iter()
-                    .map(|(k, v)| (k, v.into()))
-                    .collect::<HashMap<_, _>>(),
-                closure: None,
-            }
+// LOG-15435: We moved these trait impls out of the test only compile target
+// since we need to use them to write tests for our Mezmo specific VRL functions
+// in the main application.
+impl From<HashMap<&'static str, Value>> for ArgumentList {
+    fn from(map: HashMap<&'static str, Value>) -> Self {
+        Self {
+            arguments: map
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect::<HashMap<_, _>>(),
+            closure: None,
         }
     }
+}
 
-    impl From<ArgumentList> for Vec<(&'static str, Option<FunctionArgument>)> {
-        fn from(args: ArgumentList) -> Self {
-            args.arguments
-                .iter()
-                .map(|(key, expr)| {
-                    (
-                        *key,
-                        Some(FunctionArgument::new(
-                            None,
-                            Node::new(Span::default(), expr.clone()),
-                        )),
-                    )
-                })
-                .collect()
-        }
+impl From<ArgumentList> for Vec<(&'static str, Option<FunctionArgument>)> {
+    fn from(args: ArgumentList) -> Self {
+        args.arguments
+            .iter()
+            .map(|(key, expr)| {
+                (
+                    *key,
+                    Some(FunctionArgument::new(
+                        None,
+                        Node::new(Span::default(), expr.clone()),
+                    )),
+                )
+            })
+            .collect()
     }
 }
 
