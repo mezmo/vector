@@ -98,7 +98,7 @@ where
         let exclude = config
             .exclude
             .as_ref()
-            .map(|condition| condition.build(&context.enrichment_tables))
+            .map(|condition| condition.build(&context.enrichment_tables, context.mezmo_ctx.clone()))
             .transpose()?;
 
         Ok(Self {

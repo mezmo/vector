@@ -51,7 +51,7 @@ impl PipelineConfig {
 impl TransformConfig for PipelineConfig {
     async fn build(&self, ctx: &TransformContext) -> crate::Result<Transform> {
         let condition = match &self.filter {
-            Some(config) => Some(config.build(&ctx.enrichment_tables)?),
+            Some(config) => Some(config.build(&ctx.enrichment_tables, ctx.mezmo_ctx.clone())?),
             None => None,
         };
 

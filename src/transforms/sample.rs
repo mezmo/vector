@@ -52,7 +52,9 @@ impl TransformConfig for SampleConfig {
             self.key_field.clone(),
             self.exclude
                 .as_ref()
-                .map(|condition| condition.build(&context.enrichment_tables))
+                .map(|condition| {
+                    condition.build(&context.enrichment_tables, context.mezmo_ctx.clone())
+                })
                 .transpose()?,
         )))
     }
@@ -155,7 +157,7 @@ mod tests {
         };
 
         vrl_config
-            .build(&Default::default())
+            .build(&Default::default(), Default::default())
             .expect("should not fail to build VRL condition")
     }
 

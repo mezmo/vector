@@ -310,12 +310,14 @@ impl Reduce {
         let ends_when = config
             .ends_when
             .as_ref()
-            .map(|c| c.build(enrichment_tables))
+            // Note: no [[MezmoContext]] is provided here since we are not using this
+            // variation of the Reduce transform
+            .map(|c| c.build(enrichment_tables, None))
             .transpose()?;
         let starts_when = config
             .starts_when
             .as_ref()
-            .map(|c| c.build(enrichment_tables))
+            .map(|c| c.build(enrichment_tables, None))
             .transpose()?;
         let group_by = config.group_by.clone().into_iter().collect();
 
