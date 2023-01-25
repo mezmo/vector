@@ -37,9 +37,10 @@ impl GenerateConfig for FilterConfig {
 #[async_trait::async_trait]
 impl TransformConfig for FilterConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
-        Ok(Transform::function(Filter::new(
-            self.condition.build(&context.enrichment_tables)?,
-        )))
+        Ok(Transform::function(Filter::new(self.condition.build(
+            &context.enrichment_tables,
+            context.mezmo_ctx.clone(),
+        )?)))
     }
 
     fn input(&self) -> Input {

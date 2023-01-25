@@ -1,6 +1,6 @@
 use vector_config::configurable_component;
 
-use crate::event::Event;
+use crate::{event::Event, mezmo::MezmoContext};
 
 pub(self) mod datadog_search;
 pub(crate) mod is_log;
@@ -112,13 +112,17 @@ pub enum ConditionConfig {
 }
 
 impl ConditionConfig {
-    pub fn build(&self, enrichment_tables: &enrichment::TableRegistry) -> crate::Result<Condition> {
+    pub fn build(
+        &self,
+        enrichment_tables: &enrichment::TableRegistry,
+        mezmo_ctx: Option<MezmoContext>,
+    ) -> crate::Result<Condition> {
         match self {
             ConditionConfig::IsLog => Ok(Condition::IsLog),
             ConditionConfig::IsMetric => Ok(Condition::IsMetric),
             ConditionConfig::IsTrace => Ok(Condition::IsTrace),
-            ConditionConfig::Vrl(x) => x.build(enrichment_tables),
-            ConditionConfig::DatadogSearch(x) => x.build(enrichment_tables),
+            ConditionConfig::Vrl(x) => x.build(enrichment_tables, mezmo_ctx),
+            ConditionConfig::DatadogSearch(x) => x.build(enrichment_tables, mezmo_ctx),
         }
     }
 }
@@ -144,7 +148,11 @@ pub trait Conditional: std::fmt::Debug {
 }
 
 pub trait ConditionalConfig: std::fmt::Debug + Send + Sync + dyn_clone::DynClone {
-    fn build(&self, enrichment_tables: &enrichment::TableRegistry) -> crate::Result<Condition>;
+    fn build(
+        &self,
+        enrichment_tables: &enrichment::TableRegistry,
+        mezmo_ctx: Option<MezmoContext>,
+    ) -> crate::Result<Condition>;
 }
 
 dyn_clone::clone_trait_object!(ConditionalConfig);
@@ -180,16 +188,20 @@ pub enum AnyCondition {
 }
 
 impl AnyCondition {
-    pub fn build(&self, enrichment_tables: &enrichment::TableRegistry) -> crate::Result<Condition> {
+    pub fn build(
+        &self,
+        enrichment_tables: &enrichment::TableRegistry,
+        mezmo_ctx: Option<MezmoContext>,
+    ) -> crate::Result<Condition> {
         match self {
             AnyCondition::String(s) => {
                 let vrl_config = VrlConfig {
                     source: s.clone(),
                     runtime: Default::default(),
                 };
-                vrl_config.build(enrichment_tables)
+                vrl_config.build(enrichment_tables, mezmo_ctx)
             }
-            AnyCondition::Map(m) => m.build(enrichment_tables),
+            AnyCondition::Map(m) => m.build(enrichment_tables, mezmo_ctx),
         }
     }
 }

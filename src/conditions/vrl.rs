@@ -10,6 +10,7 @@ use crate::{
     emit,
     event::{Event, VrlTarget},
     internal_events::VrlConditionExecutionError,
+    mezmo::{vrl as mezmo_vrl_functions, MezmoContext},
 };
 
 /// A condition that uses the [Vector Remap Language](https://vector.dev/docs/reference/vrl) (VRL) [boolean expression](https://vector.dev/docs/reference/vrl#boolean-expressions) against an event.
@@ -27,7 +28,11 @@ pub struct VrlConfig {
 impl_generate_config_from_default!(VrlConfig);
 
 impl ConditionalConfig for VrlConfig {
-    fn build(&self, enrichment_tables: &enrichment::TableRegistry) -> crate::Result<Condition> {
+    fn build(
+        &self,
+        enrichment_tables: &enrichment::TableRegistry,
+        mezmo_ctx: Option<MezmoContext>,
+    ) -> crate::Result<Condition> {
         // TODO(jean): re-add this to VRL
         // let constraint = TypeConstraint {
         //     allow_any: false,
@@ -42,12 +47,14 @@ impl ConditionalConfig for VrlConfig {
             .into_iter()
             .chain(enrichment::vrl_functions().into_iter())
             .chain(vector_vrl_functions::vrl_functions())
+            .chain(mezmo_vrl_functions::vrl_functions())
             .collect::<Vec<_>>();
 
         let state = vrl::state::TypeState::default();
 
         let mut config = CompileConfig::default();
         config.set_custom(enrichment_tables.clone());
+        config.set_custom(mezmo_ctx.clone());
         config.set_read_only();
 
         let CompilationResult {
@@ -237,13 +244,13 @@ mod test {
 
             assert_eq!(
                 config
-                    .build(&Default::default())
+                    .build(&Default::default(), Default::default())
                     .map(|_| ())
                     .map_err(|e| e.to_string()),
                 build
             );
 
-            if let Ok(cond) = config.build(&Default::default()) {
+            if let Ok(cond) = config.build(&Default::default(), Default::default()) {
                 assert_eq!(
                     cond.check_with_context(event.clone()).0,
                     check.map_err(|e| e.to_string())

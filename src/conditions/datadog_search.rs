@@ -11,7 +11,10 @@ use datadog_search_syntax::{Comparison, ComparisonValue, Field};
 use vector_config::configurable_component;
 use vector_core::event::{Event, LogEvent, Value};
 
-use crate::conditions::{Condition, Conditional, ConditionalConfig};
+use crate::{
+    conditions::{Condition, Conditional, ConditionalConfig},
+    mezmo::MezmoContext,
+};
 
 /// A condition that uses the [Datadog Search](https://docs.datadoghq.com/logs/explorer/search_syntax/) query syntax against an event.
 #[configurable_component]
@@ -38,7 +41,11 @@ impl Conditional for DatadogSearchRunner {
 }
 
 impl ConditionalConfig for DatadogSearchConfig {
-    fn build(&self, _enrichment_tables: &enrichment::TableRegistry) -> crate::Result<Condition> {
+    fn build(
+        &self,
+        _enrichment_tables: &enrichment::TableRegistry,
+        _mezmo_ctx: Option<MezmoContext>,
+    ) -> crate::Result<Condition> {
         let node = parse(&self.source)?;
         let matcher = as_log(build_matcher(&node, &EventFilter::default()));
 
@@ -1056,7 +1063,7 @@ mod test {
 
             // Every query should build successfully.
             let cond = config
-                .build(&Default::default())
+                .build(&Default::default(), Default::default())
                 .unwrap_or_else(|_| panic!("build failed: {}", source));
 
             assert!(

@@ -158,7 +158,7 @@ impl_generate_config_from_default!(MezmoReduceConfig);
 #[async_trait::async_trait]
 impl TransformConfig for MezmoReduceConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
-        MezmoReduce::new(self, &context.enrichment_tables).map(Transform::event_task)
+        MezmoReduce::new(self, &context).map(Transform::event_task)
     }
 
     fn input(&self) -> Input {
@@ -442,10 +442,7 @@ pub struct MezmoReduce {
 }
 
 impl MezmoReduce {
-    pub fn new(
-        config: &MezmoReduceConfig,
-        enrichment_tables: &enrichment::TableRegistry,
-    ) -> crate::Result<Self> {
+    pub fn new(config: &MezmoReduceConfig, cx: &TransformContext) -> crate::Result<Self> {
         if config.ends_when.is_some() && config.starts_when.is_some() {
             return Err("only one of `ends_when` and `starts_when` can be provided".into());
         }
@@ -453,12 +450,12 @@ impl MezmoReduce {
         let ends_when = config
             .ends_when
             .as_ref()
-            .map(|c| c.build(enrichment_tables))
+            .map(|c| c.build(&cx.enrichment_tables, cx.mezmo_ctx.clone()))
             .transpose()?;
         let starts_when = config
             .starts_when
             .as_ref()
-            .map(|c| c.build(enrichment_tables))
+            .map(|c| c.build(&cx.enrichment_tables, cx.mezmo_ctx.clone()))
             .transpose()?;
         let group_by = config.group_by.clone().into_iter().collect();
 
