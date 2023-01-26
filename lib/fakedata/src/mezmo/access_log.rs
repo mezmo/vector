@@ -122,6 +122,7 @@ pub fn nginx_access_log_line() -> String {
 #[derive(Debug, Serialize)]
 pub struct JsonAccessLog {
     host: String,
+    #[serde(rename = "user-identifier")]
     user_identifier: String,
     datetime: String,
     method: String,

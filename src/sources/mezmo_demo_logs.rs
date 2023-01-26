@@ -4,6 +4,7 @@ use codecs::{
     StreamDecodingError,
 };
 use fakedata::mezmo::access_log::json_access_log_line;
+use fakedata::mezmo::error_log::apache_error_log_line;
 use fakedata::mezmo::{
     access_log::{apache_common_log_line, nginx_access_log_line},
     financial::Event as FinancialEvent,
@@ -98,6 +99,9 @@ pub enum MezmoOutputFormat {
     /// Randomly generated logs in [Apache common](\(urls.apache_common)) format.
     ApacheCommon,
 
+    /// Randomly generated logs in [Apache error](\(urls.apache_error)) format.
+    ApacheError,
+
     /// Nginx
     Nginx,
 
@@ -130,6 +134,7 @@ impl MezmoOutputFormat {
                 ref lines,
             } => Self::shuffle_generate(*sequence, lines, n),
             Self::ApacheCommon => apache_common_log_line(),
+            Self::ApacheError => apache_error_log_line(),
             Self::Nginx => nginx_access_log_line(),
             Self::EnvSensor => {
                 let log = SensorMqttMessage::gen_sensor_message();

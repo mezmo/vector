@@ -3,6 +3,7 @@ use rand::prelude::*;
 use rand_distr::num_traits::Float;
 
 pub mod access_log;
+pub mod error_log;
 pub mod financial;
 pub mod sensor;
 pub mod syslog;
