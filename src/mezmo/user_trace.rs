@@ -1,15 +1,19 @@
 use super::MezmoContext;
+use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use futures_util::{future::ready, Stream, StreamExt};
 use once_cell::sync::OnceCell;
 use std::fmt::Debug;
+use std::future::Future;
 use std::task::{Context, Poll};
 use tokio::sync::broadcast::{self, Receiver, Sender};
 use tokio_stream::wrappers::BroadcastStream;
 use tower::Service;
 use tracing::log::Level;
 use value::Value;
-use vector_core::event::LogEvent;
+use vector_core::{event::LogEvent, ByteSizeOf};
+
+use crate::sinks::util::http::HttpBatchService;
 
 static USER_LOG_SENDER: OnceCell<Sender<LogEvent>> = OnceCell::new();
 
@@ -130,6 +134,66 @@ where
             }
             res
         })
+    }
+}
+
+/// A wrapper around HttpBatchService that logs errors and client-side/server-side
+/// response status codes.
+pub struct MezmoHttpBatchLoggingService<F, B = Bytes> {
+    inner: HttpBatchService<F, B>,
+    ctx: Option<MezmoContext>,
+}
+
+impl<F, B> MezmoHttpBatchLoggingService<F, B> {
+    pub fn new(inner: HttpBatchService<F, B>, ctx: Option<MezmoContext>) -> Self {
+        MezmoHttpBatchLoggingService { inner, ctx }
+    }
+}
+
+impl<F, B> Service<B> for MezmoHttpBatchLoggingService<F, B>
+where
+    F: Future<Output = crate::Result<hyper::Request<Bytes>>> + Send + 'static,
+    B: ByteSizeOf + Send + 'static,
+{
+    type Response = <HttpBatchService<F, B> as Service<B>>::Response;
+    type Error = <HttpBatchService<F, B> as Service<B>>::Error;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, body: B) -> Self::Future {
+        let ctx = self.ctx.clone();
+        let res = self.inner.call(body);
+        Box::pin(async move {
+            let res = res.await;
+            match &res {
+                Ok(response) => {
+                    if response.status().is_client_error() || response.status().is_server_error() {
+                        let msg = Value::from(format!(
+                            "Error returned from destination with status code: {}",
+                            response.status()
+                        ));
+                        ctx.error(msg);
+                    }
+                }
+                Err(err) => {
+                    let msg = Value::from(format!("{err:?}"));
+                    ctx.error(msg);
+                }
+            }
+            res
+        })
+    }
+}
+
+impl<F, B> Clone for MezmoHttpBatchLoggingService<F, B> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            ctx: self.ctx.clone(),
+        }
     }
 }
 

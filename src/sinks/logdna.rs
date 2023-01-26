@@ -104,6 +104,7 @@ impl SinkConfig for LogdnaConfig {
             request_settings,
             batch_settings.timeout,
             client.clone(),
+            cx,
         )
         .sink_map_err(|error| error!(message = "Fatal logdna sink error.", %error));
 

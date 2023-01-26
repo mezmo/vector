@@ -216,6 +216,7 @@ impl SinkConfig for StackdriverConfig {
             request,
             batch.timeout,
             client,
+            cx,
         )
         .sink_map_err(|error| error!(message = "Fatal gcp_stackdriver_logs sink error.", %error));
 

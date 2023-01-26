@@ -150,6 +150,7 @@ impl SinkConfig for AzureMonitorLogsConfig {
             request_settings,
             batch_settings.timeout,
             client,
+            cx,
         )
         .sink_map_err(|error| error!(message = "Fatal azure_monitor_logs sink error.", %error));
 
@@ -398,6 +399,7 @@ mod tests {
             request_settings,
             Duration::from_secs(1),
             client,
+            SinkContext::new_test(),
         )
         .sink_map_err(|error| error!(message = "Fatal azure_monitor_logs sink error.", %error));
 

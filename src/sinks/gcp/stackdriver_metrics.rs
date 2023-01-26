@@ -127,6 +127,7 @@ impl SinkConfig for StackdriverConfig {
             request,
             batch_settings.timeout,
             client,
+            cx,
         )
         .sink_map_err(
             |error| error!(message = "Fatal gcp_stackdriver_metrics sink error.", %error),

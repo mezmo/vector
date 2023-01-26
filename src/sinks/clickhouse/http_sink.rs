@@ -42,6 +42,7 @@ pub(crate) async fn build_http_sink(
         request,
         batch.timeout,
         client.clone(),
+        cx,
     )
     .sink_map_err(|error| error!(message = "Fatal clickhouse sink error.", %error));
 

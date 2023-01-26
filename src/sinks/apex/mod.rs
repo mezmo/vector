@@ -86,6 +86,7 @@ impl SinkConfig for ApexSinkConfig {
             request_settings,
             batch_settings.timeout,
             client.clone(),
+            cx,
         )
         .sink_map_err(|error| error!(message = "Fatal apex sink error.", %error));
 

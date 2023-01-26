@@ -27,7 +27,7 @@ use super::{
 use crate::{
     event::Event,
     http::{HttpClient, HttpError},
-    internal_events::{EndpointBytesSent, SinkRequestBuildError},
+    internal_events::{EndpointBytesSent, SinkRequestBuildError}, mezmo::{user_trace::MezmoHttpBatchLoggingService}, config::SinkContext
 };
 
 pub trait HttpEventEncoder<Output> {
@@ -71,7 +71,7 @@ where
     sink: Arc<T>,
     #[pin]
     inner: TowerBatchedSink<
-        HttpBatchService<BoxFuture<'static, crate::Result<hyper::Request<Bytes>>>, B::Output>,
+        MezmoHttpBatchLoggingService<BoxFuture<'static, crate::Result<hyper::Request<Bytes>>>, B::Output>,
         B,
         RL,
     >,
@@ -94,6 +94,7 @@ where
         request_settings: TowerRequestSettings,
         batch_timeout: Duration,
         client: HttpClient,
+        cx: SinkContext,
     ) -> Self {
         Self::with_logic(
             sink,
@@ -102,6 +103,7 @@ where
             request_settings,
             batch_timeout,
             client,
+            cx,
         )
     }
 }
@@ -120,6 +122,7 @@ where
         request_settings: TowerRequestSettings,
         batch_timeout: Duration,
         client: HttpClient,
+        cx: SinkContext,
     ) -> Self {
         let sink = Arc::new(sink);
 
@@ -129,7 +132,7 @@ where
             Box::pin(async move { sink.build_request(b).await })
         };
 
-        let svc = HttpBatchService::new(client, request_builder);
+        let svc = MezmoHttpBatchLoggingService::new(HttpBatchService::new(client, request_builder), cx.mezmo_ctx);
         let inner = request_settings.batch_sink(retry_logic, svc, batch, batch_timeout);
         let encoder = sink.build_encoder();
 
@@ -211,7 +214,7 @@ where
     sink: Arc<T>,
     #[pin]
     inner: TowerPartitionSink<
-        HttpBatchService<BoxFuture<'static, crate::Result<hyper::Request<Bytes>>>, B::Output>,
+        MezmoHttpBatchLoggingService<BoxFuture<'static, crate::Result<hyper::Request<Bytes>>>, B::Output>,
         B,
         RL,
         K,
@@ -234,6 +237,7 @@ where
         request_settings: TowerRequestSettings,
         batch_timeout: Duration,
         client: HttpClient,
+        cx: SinkContext,
     ) -> Self {
         Self::with_retry_logic(
             sink,
@@ -242,6 +246,7 @@ where
             request_settings,
             batch_timeout,
             client,
+            cx,
         )
     }
 }
@@ -262,6 +267,7 @@ where
         request_settings: TowerRequestSettings,
         batch_timeout: Duration,
         client: HttpClient,
+        cx: SinkContext,
     ) -> Self {
         let sink = Arc::new(sink);
 
@@ -271,7 +277,7 @@ where
             Box::pin(async move { sink.build_request(b).await })
         };
 
-        let svc = HttpBatchService::new(client, request_builder);
+        let svc = MezmoHttpBatchLoggingService::new(HttpBatchService::new(client, request_builder), cx.mezmo_ctx);
         let inner = request_settings.partition_sink(retry_logic, svc, batch, batch_timeout);
         let encoder = sink.build_encoder();
 
