@@ -19,7 +19,9 @@ use futures::{future::BoxFuture, FutureExt};
 use indexmap::IndexMap;
 use tokio::sync::oneshot;
 
-use crate::sinks::aws_cloudwatch_logs::service::{CloudwatchError, SmithyClient};
+use crate::sinks::aws_cloudwatch_logs::service::{
+    CloudwatchError, CloudwatchInnerResponse, SmithyClient,
+};
 
 pub struct CloudwatchFuture {
     client: Client,
@@ -92,7 +94,7 @@ impl CloudwatchFuture {
 }
 
 impl Future for CloudwatchFuture {
-    type Output = Result<(), CloudwatchError>;
+    type Output = Result<CloudwatchInnerResponse, CloudwatchError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         loop {
@@ -208,7 +210,7 @@ impl Future for CloudwatchFuture {
                             .send(next_token)
                             .expect("CloudwatchLogsSvc was dropped unexpectedly");
 
-                        return Poll::Ready(Ok(()));
+                        return Poll::Ready(Ok(CloudwatchInnerResponse {}));
                     }
                 }
             }

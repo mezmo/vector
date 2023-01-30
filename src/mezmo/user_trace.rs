@@ -3,7 +3,6 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use futures_util::{future::ready, Stream, StreamExt};
 use once_cell::sync::OnceCell;
-use std::fmt::Debug;
 use std::future::Future;
 use std::task::{Context, Poll};
 use tokio::sync::broadcast::{self, Receiver, Sender};
@@ -94,6 +93,18 @@ impl MezmoUserLog for Option<MezmoContext> {
     }
 }
 
+// Invalid responses are converted to Errors in most underlying services.
+// For others, the message or status code must be extracted from the response.
+pub trait UserLoggingResponse {
+    fn log_msg(&self) -> Option<Value> {
+        None
+    }
+}
+
+pub trait UserLoggingError {
+    fn log_msg(&self) -> Option<Value>;
+}
+
 /// A wrapping service that tries to log any error results from the inner service to
 /// the Mezmo user logs, if defined.
 #[derive(Clone)]
@@ -112,7 +123,8 @@ impl<S, Req> Service<Req> for MezmoLoggingService<S>
 where
     S: Service<Req> + Send,
     S::Future: 'static + Send,
-    S::Error: Debug + Send,
+    S::Response: UserLoggingResponse + Send,
+    S::Error: UserLoggingError + Send,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -127,10 +139,17 @@ where
         let res = self.inner.call(req);
         Box::pin(async move {
             let res = res.await;
-            if let Err(value) = &res {
-                // Expand this as we learn more about specific use cases for the logs
-                let log_msg = Value::from(format!("{value:?}"));
-                ctx.error(log_msg);
+            match &res {
+                Ok(response) => {
+                    if let Some(msg) = response.log_msg() {
+                        ctx.error(msg);
+                    }
+                }
+                Err(err) => {
+                    if let Some(msg) = err.log_msg() {
+                        ctx.error(msg);
+                    }
+                }
             }
             res
         })
@@ -206,7 +225,10 @@ mod tests {
         time::{sleep, Duration},
     };
     use tokio_test::{assert_pending, assert_ready};
-    use tower_test::{assert_request_eq, mock as service_mock};
+    use tower_test::{
+        assert_request_eq,
+        mock::{self as service_mock, Mock},
+    };
 
     #[tokio::test]
     async fn test_logging_from_standard_component() {
@@ -311,27 +333,61 @@ mod tests {
     }
 
     #[derive(Debug, Snafu)]
-    #[snafu(display("Unit test error: {note}"))]
-    struct ServiceTestError {
-        note: &'static str,
+    #[snafu(display("Unit test error"))]
+    struct ServiceTestError {}
+    impl UserLoggingError for ServiceTestError {
+        fn log_msg(&self) -> Option<Value> {
+            Some("log_msg(): error".into())
+        }
+    }
+
+    struct ServiceTestResponse {}
+    impl UserLoggingResponse for ServiceTestResponse {
+        fn log_msg(&self) -> Option<Value> {
+            Some("log_msg(): response".into())
+        }
+    }
+
+    struct MockWrapperService {
+        inner: Mock<&'static str, &'static str>,
+    }
+
+    impl Service<&'static str> for MockWrapperService {
+        type Response = ServiceTestResponse;
+        type Error = ServiceTestError;
+        type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+        fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            self.inner.poll_ready(cx).map_err(|_| ServiceTestError {})
+        }
+
+        fn call(&mut self, req: &'static str) -> Self::Future {
+            let res = self.inner.call(req.clone());
+            Box::pin(async move {
+                match res.await {
+                    Ok(_) => Ok(ServiceTestResponse {}),
+                    Err(_) => Err(ServiceTestError {}),
+                }
+            })
+        }
     }
 
     #[tokio::test]
-    async fn test_mezmo_logging_service() {
+    async fn test_mezmo_logging_service_error() {
         let mut log_stream = UserLogSubscription::subscribe().into_stream();
         let (mut mock, mut handle) =
             service_mock::spawn_with(|mock: service_mock::Mock<&str, &str>| {
                 let id =
                     "v1:kafka:internal_source:component_abc:pipeline_123:account_123".to_owned();
                 let ctx = MezmoContext::try_from(id).ok();
-                MezmoLoggingService::new(mock, ctx)
+                MezmoLoggingService::new(MockWrapperService { inner: mock }, ctx)
             });
 
         assert_pending!(handle.poll_request());
         assert_ready!(mock.poll_ready()).unwrap();
 
         let res = mock.call("input");
-        assert_request_eq!(handle, "input").send_error(ServiceTestError { note: "test error" });
+        assert_request_eq!(handle, "input").send_error(ServiceTestError {});
         assert!(res.await.is_err());
 
         let log_res = select! {
@@ -340,6 +396,33 @@ mod tests {
         };
 
         let msg = log_res.get(".message").unwrap().as_str().unwrap();
-        assert_eq!(msg, "ServiceTestError { note: \"test error\" }");
+        assert_eq!(msg, "log_msg(): error");
+    }
+
+    #[tokio::test]
+    async fn test_mezmo_logging_service_response() {
+        let mut log_stream = UserLogSubscription::subscribe().into_stream();
+        let (mut mock, mut handle) =
+            service_mock::spawn_with(|mock: service_mock::Mock<&str, &str>| {
+                let id =
+                    "v1:kafka:internal_source:component_abc:pipeline_123:account_123".to_owned();
+                let ctx = MezmoContext::try_from(id).ok();
+                MezmoLoggingService::new(MockWrapperService { inner: mock }, ctx)
+            });
+
+        assert_pending!(handle.poll_request());
+        assert_ready!(mock.poll_ready()).unwrap();
+
+        let res = mock.call("input");
+        assert_request_eq!(handle, "input").send_response("testing");
+        assert!(res.await.is_err());
+
+        let log_res = select! {
+            event = log_stream.next() => event.expect("next should produce a value"),
+            _ = sleep(Duration::from_secs(1)) => panic!("fetching log stream event should not time out"),
+        };
+
+        let msg = log_res.get(".message").unwrap().as_str().unwrap();
+        assert_eq!(msg, "log_msg(): response");
     }
 }

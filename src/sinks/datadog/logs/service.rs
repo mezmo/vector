@@ -21,6 +21,7 @@ use vector_core::{
 
 use crate::{
     http::HttpClient,
+    mezmo::user_trace::UserLoggingResponse,
     sinks::datadog::DatadogApiError,
     sinks::util::{retries::RetryLogic, Compression},
 };
@@ -81,6 +82,8 @@ impl DriverResponse for LogApiResponse {
         Some((self.raw_byte_size, &self.protocol))
     }
 }
+
+impl UserLoggingResponse for LogApiResponse {}
 
 /// Wrapper for the Datadog API.
 ///

@@ -22,12 +22,15 @@ use tower::{
     timeout::Timeout,
     Service, ServiceBuilder, ServiceExt,
 };
+use value::Value;
 use vector_common::request_metadata::MetaDescriptive;
 use vector_core::{internal_event::CountByteSize, stream::DriverResponse};
 use vrl::prelude::fmt::Debug;
 
 use crate::{
+    config::SinkContext,
     event::EventStatus,
+    mezmo::user_trace::{MezmoLoggingService, UserLoggingError, UserLoggingResponse},
     sinks::{
         aws_cloudwatch_logs::{
             config::CloudwatchLogsSinkConfig, request, retry::CloudwatchRetryLogic,
@@ -43,8 +46,8 @@ type Svc = Buffer<
     ConcurrencyLimit<
         RateLimit<
             Retry<
-                FixedRetryPolicy<CloudwatchRetryLogic<()>>,
-                Buffer<Timeout<CloudwatchLogsSvc>, Vec<InputLogEvent>>,
+                FixedRetryPolicy<CloudwatchRetryLogic<CloudwatchInnerResponse>>,
+                Buffer<Timeout<MezmoLoggingService<CloudwatchLogsSvc>>, Vec<InputLogEvent>>,
             >,
         >,
     >,
@@ -97,6 +100,57 @@ impl From<SdkError<DescribeLogStreamsError>> for CloudwatchError {
     }
 }
 
+trait SdkErrorWithMessage {
+    fn inner_message(&self) -> Option<&str>;
+}
+impl SdkErrorWithMessage for PutLogEventsError {
+    fn inner_message(&self) -> Option<&str> {
+        self.message()
+    }
+}
+impl SdkErrorWithMessage for DescribeLogStreamsError {
+    fn inner_message(&self) -> Option<&str> {
+        self.message()
+    }
+}
+impl SdkErrorWithMessage for CreateLogStreamError {
+    fn inner_message(&self) -> Option<&str> {
+        self.message()
+    }
+}
+impl SdkErrorWithMessage for CreateLogGroupError {
+    fn inner_message(&self) -> Option<&str> {
+        self.message()
+    }
+}
+
+impl UserLoggingError for CloudwatchError {
+    fn log_msg(&self) -> Option<Value> {
+        match self {
+            CloudwatchError::Put(error) => extract_user_err(error),
+            CloudwatchError::Describe(error) => extract_user_err(error),
+            CloudwatchError::CreateStream(error) => extract_user_err(error),
+            CloudwatchError::CreateGroup(error) => extract_user_err(error),
+            CloudwatchError::NoStreamsFound => Some("No Streams Found".into()),
+        }
+    }
+}
+
+fn extract_user_err<E>(err: &SdkError<E>) -> Option<Value>
+where
+    E: SdkErrorWithMessage,
+{
+    match err {
+        SdkError::ServiceError { err, raw: _ } => err.inner_message().map(Into::into),
+        _ => None, // Other errors are not user-facing
+    }
+}
+
+#[derive(Debug)]
+pub struct CloudwatchInnerResponse {}
+
+impl UserLoggingResponse for CloudwatchInnerResponse {}
+
 #[derive(Debug)]
 pub struct CloudwatchResponse {
     events_count: usize,
@@ -132,6 +186,7 @@ impl CloudwatchLogsPartitionSvc {
         //
         // https://github.com/awslabs/aws-sdk-rust/issues/537
         smithy_client: SmithyClient,
+        cx: SinkContext,
     ) -> Self {
         let request_settings = config
             .request
@@ -144,6 +199,7 @@ impl CloudwatchLogsPartitionSvc {
             request_settings,
             client,
             smithy_client,
+            cx,
         }
     }
 }
@@ -189,11 +245,14 @@ impl Service<BatchCloudwatchRequest> for CloudwatchLogsPartitionSvc {
                 )
                 .buffer(1)
                 .timeout(self.request_settings.timeout)
-                .service(CloudwatchLogsSvc::new(
-                    self.config.clone(),
-                    &key,
-                    self.client.clone(),
-                    std::sync::Arc::clone(&self.smithy_client),
+                .service(MezmoLoggingService::new(
+                    CloudwatchLogsSvc::new(
+                        self.config.clone(),
+                        &key,
+                        self.client.clone(),
+                        std::sync::Arc::clone(&self.smithy_client),
+                    ),
+                    self.cx.mezmo_ctx.clone(),
                 ));
 
             self.clients.insert(key, svc.clone());
@@ -285,7 +344,7 @@ impl CloudwatchLogsSvc {
 }
 
 impl Service<Vec<InputLogEvent>> for CloudwatchLogsSvc {
-    type Response = ();
+    type Response = CloudwatchInnerResponse;
     type Error = CloudwatchError;
     type Future = request::CloudwatchFuture;
 
@@ -347,4 +406,5 @@ pub struct CloudwatchLogsPartitionSvc {
     request_settings: TowerRequestSettings,
     client: CloudwatchLogsClient,
     smithy_client: SmithyClient,
+    cx: SinkContext,
 }

@@ -52,9 +52,8 @@ impl SqsSink {
         let request_builder_concurrency_limit = NonZeroUsize::new(50);
         let service = tower::ServiceBuilder::new()
             .settings(request, super::retry::SqsRetryLogic)
-            .service(self.service);
+            .service(MezmoLoggingService::new(self.service, self.cx.mezmo_ctx));
 
-        let service = MezmoLoggingService::new(service, self.cx.mezmo_ctx);
         let sink = input
             .request_builder(request_builder_concurrency_limit, self.request_builder)
             .filter_map(|req| async move {

@@ -16,8 +16,10 @@ use vector_core::{internal_event::CountByteSize, stream::DriverResponse, ByteSiz
 
 use crate::sinks::elasticsearch::sign_request;
 use crate::{
+    config::SinkContext,
     event::{EventFinalizers, EventStatus, Finalizable},
     http::{Auth, HttpClient},
+    mezmo::user_trace::MezmoHttpBatchLoggingService,
     sinks::util::{
         http::{HttpBatchService, RequestConfig},
         Compression, ElementCount,
@@ -61,7 +63,7 @@ impl MetaDescriptive for ElasticsearchRequest {
 
 #[derive(Clone)]
 pub struct ElasticsearchService {
-    batch_service: HttpBatchService<
+    batch_service: MezmoHttpBatchLoggingService<
         BoxFuture<'static, Result<http::Request<Bytes>, crate::Error>>,
         ElasticsearchRequest,
     >,
@@ -71,14 +73,19 @@ impl ElasticsearchService {
     pub fn new(
         http_client: HttpClient<Body>,
         http_request_builder: HttpRequestBuilder,
+        cx: SinkContext,
     ) -> ElasticsearchService {
         let http_request_builder = Arc::new(http_request_builder);
-        let batch_service = HttpBatchService::new(http_client, move |req| {
-            let request_builder = Arc::clone(&http_request_builder);
-            let future: BoxFuture<'static, Result<http::Request<Bytes>, crate::Error>> =
-                Box::pin(async move { request_builder.build_request(req).await });
-            future
-        });
+
+        let batch_service = MezmoHttpBatchLoggingService::new(
+            HttpBatchService::new(http_client, move |req| {
+                let request_builder = Arc::clone(&http_request_builder);
+                let future: BoxFuture<'static, Result<http::Request<Bytes>, crate::Error>> =
+                    Box::pin(async move { request_builder.build_request(req).await });
+                future
+            }),
+            cx.mezmo_ctx,
+        );
         ElasticsearchService { batch_service }
     }
 }

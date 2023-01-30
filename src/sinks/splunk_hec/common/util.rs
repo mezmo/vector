@@ -13,8 +13,10 @@ use super::{
     EndpointTarget,
 };
 use crate::{
+    config::SinkContext,
     http::HttpClient,
     internal_events::TemplateRenderingError,
+    mezmo::user_trace::MezmoHttpBatchLoggingService,
     sinks::{
         self,
         util::{http::HttpBatchService, SinkBatchSettings},
@@ -54,29 +56,36 @@ pub fn build_http_batch_service(
     http_request_builder: Arc<HttpRequestBuilder>,
     endpoint_target: EndpointTarget,
     auto_extract_timestamp: bool,
-) -> HttpBatchService<BoxFuture<'static, Result<Request<Bytes>, crate::Error>>, HecRequest> {
-    HttpBatchService::new(client, move |req: HecRequest| {
-        let request_builder = Arc::clone(&http_request_builder);
-        let future: BoxFuture<'static, Result<http::Request<Bytes>, crate::Error>> =
-            Box::pin(async move {
-                request_builder.build_request(
-                    req.body,
-                    match endpoint_target {
-                        EndpointTarget::Event => "/services/collector/event",
-                        EndpointTarget::Raw => "/services/collector/raw",
-                    },
-                    req.passthrough_token,
-                    MetadataFields {
-                        source: req.source,
-                        sourcetype: req.sourcetype,
-                        index: req.index,
-                        host: req.host,
-                    },
-                    auto_extract_timestamp,
-                )
-            });
-        future
-    })
+    cx: SinkContext,
+) -> MezmoHttpBatchLoggingService<
+    BoxFuture<'static, Result<Request<Bytes>, crate::Error>>,
+    HecRequest,
+> {
+    MezmoHttpBatchLoggingService::new(
+        HttpBatchService::new(client, move |req: HecRequest| {
+            let request_builder = Arc::clone(&http_request_builder);
+            let future: BoxFuture<'static, Result<http::Request<Bytes>, crate::Error>> =
+                Box::pin(async move {
+                    request_builder.build_request(
+                        req.body,
+                        match endpoint_target {
+                            EndpointTarget::Event => "/services/collector/event",
+                            EndpointTarget::Raw => "/services/collector/raw",
+                        },
+                        req.passthrough_token,
+                        MetadataFields {
+                            source: req.source,
+                            sourcetype: req.sourcetype,
+                            index: req.index,
+                            host: req.host,
+                        },
+                        auto_extract_timestamp,
+                    )
+                });
+            future
+        }),
+        cx.mezmo_ctx,
+    )
 }
 
 pub async fn build_healthcheck(

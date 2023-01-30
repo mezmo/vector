@@ -12,10 +12,11 @@ use crate::{
     aws::{AwsAuthentication, RegionOrEndpoint},
     codecs::{Encoder, EncodingConfig},
     config::{AcknowledgementsConfig, SinkContext},
-    mezmo::user_trace::MezmoLoggingService,
+    mezmo::user_trace::{MezmoLoggingService, UserLoggingError},
     sinks::util::{retries::RetryLogic, Compression, ServiceBuilderExt, TowerRequestConfig},
     tls::TlsConfig,
 };
+use aws_sdk_firehose::types::SdkError;
 
 use super::{
     record::{Record, SendRecord},
@@ -92,6 +93,7 @@ where
     R: Send + 'static,
     RR: Record + Record<T = R> + Clone + Send + Sync + Unpin + 'static,
     E: Send + 'static,
+    SdkError<<C as SendRecord>::E>: UserLoggingError,
     RT: RetryLogic<Response = KinesisResponse> + Default,
 {
     let request_limits = config.request.unwrap_with(&TowerRequestConfig::default());
@@ -99,13 +101,16 @@ where
     let region = config.region.region();
     let service = ServiceBuilder::new()
         .settings::<RT, BatchKinesisRequest<RR>>(request_limits, RT::default())
-        .service(KinesisService::<C, R, E> {
-            client,
-            stream_name: config.stream_name.clone(),
-            region,
-            _phantom_t: PhantomData,
-            _phantom_e: PhantomData,
-        });
+        .service(MezmoLoggingService::new(
+            KinesisService::<C, R, E> {
+                client,
+                stream_name: config.stream_name.clone(),
+                region,
+                _phantom_t: PhantomData,
+                _phantom_e: PhantomData,
+            },
+            cx.mezmo_ctx,
+        ));
 
     let transformer = config.encoding.transformer();
     let serializer = config.encoding.build()?;
@@ -117,7 +122,6 @@ where
         _phantom: PhantomData,
     };
 
-    let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
     let sink = KinesisSink {
         batch_settings,
         service,

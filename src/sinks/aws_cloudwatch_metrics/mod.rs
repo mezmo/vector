@@ -12,6 +12,7 @@ use futures::{stream, FutureExt, SinkExt};
 use futures_util::{future, future::BoxFuture};
 use std::task::{Context, Poll};
 use tower::Service;
+use value::Value;
 use vector_config::configurable_component;
 use vector_core::{sink::VectorSink, EstimatedJsonEncodedSizeOf};
 
@@ -24,11 +25,12 @@ use crate::{
         metric::{Metric, MetricTags, MetricValue},
         Event,
     },
-    mezmo::user_trace::MezmoLoggingService,
+    mezmo::user_trace::{MezmoLoggingService, UserLoggingError, UserLoggingResponse},
     sinks::util::{
         batch::BatchConfig,
         buffer::metrics::{MetricNormalize, MetricNormalizer, MetricSet, MetricsBuffer},
         retries::RetryLogic,
+        sink::Response,
         Compression, EncodedEvent, PartitionBuffer, PartitionInnerBuffer, SinkBatchSettings,
         TowerRequestConfig,
     },
@@ -189,7 +191,7 @@ struct CloudWatchMetricsRetryLogic;
 
 impl RetryLogic for CloudWatchMetricsRetryLogic {
     type Error = SdkError<PutMetricDataError>;
-    type Response = ();
+    type Response = CloudwatchMetricsResponse;
 
     fn is_retriable_error(&self, error: &Self::Error) -> bool {
         is_retriable_error(error)
@@ -202,6 +204,21 @@ fn tags_to_dimensions(tags: &MetricTags) -> Vec<Dimension> {
         .take(10)
         .map(|(k, v)| Dimension::builder().name(k).value(v).build())
         .collect()
+}
+
+#[derive(Debug)]
+pub struct CloudwatchMetricsResponse {}
+impl Response for CloudwatchMetricsResponse {}
+impl UserLoggingResponse for CloudwatchMetricsResponse {}
+
+type CloudwatchMetricsError = SdkError<PutMetricDataError>;
+impl UserLoggingError for CloudwatchMetricsError {
+    fn log_msg(&self) -> Option<Value> {
+        match &self {
+            SdkError::ServiceError { err, raw: _ } => err.message().map(Into::into),
+            _ => None, // Other errors are not user-facing
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -223,8 +240,7 @@ impl CloudWatchMetricsSvc {
             ..Default::default()
         });
 
-        let service = CloudWatchMetricsSvc { client };
-        let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
+        let service = MezmoLoggingService::new(CloudWatchMetricsSvc { client }, cx.mezmo_ctx);
 
         let buffer = PartitionBuffer::new(MetricsBuffer::new(batch.size));
         let mut normalizer = MetricNormalizer::<AwsCloudwatchMetricNormalize>::default();
@@ -306,8 +322,8 @@ impl CloudWatchMetricsSvc {
 }
 
 impl Service<PartitionInnerBuffer<Vec<Metric>, String>> for CloudWatchMetricsSvc {
-    type Response = ();
-    type Error = SdkError<PutMetricDataError>;
+    type Response = CloudwatchMetricsResponse;
+    type Error = CloudwatchMetricsError;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     // Emission of an internal event in case of errors is handled upstream by the caller.
@@ -320,7 +336,7 @@ impl Service<PartitionInnerBuffer<Vec<Metric>, String>> for CloudWatchMetricsSvc
         let (items, namespace) = items.into_parts();
         let metric_data = self.encode_events(items);
         if metric_data.is_empty() {
-            return future::ok(()).boxed();
+            return future::ok(CloudwatchMetricsResponse {}).boxed();
         }
 
         let client = self.client.clone();
@@ -332,7 +348,7 @@ impl Service<PartitionInnerBuffer<Vec<Metric>, String>> for CloudWatchMetricsSvc
                 .set_metric_data(Some(metric_data))
                 .send()
                 .await?;
-            Ok(())
+            Ok(CloudwatchMetricsResponse {})
         })
     }
 }

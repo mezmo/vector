@@ -40,7 +40,11 @@ async fn azure_blob_healthcheck_passed() {
     )
     .expect("Failed to create client");
 
-    let response = azure_common::config::build_healthcheck(config.container_name, client);
+    let response = azure_common::config::build_healthcheck(
+        config.container_name,
+        client,
+        SinkContext::new_test(),
+    );
 
     response.expect("Failed to pass healthcheck");
 }
@@ -60,11 +64,15 @@ async fn azure_blob_healthcheck_unknown_container() {
     .expect("Failed to create client");
 
     assert_eq!(
-        azure_common::config::build_healthcheck(config.container_name, client)
-            .unwrap()
-            .await
-            .unwrap_err()
-            .to_string(),
+        azure_common::config::build_healthcheck(
+            config.container_name,
+            client,
+            SinkContext::new_test()
+        )
+        .unwrap()
+        .await
+        .unwrap_err()
+        .to_string(),
         "Container: \"other-container-name\" not found"
     );
 }
@@ -244,8 +252,7 @@ impl AzureBlobSinkConfig {
         )
         .expect("Failed to create client");
 
-        self.build_processor(client, SinkContext::new_test())
-            .expect("Failed to create sink")
+        self.build_processor(client).expect("Failed to create sink")
     }
 
     async fn run_assert(&self, input: impl Stream<Item = EventArray> + Send) {

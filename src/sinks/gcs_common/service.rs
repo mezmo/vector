@@ -1,5 +1,11 @@
 use std::task::Poll;
 
+use crate::{
+    event::{EventFinalizers, EventStatus, Finalizable},
+    gcp::GcpAuthenticator,
+    http::{get_http_scheme_from_uri, HttpClient, HttpError},
+    mezmo::user_trace::UserLoggingResponse,
+};
 use bytes::Bytes;
 use futures::future;
 use futures::future::BoxFuture;
@@ -9,14 +15,9 @@ use http::{
 };
 use hyper::Body;
 use tower::Service;
+use value::Value;
 use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_core::{internal_event::CountByteSize, stream::DriverResponse};
-
-use crate::{
-    event::{EventFinalizers, EventStatus, Finalizable},
-    gcp::GcpAuthenticator,
-    http::{get_http_scheme_from_uri, HttpClient, HttpError},
-};
 
 #[derive(Debug, Clone)]
 pub struct GcsService {
@@ -104,6 +105,27 @@ impl DriverResponse for GcsResponse {
 
     fn bytes_sent(&self) -> Option<(usize, &str)> {
         Some((self.metadata.request_encoded_size(), self.protocol))
+    }
+}
+
+impl UserLoggingResponse for GcsResponse {
+    fn log_msg(&self) -> Option<Value> {
+        match &self.inner {
+            Some(response) => {
+                if response.status().is_success() {
+                    Some(
+                        format!(
+                            "Error returned from destination with status code: {}",
+                            response.status()
+                        )
+                        .into(),
+                    )
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
     }
 }
 

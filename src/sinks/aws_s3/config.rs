@@ -152,7 +152,7 @@ impl GenerateConfig for S3SinkConfig {
 impl SinkConfig for S3SinkConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let service = self.create_service(&cx.proxy).await?;
-        let healthcheck = self.build_healthcheck(service.client())?;
+        let healthcheck = self.build_healthcheck(service.client(), cx.clone())?;
         let sink = self.build_processor(service, cx)?;
         Ok((sink, healthcheck))
     }
@@ -179,7 +179,7 @@ impl S3SinkConfig {
         let request_limits = self.request.unwrap_with(&Default::default());
         let service = ServiceBuilder::new()
             .settings(request_limits, S3RetryLogic)
-            .service(service);
+            .service(MezmoLoggingService::new(service, cx.mezmo_ctx));
 
         // Configure our partitioning/batching.
         let batch_settings = self.batch.into_batcher_settings()?;
@@ -222,14 +222,17 @@ impl S3SinkConfig {
             compression: self.compression,
         };
 
-        let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
         let sink = S3Sink::new(service, request_options, partitioner, batch_settings);
 
         Ok(VectorSink::from_event_streamsink(sink))
     }
 
-    pub fn build_healthcheck(&self, client: S3Client) -> crate::Result<Healthcheck> {
-        s3_common::config::build_healthcheck(self.bucket.clone(), client)
+    pub fn build_healthcheck(
+        &self,
+        client: S3Client,
+        cx: SinkContext,
+    ) -> crate::Result<Healthcheck> {
+        s3_common::config::build_healthcheck(self.bucket.clone(), client, cx)
     }
 
     pub async fn create_service(&self, proxy: &ProxyConfig) -> crate::Result<S3Service> {

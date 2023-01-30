@@ -160,9 +160,11 @@ impl DatadogLogsConfig {
 
         let service = ServiceBuilder::new()
             .settings(request_limits, LogApiRetry)
-            .service(LogApiService::new(client, self.get_uri(), self.enterprise));
+            .service(MezmoLoggingService::new(
+                LogApiService::new(client, self.get_uri(), self.enterprise),
+                cx.mezmo_ctx,
+            ));
 
-        let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
         let sink = LogSinkBuilder::new(self.encoding.clone(), service, default_api_key, batch)
             .compression(self.compression.unwrap_or_default())
             .build();

@@ -2,11 +2,13 @@ use futures::FutureExt;
 use http::{StatusCode, Uri};
 use hyper::Body;
 use snafu::Snafu;
+use value::Value;
 use vector_config::configurable_component;
 
 use crate::{
     gcp::{GcpAuthenticator, GcpError},
     http::HttpClient,
+    mezmo::{user_trace::MezmoUserLog, MezmoContext},
     sinks::{
         gcs_common::service::GcsResponse,
         util::retries::{RetryAction, RetryLogic},
@@ -111,6 +113,7 @@ pub fn build_healthcheck(
     client: HttpClient,
     base_url: String,
     auth: Option<GcpAuthenticator>,
+    mezmo_ctx: Option<MezmoContext>,
 ) -> crate::Result<Healthcheck> {
     let healthcheck = async move {
         let uri = base_url.parse::<Uri>()?;
@@ -122,10 +125,17 @@ pub fn build_healthcheck(
 
                 let not_found_error = GcsError::BucketNotFound { bucket }.into();
 
-                let response = client.send(request).await?;
+                let response = client.send(request).await.map_err(|error| {
+                    mezmo_ctx.error(Value::from(format!("{error}")));
+                    error
+                })?;
                 healthcheck_response(response, auth, not_found_error)
             }
-            None => Err(GcsError::InvalidAuth.into()),
+            None => {
+                let err = GcsError::InvalidAuth.into();
+                mezmo_ctx.error(Value::from(format!("{err}")));
+                Err(err)
+            }
         }
     };
 

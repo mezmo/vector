@@ -4,9 +4,12 @@ use aws_sdk_sqs::{error::SendMessageError, types::SdkError, Client as SqsClient}
 use futures::{future::BoxFuture, TryFutureExt};
 use tower::Service;
 use tracing::Instrument;
+use value::Value;
 use vector_core::{
     event::EventStatus, internal_event::CountByteSize, stream::DriverResponse, ByteSizeOf,
 };
+
+use crate::mezmo::user_trace::{UserLoggingError, UserLoggingResponse};
 
 use super::request_builder::SendMessageEntry;
 
@@ -51,6 +54,7 @@ impl Service<SendMessageEntry> for SqsService {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct SendMessageResponse {
     byte_size: usize,
 }
@@ -62,5 +66,15 @@ impl DriverResponse for SendMessageResponse {
 
     fn events_sent(&self) -> CountByteSize {
         CountByteSize(1, self.byte_size)
+    }
+}
+
+impl UserLoggingResponse for SendMessageResponse {}
+impl UserLoggingError for SdkError<SendMessageError> {
+    fn log_msg(&self) -> Option<Value> {
+        match &self {
+            SdkError::ServiceError { err, raw: _ } => err.message().map(Into::into),
+            _ => None, // Other errors are not user-facing
+        }
     }
 }

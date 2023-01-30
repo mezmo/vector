@@ -15,7 +15,6 @@ use crate::{
         log_schema, AcknowledgementsConfig, DataType, GenerateConfig, Input, ProxyConfig,
         SinkConfig, SinkContext,
     },
-    mezmo::user_trace::MezmoLoggingService,
     sinks::{
         aws_cloudwatch_logs::{
             healthcheck::healthcheck, request_builder::CloudwatchRequestBuilder,
@@ -169,13 +168,13 @@ impl SinkConfig for CloudwatchLogsSinkConfig {
                 self.clone(),
                 client.clone(),
                 std::sync::Arc::new(smithy_client),
+                cx,
             ));
         let transformer = self.encoding.transformer();
         let serializer = self.encoding.build()?;
         let encoder = Encoder::<()>::new(serializer);
         let healthcheck = healthcheck(self.clone(), client).boxed();
 
-        let svc = MezmoLoggingService::new(svc, cx.mezmo_ctx);
         let sink = CloudwatchSink {
             batcher_settings,
             request_builder: CloudwatchRequestBuilder {

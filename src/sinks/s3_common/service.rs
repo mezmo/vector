@@ -1,5 +1,6 @@
 use std::task::{Context, Poll};
 
+use crate::mezmo::user_trace::{UserLoggingError, UserLoggingResponse};
 use aws_sdk_s3::{
     error::PutObjectError,
     types::{ByteStream, SdkError},
@@ -10,6 +11,7 @@ use futures::future::BoxFuture;
 use md5::Digest;
 use tower::Service;
 use tracing::Instrument;
+use value::Value;
 use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_core::{
     event::{EventFinalizers, EventStatus, Finalizable},
@@ -62,6 +64,17 @@ impl DriverResponse for S3Response {
 
     fn events_sent(&self) -> CountByteSize {
         CountByteSize(self.count, self.events_byte_size)
+    }
+}
+
+impl UserLoggingResponse for S3Response {}
+
+impl UserLoggingError for SdkError<PutObjectError> {
+    fn log_msg(&self) -> Option<Value> {
+        match &self {
+            SdkError::ServiceError { err, raw: _ } => err.message().map(Into::into),
+            _ => None, // Other errors are not user-facing
+        }
     }
 }
 
