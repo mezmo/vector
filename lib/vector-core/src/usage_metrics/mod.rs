@@ -109,11 +109,8 @@ impl UsageMetricsKey {
     fn is_tracked(&self) -> bool {
         match self.component_kind {
             ComponentKind::Source { internal } => {
-                // Internal sources (pull) should not be tracked
-                // Demo logs should not be tracked
+                // Internal sources should not be tracked, remap transforms will be tracked instead
                 !internal
-                    && self.component_type != "mezmo-demo-logs"
-                    && self.component_type != "demo-logs"
             }
             ComponentKind::Sink => true,
             ComponentKind::Transform { internal } => {
@@ -621,14 +618,6 @@ mod tests {
             .parse()
             .unwrap();
         assert!(!value.is_tracked(), "Kafka source should NOT be tracked");
-
-        let value: UsageMetricsKey = "v1:mezmo-demo-logs:source:comp1:pipe1:account1"
-            .parse()
-            .unwrap();
-        assert!(
-            !value.is_tracked(),
-            "Demo logs source should NOT be tracked"
-        );
     }
 
     #[test]
