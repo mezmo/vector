@@ -10,6 +10,7 @@ use crate::{
     event::{Event, EventFinalizers, EventStatus, Finalizable},
     internal_events::PulsarSendingError,
     sinks::util::metadata::RequestMetadataBuilder,
+    mezmo::{MezmoContext, user_trace::MezmoUserLog},
 };
 use bytes::BytesMut;
 use codecs::{encoding::SerializerConfig, TextSerializerConfig};
@@ -142,6 +143,7 @@ struct PulsarSink {
         >,
     >,
     bytes_sent: Registered<BytesSent>,
+    mezmo_ctx: Option<MezmoContext>,
 }
 
 impl GenerateConfig for PulsarSinkConfig {
@@ -162,11 +164,16 @@ impl GenerateConfig for PulsarSinkConfig {
 impl SinkConfig for PulsarSinkConfig {
     async fn build(
         &self,
-        _cx: SinkContext,
+        cx: SinkContext,
     ) -> crate::Result<(super::VectorSink, super::Healthcheck)> {
+        let mezmo_ctx = cx.mezmo_ctx.clone();
         let producer = self
             .create_pulsar_producer()
             .await
+            .map_err(|error| {
+                mezmo_ctx.error(Value::from(format!("{error}")));
+                error
+            })
             .context(CreatePulsarSinkSnafu)?;
 
         let transformer = self.encoding.transformer();
@@ -178,13 +185,14 @@ impl SinkConfig for PulsarSinkConfig {
             transformer,
             encoder,
             self.partition_key_field.clone(),
+            cx,
         )?;
 
         let producer = self
             .create_pulsar_producer()
             .await
             .context(CreatePulsarSinkSnafu)?;
-        let healthcheck = healthcheck(producer).boxed();
+        let healthcheck = healthcheck(producer, mezmo_ctx).boxed();
 
         Ok((super::VectorSink::from_event_sink(sink), healthcheck))
     }
@@ -247,8 +255,13 @@ impl PulsarSinkConfig {
     }
 }
 
-async fn healthcheck(producer: PulsarProducer) -> crate::Result<()> {
-    producer.check_connection().await.map_err(Into::into)
+async fn healthcheck(producer: PulsarProducer, mezmo_ctx: Option<MezmoContext>) -> crate::Result<()> {
+    let _ = producer.check_connection().await
+    .map_err(|error| {
+        mezmo_ctx.error(Value::from(format!("{error}")));
+        error
+    });
+    return Ok(())
 }
 
 impl PulsarSink {
@@ -257,6 +270,7 @@ impl PulsarSink {
         transformer: Transformer,
         encoder: Encoder<()>,
         partition_key_field: Option<String>,
+        cx: SinkContext,
     ) -> crate::Result<Self> {
         Ok(Self {
             transformer,
@@ -265,6 +279,7 @@ impl PulsarSink {
             in_flight: FuturesUnordered::new(),
             bytes_sent: register!(BytesSent::from(Protocol::TCP)),
             partition_key_field,
+            mezmo_ctx: cx.mezmo_ctx,
         })
     }
 
@@ -379,6 +394,8 @@ impl Sink<Event> for PulsarSink {
                         .emit(ByteSize(metadata.request_encoded_size()));
                 }
                 Some((Err(error), metadata, finalizers)) => {
+                    this.mezmo_ctx.error(Value::from(format!("{error}")));
+
                     finalizers.update_status(EventStatus::Errored);
                     emit!(PulsarSendingError {
                         error: Box::new(error),
@@ -467,7 +484,7 @@ mod integration_tests {
 
         assert_sink_compliance(&SINK_TAGS, async move {
             let sink =
-                PulsarSink::new(producer, transformer, encoder, cnf.partition_key_field).unwrap();
+                PulsarSink::new(producer, transformer, encoder, cnf.partition_key_field, SinkContext::new_test()).unwrap();
             VectorSink::from_event_sink(sink).run(events).await
         })
         .await
