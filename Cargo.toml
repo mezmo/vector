@@ -351,6 +351,7 @@ similar-asserts = "1.4.2"
 proptest = "1.0"
 quickcheck = "1.0.3"
 reqwest = { version = "0.11", features = ["json"] }
+serial_test = "1.0.0"
 tempfile = "3.3.0"
 tokio-test = "0.4.2"
 tokio = { version = "1.22.0", features = ["test-util"] }

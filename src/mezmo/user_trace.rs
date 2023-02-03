@@ -219,6 +219,7 @@ impl<F, B> Clone for MezmoHttpBatchLoggingService<F, B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use snafu::Snafu;
     use tokio::{
         select,
@@ -231,6 +232,7 @@ mod tests {
     };
 
     #[tokio::test]
+    #[serial]
     async fn test_logging_from_standard_component() {
         let id = "v1:kafka:internal_source:component_abc:pipeline_123:account_123".to_owned();
         let ctx = MezmoContext::try_from(id).ok();
@@ -306,6 +308,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_logging_from_nonstandard_component() {
         let id = "random_component_name".to_owned();
         let ctx = MezmoContext::try_from(id).ok();
@@ -373,6 +376,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_mezmo_logging_service_error() {
         let mut log_stream = UserLogSubscription::subscribe().into_stream();
         let (mut mock, mut handle) =
@@ -400,6 +404,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_mezmo_logging_service_response() {
         let mut log_stream = UserLogSubscription::subscribe().into_stream();
         let (mut mock, mut handle) =
@@ -415,7 +420,7 @@ mod tests {
 
         let res = mock.call("input");
         assert_request_eq!(handle, "input").send_response("testing");
-        assert!(res.await.is_err());
+        assert!(res.await.is_ok());
 
         let log_res = select! {
             event = log_stream.next() => event.expect("next should produce a value"),
