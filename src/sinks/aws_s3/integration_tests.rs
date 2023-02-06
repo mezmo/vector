@@ -42,7 +42,7 @@ use crate::{
     },
 };
 
-fn s3_address() -> String {
+pub fn s3_address() -> String {
     std::env::var("S3_ADDRESS").unwrap_or_else(|_| "http://localhost:4566".into())
 }
 
@@ -414,7 +414,7 @@ fn make_events_batch(
     (lines, events.map(Into::into), receiver)
 }
 
-async fn create_bucket(bucket: &str, object_lock_enabled: bool) {
+pub async fn create_bucket(bucket: &str, object_lock_enabled: bool) {
     match client()
         .await
         .create_bucket()
@@ -448,7 +448,7 @@ async fn list_objects(bucket: &str, prefix: String) -> Option<Vec<aws_sdk_s3::mo
         .contents
 }
 
-async fn get_keys(bucket: &str, prefix: String) -> Vec<String> {
+pub async fn get_keys(bucket: &str, prefix: String) -> Vec<String> {
     list_objects(bucket, prefix)
         .await
         .unwrap()
@@ -457,7 +457,7 @@ async fn get_keys(bucket: &str, prefix: String) -> Vec<String> {
         .collect()
 }
 
-async fn get_object(bucket: &str, key: String) -> GetObjectOutput {
+pub async fn get_object(bucket: &str, key: String) -> GetObjectOutput {
     client()
         .await
         .get_object()
@@ -468,7 +468,7 @@ async fn get_object(bucket: &str, key: String) -> GetObjectOutput {
         .unwrap()
 }
 
-async fn get_lines(obj: GetObjectOutput) -> Vec<String> {
+pub async fn get_lines(obj: GetObjectOutput) -> Vec<String> {
     let body = get_object_output_body(obj).await;
     let buf_read = BufReader::new(body);
     buf_read.lines().map(|l| l.unwrap()).collect()

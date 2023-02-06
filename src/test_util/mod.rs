@@ -34,6 +34,7 @@ use tokio_stream::wrappers::TcpListenerStream;
 use tokio_stream::wrappers::UnixListenerStream;
 use tokio_util::codec::{Encoder, FramedRead, FramedWrite, LinesCodec};
 use vector_buffers::topology::channel::LimitedReceiver;
+use vector_core::config::log_schema;
 use vector_core::event::{BatchNotifier, Event, EventArray, LogEvent};
 #[cfg(test)]
 use zstd::Decoder as ZstdDecoder;
@@ -279,6 +280,33 @@ pub fn random_events_with_stream(
 ) -> (Vec<Event>, impl Stream<Item = EventArray>) {
     let events = (0..count)
         .map(|_| Event::from(LogEvent::from_str_legacy(random_string(len))))
+        .collect::<Vec<_>>();
+    let stream = map_batch_stream(
+        stream::iter(events.clone()).map(|event| event.into_log()),
+        batch,
+    );
+    (events, stream)
+}
+
+pub fn random_message_object_events_with_stream(
+    len: usize,
+    count: usize,
+    batch: Option<BatchNotifier>,
+) -> (Vec<Event>, impl Stream<Item = EventArray>) {
+    let events = (0..count)
+        .map(|_| {
+            let mut event = LogEvent::default();
+            let message_key = log_schema().message_key();
+            event.insert(
+                format!("{}.one", message_key).as_str(),
+                random_string(len).as_str(),
+            );
+            event.insert(
+                format!("{}.two", message_key).as_str(),
+                random_string(len).as_str(),
+            );
+            Event::from(event)
+        })
         .collect::<Vec<_>>();
     let stream = map_batch_stream(
         stream::iter(events.clone()).map(|event| event.into_log()),

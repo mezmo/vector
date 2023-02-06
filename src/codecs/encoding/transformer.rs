@@ -13,7 +13,9 @@ use value::Value;
 use vector_config::configurable_component;
 use vector_core::event::{LogEvent, MaybeAsLogMut};
 
-use crate::{event::Event, serde::skip_serializing_if_default};
+use crate::{
+    event::Event, mezmo::reshape_log_event_by_message, serde::skip_serializing_if_default,
+};
 
 /// Transformations to prepare an event for serialization.
 #[configurable_component(no_deser)]
@@ -21,15 +23,19 @@ use crate::{event::Event, serde::skip_serializing_if_default};
 pub struct Transformer {
     /// List of fields that will be included in the encoded event.
     #[serde(default, skip_serializing_if = "skip_serializing_if_default")]
-    only_fields: Option<Vec<OwnedValuePath>>,
+    pub only_fields: Option<Vec<OwnedValuePath>>,
 
     /// List of fields that will be excluded from the encoded event.
     #[serde(default, skip_serializing_if = "skip_serializing_if_default")]
-    except_fields: Option<Vec<String>>,
+    pub except_fields: Option<Vec<String>>,
 
     /// Format used for timestamp fields.
     #[serde(default, skip_serializing_if = "skip_serializing_if_default")]
-    timestamp_format: Option<TimestampFormat>,
+    pub timestamp_format: Option<TimestampFormat>,
+
+    /// Should we do custom reshaping for Mezmo sinks?
+    #[serde(skip_serializing)]
+    should_mezmo_reshape: bool,
 }
 
 impl<'de> Deserialize<'de> for Transformer {
@@ -74,7 +80,21 @@ impl Transformer {
             only_fields,
             except_fields,
             timestamp_format,
+            should_mezmo_reshape: false,
         })
+    }
+
+    /// Creates a new `Transformer` with custom Mezmo reshape logic
+    pub fn new_with_mezmo_reshape(transformer: Transformer) -> Self {
+        Self {
+            only_fields: transformer.only_fields,
+            except_fields: transformer.except_fields,
+            timestamp_format: transformer.timestamp_format,
+            should_mezmo_reshape: match std::env::var("MEZMO_RESHAPE_MESSAGE") {
+                Ok(env_var) => env_var == "1",
+                _ => false,
+            },
+        }
     }
 
     /// Get the `Transformer`'s `only_fields`.
@@ -116,6 +136,9 @@ impl Transformer {
     pub fn transform(&self, event: &mut Event) {
         // Rules are currently applied to logs only.
         if let Some(log) = event.maybe_as_log_mut() {
+            if self.should_mezmo_reshape {
+                reshape_log_event_by_message(log);
+            }
             // Ordering in here should not matter.
             self.apply_except_fields(log);
             self.apply_only_fields(log);
@@ -206,7 +229,9 @@ mod tests {
     use vector_core::config::log_schema;
 
     use super::*;
+    use assay::assay;
     use std::collections::BTreeMap;
+    use vector_common::btreemap;
 
     #[test]
     fn serialize() {
@@ -357,5 +382,79 @@ mod tests {
             onlyfields = ["Doop"]
         "#});
         assert!(config.is_err())
+    }
+
+    #[test]
+    fn mezmo_reshaping_env_var_must_be_set() {
+        let transformer = Transformer::new_with_mezmo_reshape(Transformer::default());
+        let mut log_event = LogEvent::default();
+        let path = format!("{}.nope", log_schema().message_key());
+        log_event.insert(path.as_str(), "This will not be reshaped");
+
+        let mut event = Event::from(log_event);
+        transformer.transform(&mut event);
+
+        let expected = event.clone();
+
+        assert_eq!(
+            event, expected,
+            "ENV var was not set, so the messsage was not reshaped"
+        );
+    }
+
+    #[assay(
+        env = [
+          ("MEZMO_RESHAPE_MESSAGE", "0"),
+        ]
+      )]
+    fn mezmo_reshaping_env_var_must_be_set_to_1() {
+        let transformer = Transformer::new_with_mezmo_reshape(Transformer::default());
+        let mut log_event = LogEvent::default();
+        let path = format!("{}.nope", log_schema().message_key());
+        log_event.insert(path.as_str(), "This will not be reshaped");
+
+        let mut event = Event::from(log_event);
+        transformer.transform(&mut event);
+
+        let expected = event.clone();
+
+        assert_eq!(
+            event, expected,
+            "ENV var was not set, so the messgae was not reshaped"
+        );
+    }
+
+    #[assay(
+        env = [
+          ("MEZMO_RESHAPE_MESSAGE", "1"),
+        ]
+      )]
+    fn mezmo_reshaping_successful_reshape_message() {
+        let transformer = Transformer::new_with_mezmo_reshape(Transformer::default());
+        let mut log_event = LogEvent::default();
+        let message_key = log_schema().message_key();
+
+        log_event.insert(format!("{}.one", message_key).as_str(), 1);
+        log_event.insert(format!("{}.two", message_key).as_str(), 2);
+        log_event.insert(format!("{}.three.four", message_key).as_str(), 4);
+
+        let mut event = Event::from(log_event);
+        transformer.transform(&mut event);
+
+        let expected_log = LogEvent::from(btreemap! {
+            "one" => 1,
+            "two" => 2,
+            "three" => btreemap! {
+                "four" => 4
+            },
+        });
+        let expected = Event::from(expected_log);
+
+        assert_eq!(event, expected, "message payload was reshaped");
+        assert_eq!(
+            event.as_log().get(message_key),
+            None,
+            "message property is now gone"
+        );
     }
 }

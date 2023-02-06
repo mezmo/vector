@@ -13,6 +13,7 @@ mod tests;
 #[cfg(test)]
 #[cfg(feature = "es-integration-tests")]
 mod integration_tests;
+mod mezmo_integration_tests;
 
 use std::convert::TryFrom;
 

@@ -47,7 +47,9 @@ services:
       - "--features"
       - "es-integration-tests"
       - "--lib"
+      - "--"
       - "::elasticsearch::integration_tests::"
+      - "::elasticsearch::mezmo_integration_tests::"
     depends_on:
       - localstack
       - elasticsearch

@@ -199,7 +199,7 @@ impl SinkConfig for HttpSinkConfig {
             method: self.method,
             auth: self.auth.choose_one(&self.uri.auth)?,
             compression: self.compression,
-            transformer: self.encoding.transformer(),
+            transformer: Transformer::new_with_mezmo_reshape(self.encoding.transformer()),
             encoder,
             batch: self.batch,
             request,
@@ -388,6 +388,7 @@ mod tests {
         sync::{atomic, Arc},
     };
 
+    use assay::assay;
     use bytes::{Buf, Bytes};
     use codecs::{
         encoding::FramingConfig, JsonSerializerConfig, NewlineDelimitedEncoderConfig,
@@ -405,6 +406,7 @@ mod tests {
     use crate::{
         assert_downcast_matches,
         config::SinkContext,
+        mezmo::reshape_log_event_by_message,
         sinks::util::{
             http::HttpSink,
             test::{build_test_server, build_test_server_generic, build_test_server_status},
@@ -412,7 +414,7 @@ mod tests {
         test_util::{
             components,
             components::{COMPONENT_ERROR_TAGS, HTTP_SINK_TAGS},
-            next_addr, random_lines_with_stream,
+            next_addr, random_lines_with_stream, random_message_object_events_with_stream,
         },
     };
 
@@ -806,5 +808,80 @@ mod tests {
 
         let (sink, _) = config.build(cx).await.unwrap();
         (in_addr, sink)
+    }
+
+    #[assay(
+        env = [
+          ("MEZMO_RESHAPE_MESSAGE", "0"),
+        ]
+      )]
+    async fn http_mezmo_does_not_reshape_message() {
+        let (in_addr, sink) = build_sink("").await;
+
+        let (batch, receiver) = BatchNotifier::new_with_receiver();
+        let (events, stream) = random_message_object_events_with_stream(100, 3, Some(batch));
+
+        let (rx, trigger, server) = build_test_server(in_addr);
+        tokio::spawn(server);
+
+        sink.run(stream).await.unwrap();
+        assert_eq!(receiver.await, BatchStatus::Delivered);
+
+        drop(trigger);
+
+        let found = rx
+            .flat_map(|(_, body)| {
+                stream::iter(BufReader::new(MultiGzDecoder::new(body.reader())).lines())
+            })
+            .map(Result::unwrap)
+            .map(|line| serde_json::from_str::<serde_json::Value>(&line).unwrap())
+            .collect::<Vec<_>>()
+            .await;
+
+        let expected = events
+            .iter()
+            .map(|e| serde_json::to_value(e.as_log()).unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(found, expected, "Messages were not reshaped");
+    }
+
+    #[assay(
+        env = [
+          ("MEZMO_RESHAPE_MESSAGE", "1"),
+        ]
+      )]
+    async fn http_mezmo_correctly_reshapes_message() {
+        let (in_addr, sink) = build_sink("").await;
+
+        let (batch, receiver) = BatchNotifier::new_with_receiver();
+        let (mut events, stream) = random_message_object_events_with_stream(100, 3, Some(batch));
+
+        let (rx, trigger, server) = build_test_server(in_addr);
+        tokio::spawn(server);
+
+        sink.run(stream).await.unwrap();
+        assert_eq!(receiver.await, BatchStatus::Delivered);
+
+        drop(trigger);
+
+        let found = rx
+            .flat_map(|(_, body)| {
+                stream::iter(BufReader::new(MultiGzDecoder::new(body.reader())).lines())
+            })
+            .map(Result::unwrap)
+            .map(|line| serde_json::from_str::<serde_json::Value>(&line).unwrap())
+            .collect::<Vec<_>>()
+            .await;
+
+        let expected = events
+            .iter_mut()
+            .map(|e| {
+                reshape_log_event_by_message(e.as_mut_log());
+                serde_json::to_value(e.as_log()).unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(found, expected, "Messages were not reshaped");
     }
 }

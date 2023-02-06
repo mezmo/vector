@@ -15,7 +15,7 @@ use futures::{stream, Stream, StreamExt};
 use http::StatusCode;
 use vector_core::ByteSizeOf;
 
-use super::config::AzureBlobSinkConfig;
+pub use super::config::AzureBlobSinkConfig;
 use crate::{
     config::SinkContext,
     event::{Event, EventArray, LogEvent},
@@ -255,7 +255,7 @@ impl AzureBlobSinkConfig {
         self.build_processor(client).expect("Failed to create sink")
     }
 
-    async fn run_assert(&self, input: impl Stream<Item = EventArray> + Send) {
+    pub async fn run_assert(&self, input: impl Stream<Item = EventArray> + Send) {
         // `to_sink` needs to be inside the assertion check
         assert_sink_compliance(&SINK_TAGS, async move { self.to_sink().run(input).await })
             .await

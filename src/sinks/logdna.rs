@@ -336,6 +336,7 @@ mod tests {
     use futures_util::stream;
     use http::{request::Parts, StatusCode};
     use serde_json::json;
+    use temp_env::with_var;
     use vector_core::event::{BatchNotifier, BatchStatus, Event, LogEvent};
 
     use super::*;
@@ -392,6 +393,52 @@ mod tests {
         assert_eq!(event3_out.get("app").unwrap(), &json!("vector"));
         assert_eq!(event3_out.get("env").unwrap(), &json!("acceptance"));
         assert_eq!(event4_out.get("env").unwrap(), &json!("staging"));
+    }
+
+    #[test]
+    fn encode_event_nothing_to_reshape() {
+        // Since Log Analysis root-level properties don't contain `message`, there should
+        // be nothing to reshape even if the env var is set.
+
+        with_var("MEZMO_RESHAPE_MESSAGE", Some("1"), || {
+            let (config, _cx) = load_sink::<LogdnaConfig>(
+                r#"
+                api_key = "mylogtoken"
+                hostname = "vector"
+                default_env = "acceptance"
+                codec.except_fields = ["magic"]
+            "#,
+            )
+            .unwrap();
+            let mut encoder = config.build_encoder();
+
+            let mut event1 = Event::Log(LogEvent::from("hello world"));
+            event1.as_mut_log().insert("app", "notvector");
+            event1.as_mut_log().insert("magic", "vector");
+
+            let mut event2 = Event::Log(LogEvent::from("hello world"));
+            event2.as_mut_log().insert("file", "log.txt");
+
+            let event3 = Event::Log(LogEvent::from("hello world"));
+
+            let mut event4 = Event::Log(LogEvent::from("hello world"));
+            event4.as_mut_log().insert("env", "staging");
+
+            let event1_out = encoder.encode_event(event1).unwrap().into_parts().0;
+            let event1_out = event1_out.as_object().unwrap();
+            let event2_out = encoder.encode_event(event2).unwrap().into_parts().0;
+            let event2_out = event2_out.as_object().unwrap();
+            let event3_out = encoder.encode_event(event3).unwrap().into_parts().0;
+            let event3_out = event3_out.as_object().unwrap();
+            let event4_out = encoder.encode_event(event4).unwrap().into_parts().0;
+            let event4_out = event4_out.as_object().unwrap();
+
+            assert_eq!(event1_out.get("app").unwrap(), &json!("notvector"));
+            assert_eq!(event2_out.get("file").unwrap(), &json!("log.txt"));
+            assert_eq!(event3_out.get("app").unwrap(), &json!("vector"));
+            assert_eq!(event3_out.get("env").unwrap(), &json!("acceptance"));
+            assert_eq!(event4_out.get("env").unwrap(), &json!("staging"));
+        });
     }
 
     async fn smoke_start(

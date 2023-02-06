@@ -35,7 +35,7 @@ fn aws_server() -> String {
     std::env::var("ELASTICSEARCH_AWS_ADDRESS").unwrap_or_else(|_| "http://localhost:4571".into())
 }
 
-fn http_server() -> String {
+pub fn http_server() -> String {
     std::env::var("ELASTICSEARCH_HTTP_ADDRESS").unwrap_or_else(|_| "http://localhost:9200".into())
 }
 
@@ -44,7 +44,7 @@ fn https_server() -> String {
 }
 
 impl ElasticsearchCommon {
-    async fn flush_request(&self) -> crate::Result<()> {
+    pub async fn flush_request(&self) -> crate::Result<()> {
         let url = format!("{}/_flush", self.base_url)
             .parse::<hyper::Uri>()
             .unwrap();
@@ -80,7 +80,7 @@ impl ElasticsearchCommon {
     }
 }
 
-async fn flush(common: ElasticsearchCommon) -> crate::Result<()> {
+pub async fn flush(common: ElasticsearchCommon) -> crate::Result<()> {
     use tokio::time::{sleep, Duration};
     sleep(Duration::from_secs(2)).await;
     common.flush_request().await?;
@@ -656,7 +656,7 @@ async fn run_insert_tests_with_multiple_endpoints(config: &ElasticsearchConfig) 
     assert_eq!(input.len() as u64, total);
 }
 
-fn gen_index() -> String {
+pub fn gen_index() -> String {
     format!("test-{}", random_string(10).to_lowercase())
 }
 
@@ -672,7 +672,7 @@ async fn create_data_stream(common: &ElasticsearchCommon, name: &str) -> crate::
     Ok(())
 }
 
-fn config() -> ElasticsearchConfig {
+pub fn config() -> ElasticsearchConfig {
     let mut batch = BatchConfig::default();
     batch.max_events = Some(1);
 

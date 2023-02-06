@@ -12,7 +12,7 @@ use vector_core::sink::VectorSink;
 use super::sink::S3RequestOptions;
 use crate::{
     aws::{AwsAuthentication, RegionOrEndpoint},
-    codecs::{Encoder, EncodingConfigWithFraming, SinkType},
+    codecs::{Encoder, EncodingConfigWithFraming, SinkType, Transformer},
     config::{
         AcknowledgementsConfig, DataType, GenerateConfig, Input, ProxyConfig, SinkConfig,
         SinkContext,
@@ -208,7 +208,10 @@ impl S3SinkConfig {
             .filename_append_uuid
             .unwrap_or(DEFAULT_FILENAME_APPEND_UUID);
 
-        let transformer = self.encoding.transformer();
+        // Mezmo-only: Since the message reshaper is contained within the Transformer which is a tuple within
+        // `EncodingConfigWithFraming`, we need to swap the transformers.
+        let transformer = Transformer::new_with_mezmo_reshape(self.encoding.transformer());
+
         let (framer, serializer) = self.encoding.build(SinkType::MessageBased)?;
         let encoder = Encoder::<Framer>::new(framer, serializer);
 
