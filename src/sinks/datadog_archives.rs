@@ -297,7 +297,7 @@ impl DatadogArchivesSinkConfig {
                     .map_err(|error| error.to_string())?;
                 Ok((
                     svc,
-                    s3_common::config::build_healthcheck(self.bucket.clone(), client)?,
+                    s3_common::config::build_healthcheck(self.bucket.clone(), client, cx)?,
                 ))
             }
             "azure_blob" => {
@@ -314,7 +314,7 @@ impl DatadogArchivesSinkConfig {
                     .build_azure_sink(Arc::<ContainerClient>::clone(&client))
                     .map_err(|error| error.to_string())?;
                 let healthcheck =
-                    azure_common::config::build_healthcheck(self.bucket.clone(), client)?;
+                    azure_common::config::build_healthcheck(self.bucket.clone(), client, cx)?;
                 Ok((svc, healthcheck))
             }
             "gcp_cloud_storage" => {
@@ -336,6 +336,7 @@ impl DatadogArchivesSinkConfig {
                     client.clone(),
                     base_url.clone(),
                     auth.clone(),
+                    cx.mezmo_ctx.clone(),
                 )?;
                 let sink = self
                     .build_gcs_sink(client, base_url, auth)

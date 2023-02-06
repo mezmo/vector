@@ -9,6 +9,7 @@ use rdkafka::{
     util::Timeout,
 };
 use tower::Service;
+use value::Value;
 use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_core::{
     internal_event::{
@@ -20,6 +21,7 @@ use vector_core::{
 use crate::{
     event::{EventFinalizers, EventStatus, Finalizable},
     kafka::KafkaStatisticsContext,
+    mezmo::user_trace::{UserLoggingError, UserLoggingResponse},
 };
 
 pub struct KafkaRequest {
@@ -73,6 +75,26 @@ impl KafkaService {
         KafkaService {
             kafka_producer,
             bytes_sent: register!(BytesSent::from(Protocol("kafka".into()))),
+        }
+    }
+}
+
+impl UserLoggingResponse for KafkaResponse {}
+impl UserLoggingError for KafkaError {
+    fn log_msg(&self) -> Option<Value> {
+        match self {
+            Self::ClientConfig(_, _, _, _) => Some("Invalid client configuration".into()),
+            Self::ClientCreation(_) => Some("Client creation failed".into()),
+            Self::ConsumerCommit(code) => {
+                Some(format!("Consumer commit failed, code={code}").into())
+            }
+            Self::Flush(code) => Some(format!("Flushing failed, code={code}").into()),
+            Self::Global(code) => Some(format!("Global error, code={code}").into()),
+            Self::MessageProduction(code) => {
+                Some(format!("Message production error, code={code}").into())
+            }
+            Self::StoreOffset(code) => Some(format!("Offset store failed, code={code}").into()),
+            _ => None,
         }
     }
 }

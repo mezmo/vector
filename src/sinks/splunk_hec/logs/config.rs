@@ -12,7 +12,6 @@ use crate::{
     codecs::{Encoder, EncodingConfig},
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     http::HttpClient,
-    mezmo::user_trace::MezmoLoggingService,
     sinks::{
         splunk_hec::common::{
             acknowledgements::HecClientAcknowledgementsConfig,
@@ -218,6 +217,7 @@ impl HecLogsSinkConfig {
                 Arc::clone(&http_request_builder),
                 self.endpoint_target,
                 self.auto_extract_timestamp.unwrap_or_default(),
+                cx.clone(),
             ));
 
         let service = HecService::new(
@@ -228,8 +228,6 @@ impl HecLogsSinkConfig {
         );
 
         let batch_settings = self.batch.into_batcher_settings()?;
-
-        let service = MezmoLoggingService::new(service, cx.mezmo_ctx.clone());
         let sink = HecLogsSink {
             service,
             request_builder,

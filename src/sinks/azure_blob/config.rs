@@ -3,6 +3,7 @@ use std::{convert::TryInto, sync::Arc};
 use azure_storage_blobs::prelude::*;
 use codecs::{encoding::Framer, JsonSerializerConfig, NewlineDelimitedEncoderConfig};
 use tower::ServiceBuilder;
+use value::Value;
 use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
 
@@ -10,7 +11,7 @@ use super::request_builder::AzureBlobRequestOptions;
 use crate::{
     codecs::{Encoder, EncodingConfigWithFraming, SinkType},
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
-    mezmo::user_trace::MezmoLoggingService,
+    mezmo::user_trace::MezmoUserLog,
     sinks::{
         azure_common::{
             self, config::AzureBlobRetryLogic, service::AzureBlobService, sink::AzureBlobSink,
@@ -142,13 +143,18 @@ impl SinkConfig for AzureBlobSinkConfig {
                 .map(|v| v.inner().to_string()),
             self.storage_account.as_ref().map(|v| v.to_string()),
             self.container_name.clone(),
-        )?;
+        )
+        .map_err(|err| {
+            cx.mezmo_ctx.error(Value::from(format!("{err}")));
+            err
+        })?;
 
         let healthcheck = azure_common::config::build_healthcheck(
             self.container_name.clone(),
             Arc::clone(&client),
+            cx.clone(),
         )?;
-        let sink = self.build_processor(client, cx)?;
+        let sink = self.build_processor(client)?;
         Ok((sink, healthcheck))
     }
 
@@ -169,11 +175,7 @@ const DEFAULT_FILENAME_TIME_FORMAT: &str = "%s";
 const DEFAULT_FILENAME_APPEND_UUID: bool = true;
 
 impl AzureBlobSinkConfig {
-    pub fn build_processor(
-        &self,
-        client: Arc<ContainerClient>,
-        cx: SinkContext,
-    ) -> crate::Result<VectorSink> {
+    pub fn build_processor(&self, client: Arc<ContainerClient>) -> crate::Result<VectorSink> {
         let request_limits = self.request.unwrap_with(&DEFAULT_REQUEST_LIMITS);
         let service = ServiceBuilder::new()
             .settings(request_limits, AzureBlobRetryLogic)
@@ -203,7 +205,6 @@ impl AzureBlobSinkConfig {
             compression: self.compression,
         };
 
-        let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
         let sink = AzureBlobSink::new(
             service,
             request_options,

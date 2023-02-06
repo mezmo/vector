@@ -1,5 +1,14 @@
 use std::collections::BTreeMap;
 
+use super::service::{S3Response, S3Service};
+use crate::{
+    aws::{create_client, is_retriable_error, AwsAuthentication, RegionOrEndpoint},
+    common::s3::S3ClientBuilder,
+    config::{ProxyConfig, SinkContext},
+    mezmo::user_trace::MezmoUserLog,
+    sinks::{util::retries::RetryLogic, Healthcheck},
+    tls::TlsConfig,
+};
 use aws_sdk_s3::{
     error::PutObjectError,
     model::{ObjectCannedAcl, ServerSideEncryption, StorageClass},
@@ -9,16 +18,8 @@ use aws_smithy_client::SdkError;
 use futures::FutureExt;
 use http::StatusCode;
 use snafu::Snafu;
+use value::Value;
 use vector_config::configurable_component;
-
-use super::service::{S3Response, S3Service};
-use crate::{
-    aws::{create_client, is_retriable_error, AwsAuthentication, RegionOrEndpoint},
-    common::s3::S3ClientBuilder,
-    config::ProxyConfig,
-    sinks::{util::retries::RetryLogic, Healthcheck},
-    tls::TlsConfig,
-};
 
 /// Per-operation configuration when writing objects to S3.
 #[configurable_component]
@@ -288,7 +289,11 @@ pub enum HealthcheckError {
     UnknownStatus { status: StatusCode },
 }
 
-pub fn build_healthcheck(bucket: String, client: S3Client) -> crate::Result<Healthcheck> {
+pub fn build_healthcheck(
+    bucket: String,
+    client: S3Client,
+    cx: SinkContext,
+) -> crate::Result<Healthcheck> {
     let healthcheck = async move {
         let req = client
             .head_bucket()
@@ -300,12 +305,24 @@ pub fn build_healthcheck(bucket: String, client: S3Client) -> crate::Result<Heal
         match req {
             Ok(_) => Ok(()),
             Err(error) => Err(match error {
-                SdkError::ServiceError { err: _, raw } => match raw.http().status() {
-                    StatusCode::FORBIDDEN => HealthcheckError::InvalidCredentials.into(),
-                    StatusCode::NOT_FOUND => HealthcheckError::UnknownBucket { bucket }.into(),
-                    status => HealthcheckError::UnknownStatus { status }.into(),
-                },
-                error => error.into(),
+                SdkError::ServiceError { err: _, raw } => {
+                    let status = raw.http().status();
+                    let msg = Value::from(format!(
+                        "Error returned from destination with status code: {}",
+                        status
+                    ));
+                    cx.mezmo_ctx.error(msg);
+
+                    match status {
+                        StatusCode::FORBIDDEN => HealthcheckError::InvalidCredentials.into(),
+                        StatusCode::NOT_FOUND => HealthcheckError::UnknownBucket { bucket }.into(),
+                        status => HealthcheckError::UnknownStatus { status }.into(),
+                    }
+                }
+                error => {
+                    cx.mezmo_ctx.error(Value::from(format!("{error}")));
+                    error.into()
+                }
             }),
         }
     };

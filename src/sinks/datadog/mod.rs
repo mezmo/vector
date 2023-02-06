@@ -1,10 +1,12 @@
 use http::{Request, StatusCode, Uri};
 use hyper::body::Body;
 use snafu::Snafu;
+use value::Value;
 
 use crate::{
     common::datadog::{get_api_base_endpoint, Region},
     http::{HttpClient, HttpError},
+    mezmo::user_trace::UserLoggingError,
     sinks::HealthcheckError,
 };
 
@@ -106,5 +108,11 @@ impl DatadogApiError {
             DatadogApiError::BadRequest | DatadogApiError::PayloadTooLarge => false,
             DatadogApiError::ServerError | DatadogApiError::Forbidden => true,
         }
+    }
+}
+
+impl UserLoggingError for DatadogApiError {
+    fn log_msg(&self) -> Option<Value> {
+        Some(self.to_string().into())
     }
 }

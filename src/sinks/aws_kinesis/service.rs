@@ -15,6 +15,7 @@ use super::{
     sink::BatchKinesisRequest,
 };
 use crate::event::EventStatus;
+use crate::mezmo::user_trace::UserLoggingResponse;
 
 pub struct KinesisService<C, T, E> {
     pub client: C,
@@ -39,10 +40,13 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct KinesisResponse {
     count: usize,
     events_byte_size: usize,
 }
+
+impl UserLoggingResponse for KinesisResponse {}
 
 impl DriverResponse for KinesisResponse {
     fn event_status(&self) -> EventStatus {

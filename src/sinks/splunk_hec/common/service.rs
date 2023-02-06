@@ -291,6 +291,7 @@ mod tests {
     };
 
     use crate::{
+        config::SinkContext,
         http::HttpClient,
         sinks::{
             splunk_hec::common::{
@@ -325,6 +326,7 @@ mod tests {
             Arc::clone(&http_request_builder),
             EndpointTarget::Event,
             false,
+            SinkContext::new_test(),
         );
         HecService::new(
             BoxService::new(http_service),

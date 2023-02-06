@@ -341,7 +341,9 @@ async fn s3_healthchecks() {
         .create_service(&ProxyConfig::from_env())
         .await
         .unwrap();
-    config.build_healthcheck(service.client()).unwrap();
+    config
+        .build_healthcheck(service.client(), SinkContext::new_test())
+        .unwrap();
 }
 
 #[tokio::test]
@@ -352,7 +354,7 @@ async fn s3_healthchecks_invalid_bucket() {
         .await
         .unwrap();
     assert!(config
-        .build_healthcheck(service.client())
+        .build_healthcheck(service.client(), SinkContext::new_test())
         .unwrap()
         .await
         .is_err());

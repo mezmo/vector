@@ -16,12 +16,14 @@ use hyper_proxy::ProxyConnector;
 use snafu::{ResultExt, Snafu};
 use tower::Service;
 use tracing::Instrument;
+use value::Value;
 use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
 
 use crate::{
     config::ProxyConfig,
     internal_events::http_client,
+    mezmo::user_trace::UserLoggingError,
     tls::{tls_connector_builder, MaybeTlsSettings, TlsError},
 };
 
@@ -48,6 +50,12 @@ impl HttpError {
             | HttpError::BuildTlsConnector { .. }
             | HttpError::MakeHttpsConnector { .. } => true,
         }
+    }
+}
+
+impl UserLoggingError for HttpError {
+    fn log_msg(&self) -> Option<Value> {
+        Some(self.to_string().into())
     }
 }
 

@@ -199,6 +199,7 @@ impl SinkConfig for GcsSinkConfig {
             client.clone(),
             base_url.clone(),
             auth.clone(),
+            cx.mezmo_ctx.clone(),
         )?;
         let sink = self.build_sink(client, base_url, auth, cx)?;
 
@@ -233,11 +234,13 @@ impl GcsSinkConfig {
 
         let svc = ServiceBuilder::new()
             .settings(request, GcsRetryLogic)
-            .service(GcsService::new(client, base_url, auth));
+            .service(MezmoLoggingService::new(
+                GcsService::new(client, base_url, auth),
+                cx.mezmo_ctx,
+            ));
 
         let request_settings = RequestSettings::new(self)?;
 
-        let svc = MezmoLoggingService::new(svc, cx.mezmo_ctx);
         let sink = GcsSink::new(svc, request_settings, partitioner, batch_settings);
 
         Ok(VectorSink::from_event_streamsink(sink))

@@ -10,6 +10,7 @@ use http::{
 use hyper::Body;
 use snafu::ResultExt;
 use tower::Service;
+use value::Value;
 use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_core::{
     event::{EventFinalizers, EventStatus, Finalizable},
@@ -19,6 +20,7 @@ use vector_core::{
 
 use crate::{
     http::{BuildRequestSnafu, CallRequestSnafu, HttpClient},
+    mezmo::user_trace::UserLoggingResponse,
     sinks::datadog::DatadogApiError,
     sinks::util::retries::{RetryAction, RetryLogic},
 };
@@ -145,6 +147,22 @@ impl DriverResponse for DatadogMetricsResponse {
 
     fn bytes_sent(&self) -> Option<(usize, &str)> {
         Some((self.raw_byte_size, &self.protocol))
+    }
+}
+
+impl UserLoggingResponse for DatadogMetricsResponse {
+    fn log_msg(&self) -> Option<Value> {
+        if !self.status_code.is_success() {
+            Some(
+                format!(
+                    "Error returned from destination with status code: {}",
+                    self.status_code
+                )
+                .into(),
+            )
+        } else {
+            None
+        }
     }
 }
 

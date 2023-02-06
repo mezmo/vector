@@ -232,12 +232,11 @@ impl DatadogMetricsConfig {
         let endpoint_configuration = self.generate_metrics_endpoint_configuration()?;
         let service = ServiceBuilder::new()
             .settings(request_limits, DatadogMetricsRetryLogic)
-            .service(DatadogMetricsService::new(
-                client,
-                self.default_api_key.inner(),
+            .service(MezmoLoggingService::new(
+                DatadogMetricsService::new(client, self.default_api_key.inner()),
+                cx.mezmo_ctx,
             ));
 
-        let service = MezmoLoggingService::new(service, cx.mezmo_ctx);
         let request_builder = DatadogMetricsRequestBuilder::new(
             endpoint_configuration,
             self.default_namespace.clone(),

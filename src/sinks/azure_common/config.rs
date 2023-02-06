@@ -8,11 +8,14 @@ use bytes::Bytes;
 use futures::FutureExt;
 use http::StatusCode;
 use snafu::Snafu;
+use value::Value;
 use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_core::{internal_event::CountByteSize, stream::DriverResponse};
 
 use crate::{
+    config::SinkContext,
     event::{EventFinalizers, EventStatus, Finalizable},
+    mezmo::user_trace::MezmoUserLog,
     sinks::{util::retries::RetryLogic, Healthcheck},
 };
 
@@ -93,6 +96,7 @@ pub enum HealthcheckError {
 pub fn build_healthcheck(
     container_name: String,
     client: Arc<ContainerClient>,
+    cx: SinkContext,
 ) -> crate::Result<Healthcheck> {
     let healthcheck = async move {
         let response = client.get_properties().into_future().await;
@@ -101,14 +105,34 @@ pub fn build_healthcheck(
             Ok(_) => Ok(()),
             Err(reason) => Err(match reason.downcast_ref::<HttpError>() {
                 Some(err) => match StatusCode::from_u16(err.status().into()) {
-                    Ok(StatusCode::FORBIDDEN) => Box::new(HealthcheckError::InvalidCredentials),
-                    Ok(StatusCode::NOT_FOUND) => Box::new(HealthcheckError::UnknownContainer {
-                        container: container_name,
-                    }),
-                    Ok(status) => Box::new(HealthcheckError::Unknown { status }),
-                    Err(_) => "unknown status code".into(),
+                    Ok(StatusCode::FORBIDDEN) => {
+                        let res = Box::new(HealthcheckError::InvalidCredentials);
+                        cx.mezmo_ctx.error(Value::from(format!("{res}")));
+                        res
+                    }
+                    Ok(StatusCode::NOT_FOUND) => {
+                        let res = Box::new(HealthcheckError::UnknownContainer {
+                            container: container_name,
+                        });
+                        cx.mezmo_ctx.error(Value::from(format!("{res}")));
+                        res
+                    }
+                    Ok(status) => {
+                        let res = Box::new(HealthcheckError::Unknown { status });
+                        cx.mezmo_ctx.error(Value::from(format!("{res}")));
+                        res
+                    }
+                    Err(_) => {
+                        let msg = "unknown status code";
+                        cx.mezmo_ctx.error(Value::from(msg.clone()));
+                        msg.into()
+                    }
                 },
-                _ => reason.into(),
+                _ => {
+                    let msg = reason.to_string();
+                    cx.mezmo_ctx.error(Value::from(msg));
+                    reason.into()
+                }
             }),
         };
         resp
