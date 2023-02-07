@@ -338,7 +338,7 @@ impl RequestBuilder<(String, Vec<Event>)> for RequestSettings {
 
 impl RequestSettings {
     fn new(config: &GcsSinkConfig) -> crate::Result<Self> {
-        let transformer = config.encoding.transformer();
+        let transformer = Transformer::new_with_mezmo_reshape(config.encoding.transformer());
         let (framer, serializer) = config.encoding.build(SinkType::MessageBased)?;
         let encoder = Encoder::<Framer>::new(framer, serializer);
         let acl = config
@@ -395,16 +395,19 @@ fn make_header((name, value): (&String, &String)) -> crate::Result<(HeaderName, 
 
 #[cfg(test)]
 mod tests {
-    use codecs::encoding::FramingConfig;
-    use codecs::{JsonSerializerConfig, NewlineDelimitedEncoderConfig, TextSerializerConfig};
-    use futures_util::{future::ready, stream};
-    use vector_core::partition::Partitioner;
-
     use crate::event::LogEvent;
+    use crate::mezmo::reshape_log_event_by_message;
     use crate::test_util::{
         components::{run_and_assert_sink_compliance, SINK_TAGS},
         http::{always_200_response, spawn_blackhole_http_server},
+        random_message_object_events_with_stream,
     };
+    use assay::assay;
+    use codecs::encoding::FramingConfig;
+    use codecs::{JsonSerializerConfig, NewlineDelimitedEncoderConfig, TextSerializerConfig};
+    use futures_util::{future::ready, stream};
+    use serde_json;
+    use vector_core::partition::Partitioner;
 
     use super::*;
 
@@ -486,6 +489,7 @@ mod tests {
         let request_settings = request_settings(&sink_config);
         let (metadata, metadata_request_builder, _events) =
             request_settings.split_input((key, vec![log]));
+
         let payload = EncodeResult::uncompressed(Bytes::new());
         let request_metadata = metadata_request_builder.build(&payload);
 
@@ -505,5 +509,73 @@ mod tests {
 
         let req = build_request(None, true, Compression::gzip_default());
         assert_ne!(req.key, "key/date.log.gz".to_string());
+    }
+
+    fn build_mezmo_object_request(
+        extension: Option<&str>,
+        uuid: bool,
+        compression: Compression,
+    ) -> (GcsRequest, Vec<Event>) {
+        let sink_config = GcsSinkConfig {
+            key_prefix: Some("key/".into()),
+            filename_time_format: Some("date".into()),
+            filename_extension: extension.map(Into::into),
+            filename_append_uuid: Some(uuid),
+            compression,
+            ..default_config(
+                (
+                    Some(NewlineDelimitedEncoderConfig::new()),
+                    JsonSerializerConfig::new(),
+                )
+                    .into(),
+            )
+        };
+        let (events, _) = random_message_object_events_with_stream(100, 1, None);
+        let generated_events = events.clone();
+        let key = sink_config
+            .key_partitioner()
+            .unwrap()
+            .partition(&events[0])
+            .expect("key wasn't provided");
+        let request_settings = request_settings(&sink_config);
+        let (metadata, metadata_request_builder, _events) =
+            request_settings.split_input((key, events));
+
+        let payload = request_settings.encode_events(_events).unwrap();
+        let request_metadata = metadata_request_builder.build(&payload);
+
+        let gcs_request = request_settings.build_request(metadata, request_metadata, payload);
+        (gcs_request, generated_events)
+    }
+
+    #[assay(
+        env = [
+          ("MEZMO_RESHAPE_MESSAGE", "0"),
+        ]
+      )]
+    fn gcs_build_mezmo_object_request_without_reshaping() {
+        let (req, events) = build_mezmo_object_request(Some("ext"), false, Compression::None);
+        let body = std::str::from_utf8(&req.body).unwrap();
+
+        let found = serde_json::from_str::<serde_json::Value>(body).unwrap();
+        let expected = serde_json::to_value(&events[0].as_log()).unwrap();
+
+        assert_eq!(found, expected, "The payload was correctly NOT reshaped");
+    }
+
+    #[assay(
+        env = [
+          ("MEZMO_RESHAPE_MESSAGE", "1"),
+        ]
+      )]
+    fn gcs_build_mezmo_object_request_with_reshaping() {
+        let (req, mut events) = build_mezmo_object_request(Some("ext"), false, Compression::None);
+        let body = std::str::from_utf8(&req.body).unwrap();
+
+        let found = serde_json::from_str::<serde_json::Value>(body).unwrap();
+        reshape_log_event_by_message(events[0].as_mut_log());
+        let expected = serde_json::to_value(&events[0].as_log()).unwrap();
+
+        assert_eq!(found, expected, "The payload was correctly reshaped");
     }
 }

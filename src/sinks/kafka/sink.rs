@@ -60,7 +60,7 @@ impl KafkaSink {
     pub(crate) fn new(config: KafkaSinkConfig, cx: SinkContext) -> crate::Result<Self> {
         let producer_config = config.to_rdkafka(KafkaRole::Producer)?;
         let producer = create_producer(producer_config)?;
-        let transformer = config.encoding.transformer();
+        let transformer = Transformer::new_with_mezmo_reshape(config.encoding.transformer());
         let serializer = config.encoding.build()?;
         let encoder = Encoder::<()>::new(serializer);
 

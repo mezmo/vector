@@ -360,6 +360,8 @@ value = { path = "lib/value", features = ["test"] }
 vector-core = { path = "lib/vector-core", default-features = false, features = ["vrl", "test"] }
 wiremock = "0.5.15"
 zstd = { version = "0.11.2", default-features = false }
+assay = "0.1.1"
+temp-env = "0.3.1"
 
 [patch.crates-io]
 # A patch for lib/vector-core/buffers, addresses Issue 7514

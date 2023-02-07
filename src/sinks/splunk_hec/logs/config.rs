@@ -9,7 +9,7 @@ use vector_core::sink::VectorSink;
 
 use super::{encoder::HecLogsEncoder, request_builder::HecLogsRequestBuilder, sink::HecLogsSink};
 use crate::{
-    codecs::{Encoder, EncodingConfig},
+    codecs::{Encoder, EncodingConfig, Transformer},
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     http::HttpClient,
     sinks::{
@@ -190,7 +190,7 @@ impl HecLogsSinkConfig {
             None
         };
 
-        let transformer = self.encoding.transformer();
+        let transformer = Transformer::new_with_mezmo_reshape(self.encoding.transformer());
         let serializer = self.encoding.build()?;
         let encoder = Encoder::<()>::new(serializer);
         let encoder = HecLogsEncoder {

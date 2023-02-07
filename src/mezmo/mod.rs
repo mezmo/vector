@@ -3,6 +3,9 @@ use std::convert::Infallible;
 use std::str::FromStr;
 use value::Value;
 
+use vector_core::config::log_schema;
+use vector_core::event::LogEvent;
+
 #[allow(dead_code)]
 pub mod user_trace;
 pub mod vrl;
@@ -112,9 +115,22 @@ impl TryFrom<String> for MezmoContext {
     }
 }
 
+/// This function moves whatever is in the LogEvent's `message` property into
+/// the root of a new LogEvent message.
+pub fn reshape_log_event_by_message(log: &mut LogEvent) {
+    let message_key = log_schema().message_key();
+    if let Some(_) = log.get(message_key) {
+        log.rename_key(message_key, ".");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use value::Value;
+    use vector_common::btreemap;
+    use vector_core::config::log_schema;
+    use vector_core::event::LogEvent;
 
     #[test]
     fn test_mezmo_context_try_from_shared_component() {
@@ -169,5 +185,80 @@ mod tests {
                 case
             );
         }
+    }
+
+    #[test]
+    fn reshaping_logevent_works_even_if_message_is_not_an_object() {
+        let message_key = log_schema().message_key();
+        let mut event = LogEvent::from(btreemap! {
+            message_key => "this is not an object event"
+        });
+        reshape_log_event_by_message(&mut event);
+
+        assert_eq!(
+            event,
+            LogEvent::from(Value::from("this is not an object event")),
+            "reshaping was done on a non-object message"
+        );
+    }
+
+    #[test]
+    fn reshaping_ignored_if_no_message_property() {
+        let mut event = LogEvent::default();
+        event.insert(".", "This value does not have a message key");
+        reshape_log_event_by_message(&mut event);
+
+        let mut expected = LogEvent::default();
+        expected.insert(".", "This value does not have a message key");
+        assert_eq!(
+            event, expected,
+            "payload not reshaped because there was no message property"
+        );
+    }
+
+    #[test]
+    fn reshaping_successful_reshape_message() {
+        let mut event = LogEvent::default();
+        let message_key = log_schema().message_key();
+
+        event.insert(format!("{}.one", message_key).as_str(), 1);
+        event.insert(format!("{}.two", message_key).as_str(), 2);
+        event.insert(format!("{}.three.four", message_key).as_str(), 4);
+
+        reshape_log_event_by_message(&mut event);
+
+        let expected = LogEvent::from(btreemap! {
+            "one" => 1,
+            "two" => 2,
+            "three" => btreemap! {
+                "four" => 4
+            },
+        });
+
+        assert_eq!(event, expected, "message payload was reshaped");
+        assert_eq!(event.get(message_key), None, "message property is now gone");
+    }
+
+    #[test]
+    fn reshaping_successful_and_trashes_other_root_level_properties() {
+        let mut event = LogEvent::default();
+        let message_key = log_schema().message_key();
+
+        event.insert("trash1", "nope");
+        event.insert("trash2", true);
+        event.insert(format!("{}.one", message_key).as_str(), 1);
+        event.insert(format!("{}.two", message_key).as_str(), 2);
+
+        reshape_log_event_by_message(&mut event);
+
+        let expected = LogEvent::from(btreemap! {
+            "one" => 1,
+            "two" => 2,
+        });
+
+        assert_eq!(
+            event, expected,
+            "Other root properties were trashed upon reshaping"
+        );
     }
 }

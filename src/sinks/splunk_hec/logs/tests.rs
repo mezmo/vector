@@ -11,7 +11,7 @@ use vector_core::{
 
 use super::sink::HecProcessedEvent;
 use crate::{
-    codecs::{Encoder, EncodingConfig},
+    codecs::{Encoder, EncodingConfig, Transformer},
     config::{SinkConfig, SinkContext},
     sinks::{
         splunk_hec::{
@@ -118,7 +118,7 @@ fn splunk_process_log_event() {
 }
 
 fn hec_encoder(encoding: EncodingConfig) -> HecLogsEncoder {
-    let transformer = encoding.transformer();
+    let transformer = Transformer::new_with_mezmo_reshape(encoding.transformer());
     let serializer = encoding.build().unwrap();
     let encoder = Encoder::<()>::new(serializer);
     HecLogsEncoder {

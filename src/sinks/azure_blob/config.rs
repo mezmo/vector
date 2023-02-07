@@ -9,7 +9,7 @@ use vector_config::configurable_component;
 
 use super::request_builder::AzureBlobRequestOptions;
 use crate::{
-    codecs::{Encoder, EncodingConfigWithFraming, SinkType},
+    codecs::{Encoder, EncodingConfigWithFraming, SinkType, Transformer},
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     mezmo::user_trace::MezmoUserLog,
     sinks::{
@@ -193,7 +193,7 @@ impl AzureBlobSinkConfig {
             .blob_append_uuid
             .unwrap_or(DEFAULT_FILENAME_APPEND_UUID);
 
-        let transformer = self.encoding.transformer();
+        let transformer = Transformer::new_with_mezmo_reshape(self.encoding.transformer());
         let (framer, serializer) = self.encoding.build(SinkType::MessageBased)?;
         let encoder = Encoder::<Framer>::new(framer, serializer);
 
