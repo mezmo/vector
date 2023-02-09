@@ -17,6 +17,7 @@ pub mod log_to_metric;
 pub mod lua;
 #[cfg(feature = "transforms-metric_to_log")]
 pub mod metric_to_log;
+pub mod mezmo_log_to_metric;
 #[cfg(feature = "transforms-pipelines")]
 pub mod pipelines;
 #[cfg(feature = "transforms-reduce")]
@@ -78,6 +79,9 @@ pub enum Transforms {
 
     /// Log to metric.
     LogToMetric(#[configurable(derived)] log_to_metric::LogToMetricConfig),
+
+    /// Generic log to metric.
+    MezmoLogToMetric(#[configurable(derived)] mezmo_log_to_metric::LogToMetricConfig),
 
     /// Lua.
     #[cfg(feature = "transforms-lua")]
@@ -148,6 +152,7 @@ impl NamedComponent for Transforms {
             #[cfg(feature = "transforms-filter")]
             Transforms::Filter(config) => config.get_component_name(),
             Transforms::LogToMetric(config) => config.get_component_name(),
+            Transforms::MezmoLogToMetric(config) => config.get_component_name(),
             #[cfg(feature = "transforms-lua")]
             Transforms::Lua(config) => config.get_component_name(),
             #[cfg(feature = "transforms-metric_to_log")]
@@ -223,15 +228,26 @@ mod test {
         events: impl Stream<Item = Event> + Send + 'static,
         transform_config: T,
     ) -> (RunningTopology, mpsc::Receiver<Event>) {
+        create_topology_with_name(events, transform_config, "transform").await
+    }
+
+    /// In order to test transforms with mezmo context, we create a topology with an input/transform/output
+    /// in which the transform has a specific name.
+    #[allow(dead_code)]
+    pub async fn create_topology_with_name<T: Into<Transforms>>(
+        events: impl Stream<Item = Event> + Send + 'static,
+        transform_config: T,
+        transform_name: &str,
+    ) -> (RunningTopology, mpsc::Receiver<Event>) {
         let mut builder = ConfigBuilder::default();
 
         let (tx, rx) = mpsc::channel(1);
 
         builder.add_source("in", UnitTestStreamSourceConfig::new(events));
-        builder.add_transform("transform", &["in"], transform_config);
+        builder.add_transform(transform_name, &["in"], transform_config);
         builder.add_sink(
             "out",
-            &["transform"],
+            &[transform_name],
             UnitTestStreamSinkConfig::new(
                 PollSender::new(tx).sink_map_err(|error| panic!("{}", error)),
             ),

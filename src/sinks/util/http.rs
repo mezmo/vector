@@ -25,9 +25,11 @@ use super::{
     TowerRequestConfig, TowerRequestSettings,
 };
 use crate::{
+    config::SinkContext,
     event::Event,
     http::{HttpClient, HttpError},
-    internal_events::{EndpointBytesSent, SinkRequestBuildError}, mezmo::{user_trace::MezmoHttpBatchLoggingService}, config::SinkContext
+    internal_events::{EndpointBytesSent, SinkRequestBuildError},
+    mezmo::user_trace::MezmoHttpBatchLoggingService,
 };
 
 pub trait HttpEventEncoder<Output> {
@@ -71,7 +73,10 @@ where
     sink: Arc<T>,
     #[pin]
     inner: TowerBatchedSink<
-        MezmoHttpBatchLoggingService<BoxFuture<'static, crate::Result<hyper::Request<Bytes>>>, B::Output>,
+        MezmoHttpBatchLoggingService<
+            BoxFuture<'static, crate::Result<hyper::Request<Bytes>>>,
+            B::Output,
+        >,
         B,
         RL,
     >,
@@ -132,7 +137,10 @@ where
             Box::pin(async move { sink.build_request(b).await })
         };
 
-        let svc = MezmoHttpBatchLoggingService::new(HttpBatchService::new(client, request_builder), cx.mezmo_ctx);
+        let svc = MezmoHttpBatchLoggingService::new(
+            HttpBatchService::new(client, request_builder),
+            cx.mezmo_ctx,
+        );
         let inner = request_settings.batch_sink(retry_logic, svc, batch, batch_timeout);
         let encoder = sink.build_encoder();
 
@@ -214,7 +222,10 @@ where
     sink: Arc<T>,
     #[pin]
     inner: TowerPartitionSink<
-        MezmoHttpBatchLoggingService<BoxFuture<'static, crate::Result<hyper::Request<Bytes>>>, B::Output>,
+        MezmoHttpBatchLoggingService<
+            BoxFuture<'static, crate::Result<hyper::Request<Bytes>>>,
+            B::Output,
+        >,
         B,
         RL,
         K,
@@ -277,7 +288,10 @@ where
             Box::pin(async move { sink.build_request(b).await })
         };
 
-        let svc = MezmoHttpBatchLoggingService::new(HttpBatchService::new(client, request_builder), cx.mezmo_ctx);
+        let svc = MezmoHttpBatchLoggingService::new(
+            HttpBatchService::new(client, request_builder),
+            cx.mezmo_ctx,
+        );
         let inner = request_settings.partition_sink(retry_logic, svc, batch, batch_timeout);
         let encoder = sink.build_encoder();
 

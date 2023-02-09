@@ -29,7 +29,9 @@ use vector_core::{
     },
     internal_event::EventsSent,
     schema::Definition,
-    usage_metrics::{get_component_usage_tracker, UsageMetrics, get_transform_usage_tracker, OutputUsageTracker},
+    usage_metrics::{
+        get_component_usage_tracker, get_transform_usage_tracker, OutputUsageTracker, UsageMetrics,
+    },
     EstimatedJsonEncodedSizeOf,
 };
 
