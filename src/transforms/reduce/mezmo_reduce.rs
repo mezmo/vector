@@ -1,6 +1,6 @@
 // This module mimics the `reduce` vector transform, but it operates against the .message
-// property of the log event instead of the root-level properies (Vector's implementation).
-// This implentation also (de)serializes date fields that are specified by the user, making sure
+// property of the log event instead of the root-level properties (Vector's implementation).
+// This implementation also (de)serializes date fields that are specified by the user, making sure
 // to return date fields in the same format as originally received. For example, an epoch field
 // can be an integer or a string, and it will match the output type based on the incoming data.
 
@@ -25,8 +25,7 @@ use chrono::{TimeZone, Utc};
 use futures::{stream, Stream, StreamExt};
 use indexmap::IndexMap;
 use lookup::lookup_v2::parse_target_path;
-use lookup::owned_value_path;
-use lookup::PathPrefix;
+use lookup::{owned_value_path, PathPrefix};
 use serde_with::serde_as;
 use vector_config::configurable_component;
 
@@ -106,7 +105,7 @@ pub struct MezmoReduceConfig {
 
 #[derive(Debug, Clone)]
 struct MezmoMetadata {
-    date_formats: Arc<HashMap<String, String>>,
+    date_formats: HashMap<String, String>,
 
     /// Mezmo-specific. This will track the Kind of Value that reduce should send back when the reduce is complete. For example,
     /// an epoch time may come in as an integer, and thus should go out as an integer (and not a Timestamp).
@@ -117,7 +116,7 @@ struct MezmoMetadata {
 impl MezmoMetadata {
     fn new(date_formats: HashMap<String, String>) -> Self {
         Self {
-            date_formats: Arc::new(date_formats),
+            date_formats: date_formats,
             date_kinds: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -256,6 +255,7 @@ impl TransformConfig for MezmoReduceConfig {
 #[derive(Debug)]
 struct ReduceState {
     fields: HashMap<String, Box<dyn ReduceValueMerger>>,
+    message_fields: HashMap<String, Box<dyn ReduceValueMerger>>, // Mezmo-specific. Fields under "message".
     stale_since: Instant,
     metadata: EventMetadata,
     mezmo_metadata: MezmoMetadata,
@@ -263,18 +263,28 @@ struct ReduceState {
 
 impl ReduceState {
     fn new(
-        e: LogEvent,
+        event: LogEvent,
+        message_event: LogEvent,
         strategies: &IndexMap<String, MergeStrategy>,
         mezmo_metadata: MezmoMetadata,
     ) -> Self {
-        let (value, metadata) = e.into_parts();
+        let (value, metadata) = event.into_parts();
 
+        // Use default merge strategies for root fields
         let fields = if let Value::Object(fields) = value {
-            // For Mezmo: set `fields` equal to the contents of `.message`
-            let mut fields: BTreeMap<String, Value> = fields.into();
-            if let Some(Value::Object(message_object)) = fields.get("message") {
-                fields = message_object.clone();
-            }
+            fields
+                .into_iter()
+                .filter_map(|(k, v)| {
+                    Some((k, v.into()))
+                })
+                .collect()
+        } else {
+            HashMap::new()
+        };
+
+        let (value, _) = message_event.into_parts();
+
+        let message_fields = if let Value::Object(fields) = value {
             fields
                 .into_iter()
                 .filter_map(|(k, v)| {
@@ -298,21 +308,39 @@ impl ReduceState {
         Self {
             stale_since: Instant::now(),
             fields,
+            message_fields,
             metadata,
             mezmo_metadata,
         }
     }
 
-    fn add_event(&mut self, e: LogEvent, strategies: &IndexMap<String, MergeStrategy>) {
-        let (value, metadata) = e.into_parts();
+    fn add_event(&mut self, event: LogEvent, message_event: LogEvent, strategies: &IndexMap<String, MergeStrategy>) {
+        let (value, metadata) = event.into_parts();
         self.metadata.merge(metadata);
 
         let fields = if let Value::Object(fields) = value {
-            // For Mezmo: set `fields` equal to the contents of `.message`
-            let mut fields: BTreeMap<String, Value> = fields.into();
-            if let Some(Value::Object(message_object)) = fields.get("message") {
-                fields = message_object.clone();
+            fields
+        } else {
+            BTreeMap::new()
+        };
+
+        // Use default merge strategies for root fields
+        for (k, v) in fields.into_iter() {
+            match self.fields.entry(k) {
+                hash_map::Entry::Vacant(entry) => {
+                    entry.insert(v.clone().into());
+                }
+                hash_map::Entry::Occupied(mut entry) => {
+                    if let Err(error) = entry.get_mut().add(v.clone()) {
+                        warn!(message = "Failed to merge value.", %error);
+                    }
+                }
             }
+        }
+
+        let (value, _) = message_event.into_parts();
+
+        let fields = if let Value::Object(fields) = value {
             fields
         } else {
             BTreeMap::new()
@@ -320,7 +348,7 @@ impl ReduceState {
 
         for (k, v) in fields.into_iter() {
             let strategy = strategies.get(&k);
-            match self.fields.entry(k) {
+            match self.message_fields.entry(k) {
                 hash_map::Entry::Vacant(entry) => {
                     if let Some(strat) = strategy {
                         match get_value_merger(v, strat) {
@@ -342,6 +370,7 @@ impl ReduceState {
                 }
             }
         }
+
         self.stale_since = Instant::now();
     }
 
@@ -417,14 +446,21 @@ impl ReduceState {
         let mut event = LogEvent::new_with_metadata(self.metadata.clone());
 
         for (k, v) in self.fields.drain() {
-            // When the resulting event is created from the mezmo-reduce accumulator,
-            // we need to inject its results into the `.message` property, but make it an
-            // actual "path" so that special characters are handled.
-            let path = owned_value_path!("message", k.as_str());
-            if let Err(error) = v.insert_into(path.to_string(), &mut event) {
+            if let Err(error) = v.insert_into(k, &mut event) {
                 warn!(message = "Failed to merge values for field.", %error);
             }
         }
+
+        for (k, v) in self.message_fields.drain() {
+            // When the resulting event is created from the mezmo-reduce accumulator,
+            // we need to inject its results into the `.message` property, but make it an
+            // actual "path" so that special characters are handled.
+            let path = owned_value_path!("message", &k).to_string();
+            if let Err(error) = v.insert_into(path, &mut event) {
+                warn!(message = "Failed to merge values for message field.", %error);
+            }
+        }
+
         self.coerce_from_timestamp_if_needed(&mut event);
         event
     }
@@ -492,17 +528,18 @@ impl MezmoReduce {
             .for_each(|(_, s)| output.push(Event::from(s.flush())));
     }
 
-    fn push_or_new_reduce_state(&mut self, event: LogEvent, discriminant: Discriminant) {
+    fn push_or_new_reduce_state(&mut self, event: LogEvent, message_event: LogEvent, discriminant: Discriminant) {
         match self.reduce_merge_states.entry(discriminant) {
             hash_map::Entry::Vacant(entry) => {
                 entry.insert(ReduceState::new(
                     event,
+                    message_event,
                     &self.merge_strategies,
                     self.mezmo_metadata.clone(),
                 ));
             }
             hash_map::Entry::Occupied(mut entry) => {
-                entry.get_mut().add_event(event, &self.merge_strategies);
+                entry.get_mut().add_event(event, message_event, &self.merge_strategies);
             }
         }
     }
@@ -518,7 +555,7 @@ impl MezmoReduce {
             let prop_str = prop.as_str();
             if let Some(value) = log_event.get(prop_str) {
                 let parse_result =
-                    Utc.datetime_from_str(value.to_string_lossy().into_owned().as_str(), format);
+                    Utc.datetime_from_str(&value.to_string_lossy(), format);
                 match parse_result {
                     Ok(date) => {
                         let value_kind = value.kind_str();
@@ -541,63 +578,65 @@ impl MezmoReduce {
     // Mezmo-specific method. Incoming events from Mezmo will have all customer fields inside
     // the `.message` property. Create a new Event with all those properties at the root level
     // before sending through reduce.
-    fn flatten_log_event_message(&mut self, event: &Event) -> Option<Event> {
-        match event {
-            Event::Log(log_event) => {
-                if let Some(Value::Object(message_object)) = log_event.get("message") {
-                    let mut flattened_log_event =
-                        LogEvent::from_map(message_object.clone(), log_event.metadata().clone());
+    fn extract_message_event(&mut self, event: &mut LogEvent) -> Event {
+        Event::from(
+            if let Some(Value::Object(message_object)) = event.remove("message") {
+                let mut message_event =
+                    LogEvent::from_map(message_object.clone(), Default::default());
 
-                    self.coerce_into_timestamp_if_needed(&mut flattened_log_event);
+                self.coerce_into_timestamp_if_needed(&mut message_event);
 
-                    return Some(Event::from(flattened_log_event));
-                }
-                return None;
-            }
-            _ => None,
-        }
+                message_event
+            } else {
+                LogEvent::from_map(Default::default(), Default::default())
+            },
+        )
     }
 
     fn transform_one(&mut self, output: &mut Vec<Event>, event: Event) {
+        let mut event = event.into_log();
+
         // Mezmo functionality here creates a new Event with the `.message` properties moved
         // to the root of the new event. This way, we can reuse all the complex functionality
         // of Condition and whether or not the reduce accumulator should stop, and how group_by works.
+        let message_event = self.extract_message_event(&mut event);
 
-        let event = self.flatten_log_event_message(&event).unwrap_or(event);
-
-        let (starts_here, event) = match &self.starts_when {
-            Some(condition) => condition.check(event),
-            None => (false, event),
+        let (starts_here, message_event) = match &self.starts_when {
+            Some(condition) => condition.check(message_event),
+            None => (false, message_event),
         };
 
-        let (ends_here, event) = match &self.ends_when {
-            Some(condition) => condition.check(event),
-            None => (false, event),
+        let (ends_here, message_event) = match &self.ends_when {
+            Some(condition) => condition.check(message_event),
+            None => (false, message_event),
         };
 
-        let event = event.into_log();
-        let discriminant = Discriminant::from_log_event(&event, &self.group_by);
+        let message_event = message_event.into_log();
+        let discriminant = Discriminant::from_log_event(&message_event, &self.group_by);
 
         if starts_here {
             if let Some(state) = self.reduce_merge_states.remove(&discriminant) {
                 output.push(state.flush().into());
             }
 
-            self.push_or_new_reduce_state(event, discriminant)
+            self.push_or_new_reduce_state(event, message_event, discriminant)
         } else if ends_here {
             output.push(match self.reduce_merge_states.remove(&discriminant) {
                 Some(mut state) => {
-                    state.add_event(event, &self.merge_strategies);
+                    state.add_event(event, message_event, &self.merge_strategies);
                     state.flush().into()
                 }
-                None => {
-                    ReduceState::new(event, &self.merge_strategies, self.mezmo_metadata.clone())
-                        .flush()
-                        .into()
-                }
+                None => ReduceState::new(
+                    event,
+                    message_event,
+                    &self.merge_strategies,
+                    self.mezmo_metadata.clone(),
+                )
+                .flush()
+                .into(),
             })
         } else {
-            self.push_or_new_reduce_state(event, discriminant)
+            self.push_or_new_reduce_state(event, message_event, discriminant)
         }
 
         self.flush_into(output);
@@ -659,7 +698,7 @@ mod test {
     use crate::event::{LogEvent, Value};
     use crate::test_util::components::assert_transform_compliance;
     use crate::transforms::test::create_topology;
-    use chrono::{TimeZone, Utc};
+    use chrono::{Duration, Utc};
 
     #[test]
     fn generate_config() {
@@ -679,7 +718,7 @@ mod test {
                 create_topology(ReceiverStream::new(rx), reduce_config).await;
 
             let start_date = Utc::now();
-            let end_date = Utc.timestamp(1_500_000_000, 0);
+            let end_date = start_date + Duration::seconds(60);
 
             let mut e_1 = LogEvent::default();
             e_1.insert(
@@ -689,6 +728,9 @@ mod test {
                     ("my_string".to_owned(), Value::from("first string")),
                     ("my_date".to_owned(), Value::from(start_date)),
                 ]),
+            );
+            e_1.insert(
+                "timestamp", Value::from(start_date)
             );
             let metadata_1 = e_1.metadata().clone();
 
@@ -704,6 +746,9 @@ mod test {
                     ),
                 ]),
             );
+            e_2.insert(
+                "timestamp", Value::from(Utc::now())
+            );
 
             let mut e_3 = LogEvent::default();
             e_3.insert(
@@ -717,6 +762,9 @@ mod test {
                     ),
                     ("my_date".to_owned(), Value::from(end_date)),
                 ]),
+            );
+            e_3.insert(
+                "timestamp", Value::from(end_date)
             );
 
             for event in vec![e_1.into(), e_2.into(), e_3.into()] {
@@ -733,6 +781,10 @@ mod test {
             assert_eq!(output_1["message.my_date"], start_date.into());
             assert_eq!(output_1["message.my_date_end"], end_date.into());
             assert_eq!(output_1.metadata(), &metadata_1);
+
+            // The top-level timestamp field should use the default strategy
+            assert_eq!(output_1["timestamp"], start_date.into());
+            assert_eq!(output_1["timestamp_end"], end_date.into());
         })
         .await;
     }
