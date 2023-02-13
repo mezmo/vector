@@ -190,8 +190,9 @@ impl HecLogsSinkConfig {
             None
         };
 
-        let transformer = Transformer::new_with_mezmo_reshape(self.encoding.transformer());
         let serializer = self.encoding.build()?;
+        let transformer =
+            Transformer::new_with_mezmo_reshape(self.encoding.transformer(), Some(&serializer));
         let encoder = Encoder::<()>::new(serializer);
         let encoder = HecLogsEncoder {
             transformer,

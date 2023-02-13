@@ -338,8 +338,9 @@ impl RequestBuilder<(String, Vec<Event>)> for RequestSettings {
 
 impl RequestSettings {
     fn new(config: &GcsSinkConfig) -> crate::Result<Self> {
-        let transformer = Transformer::new_with_mezmo_reshape(config.encoding.transformer());
         let (framer, serializer) = config.encoding.build(SinkType::MessageBased)?;
+        let transformer =
+            Transformer::new_with_mezmo_reshape(config.encoding.transformer(), Some(&serializer));
         let encoder = Encoder::<Framer>::new(framer, serializer);
         let acl = config
             .acl
