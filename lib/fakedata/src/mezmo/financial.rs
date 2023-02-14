@@ -1,4 +1,4 @@
-use crate::mezmo::{choose_weighted, gen_digit_string, to_iso8601};
+use crate::mezmo::{choose, choose_weighted, gen_digit_string, to_iso8601};
 use chrono::{Duration, Utc};
 use faker_rand::en_us::names::{FirstName, LastName};
 use rand::{thread_rng, Rng};
@@ -51,8 +51,13 @@ const TAX_RATES: [(f64, f32); 21] = [
     (0.075, 0.2),
 ];
 
-fn trunc_money_value(value: f64) -> f64 {
-    (value * 100.0).trunc() / 100.0
+const UNIX_DEVICE_PREFIX: [&str; 3] = ["sd", "vd", "xvd"];
+
+const LOWER_CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
+
+fn trunc_f64(value: f64, places: u32) -> f64 {
+    let n = 10_i32.pow(places) as f64;
+    (value * n).trunc() / n
 }
 
 pub struct CardType {
@@ -134,11 +139,11 @@ impl TransactionDetails {
         // will contain the same customer_id if the name is the same.
         let customer_id = Uuid::new_v3(&Uuid::NAMESPACE_OID, cc.cc_name.as_bytes()).to_string();
         let quantity: u8 = thread_rng().gen_range(1..20);
-        let unit_price = trunc_money_value(thread_rng().gen_range(0.01..250.0));
-        let net_price = trunc_money_value(quantity as f64 * unit_price);
+        let unit_price = trunc_f64(thread_rng().gen_range(0.01..250.0), 2);
+        let net_price = trunc_f64(quantity as f64 * unit_price, 2);
         let tax_rate = choose_weighted(&TAX_RATES);
-        let tax = trunc_money_value(unit_price * tax_rate);
-        let total_price = trunc_money_value(net_price + tax);
+        let tax = trunc_f64(unit_price * tax_rate, 2);
+        let total_price = trunc_f64(net_price + tax, 2);
         let result: bool = thread_rng().gen_bool(0.8);
         let result_reason = if result {
             "card_accepted".to_owned()
@@ -222,18 +227,74 @@ enum EventDetails {
     Access { access: AccessDetails },
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct Device {
+    id: String,
+    name: String,
+    vrs: String,
+    location: (f64, f64),
+    status: String,
+}
+
+impl Device {
+    fn gen_device() -> Self {
+        let id = Uuid::new_v4().to_string();
+        let name = format!(
+            "/dev/{}{}",
+            choose(&UNIX_DEVICE_PREFIX),
+            choose(&LOWER_CHARS) as char
+        );
+        let vrs = format!(
+            "1.{}.{}",
+            thread_rng().gen_range(0..9),
+            thread_rng().gen_range(0..9)
+        );
+        let location = (
+            trunc_f64(thread_rng().gen_range(-180.0..180.0), 3),
+            trunc_f64(thread_rng().gen_range(-180.0..180.0), 3),
+        );
+        let status = "active".to_owned();
+        Self {
+            id,
+            name,
+            vrs,
+            location,
+            status,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct Event {
     datetime: String,
+
+    device: Device,
+
+    buffer: String,
 
     #[serde(flatten)]
     event: EventDetails,
 }
 
-impl Event {
-    pub fn gen_event() -> Self {
-        let datetime = to_iso8601(SystemTime::now());
+pub struct EventGenerator {
+    pos: usize,
+    devices: Vec<Device>,
+}
 
+impl EventGenerator {
+    pub fn new(cnt: usize) -> Self {
+        let mut devices = Vec::with_capacity(cnt);
+        for _ in 0..cnt {
+            devices.push(Device::gen_device());
+        }
+        Self { pos: 0, devices }
+    }
+
+    pub fn gen_event(&mut self) -> Event {
+        let cur = self.pos;
+        self.pos = (cur + 1) % self.devices.len();
+
+        let datetime = to_iso8601(SystemTime::now());
         let event = match choose_weighted(&EVENT_TYPES) {
             EventTypes::Transaction => EventDetails::Transaction {
                 transaction: TransactionDetails::gen_transaction(),
@@ -245,6 +306,13 @@ impl Event {
                 bootup: BootupDetails::gen_bootup(),
             },
         };
-        Self { datetime, event }
+        let buffer = Uuid::new_v4().to_string();
+        let device = self.devices[cur].clone();
+        Event {
+            datetime,
+            device,
+            buffer,
+            event,
+        }
     }
 }

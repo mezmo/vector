@@ -7,7 +7,7 @@ use fakedata::mezmo::access_log::json_access_log_line;
 use fakedata::mezmo::error_log::apache_error_log_line;
 use fakedata::mezmo::{
     access_log::{apache_common_log_line, nginx_access_log_line},
-    financial::Event as FinancialEvent,
+    financial::EventGenerator,
     sensor::SensorMqttMessage,
     syslog::{syslog_3164_log_line, syslog_5424_log_line},
 };
@@ -15,6 +15,7 @@ use futures::StreamExt;
 use rand::seq::SliceRandom;
 use snafu::Snafu;
 use std::task::Poll;
+use tokio::sync::OnceCell;
 use tokio::time::{self, Duration};
 use tokio_util::codec::FramedRead;
 use vector_common::internal_event::{ByteSize, BytesReceived, InternalEventHandle as _, Protocol};
@@ -75,6 +76,10 @@ const fn default_count() -> usize {
     isize::MAX as usize
 }
 
+const fn default_device_count() -> usize {
+    3
+}
+
 #[derive(Debug, PartialEq, Eq, Snafu)]
 pub enum MezmoDemoLogsConfigError {
     #[snafu(display("A non-empty list of lines is required for the shuffle format"))]
@@ -109,7 +114,11 @@ pub enum MezmoOutputFormat {
     EnvSensor,
 
     /// Financial Data
-    Financial,
+    Financial {
+        /// number of devices that should generate records
+        #[serde(default = "default_device_count")]
+        devices: usize,
+    },
 
     /// Randomly generated logs in Syslog format ([RFC 5424](\(urls.syslog_5424))).
     #[serde(alias = "rfc5424")]
@@ -125,7 +134,11 @@ pub enum MezmoOutputFormat {
 }
 
 impl MezmoOutputFormat {
-    fn generate_line(&self, n: usize) -> String {
+    fn generate_line(
+        &self,
+        n: usize,
+        financial_evt_state: &mut OnceCell<EventGenerator>,
+    ) -> String {
         emit!(DemoLogsEventProcessed);
 
         match self {
@@ -140,8 +153,15 @@ impl MezmoOutputFormat {
                 let log = SensorMqttMessage::gen_sensor_message();
                 serde_json::to_string(&log).expect("sensor data should always be json encodable")
             }
-            Self::Financial => {
-                let log = FinancialEvent::gen_event();
+            Self::Financial { devices } => {
+                if !financial_evt_state.initialized() {
+                    //
+                    let _ = financial_evt_state.set(EventGenerator::new(*devices));
+                }
+                let gen = financial_evt_state
+                    .get_mut()
+                    .expect("financial event state should be set");
+                let log = gen.gen_event();
                 serde_json::to_string(&log).expect("financial data should always be json encodable")
             }
             Self::Syslog => syslog_5424_log_line(),
@@ -206,6 +226,7 @@ async fn mezmo_demo_logs_source(
     count: usize,
     format: MezmoOutputFormat,
     decoder: Decoder,
+    mut financial_evt_state: OnceCell<EventGenerator>,
     mut shutdown: ShutdownSignal,
     mut out: SourceSender,
     log_namespace: LogNamespace,
@@ -226,7 +247,7 @@ async fn mezmo_demo_logs_source(
         }
         bytes_received.emit(ByteSize(0));
 
-        let line = format.generate_line(n);
+        let line = format.generate_line(n, &mut financial_evt_state);
 
         let mut stream = FramedRead::new(line.as_bytes(), decoder.clone());
         while let Some(next) = stream.next().await {
@@ -277,11 +298,13 @@ impl SourceConfig for MezmoDemoLogsConfig {
         self.format.validate()?;
         let decoder =
             DecodingConfig::new(self.framing.clone(), self.decoding.clone(), log_namespace).build();
+        let financial_evt_state = OnceCell::new();
         Ok(Box::pin(mezmo_demo_logs_source(
             self.interval,
             self.count,
             self.format.clone(),
             decoder,
+            financial_evt_state,
             cx.shutdown,
             cx.out,
             log_namespace,
@@ -336,12 +359,15 @@ mod tests {
         )
         .build();
 
+        let financial_evt_state = OnceCell::new_with(Some(EventGenerator::new(1)));
+
         assert_source_compliance(&SOURCE_TAGS, async {
             mezmo_demo_logs_source(
                 config.interval,
                 config.count,
                 config.format,
                 decoder,
+                financial_evt_state,
                 ShutdownSignal::noop(),
                 tx,
                 LogNamespace::Legacy,
