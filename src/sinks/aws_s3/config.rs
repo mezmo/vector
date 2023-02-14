@@ -208,11 +208,12 @@ impl S3SinkConfig {
             .filename_append_uuid
             .unwrap_or(DEFAULT_FILENAME_APPEND_UUID);
 
+        let (framer, serializer) = self.encoding.build(SinkType::MessageBased)?;
         // Mezmo-only: Since the message reshaper is contained within the Transformer which is a tuple within
         // `EncodingConfigWithFraming`, we need to swap the transformers.
-        let transformer = Transformer::new_with_mezmo_reshape(self.encoding.transformer());
+        let transformer =
+            Transformer::new_with_mezmo_reshape(self.encoding.transformer(), Some(&serializer));
 
-        let (framer, serializer) = self.encoding.build(SinkType::MessageBased)?;
         let encoder = Encoder::<Framer>::new(framer, serializer);
 
         let request_options = S3RequestOptions {

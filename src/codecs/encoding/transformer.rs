@@ -1,14 +1,14 @@
 #![deny(missing_docs)]
 
+use codecs::encoding::Serializer;
 use core::fmt::Debug;
-use std::collections::BTreeMap;
-
 use lookup::{
     event_path,
     lookup_v2::{parse_value_path, OwnedValuePath},
     PathPrefix,
 };
 use serde::{Deserialize, Deserializer};
+use std::collections::BTreeMap;
 use value::Value;
 use vector_config::configurable_component;
 use vector_core::event::{LogEvent, MaybeAsLogMut};
@@ -84,16 +84,34 @@ impl Transformer {
         })
     }
 
-    /// Creates a new `Transformer` with custom Mezmo reshape logic
-    pub fn new_with_mezmo_reshape(transformer: Transformer) -> Self {
+    /// Creates a new `Transformer` with custom Mezmo reshape logic.
+    /// The env var must be set to "1", and the encoding must be JSON or ndjson. If there is no
+    /// Serializer used, we will default to doing the reshape.
+    pub fn new_with_mezmo_reshape(
+        transformer: Transformer,
+        serializer: Option<&Serializer>,
+    ) -> Self {
+        let env_var_is_set = match std::env::var("MEZMO_RESHAPE_MESSAGE") {
+            Ok(env_var) => env_var == "1",
+            _ => false,
+        };
+
+        let should_mezmo_reshape = match (env_var_is_set, serializer) {
+            (false, _) => false,
+            (true, Some(serializer)) => match serializer {
+                // For now, only explicit json and ndjson encodings are supported. May need to add more later.
+                Serializer::Json(_) | Serializer::NativeJson(_) => true,
+                _ => false,
+            },
+            // Lack of a serializer means we should reshape, ie things like elasticsearch don't use one
+            (true, _) => true,
+        };
+
         Self {
             only_fields: transformer.only_fields,
             except_fields: transformer.except_fields,
             timestamp_format: transformer.timestamp_format,
-            should_mezmo_reshape: match std::env::var("MEZMO_RESHAPE_MESSAGE") {
-                Ok(env_var) => env_var == "1",
-                _ => false,
-            },
+            should_mezmo_reshape,
         }
     }
 
@@ -225,6 +243,13 @@ pub enum TimestampFormat {
 
 #[cfg(test)]
 mod tests {
+    use codecs::encoding::{
+        format::{
+            AvroSerializerConfig, GelfSerializer, JsonSerializer, LogfmtSerializer,
+            NativeJsonSerializer, RawMessageSerializer, TextSerializer,
+        },
+        Serializer,
+    };
     use indoc::indoc;
     use vector_core::config::log_schema;
 
@@ -386,7 +411,7 @@ mod tests {
 
     #[test]
     fn mezmo_reshaping_env_var_must_be_set() {
-        let transformer = Transformer::new_with_mezmo_reshape(Transformer::default());
+        let transformer = Transformer::new_with_mezmo_reshape(Transformer::default(), None);
         let mut log_event = LogEvent::default();
         let path = format!("{}.nope", log_schema().message_key());
         log_event.insert(path.as_str(), "This will not be reshaped");
@@ -408,7 +433,7 @@ mod tests {
         ]
       )]
     fn mezmo_reshaping_env_var_must_be_set_to_1() {
-        let transformer = Transformer::new_with_mezmo_reshape(Transformer::default());
+        let transformer = Transformer::new_with_mezmo_reshape(Transformer::default(), None);
         let mut log_event = LogEvent::default();
         let path = format!("{}.nope", log_schema().message_key());
         log_event.insert(path.as_str(), "This will not be reshaped");
@@ -429,8 +454,92 @@ mod tests {
           ("MEZMO_RESHAPE_MESSAGE", "1"),
         ]
       )]
+    fn mezmo_reshaping_based_on_serializer() {
+        let mut transformer = Transformer::new_with_mezmo_reshape(
+            Transformer::default(),
+            Some(&Serializer::from(JsonSerializer::new())),
+        );
+        assert_eq!(
+            transformer.should_mezmo_reshape, true,
+            "JSON serializer should reshape"
+        );
+
+        transformer = Transformer::new_with_mezmo_reshape(
+            Transformer::default(),
+            Some(&Serializer::from(NativeJsonSerializer::new())),
+        );
+        assert_eq!(
+            transformer.should_mezmo_reshape, true,
+            "ndjson serializer should reshape"
+        );
+
+        let schema = indoc! {r#"
+            {
+                "type": "record",
+                "name": "Log",
+                "fields": [
+                    {
+                        "name": "foo",
+                        "type": ["string"]
+                    }
+                ]
+            }
+        "#}
+        .to_owned();
+        let avro = AvroSerializerConfig::new(schema).build().unwrap();
+        transformer = Transformer::new_with_mezmo_reshape(
+            Transformer::default(),
+            Some(&Serializer::from(avro)),
+        );
+        assert_eq!(
+            transformer.should_mezmo_reshape, false,
+            "Avro serializer should NOT reshape"
+        );
+
+        transformer = Transformer::new_with_mezmo_reshape(
+            Transformer::default(),
+            Some(&Serializer::from(GelfSerializer::new())),
+        );
+        assert_eq!(
+            transformer.should_mezmo_reshape, false,
+            "Gelf serializer should NOT reshape"
+        );
+
+        transformer = Transformer::new_with_mezmo_reshape(
+            Transformer::default(),
+            Some(&Serializer::from(RawMessageSerializer::new())),
+        );
+        assert_eq!(
+            transformer.should_mezmo_reshape, false,
+            "Raw message serializer should NOT reshape"
+        );
+
+        transformer = Transformer::new_with_mezmo_reshape(
+            Transformer::default(),
+            Some(&Serializer::from(TextSerializer::new())),
+        );
+        assert_eq!(
+            transformer.should_mezmo_reshape, false,
+            "Text serializer should NOT reshape"
+        );
+
+        transformer = Transformer::new_with_mezmo_reshape(
+            Transformer::default(),
+            Some(&Serializer::from(LogfmtSerializer::new())),
+        );
+        assert_eq!(
+            transformer.should_mezmo_reshape, false,
+            "Log format serializer should NOT reshape"
+        );
+    }
+
+    #[assay(
+        env = [
+          ("MEZMO_RESHAPE_MESSAGE", "1"),
+        ]
+      )]
     fn mezmo_reshaping_successful_reshape_message() {
-        let transformer = Transformer::new_with_mezmo_reshape(Transformer::default());
+        let transformer = Transformer::new_with_mezmo_reshape(Transformer::default(), None);
         let mut log_event = LogEvent::default();
         let message_key = log_schema().message_key();
 

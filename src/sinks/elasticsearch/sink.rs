@@ -62,7 +62,7 @@ impl<S> ElasticsearchSink<S> {
         Ok(ElasticsearchSink {
             batch_settings,
             request_builder: common.request_builder.clone(),
-            transformer: Transformer::new_with_mezmo_reshape(config.encoding.clone()),
+            transformer: Transformer::new_with_mezmo_reshape(config.encoding.clone(), None),
             service,
             metric_to_log: common.metric_to_log.clone(),
             mode: common.mode.clone(),

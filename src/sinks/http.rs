@@ -199,7 +199,10 @@ impl SinkConfig for HttpSinkConfig {
             method: self.method,
             auth: self.auth.choose_one(&self.uri.auth)?,
             compression: self.compression,
-            transformer: Transformer::new_with_mezmo_reshape(self.encoding.transformer()),
+            transformer: Transformer::new_with_mezmo_reshape(
+                self.encoding.transformer(),
+                Some(encoder.serializer()),
+            ),
             encoder,
             batch: self.batch,
             request,
@@ -810,6 +813,28 @@ mod tests {
         (in_addr, sink)
     }
 
+    async fn build_text_encoding_sink(
+        extra_config: &str,
+    ) -> (std::net::SocketAddr, crate::sinks::VectorSink) {
+        let in_addr = next_addr();
+        let config = format!(
+            r#"
+                uri = "http://{addr}/frames"
+                compression = "gzip"
+                framing.method = "newline_delimited"
+                encoding.codec = "text"
+                {extras}
+            "#,
+            addr = in_addr,
+            extras = extra_config
+        );
+        let config: HttpSinkConfig = toml::from_str(&config).unwrap();
+        let cx = SinkContext::new_test();
+
+        let (sink, _) = config.build(cx).await.unwrap();
+        (in_addr, sink)
+    }
+
     #[assay(
         env = [
           ("MEZMO_RESHAPE_MESSAGE", "0"),
@@ -883,5 +908,34 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(found, expected, "Messages were not reshaped");
+    }
+
+    #[assay(
+        env = [
+          ("MEZMO_RESHAPE_MESSAGE", "1"),
+        ]
+      )]
+    async fn http_mezmo_does_not_reshape_text_encoding_messages() {
+        let (in_addr, sink) = build_text_encoding_sink("").await;
+        let (batch, receiver) = BatchNotifier::new_with_receiver();
+        let (events, stream) = random_lines_with_stream(100, 3, Some(batch));
+
+        let (rx, trigger, server) = build_test_server(in_addr);
+        tokio::spawn(server);
+
+        sink.run(stream).await.unwrap();
+        assert_eq!(receiver.await, BatchStatus::Delivered);
+
+        drop(trigger);
+
+        let found = rx
+            .flat_map(|(_, body)| {
+                stream::iter(BufReader::new(MultiGzDecoder::new(body.reader())).lines())
+            })
+            .map(Result::unwrap)
+            .collect::<Vec<_>>()
+            .await;
+
+        assert_eq!(found, events, "Messages were not reshaped");
     }
 }

@@ -193,8 +193,9 @@ impl AzureBlobSinkConfig {
             .blob_append_uuid
             .unwrap_or(DEFAULT_FILENAME_APPEND_UUID);
 
-        let transformer = Transformer::new_with_mezmo_reshape(self.encoding.transformer());
         let (framer, serializer) = self.encoding.build(SinkType::MessageBased)?;
+        let transformer =
+            Transformer::new_with_mezmo_reshape(self.encoding.transformer(), Some(&serializer));
         let encoder = Encoder::<Framer>::new(framer, serializer);
 
         let request_options = AzureBlobRequestOptions {
