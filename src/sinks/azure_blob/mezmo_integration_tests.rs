@@ -4,7 +4,7 @@
 
 use crate::test_util::{random_message_object_events_with_stream, random_string};
 use assay::assay;
-use codecs::{JsonSerializerConfig, NewlineDelimitedEncoderConfig};
+use codecs::{JsonSerializerConfig, MetricTagValues, NewlineDelimitedEncoderConfig};
 
 // Use THEIR implementation - reduces code copying
 use super::integration_tests::AzureBlobSinkConfig;
@@ -22,7 +22,7 @@ async fn azure_blob_mezmo_message_reshaping_does_not_happen() {
         blob_prefix: Some(blob_prefix.clone()),
         encoding: (
             Some(NewlineDelimitedEncoderConfig::new()),
-            JsonSerializerConfig::new(),
+            JsonSerializerConfig::new(MetricTagValues::Single),
         )
             .into(),
         ..config
@@ -59,7 +59,7 @@ async fn azure_blob_mezmo_message_reshaping_happens() {
         blob_prefix: Some(blob_prefix.clone()),
         encoding: (
             Some(NewlineDelimitedEncoderConfig::new()),
-            JsonSerializerConfig::new(),
+            JsonSerializerConfig::new(MetricTagValues::Single),
         )
             .into(),
         ..config

@@ -10,7 +10,9 @@ use snafu::Snafu;
 use std::task::Poll;
 use tokio::time::{self, Duration};
 use tokio_util::codec::FramedRead;
-use vector_common::internal_event::{ByteSize, BytesReceived, InternalEventHandle as _, Protocol};
+use vector_common::internal_event::{
+    ByteSize, BytesReceived, CountByteSize, InternalEventHandle as _, Protocol,
+};
 use vector_config::{configurable_component, NamedComponent};
 use vector_core::{config::LogNamespace, EstimatedJsonEncodedSizeOf};
 
@@ -54,7 +56,7 @@ pub struct DemoLogsConfig {
     #[derivative(Default(value = "default_decoding()"))]
     pub decoding: DeserializerConfig,
 
-    /// The namespace to use for logs. This overrides the global setting
+    /// The namespace to use for logs. This overrides the global setting.
     #[serde(default)]
     #[configurable(metadata(docs::hidden))]
     pub log_namespace: Option<bool>,
@@ -79,6 +81,9 @@ pub enum DemoLogsConfigError {
 #[derive(Clone, Debug, Derivative)]
 #[derivative(Default)]
 #[serde(tag = "format", rename_all = "snake_case")]
+#[configurable(metadata(
+    docs::enum_tag_description = "The format of the randomly generated output."
+))]
 pub enum OutputFormat {
     /// Lines are chosen at random from the list specified using `lines`.
     Shuffle {
@@ -187,6 +192,7 @@ async fn demo_logs_source(
     let mut interval = maybe_interval.map(|i| time::interval(Duration::from_secs_f64(i)));
 
     let bytes_received = register!(BytesReceived::from(Protocol::NONE));
+    let events_received = register!(EventsReceived);
 
     for n in 0..count {
         if matches!(futures::poll!(&mut shutdown), Poll::Ready(_)) {
@@ -205,10 +211,8 @@ async fn demo_logs_source(
             match next {
                 Ok((events, _byte_size)) => {
                     let count = events.len();
-                    emit!(EventsReceived {
-                        count,
-                        byte_size: events.estimated_json_encoded_size_of()
-                    });
+                    let byte_size = events.estimated_json_encoded_size_of();
+                    events_received.emit(CountByteSize(count, byte_size));
                     let now = Utc::now();
 
                     let events = events.into_iter().map(|mut event| {
@@ -299,16 +303,15 @@ mod tests {
     }
 
     async fn runit(config: &str) -> impl Stream<Item = Event> {
-        let (tx, rx) = SourceSender::new_test();
-        let config: DemoLogsConfig = toml::from_str(config).unwrap();
-        let decoder = DecodingConfig::new(
-            default_framing_message_based(),
-            default_decoding(),
-            LogNamespace::Legacy,
-        )
-        .build();
-
         assert_source_compliance(&SOURCE_TAGS, async {
+            let (tx, rx) = SourceSender::new_test();
+            let config: DemoLogsConfig = toml::from_str(config).unwrap();
+            let decoder = DecodingConfig::new(
+                default_framing_message_based(),
+                default_decoding(),
+                LogNamespace::Legacy,
+            )
+            .build();
             demo_logs_source(
                 config.interval,
                 config.count,
@@ -320,9 +323,10 @@ mod tests {
             )
             .await
             .unwrap();
+
+            rx
         })
-        .await;
-        rx
+        .await
     }
 
     #[test]

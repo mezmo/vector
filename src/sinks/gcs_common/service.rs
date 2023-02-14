@@ -103,8 +103,8 @@ impl DriverResponse for GcsResponse {
         )
     }
 
-    fn bytes_sent(&self) -> Option<(usize, &str)> {
-        Some((self.metadata.request_encoded_size(), self.protocol))
+    fn bytes_sent(&self) -> Option<usize> {
+        Some(self.metadata.request_encoded_size())
     }
 }
 

@@ -34,6 +34,7 @@ pub use super::merge_strategy::*;
 use crate::event::Value;
 use value::kind::Collection;
 use value::Kind;
+use vector_core::config::LogNamespace;
 
 /// Configuration for the `mezmo_reduce` transform.
 #[serde_as]
@@ -164,7 +165,7 @@ impl TransformConfig for MezmoReduceConfig {
         Input::log()
     }
 
-    fn outputs(&self, input: &schema::Definition) -> Vec<Output> {
+    fn outputs(&self, input: &schema::Definition, _: LogNamespace) -> Vec<Output> {
         let mut schema_definition = input.clone();
 
         for (key, merge_strategy) in self.merge_strategies.iter() {
@@ -274,9 +275,7 @@ impl ReduceState {
         let fields = if let Value::Object(fields) = value {
             fields
                 .into_iter()
-                .filter_map(|(k, v)| {
-                    Some((k, v.into()))
-                })
+                .filter_map(|(k, v)| Some((k, v.into())))
                 .collect()
         } else {
             HashMap::new()
@@ -314,7 +313,12 @@ impl ReduceState {
         }
     }
 
-    fn add_event(&mut self, event: LogEvent, message_event: LogEvent, strategies: &IndexMap<String, MergeStrategy>) {
+    fn add_event(
+        &mut self,
+        event: LogEvent,
+        message_event: LogEvent,
+        strategies: &IndexMap<String, MergeStrategy>,
+    ) {
         let (value, metadata) = event.into_parts();
         self.metadata.merge(metadata);
 
@@ -528,7 +532,12 @@ impl MezmoReduce {
             .for_each(|(_, s)| output.push(Event::from(s.flush())));
     }
 
-    fn push_or_new_reduce_state(&mut self, event: LogEvent, message_event: LogEvent, discriminant: Discriminant) {
+    fn push_or_new_reduce_state(
+        &mut self,
+        event: LogEvent,
+        message_event: LogEvent,
+        discriminant: Discriminant,
+    ) {
         match self.reduce_merge_states.entry(discriminant) {
             hash_map::Entry::Vacant(entry) => {
                 entry.insert(ReduceState::new(
@@ -539,7 +548,9 @@ impl MezmoReduce {
                 ));
             }
             hash_map::Entry::Occupied(mut entry) => {
-                entry.get_mut().add_event(event, message_event, &self.merge_strategies);
+                entry
+                    .get_mut()
+                    .add_event(event, message_event, &self.merge_strategies);
             }
         }
     }
@@ -554,8 +565,7 @@ impl MezmoReduce {
         for (prop, format) in self.mezmo_metadata.date_formats.iter() {
             let prop_str = prop.as_str();
             if let Some(value) = log_event.get(prop_str) {
-                let parse_result =
-                    Utc.datetime_from_str(&value.to_string_lossy(), format);
+                let parse_result = Utc.datetime_from_str(&value.to_string_lossy(), format);
                 match parse_result {
                     Ok(date) => {
                         let value_kind = value.kind_str();
@@ -729,9 +739,7 @@ mod test {
                     ("my_date".to_owned(), Value::from(start_date)),
                 ]),
             );
-            e_1.insert(
-                "timestamp", Value::from(start_date)
-            );
+            e_1.insert("timestamp", Value::from(start_date));
             let metadata_1 = e_1.metadata().clone();
 
             let mut e_2 = LogEvent::default();
@@ -746,9 +754,7 @@ mod test {
                     ),
                 ]),
             );
-            e_2.insert(
-                "timestamp", Value::from(Utc::now())
-            );
+            e_2.insert("timestamp", Value::from(Utc::now()));
 
             let mut e_3 = LogEvent::default();
             e_3.insert(
@@ -763,9 +769,7 @@ mod test {
                     ("my_date".to_owned(), Value::from(end_date)),
                 ]),
             );
-            e_3.insert(
-                "timestamp", Value::from(end_date)
-            );
+            e_3.insert("timestamp", Value::from(end_date));
 
             for event in vec![e_1.into(), e_2.into(), e_3.into()] {
                 tx.send(event).await.unwrap();

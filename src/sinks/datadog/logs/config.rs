@@ -18,8 +18,8 @@ use crate::{
     sinks::{
         datadog::{get_api_validate_endpoint, healthcheck, logs::service::LogApiService, Region},
         util::{
-            service::ServiceBuilderExt, BatchConfig, Compression, SinkBatchSettings,
-            TowerRequestConfig,
+            http::RequestConfig, service::ServiceBuilderExt, BatchConfig, Compression,
+            SinkBatchSettings,
         },
         Healthcheck, VectorSink,
     },
@@ -95,7 +95,7 @@ pub struct DatadogLogsConfig {
 
     #[configurable(derived)]
     #[serde(default)]
-    pub request: TowerRequestConfig,
+    pub request: RequestConfig,
 
     #[configurable(derived)]
     #[serde(
@@ -104,9 +104,6 @@ pub struct DatadogLogsConfig {
         skip_serializing_if = "crate::serde::skip_serializing_if_default"
     )]
     pub acknowledgements: AcknowledgementsConfig,
-
-    #[serde(skip)]
-    pub enterprise: bool,
 }
 
 impl GenerateConfig for DatadogLogsConfig {
@@ -138,16 +135,17 @@ impl DatadogLogsConfig {
             });
         http::Uri::try_from(endpoint).expect("URI not valid")
     }
-}
+    fn get_protocol(&self) -> String {
+        self.get_uri().scheme_str().unwrap_or("http").to_string()
+    }
 
-impl DatadogLogsConfig {
     pub fn build_processor(
         &self,
         client: HttpClient,
         cx: SinkContext,
     ) -> crate::Result<VectorSink> {
         let default_api_key: Arc<str> = Arc::from(self.default_api_key.inner());
-        let request_limits = self.request.unwrap_with(&Default::default());
+        let request_limits = self.request.tower.unwrap_with(&Default::default());
 
         // We forcefully cap the provided batch configuration to the size/log line limits imposed by
         // the Datadog Logs API, but we still allow them to be lowered if need be.
@@ -161,11 +159,13 @@ impl DatadogLogsConfig {
         let service = ServiceBuilder::new()
             .settings(request_limits, LogApiRetry)
             .service(MezmoLoggingService::new(
-                LogApiService::new(client, self.get_uri(), self.enterprise),
+                LogApiService::new(client, self.get_uri(), self.request.headers.clone())?,
                 cx.mezmo_ctx,
             ));
 
-        let sink = LogSinkBuilder::new(self.encoding.clone(), service, default_api_key, batch)
+        let encoding = self.encoding.clone();
+        let protocol = self.get_protocol();
+        let sink = LogSinkBuilder::new(encoding, service, default_api_key, batch, protocol)
             .compression(self.compression.unwrap_or_default())
             .build();
 

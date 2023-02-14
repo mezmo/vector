@@ -1,5 +1,5 @@
 use assay::assay;
-use codecs::JsonSerializerConfig;
+use codecs::{JsonSerializerConfig, MetricTagValues};
 use serde_json::Value as JsonValue;
 use tokio::time::{sleep, Duration};
 
@@ -113,7 +113,11 @@ async fn config(encoding: EncodingConfig, indexed_fields: Vec<String>) -> HecLog
 async fn splunk_mezmo_does_not_reshape_messages() {
     let cx = SinkContext::new_test();
 
-    let config = config(JsonSerializerConfig::new().into(), vec![]).await;
+    let config = config(
+        JsonSerializerConfig::new(MetricTagValues::Single).into(),
+        vec![],
+    )
+    .await;
     let (sink, _) = config.build(cx).await.unwrap();
 
     let (events, stream) = random_message_object_events_with_stream(100, 3, None);
@@ -138,7 +142,11 @@ async fn splunk_mezmo_does_not_reshape_messages() {
 async fn splunk_mezmo_should_reshape_messages() {
     let cx = SinkContext::new_test();
 
-    let config = config(JsonSerializerConfig::new().into(), vec![]).await;
+    let config = config(
+        JsonSerializerConfig::new(MetricTagValues::Single).into(),
+        vec![],
+    )
+    .await;
     let (sink, _) = config.build(cx).await.unwrap();
 
     let (mut events, stream) = random_message_object_events_with_stream(100, 3, None);

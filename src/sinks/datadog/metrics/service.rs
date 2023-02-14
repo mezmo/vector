@@ -127,7 +127,6 @@ pub struct DatadogMetricsResponse {
     batch_size: usize,
     byte_size: usize,
     raw_byte_size: usize,
-    protocol: String,
 }
 
 impl DriverResponse for DatadogMetricsResponse {
@@ -145,8 +144,8 @@ impl DriverResponse for DatadogMetricsResponse {
         CountByteSize(self.batch_size, self.byte_size)
     }
 
-    fn bytes_sent(&self) -> Option<(usize, &str)> {
-        Some((self.raw_byte_size, &self.protocol))
+    fn bytes_sent(&self) -> Option<usize> {
+        Some(self.raw_byte_size)
     }
 }
 
@@ -203,7 +202,6 @@ impl Service<DatadogMetricsRequest> for DatadogMetricsService {
         Box::pin(async move {
             let byte_size = request.get_metadata().events_byte_size();
             let batch_size = request.get_metadata().event_count();
-            let protocol = request.uri.scheme_str().unwrap_or("http").to_string();
             let raw_byte_size = request.raw_bytes;
 
             let request = request
@@ -226,7 +224,6 @@ impl Service<DatadogMetricsRequest> for DatadogMetricsService {
                 batch_size,
                 byte_size,
                 raw_byte_size,
-                protocol,
             })
         })
     }

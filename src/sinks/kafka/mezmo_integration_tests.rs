@@ -5,7 +5,7 @@ use assay::assay;
 use serde_json;
 use std::{collections::HashMap, future::ready, thread, time::Duration};
 
-use codecs::JsonSerializerConfig;
+use codecs::{JsonSerializerConfig, MetricTagValues};
 use rdkafka::{
     consumer::{BaseConsumer, Consumer},
     Message, Offset, TopicPartitionList,
@@ -55,7 +55,7 @@ async fn kafka_mezmo_does_not_reshape_messages() {
         bootstrap_servers: server.clone(),
         topic: format!("{}-%Y%m%d", topic),
         key_field: None,
-        encoding: JsonSerializerConfig::new().into(),
+        encoding: JsonSerializerConfig::new(MetricTagValues::Single).into(),
         batch: BatchConfig::default(),
         compression: KafkaCompression::None,
         auth: kafka_auth.clone(),
@@ -164,7 +164,7 @@ async fn kafka_mezmo_reshapes_messages() {
         bootstrap_servers: server.clone(),
         topic: format!("{}-%Y%m%d", topic),
         key_field: None,
-        encoding: JsonSerializerConfig::new().into(),
+        encoding: JsonSerializerConfig::new(MetricTagValues::Single).into(),
         batch: BatchConfig::default(),
         compression: KafkaCompression::None,
         auth: kafka_auth.clone(),

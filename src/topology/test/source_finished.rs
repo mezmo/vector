@@ -20,12 +20,12 @@ async fn sources_finished() {
         &["in"],
         ConsoleSinkConfig {
             target: Target::Stdout,
-            encoding: (None::<FramingConfig>, TextSerializerConfig::new()).into(),
+            encoding: (None::<FramingConfig>, TextSerializerConfig::default()).into(),
             acknowledgements: Default::default(),
         },
     );
 
-    let (topology, _crash) = start_topology(old_config.build().unwrap(), false).await;
+    let (topology, _) = start_topology(old_config.build().unwrap(), false).await;
 
     timeout(Duration::from_secs(2), topology.sources_finished())
         .await

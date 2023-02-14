@@ -4,6 +4,7 @@ use bytes::Bytes;
 use chrono::Utc;
 use codecs::encoding::Framer;
 use http::header::{HeaderName, HeaderValue};
+use http::Uri;
 use indoc::indoc;
 use snafu::ResultExt;
 use snafu::Snafu;
@@ -20,7 +21,7 @@ use crate::{
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     event::Event,
     gcp::{GcpAuthConfig, GcpAuthenticator, Scope},
-    http::HttpClient,
+    http::{get_http_scheme_from_uri, HttpClient},
     serde::json::to_string,
     sinks::{
         gcs_common::{
@@ -232,6 +233,8 @@ impl GcsSinkConfig {
 
         let partitioner = self.key_partitioner()?;
 
+        let protocol = get_http_scheme_from_uri(&base_url.parse::<Uri>().unwrap());
+
         let svc = ServiceBuilder::new()
             .settings(request, GcsRetryLogic)
             .service(MezmoLoggingService::new(
@@ -241,7 +244,7 @@ impl GcsSinkConfig {
 
         let request_settings = RequestSettings::new(self)?;
 
-        let sink = GcsSink::new(svc, request_settings, partitioner, batch_settings);
+        let sink = GcsSink::new(svc, request_settings, partitioner, batch_settings, protocol);
 
         Ok(VectorSink::from_event_streamsink(sink))
     }
@@ -405,7 +408,9 @@ mod tests {
     };
     use assay::assay;
     use codecs::encoding::FramingConfig;
-    use codecs::{JsonSerializerConfig, NewlineDelimitedEncoderConfig, TextSerializerConfig};
+    use codecs::{
+        JsonSerializerConfig, MetricTagValues, NewlineDelimitedEncoderConfig, TextSerializerConfig,
+    };
     use futures_util::{future::ready, stream};
     use serde_json;
     use vector_core::partition::Partitioner;
@@ -427,7 +432,8 @@ mod tests {
         let client =
             HttpClient::new(tls, context.proxy()).expect("should not fail to create HTTP client");
 
-        let config = default_config((None::<FramingConfig>, JsonSerializerConfig::new()).into());
+        let config =
+            default_config((None::<FramingConfig>, JsonSerializerConfig::default()).into());
         let sink = config
             .build_sink(
                 client,
@@ -451,7 +457,7 @@ mod tests {
 
         let sink_config = GcsSinkConfig {
             key_prefix: Some("key: {{ key }}".into()),
-            ..default_config((None::<FramingConfig>, TextSerializerConfig::new()).into())
+            ..default_config((None::<FramingConfig>, TextSerializerConfig::default()).into())
         };
         let key = sink_config
             .key_partitioner()
@@ -476,7 +482,7 @@ mod tests {
             ..default_config(
                 (
                     Some(NewlineDelimitedEncoderConfig::new()),
-                    JsonSerializerConfig::new(),
+                    JsonSerializerConfig::default(),
                 )
                     .into(),
             )
@@ -526,7 +532,7 @@ mod tests {
             ..default_config(
                 (
                     Some(NewlineDelimitedEncoderConfig::new()),
-                    JsonSerializerConfig::new(),
+                    JsonSerializerConfig::new(MetricTagValues::Single),
                 )
                     .into(),
             )
