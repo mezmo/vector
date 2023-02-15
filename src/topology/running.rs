@@ -253,8 +253,9 @@ impl RunningTopology {
         // Try to build all of the new components coming from the new configuration.  If we can
         // successfully build them, we'll attempt to connect them up to the topology and spawn their
         // respective component tasks.
+        let new_bufs = buffers.clone();
         if let Some(mut new_pieces) =
-            build_or_log_errors(&new_config, &diff, metrics_tx.clone(), buffers.clone()).await
+            build_or_log_errors(&new_config, &diff, metrics_tx.clone(), new_bufs).await
         {
             // If healthchecks are configured for any of the changing/new components, try running
             // them before moving forward with connecting and spawning.  In some cases, healthchecks
@@ -570,9 +571,9 @@ impl RunningTopology {
                 }
             }
 
-            for input in &new_pieces.inputs {
+            for (key, input) in &new_pieces.inputs {
                 self.inputs_tap_metadata
-                    .insert(input.0.clone(), input.1 .1.clone());
+                    .insert(key.clone(), input.1.clone());
             }
         }
 
@@ -712,7 +713,7 @@ impl RunningTopology {
                 // now:
                 debug!(component = %key, fanout_id = %input, "Replacing component input in fanout.");
 
-                let _ = output.send(ControlMessage::Replace(key.clone(), Some(tx.clone())));
+                let _ = output.send(ControlMessage::Replace(key.clone(), tx.clone()));
             }
         }
 
@@ -763,7 +764,7 @@ impl RunningTopology {
                     // now to pause further sends through that component until we reconnect:
                     debug!(component = %key, fanout_id = %input, "Pausing component input in fanout.");
 
-                    let _ = output.send(ControlMessage::Replace(key.clone(), None));
+                    let _ = output.send(ControlMessage::Pause(key.clone()));
                 }
             }
         }

@@ -20,7 +20,7 @@ use tokio::{pin, select, time::sleep};
 use tokio_util::codec::FramedRead;
 use tracing::Instrument;
 use vector_common::internal_event::{
-    ByteSize, BytesReceived, InternalEventHandle as _, Protocol, Registered,
+    ByteSize, BytesReceived, CountByteSize, InternalEventHandle as _, Protocol, Registered,
 };
 use vector_config::{configurable_component, NamedComponent};
 
@@ -68,20 +68,20 @@ pub(super) struct Config {
     #[derivative(Default(value = "default_poll_secs()"))]
     pub(super) poll_secs: u32,
 
-    /// The visibility timeout to use for messages, in secords.
+    /// The visibility timeout to use for messages, in seconds.
     ///
-    /// This controls how long a message is left unavailable after Vector receives it. If Vector receives a message, and
-    /// takes longer than `visibility_timeout_secs` to process and delete the message from the queue, it will be made reavailable for another consumer.
+    /// This controls how long a message is left unavailable after it is received. If a message is received, and
+    /// takes longer than `visibility_timeout_secs` to process and delete the message from the queue, it is made available again for another consumer.
     ///
-    /// This can happen if, for example, if Vector crashes between consuming a message and deleting it.
+    /// This can happen if there is an issue between consuming a message and deleting it.
     // NOTE: We restrict this to u32 for safe conversion to i64 later.
     #[serde(default = "default_visibility_timeout_secs")]
     #[derivative(Default(value = "default_visibility_timeout_secs()"))]
     pub(super) visibility_timeout_secs: u32,
 
-    /// Whether to delete the message once Vector processes it.
+    /// Whether to delete the message once it is processed.
     ///
-    /// It can be useful to set this to `false` to debug or during initial Vector setup.
+    /// It can be useful to set this to `false` for debugging or during the initial setup.
     #[serde(default = "default_true")]
     #[derivative(Default(value = "default_true()"))]
     pub(super) delete_message: bool,
@@ -92,7 +92,7 @@ pub(super) struct Config {
     ///
     /// Should not typically need to be changed, but it can sometimes be beneficial to raise this value when there is a
     /// high rate of messages being pushed into the queue and the objects being fetched are small. In these cases,
-    /// Vector may not fully utilize system resources without fetching more messages per second, as the SQS message
+    /// System resources may not be fully utilized without fetching more messages per second, as the SQS message
     /// consumption rate affects the S3 object retrieval rate.
     pub(super) client_concurrency: Option<NonZeroUsize>,
 
@@ -265,6 +265,7 @@ pub struct IngestorProcess {
     acknowledgements: bool,
     log_namespace: LogNamespace,
     bytes_received: Registered<BytesReceived>,
+    events_received: Registered<EventsReceived>,
 }
 
 impl IngestorProcess {
@@ -284,6 +285,7 @@ impl IngestorProcess {
             log: LogBackoff::new(),
             log_namespace,
             bytes_received: register!(BytesReceived::from(Protocol::HTTP)),
+            events_received: register!(EventsReceived),
         }
     }
 
@@ -500,6 +502,7 @@ impl IngestorProcess {
         // the case that the same vector instance processes the same message.
         let mut read_error = None;
         let bytes_received = self.bytes_received.clone();
+        let events_received = self.events_received.clone();
         let lines: Box<dyn Stream<Item = Bytes> + Send + Unpin> = Box::new(
             FramedRead::new(object_reader, CharacterDelimitedDecoder::new(b'\n'))
                 .map(|res| {
@@ -593,10 +596,7 @@ impl IngestorProcess {
                 }
             };
 
-            emit!(EventsReceived {
-                count: 1,
-                byte_size: log.estimated_json_encoded_size_of()
-            });
+            events_received.emit(CountByteSize(1, log.estimated_json_encoded_size_of()));
 
             log
         });
@@ -648,7 +648,7 @@ impl IngestorProcess {
             .receive_message()
             .queue_url(self.state.queue_url.clone())
             .max_number_of_messages(10)
-            .visibility_timeout(self.state.visibility_timeout_secs as i32)
+            .visibility_timeout(self.state.visibility_timeout_secs)
             .wait_time_seconds(self.state.poll_secs)
             .send()
             .map_ok(|res| res.messages.unwrap_or_default())

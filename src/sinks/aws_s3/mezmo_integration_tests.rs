@@ -5,7 +5,7 @@ use assay::assay;
 use bytes::Bytes;
 use codecs::decoding::format::Deserializer;
 use codecs::decoding::format::JsonDeserializerConfig;
-use codecs::{encoding::FramingConfig, JsonSerializerConfig};
+use codecs::{encoding::FramingConfig, JsonSerializerConfig, MetricTagValues};
 use futures::Stream;
 use similar_asserts::assert_eq;
 use tokio_stream::StreamExt;
@@ -150,7 +150,11 @@ fn json_config(bucket: &str, batch_size: usize) -> S3SinkConfig {
         filename_extension: None,
         options: S3Options::default(),
         region: RegionOrEndpoint::with_both("minio", s3_address()),
-        encoding: (None::<FramingConfig>, JsonSerializerConfig::new()).into(),
+        encoding: (
+            None::<FramingConfig>,
+            JsonSerializerConfig::new(MetricTagValues::Single),
+        )
+            .into(),
         compression: Compression::None,
         batch,
         request: TowerRequestConfig::default(),

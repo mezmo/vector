@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use chrono::Utc;
 use vector_config::configurable_component;
+use vector_core::config::LogNamespace;
 use vector_core::event::{
     metric::{Bucket, Quantile, Sample},
     StatisticKind,
@@ -54,7 +55,7 @@ impl TransformConfig for LogToMetricConfig {
         Input::log()
     }
 
-    fn outputs(&self, _: &schema::Definition) -> Vec<Output> {
+    fn outputs(&self, _: &schema::Definition, _: LogNamespace) -> Vec<Output> {
         vec![Output::default(DataType::Metric)]
     }
 

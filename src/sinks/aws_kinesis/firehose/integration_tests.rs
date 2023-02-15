@@ -10,7 +10,7 @@ use tokio::time::{sleep, Duration};
 
 use super::{config::KinesisFirehoseClientBuilder, *};
 use crate::{
-    aws::{create_client, AwsAuthentication, RegionOrEndpoint},
+    aws::{create_client, AwsAuthentication, ImdsAuthentication, RegionOrEndpoint},
     config::{ProxyConfig, SinkConfig, SinkContext},
     sinks::{
         elasticsearch::{BulkConfig, ElasticsearchAuth, ElasticsearchCommon, ElasticsearchConfig},
@@ -46,7 +46,7 @@ async fn firehose_put_records() {
     let base = KinesisSinkBaseConfig {
         stream_name: stream.clone(),
         region: region.clone(),
-        encoding: JsonSerializerConfig::new().into(), // required for ES destination w/ localstack
+        encoding: JsonSerializerConfig::default().into(), // required for ES destination w/ localstack
         compression: Compression::None,
         request: TowerRequestConfig {
             timeout_secs: Some(10),
@@ -73,6 +73,7 @@ async fn firehose_put_records() {
     let config = ElasticsearchConfig {
         auth: Some(ElasticsearchAuth::Aws(AwsAuthentication::Default {
             load_timeout_secs: Some(5),
+            imds: ImdsAuthentication::default(),
         })),
         endpoints: vec![elasticsearch_address()],
         bulk: Some(BulkConfig {

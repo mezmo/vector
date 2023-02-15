@@ -125,7 +125,7 @@ mod tests {
             target_assignments: vec![],
         };
         let event = LogEvent::default();
-        let mut target = VrlTarget::new(event.into(), &program_info);
+        let mut target = VrlTarget::new(event.into(), &program_info, false);
         let mut runtime_state = state::Runtime::default();
         let mut ctx = Context::new(&mut target, &mut runtime_state, &TimeZone::Local);
 

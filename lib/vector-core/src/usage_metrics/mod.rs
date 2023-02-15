@@ -244,7 +244,7 @@ pub fn get_transform_usage_tracker(
 }
 
 /// Represents a tracker for a component
-pub trait ComponentUsageTracker: Send {
+pub trait ComponentUsageTracker: Send + Sync {
     fn track(&self, array: &EventArray);
 }
 

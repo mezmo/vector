@@ -55,13 +55,18 @@ base: components: transforms: log_to_metric: configuration: metrics: {
 			description: "Tags to apply to the metric."
 			required:    false
 			type: object: options: "*": {
-				description: "Tags to apply to the metric."
-				required:    true
+				description: """
+					Specification of the value of a created tag.
+
+					This may be a single value, a `null` for a bare tag, or an array of either.
+					"""
+				required: true
 				type: string: syntax: "template"
 			}
 		}
 		type: {
-			required: true
+			description: "The type of metric to create."
+			required:    true
 			type: string: enum: {
 				counter:   "A counter."
 				gauge:     "A gauge."

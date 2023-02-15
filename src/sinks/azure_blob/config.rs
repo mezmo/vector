@@ -59,7 +59,7 @@ pub struct AzureBlobSinkConfig {
     ///
     /// Prefixes are useful for partitioning objects, such as by creating an blob key that
     /// stores blobs under a particular "directory". If using a prefix for this purpose, it must end
-    /// in `/` in order to act as a directory path: Vector will **not** add a trailing `/` automatically.
+    /// in `/` to act as a directory path. A trailing `/` is **not** automatically added.
     pub blob_prefix: Option<String>,
 
     /// The timestamp format for the time component of the blob key.
@@ -124,7 +124,7 @@ impl GenerateConfig for AzureBlobSinkConfig {
             blob_prefix: Some(String::from("blob")),
             blob_time_format: Some(String::from("%s")),
             blob_append_uuid: Some(true),
-            encoding: (Some(NewlineDelimitedEncoderConfig::new()), JsonSerializerConfig::new()).into(),
+            encoding: (Some(NewlineDelimitedEncoderConfig::new()), JsonSerializerConfig::default()).into(),
             compression: Compression::gzip_default(),
             batch: BatchConfig::default(),
             request: TowerRequestConfig::default(),

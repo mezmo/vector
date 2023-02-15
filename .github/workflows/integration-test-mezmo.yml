@@ -58,8 +58,8 @@ jobs:
           # - test: 'nginx'
           # - test: 'postgres'
           # - test: 'prometheus'
-          - test: 'pulsar'
-          - test: 'redis'
+          # - test: 'pulsar'
+          # - test: 'redis'
           # - test: 'shutdown'
           - test: 'splunk'
             env:

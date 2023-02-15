@@ -18,8 +18,6 @@ pub mod lua;
 #[cfg(feature = "transforms-metric_to_log")]
 pub mod metric_to_log;
 pub mod mezmo_log_to_metric;
-#[cfg(feature = "transforms-pipelines")]
-pub mod pipelines;
 #[cfg(feature = "transforms-reduce")]
 pub mod reduce;
 #[cfg(feature = "transforms-remap")]
@@ -33,18 +31,17 @@ pub mod tag_cardinality_limit;
 #[cfg(feature = "transforms-throttle")]
 pub mod throttle;
 
-use vector_common::config::ComponentKey;
 use vector_config::{configurable_component, NamedComponent};
 pub use vector_core::transform::{
     FunctionTransform, OutputBuffer, SyncTransform, TaskTransform, Transform, TransformOutputs,
     TransformOutputsBuf,
 };
 use vector_core::{
-    config::{Input, Output},
+    config::{Input, LogNamespace, Output},
     schema,
 };
 
-use crate::config::{InnerTopology, TransformConfig, TransformContext};
+use crate::config::{TransformConfig, TransformContext};
 
 #[derive(Debug, Snafu)]
 enum BuildError {
@@ -90,15 +87,6 @@ pub enum Transforms {
     /// Metric to log.
     #[cfg(feature = "transforms-metric_to_log")]
     MetricToLog(#[configurable(derived)] metric_to_log::MetricToLogConfig),
-
-    /// Pipelines. (inner)
-    #[cfg(feature = "transforms-pipelines")]
-    #[configurable(metadata(skip_docs))]
-    Pipeline(#[configurable(derived)] pipelines::PipelineConfig),
-
-    /// Pipelines.
-    #[cfg(feature = "transforms-pipelines")]
-    Pipelines(#[configurable(derived)] pipelines::PipelinesConfig),
 
     /// Reduce.
     #[cfg(feature = "transforms-reduce")]
@@ -157,10 +145,6 @@ impl NamedComponent for Transforms {
             Transforms::Lua(config) => config.get_component_name(),
             #[cfg(feature = "transforms-metric_to_log")]
             Transforms::MetricToLog(config) => config.get_component_name(),
-            #[cfg(feature = "transforms-pipelines")]
-            Transforms::Pipeline(config) => config.get_component_name(),
-            #[cfg(feature = "transforms-pipelines")]
-            Transforms::Pipelines(config) => config.get_component_name(),
             #[cfg(feature = "transforms-reduce")]
             Transforms::Reduce(config) => config.get_component_name(),
             #[cfg(feature = "transforms-mezmo_reduce")]

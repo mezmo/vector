@@ -255,6 +255,7 @@ mod tests {
 
     use super::*;
     use assay::assay;
+    use codecs::MetricTagValues;
     use std::collections::BTreeMap;
     use vector_common::btreemap;
 
@@ -457,7 +458,9 @@ mod tests {
     fn mezmo_reshaping_based_on_serializer() {
         let mut transformer = Transformer::new_with_mezmo_reshape(
             Transformer::default(),
-            Some(&Serializer::from(JsonSerializer::new())),
+            Some(&Serializer::from(JsonSerializer::new(
+                MetricTagValues::Single,
+            ))),
         );
         assert_eq!(
             transformer.should_mezmo_reshape, true,
@@ -516,7 +519,9 @@ mod tests {
 
         transformer = Transformer::new_with_mezmo_reshape(
             Transformer::default(),
-            Some(&Serializer::from(TextSerializer::new())),
+            Some(&Serializer::from(TextSerializer::new(
+                MetricTagValues::Single,
+            ))),
         );
         assert_eq!(
             transformer.should_mezmo_reshape, false,

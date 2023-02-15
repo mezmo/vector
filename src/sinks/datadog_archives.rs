@@ -16,9 +16,10 @@ use std::{
 use azure_storage_blobs::prelude::ContainerClient;
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::{SecondsFormat, Utc};
-use codecs::{encoding::Framer, JsonSerializer, NewlineDelimitedEncoder};
+use codecs::{encoding::Framer, JsonSerializerConfig, NewlineDelimitedEncoder};
 use goauth::scopes::Scope;
 use http::header::{HeaderName, HeaderValue};
+use http::Uri;
 use lookup::event_path;
 use rand::{thread_rng, Rng};
 use snafu::Snafu;
@@ -37,7 +38,7 @@ use crate::{
     codecs::{Encoder, Transformer},
     config::{GenerateConfig, Input, SinkConfig, SinkContext},
     gcp::{GcpAuthConfig, GcpAuthenticator},
-    http::HttpClient,
+    http::{get_http_scheme_from_uri, HttpClient},
     serde::json::to_string,
     sinks::{
         azure_common::{
@@ -102,7 +103,7 @@ pub struct DatadogArchivesSinkConfig {
     ///
     /// Prefixes are useful for partitioning objects, such as by creating an object key that
     /// stores objects under a particular "directory". If using a prefix for this purpose, it must end
-    /// in `/` in order to act as a directory path: Vector will **not** add a trailing `/` automatically.
+    /// in `/` to act as a directory path. A trailing `/` is **not** automatically added.
     pub key_prefix: Option<String>,
 
     #[configurable(derived)]
@@ -404,6 +405,7 @@ impl DatadogArchivesSinkConfig {
         auth: Option<GcpAuthenticator>,
     ) -> crate::Result<VectorSink> {
         let request = self.request.unwrap_with(&Default::default());
+        let protocol = get_http_scheme_from_uri(&base_url.parse::<Uri>()?);
 
         let batcher_settings = BatchConfig::<DatadogArchivesDefaultBatchSettings>::default()
             .into_batcher_settings()
@@ -446,7 +448,13 @@ impl DatadogArchivesSinkConfig {
 
         let partitioner = DatadogArchivesSinkConfig::build_partitioner();
 
-        let sink = GcsSink::new(svc, request_builder, partitioner, batcher_settings);
+        let sink = GcsSink::new(
+            svc,
+            request_builder,
+            partitioner,
+            batcher_settings,
+            protocol,
+        );
 
         Ok(VectorSink::from_event_streamsink(sink))
     }
@@ -523,7 +531,7 @@ impl DatadogArchivesEncoding {
                 transformer,
                 Encoder::<Framer>::new(
                     NewlineDelimitedEncoder::new().into(),
-                    JsonSerializer::new().into(),
+                    JsonSerializerConfig::default().build().into(),
                 ),
             ),
             reserved_attributes: RESERVED_ATTRIBUTES.iter().copied().collect(),
