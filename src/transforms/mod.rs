@@ -6,6 +6,7 @@ use snafu::Snafu;
 
 #[cfg(feature = "transforms-aggregate")]
 pub mod aggregate;
+pub mod mezmo_aggregate;
 #[cfg(feature = "transforms-aws_ec2_metadata")]
 pub mod aws_ec2_metadata;
 #[cfg(feature = "transforms-dedupe")]
@@ -61,6 +62,9 @@ pub enum Transforms {
     /// Aggregate.
     #[cfg(feature = "transforms-aggregate")]
     Aggregate(#[configurable(derived)] aggregate::AggregateConfig),
+
+    /// Mezmo Aggregate.
+    MezmoAggregate(#[configurable(derived)] mezmo_aggregate::AggregateConfig),
 
     /// AWS EC2 metadata.
     #[cfg(feature = "transforms-aws_ec2_metadata")]
@@ -133,6 +137,7 @@ impl NamedComponent for Transforms {
         match self {
             #[cfg(feature = "transforms-aggregate")]
             Transforms::Aggregate(config) => config.get_component_name(),
+            Transforms::MezmoAggregate(config) => config.get_component_name(),
             #[cfg(feature = "transforms-aws_ec2_metadata")]
             Transforms::AwsEc2Metadata(config) => config.get_component_name(),
             #[cfg(feature = "transforms-dedupe")]

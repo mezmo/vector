@@ -3,6 +3,7 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use futures_util::{future::ready, Stream, StreamExt};
 use once_cell::sync::OnceCell;
+use vector_core::event::metric::mezmo::TransformError;
 use std::future::Future;
 use std::task::{Context, Poll};
 use tokio::sync::broadcast::{self, Receiver, Sender};
@@ -214,6 +215,35 @@ impl<F, B> Clone for MezmoHttpBatchLoggingService<F, B> {
             ctx: self.ctx.clone(),
         }
     }
+}
+
+pub fn handle_transform_error(ctx: &Option<MezmoContext>, err: TransformError) {
+    match err {
+        TransformError::FieldNull { field } => {
+            ctx.error(format!("Required field '{}' is null", field));
+        }
+        TransformError::FieldNotFound { field } => {
+            ctx.error(format!(
+                "Required field '{}' not found in the log event",
+                field
+            ));
+        }
+        TransformError::FieldInvalidType { field } => {
+            ctx.error(format!("Field '{}' type is not valid", field));
+        }
+        TransformError::InvalidKind { kind } => {
+            ctx.error(format!("Kind type '{}' is not supported", kind));
+        }
+        TransformError::InvalidMetricType { type_name } => {
+            ctx.error(format!("Metric type '{}' is not supported", type_name));
+        }
+        TransformError::ParseIntOverflow { field } => {
+            ctx.error(format!(
+                "Field '{}' could not be parsed as an unsigned integer",
+                field
+            ));
+        }
+    };
 }
 
 #[cfg(test)]
