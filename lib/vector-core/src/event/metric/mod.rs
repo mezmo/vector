@@ -35,6 +35,8 @@ pub use self::tags::*;
 mod value;
 pub use self::value::*;
 
+pub mod mezmo;
+
 #[macro_export]
 macro_rules! metric_tags {
     () => { $crate::event::MetricTags::default() };
