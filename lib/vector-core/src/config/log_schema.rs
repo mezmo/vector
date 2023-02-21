@@ -66,12 +66,24 @@ pub struct LogSchema {
     #[serde(default = "LogSchema::default_source_type_key")]
     source_type_key: String,
 
-    /// The name of the event field to set the event metadata in.
+    /// The name of the event field to set the internal event metadata in.
     ///
     /// Generally, this field will be set by Vector to hold event-specific metadata, such as
     /// annotations by the `remap` transform when an error or abort is encountered.
+    /// Mezmo: this field is separate from our own `metadata` field, which is used to carry
+    /// user-facing event metadata. The internal event metadata field is not exposed to users
+    /// as it may (now, or in the future from upstream changes) contain information that should
+    /// not be available within the pipeline.
     #[serde(default = "LogSchema::default_metadata_key")]
     metadata_key: String,
+
+    /// The name of the event field for user-facing event metadata
+    ///
+    /// This field is intended to be populated with metadata from our own processing, either
+    /// from the edge as request metadata, or from kafka (headers). It can contain values
+    /// that may be referenced in field templates.
+    #[serde(default = "LogSchema::default_user_metadata_key")]
+    user_metadata_key: String,
 }
 
 impl Default for LogSchema {
@@ -82,6 +94,7 @@ impl Default for LogSchema {
             host_key: Self::default_host_key(),
             source_type_key: Self::default_source_type_key(),
             metadata_key: Self::default_metadata_key(),
+            user_metadata_key: Self::default_user_metadata_key(),
         }
     }
 }
@@ -104,6 +117,10 @@ impl LogSchema {
     }
 
     fn default_metadata_key() -> String {
+        String::from("internal_metadata")
+    }
+
+    fn default_user_metadata_key() -> String {
         String::from("metadata")
     }
 
@@ -127,6 +144,10 @@ impl LogSchema {
         &self.metadata_key
     }
 
+    pub fn user_metadata_key(&self) -> &str {
+        &self.user_metadata_key
+    }
+
     pub fn set_message_key(&mut self, v: String) {
         self.message_key = v;
     }
@@ -145,6 +166,10 @@ impl LogSchema {
 
     pub fn set_metadata_key(&mut self, v: String) {
         self.metadata_key = v;
+    }
+
+    pub fn set_user_metadata_key(&mut self, v: String) {
+        self.user_metadata_key = v;
     }
 
     /// Merge two `LogSchema` instances together.
@@ -193,6 +218,14 @@ impl LogSchema {
             } else {
                 self.set_metadata_key(other.metadata_key().to_string());
             }
+            if self.user_metadata_key() != LOG_SCHEMA_DEFAULT.user_metadata_key()
+                && self.user_metadata_key() != other.user_metadata_key()
+            {
+                errors
+                    .push("conflicting values for 'log_schema.user_metadata_key' found".to_owned());
+            } else {
+                self.set_user_metadata_key(other.user_metadata_key().to_string());
+            }
         }
 
         if errors.is_empty() {
@@ -212,6 +245,8 @@ mod test {
         let toml = r#"
             message_key = "message"
             timestamp_key = "timestamp"
+            metadata_key = "not_used_metadata"
+            user_metadata_key = "meta"
         "#;
         toml::from_str::<LogSchema>(toml).unwrap();
     }

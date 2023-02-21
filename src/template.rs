@@ -414,6 +414,17 @@ mod tests {
     }
 
     #[test]
+    fn render_log_event_metadata() {
+        let key = log_schema().user_metadata_key();
+        let mut event = Event::Log(LogEvent::from("hello world"));
+        event.as_mut_log().insert(key, "mezmo");
+        let tpl = format!("{{{{{key}}}}}");
+        let template = Template::try_from(tpl).unwrap();
+
+        assert_eq!(Ok(Bytes::from("mezmo")), template.render(&event))
+    }
+
+    #[test]
     fn render_log_dynamic_with_prefix() {
         let mut event = Event::Log(LogEvent::from("hello world"));
         event.as_mut_log().insert("log_stream", "stream");
