@@ -683,7 +683,7 @@ mod tests {
             "transform",
             &["in"],
             RemapConfig {
-                source: Some("".to_string()),
+                source: Some(".metadata = \"test meta\"".to_string()),
                 ..Default::default()
             },
         );
@@ -712,7 +712,8 @@ mod tests {
             assert_notification(transform_tap_events[0][0].clone()),
             Notification::Matched(Matched::new("transform".to_string()))
         );
-        let _log = assert_log(transform_tap_events[1][0].clone());
+        let log = assert_log(transform_tap_events[1][0].clone());
+        assert_eq!(log.get_user_metadata().unwrap_or_default(), "test meta");
     }
 
     #[tokio::test]

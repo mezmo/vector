@@ -2410,6 +2410,18 @@
               "deprecationReason": null
             },
             {
+              "name": "userMetadata",
+              "description": "Log user-facing metadata",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
               "name": "timestamp",
               "description": "Log timestamp",
               "args": [],
