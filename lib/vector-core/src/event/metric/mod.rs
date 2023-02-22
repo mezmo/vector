@@ -60,7 +60,7 @@ pub struct Metric {
 
     /// Internal event metadata.
     #[serde(skip, default = "EventMetadata::default")]
-    metadata: EventMetadata,
+    internal_metadata: EventMetadata,
 }
 
 impl Metric {
@@ -74,7 +74,7 @@ impl Metric {
         name: T,
         kind: MetricKind,
         value: MetricValue,
-        metadata: EventMetadata,
+        internal_metadata: EventMetadata,
     ) -> Self {
         Self {
             series: MetricSeries {
@@ -92,7 +92,7 @@ impl Metric {
                 kind,
                 value,
             },
-            metadata,
+            internal_metadata,
         }
     }
 
@@ -129,20 +129,20 @@ impl Metric {
     }
 
     pub fn add_finalizer(&mut self, finalizer: EventFinalizer) {
-        self.metadata.add_finalizer(finalizer);
+        self.internal_metadata.add_finalizer(finalizer);
     }
 
     /// Consumes this metric, returning it with an updated set of event finalizers attached to `batch`.
     #[must_use]
     pub fn with_batch_notifier(mut self, batch: &BatchNotifier) -> Self {
-        self.metadata = self.metadata.with_batch_notifier(batch);
+        self.internal_metadata = self.internal_metadata.with_batch_notifier(batch);
         self
     }
 
     /// Consumes this metric, returning it with an optionally updated set of event finalizers attached to `batch`.
     #[must_use]
     pub fn with_batch_notifier_option(mut self, batch: &Option<BatchNotifier>) -> Self {
-        self.metadata = self.metadata.with_batch_notifier_option(batch);
+        self.internal_metadata = self.internal_metadata.with_batch_notifier_option(batch);
         self
     }
 
@@ -183,12 +183,12 @@ impl Metric {
 
     /// Gets a reference to the metadata of this metric.
     pub fn metadata(&self) -> &EventMetadata {
-        &self.metadata
+        &self.internal_metadata
     }
 
     /// Gets a mutable reference to the metadata of this metric.
     pub fn metadata_mut(&mut self) -> &mut EventMetadata {
-        &mut self.metadata
+        &mut self.internal_metadata
     }
 
     /// Gets a reference to the name of this metric.
@@ -262,16 +262,20 @@ impl Metric {
     /// Decomposes a `Metric` into its individual parts.
     #[inline]
     pub fn into_parts(self) -> (MetricSeries, MetricData, EventMetadata) {
-        (self.series, self.data, self.metadata)
+        (self.series, self.data, self.internal_metadata)
     }
 
     /// Creates a `Metric` directly from the raw components of another metric.
     #[inline]
-    pub fn from_parts(series: MetricSeries, data: MetricData, metadata: EventMetadata) -> Self {
+    pub fn from_parts(
+        series: MetricSeries,
+        data: MetricData,
+        internal_metadata: EventMetadata,
+    ) -> Self {
         Self {
             series,
             data,
-            metadata,
+            internal_metadata,
         }
     }
 
@@ -283,7 +287,7 @@ impl Metric {
         Self {
             series: self.series,
             data: self.data.into_absolute(),
-            metadata: self.metadata,
+            internal_metadata: self.internal_metadata,
         }
     }
 
@@ -295,7 +299,7 @@ impl Metric {
         Self {
             series: self.series,
             data: self.data.into_incremental(),
-            metadata: self.metadata,
+            internal_metadata: self.internal_metadata,
         }
     }
 
@@ -448,7 +452,9 @@ impl EventDataEq for Metric {
     fn event_data_eq(&self, other: &Self) -> bool {
         self.series == other.series
             && self.data == other.data
-            && self.metadata.event_data_eq(&other.metadata)
+            && self
+                .internal_metadata
+                .event_data_eq(&other.internal_metadata)
     }
 }
 
@@ -456,7 +462,7 @@ impl ByteSizeOf for Metric {
     fn allocated_bytes(&self) -> usize {
         self.series.allocated_bytes()
             + self.data.allocated_bytes()
-            + self.metadata.allocated_bytes()
+            + self.internal_metadata.allocated_bytes()
     }
 }
 
@@ -470,7 +476,7 @@ impl EstimatedJsonEncodedSizeOf for Metric {
 
 impl Finalizable for Metric {
     fn take_finalizers(&mut self) -> EventFinalizers {
-        self.metadata.take_finalizers()
+        self.internal_metadata.take_finalizers()
     }
 }
 

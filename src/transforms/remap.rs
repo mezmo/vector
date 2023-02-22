@@ -1144,14 +1144,14 @@ mod tests {
         let log = output.as_log();
         assert_eq!(log["hello"], "world".into());
         assert_eq!(log["foo"], "bar".into());
-        assert!(!log.contains("metadata"));
+        assert!(!log.contains("internal_metadata"));
 
         let output = transform_one_fallible(&mut tform, abort).unwrap_err();
         let log = output.as_log();
         assert_eq!(log["hello"], "goodbye".into());
         assert!(!log.contains("foo"));
         assert_eq!(
-            log["metadata"],
+            log["internal_metadata"],
             serde_json::json!({
                 "dropped": {
                     "reason": "abort",
@@ -1170,7 +1170,7 @@ mod tests {
         assert_eq!(log["hello"], 42.into());
         assert!(!log.contains("foo"));
         assert_eq!(
-            log["metadata"],
+            log["internal_metadata"],
             serde_json::json!({
                 "dropped": {
                     "reason": "error",
@@ -1215,10 +1215,10 @@ mod tests {
                 )
                 .with_tags(Some(metric_tags! {
                     "hello" => "goodbye",
-                    "metadata.dropped.reason" => "abort",
-                    "metadata.dropped.component_id" => "remapper",
-                    "metadata.dropped.component_type" => "remap",
-                    "metadata.dropped.component_kind" => "transform",
+                    "internal_metadata.dropped.reason" => "abort",
+                    "internal_metadata.dropped.component_id" => "remapper",
+                    "internal_metadata.dropped.component_type" => "remap",
+                    "internal_metadata.dropped.component_kind" => "transform",
                 }))
             )
         );
@@ -1236,10 +1236,10 @@ mod tests {
                 )
                 .with_tags(Some(metric_tags! {
                     "not_hello" => "oops",
-                    "metadata.dropped.reason" => "error",
-                    "metadata.dropped.component_id" => "remapper",
-                    "metadata.dropped.component_type" => "remap",
-                    "metadata.dropped.component_kind" => "transform",
+                    "internal_metadata.dropped.reason" => "error",
+                    "internal_metadata.dropped.component_id" => "remapper",
+                    "internal_metadata.dropped.component_type" => "remap",
+                    "internal_metadata.dropped.component_kind" => "transform",
                 }))
             )
         );
@@ -1273,7 +1273,7 @@ mod tests {
         assert_eq!(log["hello"], 42.into());
         assert!(!log.contains("foo"));
         assert_eq!(
-            log["metadata"],
+            log["internal_metadata"],
             serde_json::json!({
                 "dropped": {
                     "reason": "error",
@@ -1293,7 +1293,7 @@ mod tests {
         assert_eq!(log["hello"], 0.into());
         assert!(!log.contains("foo"));
         assert_eq!(
-            log["metadata"],
+            log["internal_metadata"],
             serde_json::json!({
                 "dropped": {
                     "reason": "error",
@@ -1331,7 +1331,7 @@ mod tests {
         assert_eq!(log["hello"], 42.into());
         assert!(!log.contains("foo"));
         assert_eq!(
-            log["metadata"],
+            log["internal_metadata"],
             serde_json::json!({
                 "dropped": {
                     "reason": "abort",
@@ -1402,7 +1402,7 @@ mod tests {
         let log = output.as_log();
         assert_eq!(log["hello"], "world".into());
         assert_eq!(log["foo"], "bar".into());
-        assert!(!log.contains("metadata"));
+        assert!(!log.contains("internal_metadata"));
 
         let out = collect_outputs(&mut tform, abort);
         assert!(out.primary.is_empty());

@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use vector_common::encode_logfmt;
 
 use super::EventEncodingType;
-use crate::{event, topology::TapOutput};
+use crate::{config::log_schema, event, topology::TapOutput};
 
 #[derive(Debug, Clone)]
 pub struct Log {
@@ -19,11 +19,23 @@ impl Log {
     }
 
     pub fn get_message(&self) -> Option<Cow<'_, str>> {
-        Some(self.event.get("message")?.to_string_lossy())
+        Some(
+            self.event
+                .get(log_schema().message_key())?
+                .to_string_lossy(),
+        )
+    }
+
+    pub fn get_user_metadata(&self) -> Option<Cow<'_, str>> {
+        Some(
+            self.event
+                .get(log_schema().user_metadata_key())?
+                .to_string_lossy(),
+        )
     }
 
     pub fn get_timestamp(&self) -> Option<&DateTime<Utc>> {
-        self.event.get("timestamp")?.as_timestamp()
+        self.event.get(log_schema().timestamp_key())?.as_timestamp()
     }
 }
 
@@ -48,6 +60,11 @@ impl Log {
     /// Log message
     async fn message(&self) -> Option<String> {
         self.get_message().map(Into::into)
+    }
+
+    /// Log user-facing metadata
+    async fn user_metadata(&self) -> Option<String> {
+        self.get_user_metadata().map(Into::into)
     }
 
     /// Log timestamp

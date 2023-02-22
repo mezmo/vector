@@ -8,6 +8,7 @@ use value::Value;
 use vector_common::byte_size_of::ByteSizeOf;
 
 use crate::{
+    config::log_schema,
     event::EventArray,
     event::{array::EventContainer, MetricValue},
 };
@@ -16,8 +17,6 @@ use flusher::{DbFlusher, MetricsFlusher, StdErrFlusher};
 use self::flusher::NoopFlusher;
 
 const DEFAULT_FLUSH_INTERVAL_SECS: u64 = 20;
-const MESSAGE_PROPERTY: &str = "message";
-const META_PROPERTY: &str = "meta";
 const BASE_ARRAY_SIZE: usize = 8; // Add some overhead to the array and object size
 const BASE_BTREE_SIZE: usize = 8;
 static INTERNAL_TRANSFORM: ComponentKind = ComponentKind::Transform { internal: true };
@@ -304,8 +303,10 @@ pub fn mezmo_byte_size(array: &EventArray) -> usize {
             .map(|l| {
                 if let Some(fields) = l.as_map() {
                     // Account for the value of ".message" and ".meta"
-                    fields.get(MESSAGE_PROPERTY).map_or(0, value_size)
-                        + fields.get(META_PROPERTY).map_or(0, value_size)
+                    fields.get(log_schema().message_key()).map_or(0, value_size)
+                        + fields
+                            .get(log_schema().user_metadata_key())
+                            .map_or(0, value_size)
                 } else {
                     0
                 }
@@ -494,8 +495,8 @@ mod tests {
     use std::collections::{BTreeMap, HashMap};
     use tokio::sync::mpsc;
     use value::Value;
-    // use mockall::mock;
-    use crate::event::LogEvent;
+
+    use crate::{config::log_schema, event::LogEvent};
     use async_trait::async_trait;
 
     use super::*;
@@ -655,7 +656,7 @@ mod tests {
         let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
         event_map.insert("this_is_ignored".into(), 1u8.into());
         event_map.insert("another_ignored".into(), 1.into());
-        event_map.insert("message".into(), 9.into());
+        event_map.insert(log_schema().message_key().into(), 9.into());
         let event: LogEvent = event_map.into();
         assert_eq!(
             mezmo_byte_size(&event.into()),
@@ -668,8 +669,8 @@ mod tests {
     fn mezmo_byte_size_log_message_and_meta_test() {
         let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
         event_map.insert("this_is_ignored".into(), 2.into());
-        event_map.insert("message".into(), "hello ".into());
-        event_map.insert("meta".into(), "world".into());
+        event_map.insert(log_schema().message_key().into(), "hello ".into());
+        event_map.insert(log_schema().user_metadata_key().into(), "world".into());
         let event: LogEvent = event_map.into();
         assert_eq!(
             mezmo_byte_size(&event.into()),
@@ -686,7 +687,7 @@ mod tests {
         nested_map.insert("prop2".into(), 1u8.into());
         nested_map.insert("prop3".into(), 1i32.into());
         nested_map.insert("prop4".into(), "abcd".into());
-        event_map.insert("message".into(), Value::from(nested_map));
+        event_map.insert(log_schema().message_key().into(), Value::from(nested_map));
         let event: LogEvent = event_map.into();
         assert_eq!(
             mezmo_byte_size(&event.into()),
