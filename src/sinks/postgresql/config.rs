@@ -112,6 +112,18 @@ pub struct PostgreSQLSinkConfig {
     pub acknowledgements: AcknowledgementsConfig,
 }
 
+impl Default for PostgreSQLSinkConfig {
+    fn default() -> Self {
+        Self {
+            connection: "postgres://localhost:5432/db".to_owned(),
+            schema: Default::default(),
+            conflicts: None,
+            max_pool_size: 1,
+            acknowledgements: Default::default(),
+        }
+    }
+}
+
 fn default_max_pool_size() -> usize {
     4
 }

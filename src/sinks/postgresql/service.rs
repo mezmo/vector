@@ -12,7 +12,11 @@ use std::{
 use tokio_postgres::types::{to_sql_checked, IsNull, ToSql, Type};
 use tower::Service;
 use value::Value;
+use vector_common::byte_size_of::ByteSizeOf;
 use vector_common::finalization::{EventFinalizers, Finalizable};
+use vector_common::internal_event::{
+    ByteSize, BytesSent, InternalEventHandle, Protocol, Registered,
+};
 use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_core::{internal_event::CountByteSize, stream::DriverResponse};
 
@@ -41,7 +45,9 @@ impl MetaDescriptive for PostgreSQLRequest {
     }
 }
 
-pub struct PostgreSQLResponse {}
+pub struct PostgreSQLResponse {
+    bytes_sent: usize,
+}
 
 impl DriverResponse for PostgreSQLResponse {
     fn event_status(&self) -> EventStatus {
@@ -49,13 +55,14 @@ impl DriverResponse for PostgreSQLResponse {
     }
 
     fn events_sent(&self) -> CountByteSize {
-        CountByteSize(1, 0)
+        CountByteSize(1, self.bytes_sent)
     }
 }
 
 pub struct PostgreSQLService {
     connection_pool: Arc<Pool>,
     sql: String,
+    bytes_sent_handle: Registered<BytesSent>,
 }
 
 impl PostgreSQLService {
@@ -64,6 +71,7 @@ impl PostgreSQLService {
         Self {
             connection_pool,
             sql,
+            bytes_sent_handle: register!(BytesSent::from(Protocol::from("postgresql"))),
         }
     }
 }
@@ -80,6 +88,7 @@ impl Service<PostgreSQLRequest> for PostgreSQLService {
     fn call(&mut self, req: PostgreSQLRequest) -> Self::Future {
         let connection_pool = self.connection_pool.clone();
         let sql = self.sql.clone();
+        let bytes_sent_handle = self.bytes_sent_handle.clone();
         Box::pin(async move {
             let client = match connection_pool.get().await {
                 Ok(client) => client,
@@ -91,7 +100,15 @@ impl Service<PostgreSQLRequest> for PostgreSQLService {
                 Err(source) => return Err(PostgreSQLSinkError::SqlError { source }),
             };
 
-            let params = req.data.iter().map(ValueSqlAdapter).collect::<Vec<_>>();
+            let mut bytes_sent = 0;
+            let params = req
+                .data
+                .iter()
+                .map(|value| {
+                    bytes_sent += value.allocated_bytes();
+                    ValueSqlAdapter(value)
+                })
+                .collect::<Vec<_>>();
             let params = params.iter().map(|x| x as &(dyn ToSql + Sync));
 
             let res = match client.execute_raw(&prep_stmt, params).await {
@@ -100,7 +117,8 @@ impl Service<PostgreSQLRequest> for PostgreSQLService {
             };
 
             debug!("postgres execute successful; {res} rows modified");
-            Ok(PostgreSQLResponse {})
+            bytes_sent_handle.emit(ByteSize(bytes_sent));
+            Ok(PostgreSQLResponse { bytes_sent })
         })
     }
 }

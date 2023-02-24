@@ -4,6 +4,7 @@ use snafu::Snafu;
 use tokio_postgres::error::Error as PostgreSQLError;
 
 pub(crate) mod config;
+mod integration_tests;
 mod metric_utils;
 pub(crate) mod service;
 pub(crate) mod sink;
