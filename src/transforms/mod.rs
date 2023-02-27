@@ -29,6 +29,7 @@ pub mod route;
 pub mod sample;
 #[cfg(feature = "transforms-tag_cardinality_limit")]
 pub mod tag_cardinality_limit;
+pub mod mezmo_tag_cardinality_limit;
 #[cfg(feature = "transforms-throttle")]
 pub mod throttle;
 
@@ -116,6 +117,9 @@ pub enum Transforms {
     #[cfg(feature = "transforms-tag_cardinality_limit")]
     TagCardinalityLimit(#[configurable(derived)] tag_cardinality_limit::TagCardinalityLimitConfig),
 
+    /// Mezmo metrics as log messages version of tag cardinality limit.
+    MezmoTagCardinalityLimit(#[configurable(derived)] mezmo_tag_cardinality_limit::TagCardinalityLimitConfig),
+
     /// Test (basic).
     #[cfg(test)]
     TestBasic(#[configurable(derived)] crate::test_util::mock::transforms::BasicTransformConfig),
@@ -162,6 +166,7 @@ impl NamedComponent for Transforms {
             Transforms::Sample(config) => config.get_component_name(),
             #[cfg(feature = "transforms-tag_cardinality_limit")]
             Transforms::TagCardinalityLimit(config) => config.get_component_name(),
+            Transforms::MezmoTagCardinalityLimit(config) => config.get_component_name(),
             #[cfg(test)]
             Transforms::TestBasic(config) => config.get_component_name(),
             #[cfg(test)]
