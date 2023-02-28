@@ -31,7 +31,7 @@ impl AcceptedTagValueSet {
         let storage = match &mode {
             Mode::Exact => TagValueSetStorage::Set(HashSet::with_capacity(value_limit as usize)),
             Mode::Probabilistic(config) => {
-                let num_bits = config.cache_size_per_key / 8; // Convert bytes to bits
+                let num_bits = config.cache_size_per_key * 8; // Convert bytes to bits
                 let num_hashes = bloom::optimal_num_hashes(num_bits, value_limit);
                 TagValueSetStorage::Bloom(BloomFilter::with_size(num_bits, num_hashes))
             }

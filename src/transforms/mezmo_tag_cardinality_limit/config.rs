@@ -79,7 +79,7 @@ const fn default_value_limit() -> u32 {
 }
 
 pub(crate) const fn default_cache_size() -> usize {
-    1024 // 5KB
+    600 // 600 bytes gives ~1% false positive rate for 500 items
 }
 
 impl GenerateConfig for TagCardinalityLimitConfig {
