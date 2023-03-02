@@ -6,6 +6,7 @@ use snafu::Snafu;
 
 #[cfg(feature = "transforms-aggregate")]
 pub mod aggregate;
+#[cfg(feature = "transforms-aggregate")]
 pub mod mezmo_aggregate;
 #[cfg(feature = "transforms-aws_ec2_metadata")]
 pub mod aws_ec2_metadata;
@@ -29,6 +30,7 @@ pub mod route;
 pub mod sample;
 #[cfg(feature = "transforms-tag_cardinality_limit")]
 pub mod tag_cardinality_limit;
+#[cfg(feature = "transforms-tag_cardinality_limit")]
 pub mod mezmo_tag_cardinality_limit;
 #[cfg(feature = "transforms-throttle")]
 pub mod throttle;
@@ -65,6 +67,7 @@ pub enum Transforms {
     Aggregate(#[configurable(derived)] aggregate::AggregateConfig),
 
     /// Mezmo Aggregate.
+    #[cfg(feature = "transforms-aggregate")]
     MezmoAggregate(#[configurable(derived)] mezmo_aggregate::AggregateConfig),
 
     /// AWS EC2 metadata.
@@ -118,6 +121,7 @@ pub enum Transforms {
     TagCardinalityLimit(#[configurable(derived)] tag_cardinality_limit::TagCardinalityLimitConfig),
 
     /// Mezmo metrics as log messages version of tag cardinality limit.
+    #[cfg(feature = "transforms-tag_cardinality_limit")]
     MezmoTagCardinalityLimit(#[configurable(derived)] mezmo_tag_cardinality_limit::TagCardinalityLimitConfig),
 
     /// Test (basic).
@@ -141,6 +145,7 @@ impl NamedComponent for Transforms {
         match self {
             #[cfg(feature = "transforms-aggregate")]
             Transforms::Aggregate(config) => config.get_component_name(),
+            #[cfg(feature = "transforms-aggregate")]
             Transforms::MezmoAggregate(config) => config.get_component_name(),
             #[cfg(feature = "transforms-aws_ec2_metadata")]
             Transforms::AwsEc2Metadata(config) => config.get_component_name(),
@@ -166,6 +171,7 @@ impl NamedComponent for Transforms {
             Transforms::Sample(config) => config.get_component_name(),
             #[cfg(feature = "transforms-tag_cardinality_limit")]
             Transforms::TagCardinalityLimit(config) => config.get_component_name(),
+            #[cfg(feature = "transforms-tag_cardinality_limit")]
             Transforms::MezmoTagCardinalityLimit(config) => config.get_component_name(),
             #[cfg(test)]
             Transforms::TestBasic(config) => config.get_component_name(),
