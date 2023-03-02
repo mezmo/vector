@@ -8,10 +8,11 @@ use vector_core::partition::Partitioner;
 
 use super::config::AzureBlobSinkConfig;
 use super::request_builder::AzureBlobRequestOptions;
-use crate::codecs::EncodingConfigWithFraming;
+use crate::config::SinkConfig;
 use crate::event::{Event, LogEvent};
 use crate::sinks::util::{request_builder::RequestBuilder, Compression};
 use crate::{codecs::Encoder, sinks::util::request_builder::EncodeResult};
+use crate::{codecs::EncodingConfigWithFraming, config::SinkContext};
 
 fn default_config(encoding: EncodingConfigWithFraming) -> AzureBlobSinkConfig {
     AzureBlobSinkConfig {
@@ -214,4 +215,20 @@ fn azure_blob_build_request_with_uuid() {
     assert_ne!(request.metadata.partition_key, "blob.log".to_string());
     assert_eq!(request.content_encoding, None);
     assert_eq!(request.content_type, "text/plain");
+}
+
+#[tokio::test]
+async fn azure_blob_build_config_with_invalid_connection_string() {
+    let container_name = String::from("logs");
+    let sink_config = AzureBlobSinkConfig {
+        blob_prefix: Some("blob".into()),
+        container_name: container_name.clone(),
+        connection_string: Some(String::from("not even close").into()),
+        ..default_config((None::<FramingConfig>, TextSerializerConfig::default()).into())
+    };
+
+    sink_config
+        .build(SinkContext::new_test())
+        .await
+        .expect("builds with invalid connection string");
 }

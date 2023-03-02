@@ -146,12 +146,12 @@ impl SinkConfig for AzureBlobSinkConfig {
         )
         .map_err(|err| {
             cx.mezmo_ctx.error(Value::from(format!("{err}")));
-            err
-        })?;
+        })
+        .ok();
 
         let healthcheck = azure_common::config::build_healthcheck(
             self.container_name.clone(),
-            Arc::clone(&client),
+            client.clone(),
             cx.clone(),
         )?;
         let sink = self.build_processor(client)?;
@@ -175,7 +175,10 @@ const DEFAULT_FILENAME_TIME_FORMAT: &str = "%s";
 const DEFAULT_FILENAME_APPEND_UUID: bool = true;
 
 impl AzureBlobSinkConfig {
-    pub fn build_processor(&self, client: Arc<ContainerClient>) -> crate::Result<VectorSink> {
+    pub fn build_processor(
+        &self,
+        client: Option<Arc<ContainerClient>>,
+    ) -> crate::Result<VectorSink> {
         let request_limits = self.request.unwrap_with(&DEFAULT_REQUEST_LIMITS);
         let service = ServiceBuilder::new()
             .settings(request_limits, AzureBlobRetryLogic)

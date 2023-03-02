@@ -13,11 +13,11 @@ use crate::sinks::azure_common::config::{AzureBlobRequest, AzureBlobResponse};
 
 #[derive(Clone)]
 pub(crate) struct AzureBlobService {
-    client: Arc<ContainerClient>,
+    client: Option<Arc<ContainerClient>>,
 }
 
 impl AzureBlobService {
-    pub fn new(client: Arc<ContainerClient>) -> AzureBlobService {
+    pub fn new(client: Option<Arc<ContainerClient>>) -> AzureBlobService {
         AzureBlobService { client }
     }
 }
@@ -37,30 +37,33 @@ impl Service<AzureBlobRequest> for AzureBlobService {
         let this = self.clone();
 
         Box::pin(async move {
-            let client = this
-                .client
-                .blob_client(request.metadata.partition_key.as_str());
-            let byte_size = request.blob_data.len();
-            let blob = client
-                .put_block_blob(request.blob_data)
-                .content_type(request.content_type);
-            let blob = match request.content_encoding {
-                Some(encoding) => blob.content_encoding(encoding),
-                None => blob,
-            };
+            match this.client {
+                None => Err("Invalid connection string".into()),
+                Some(client) => {
+                    let client = client.blob_client(request.metadata.partition_key.as_str());
+                    let byte_size = request.blob_data.len();
+                    let blob = client
+                        .put_block_blob(request.blob_data)
+                        .content_type(request.content_type);
+                    let blob = match request.content_encoding {
+                        Some(encoding) => blob.content_encoding(encoding),
+                        None => blob,
+                    };
 
-            let result = blob
-                .into_future()
-                .instrument(info_span!("request").or_current())
-                .await
-                .map_err(|err| err.into());
+                    let result = blob
+                        .into_future()
+                        .instrument(info_span!("request").or_current())
+                        .await
+                        .map_err(|err| err.into());
 
-            result.map(|inner| AzureBlobResponse {
-                inner,
-                count: request.metadata.count,
-                events_byte_size: request.metadata.byte_size,
-                byte_size,
-            })
+                    result.map(|inner| AzureBlobResponse {
+                        inner,
+                        count: request.metadata.count,
+                        events_byte_size: request.metadata.byte_size,
+                        byte_size,
+                    })
+                }
+            }
         })
     }
 }

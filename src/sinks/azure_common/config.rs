@@ -95,45 +95,56 @@ pub enum HealthcheckError {
 
 pub fn build_healthcheck(
     container_name: String,
-    client: Arc<ContainerClient>,
+    client: Option<Arc<ContainerClient>>,
     cx: SinkContext,
 ) -> crate::Result<Healthcheck> {
     let healthcheck = async move {
-        let response = client.get_properties().into_future().await;
+        let resp: crate::Result<()> = match &client {
+            None => {
+                // The client could not be built due to invalid credentials earlier in the
+                // lifecycle. This is already logged for the user at the time the topology is built so just
+                // return a generic error for the system logs.
+                let res = Box::new(HealthcheckError::InvalidCredentials);
+                Err(res)
+            }
+            Some(client) => {
+                let response = client.get_properties().into_future().await;
 
-        let resp: crate::Result<()> = match response {
-            Ok(_) => Ok(()),
-            Err(reason) => Err(match reason.downcast_ref::<HttpError>() {
-                Some(err) => match StatusCode::from_u16(err.status().into()) {
-                    Ok(StatusCode::FORBIDDEN) => {
-                        let res = Box::new(HealthcheckError::InvalidCredentials);
-                        cx.mezmo_ctx.error(Value::from(format!("{res}")));
-                        res
-                    }
-                    Ok(StatusCode::NOT_FOUND) => {
-                        let res = Box::new(HealthcheckError::UnknownContainer {
-                            container: container_name,
-                        });
-                        cx.mezmo_ctx.error(Value::from(format!("{res}")));
-                        res
-                    }
-                    Ok(status) => {
-                        let res = Box::new(HealthcheckError::Unknown { status });
-                        cx.mezmo_ctx.error(Value::from(format!("{res}")));
-                        res
-                    }
-                    Err(_) => {
-                        let msg = "unknown status code";
-                        cx.mezmo_ctx.error(Value::from(msg.clone()));
-                        msg.into()
-                    }
-                },
-                _ => {
-                    let msg = reason.to_string();
-                    cx.mezmo_ctx.error(Value::from(msg));
-                    reason.into()
+                match response {
+                    Ok(_) => Ok(()),
+                    Err(reason) => Err(match reason.downcast_ref::<HttpError>() {
+                        Some(err) => match StatusCode::from_u16(err.status().into()) {
+                            Ok(StatusCode::FORBIDDEN) => {
+                                let res = Box::new(HealthcheckError::InvalidCredentials);
+                                cx.mezmo_ctx.error(Value::from(format!("{res}")));
+                                res
+                            }
+                            Ok(StatusCode::NOT_FOUND) => {
+                                let res = Box::new(HealthcheckError::UnknownContainer {
+                                    container: container_name,
+                                });
+                                cx.mezmo_ctx.error(Value::from(format!("{res}")));
+                                res
+                            }
+                            Ok(status) => {
+                                let res = Box::new(HealthcheckError::Unknown { status });
+                                cx.mezmo_ctx.error(Value::from(format!("{res}")));
+                                res
+                            }
+                            Err(_) => {
+                                let msg = "unknown status code";
+                                cx.mezmo_ctx.error(Value::from(msg.clone()));
+                                msg.into()
+                            }
+                        },
+                        _ => {
+                            let msg = reason.to_string();
+                            cx.mezmo_ctx.error(Value::from(msg));
+                            reason.into()
+                        }
+                    }),
                 }
-            }),
+            }
         };
         resp
     };

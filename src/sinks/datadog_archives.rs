@@ -315,7 +315,7 @@ impl DatadogArchivesSinkConfig {
                     .build_azure_sink(Arc::<ContainerClient>::clone(&client))
                     .map_err(|error| error.to_string())?;
                 let healthcheck =
-                    azure_common::config::build_healthcheck(self.bucket.clone(), client, cx)?;
+                    azure_common::config::build_healthcheck(self.bucket.clone(), Some(client), cx)?;
                 Ok((svc, healthcheck))
             }
             "gcp_cloud_storage" => {
@@ -463,7 +463,7 @@ impl DatadogArchivesSinkConfig {
         let request_limits = self.request.unwrap_with(&Default::default());
         let service = ServiceBuilder::new()
             .settings(request_limits, AzureBlobRetryLogic)
-            .service(AzureBlobService::new(client));
+            .service(AzureBlobService::new(Some(client)));
 
         let batcher_settings = BatchConfig::<DatadogArchivesDefaultBatchSettings>::default()
             .into_batcher_settings()
