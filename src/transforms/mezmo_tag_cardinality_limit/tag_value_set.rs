@@ -1,5 +1,5 @@
 use bloom::{BloomFilter, ASMS};
-use value::Value;
+use bytes::Bytes;
 use std::collections::HashSet;
 use std::fmt;
 
@@ -13,7 +13,7 @@ pub struct AcceptedTagValueSet {
 }
 
 enum TagValueSetStorage {
-    Set(HashSet<Value>),
+    Set(HashSet<Bytes>),
     Bloom(BloomFilter),
 }
 
@@ -42,10 +42,10 @@ impl AcceptedTagValueSet {
         }
     }
 
-    pub fn contains(&self, value: &Value) -> bool {
+    pub fn contains(&self, value: &Bytes) -> bool {
         match &self.storage {
             TagValueSetStorage::Set(set) => set.contains(value),
-            TagValueSetStorage::Bloom(bloom) => bloom.contains(&value),
+            TagValueSetStorage::Bloom(bloom) => bloom.contains(value),
         }
     }
 
@@ -53,7 +53,7 @@ impl AcceptedTagValueSet {
         self.num_elements
     }
 
-    pub fn insert(&mut self, value: Value) -> bool {
+    pub fn insert(&mut self, value: Bytes) -> bool {
         let inserted = match &mut self.storage {
             TagValueSetStorage::Set(set) => set.insert(value),
             TagValueSetStorage::Bloom(bloom) => bloom.insert(&value),

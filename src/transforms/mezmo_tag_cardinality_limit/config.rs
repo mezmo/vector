@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::config::{DataType, GenerateConfig, Input, Output, TransformConfig, TransformContext};
 use crate::schema;
 use crate::transforms::Transform;
@@ -20,6 +22,16 @@ pub struct TagCardinalityLimitConfig {
 
     #[serde(flatten)]
     pub mode: Mode,
+
+    /// Maximum size for a tag value.
+    ///
+    /// Tag values bigger than this size will be truncated.
+    #[serde(default = "default_max_tag_size")]
+    pub max_tag_size: usize,
+
+    /// Tags names to limit cardinality. If not provided then all tag names are considered.
+    #[serde(default)]
+    pub tags: Option<HashSet<String>>,
 }
 
 /// Controls the approach taken for tracking tag cardinality.
@@ -82,12 +94,18 @@ pub(crate) const fn default_cache_size() -> usize {
     600 // 600 bytes gives ~1% false positive rate for 500 items
 }
 
+pub(crate) const fn default_max_tag_size() -> usize {
+    256
+}
+
 impl GenerateConfig for TagCardinalityLimitConfig {
     fn generate_config() -> toml::Value {
         toml::Value::try_from(Self {
             mode: Mode::Exact,
             value_limit: default_value_limit(),
             limit_exceeded_action: default_limit_exceeded_action(),
+            max_tag_size: default_max_tag_size(),
+            tags: None
         })
         .unwrap()
     }

@@ -1,8 +1,12 @@
+use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use hashbrown::HashMap;
 use std::{collections::BTreeMap, future::ready, pin::Pin};
 use value::Value;
-use vector_core::{config::log_schema, event::{LogEvent, metric::mezmo::TransformError}};
+use vector_core::{
+    config::log_schema,
+    event::{metric::mezmo::TransformError, LogEvent},
+};
 
 use crate::{
     event::Event,
@@ -10,7 +14,8 @@ use crate::{
         MezmoTagCardinalityLimitRejectingEvent, MezmoTagCardinalityLimitRejectingTag,
         MezmoTagCardinalityValueLimitReached,
     },
-    transforms::TaskTransform, mezmo::{user_trace::handle_transform_error, MezmoContext},
+    mezmo::{user_trace::handle_transform_error, MezmoContext},
+    transforms::TaskTransform,
 };
 
 mod config;
@@ -50,7 +55,7 @@ impl TagCardinalityLimit {
     /// for the key and returns true, otherwise returns false.  A false return
     /// value indicates to the caller that the value is not accepted for this
     /// key, and the configured limit_exceeded_action should be taken.
-    fn try_accept_tag(&mut self, key: &str, value: &Value) -> bool {
+    fn try_accept_tag(&mut self, key: &str, value: &Bytes) -> bool {
         let tag_value_set = self.accepted_tags.entry_ref(key).or_insert_with(|| {
             AcceptedTagValueSet::new(self.config.value_limit, &self.config.mode)
         });
@@ -63,7 +68,7 @@ impl TagCardinalityLimit {
         // Tag value not yet part of the accepted set.
         if tag_value_set.len() < self.config.value_limit as usize {
             // accept the new value
-            tag_value_set.insert(value.clone());
+            tag_value_set.insert(Bytes::copy_from_slice(&value));
 
             if tag_value_set.len() == self.config.value_limit as usize {
                 emit!(MezmoTagCardinalityValueLimitReached { key });
@@ -78,7 +83,7 @@ impl TagCardinalityLimit {
 
     /// Checks if recording a key and value corresponding to a tag on an incoming Metric would
     /// exceed the cardinality limit.
-    fn tag_limit_exceeded(&self, key: &str, value: &Value) -> bool {
+    fn tag_limit_exceeded(&self, key: &str, value: &Bytes) -> bool {
         self.accepted_tags
             .get(key)
             .map(|value_set| {
@@ -88,11 +93,11 @@ impl TagCardinalityLimit {
     }
 
     /// Record a key and value corresponding to a tag on an incoming Metric.
-    fn record_tag_value(&mut self, key: &str, value: &Value) {
+    fn record_tag_value(&mut self, key: &str, value: &Bytes) {
         self.accepted_tags
             .entry_ref(key)
             .or_insert_with(|| AcceptedTagValueSet::new(self.config.value_limit, &self.config.mode))
-            .insert(value.clone());
+            .insert(Bytes::copy_from_slice(&value));
     }
 
     fn transform_one(&mut self, mut event: Event) -> Option<Event> {
@@ -105,30 +110,54 @@ impl TagCardinalityLimit {
                         LimitExceededAction::DropEvent => {
                             // This needs to check all the tags, to ensure that the ordering of tag names
                             // doesn't change the behavior of the check.
-
                             for (key, value) in tags_map.iter() {
-                                if self.tag_limit_exceeded(key, value) {
+                                let value = truncate(value, self.config.max_tag_size);
+                                if self
+                                    .config
+                                    .tags
+                                    .as_ref()
+                                    .map_or(true, |tags| tags.contains(key))
+                                    && self.tag_limit_exceeded(key, &value)
+                                {
                                     emit!(MezmoTagCardinalityLimitRejectingEvent {
                                         tag_key: key,
-                                        tag_value: &value.to_string(),
+                                        tag_value: &String::from_utf8_lossy(value.as_ref()),
                                     });
                                     return None;
                                 }
                             }
                             for (key, value) in tags_map.iter() {
-                                self.record_tag_value(key, value);
+                                if self
+                                    .config
+                                    .tags
+                                    .as_ref()
+                                    .map_or(true, |tags| tags.contains(key))
+                                {
+                                    let value = truncate(value, self.config.max_tag_size);
+                                    self.record_tag_value(key, &value);
+                                }
                             }
                         }
                         LimitExceededAction::DropTag => {
                             tags_map.retain(|key, value| {
-                                if self.try_accept_tag(key, value) {
-                                    true
+                                let value = truncate(value, self.config.max_tag_size);
+                                if self
+                                    .config
+                                    .tags
+                                    .as_ref()
+                                    .map_or(true, |tags| tags.contains(key))
+                                {
+                                    if self.try_accept_tag(key, &value) {
+                                        true
+                                    } else {
+                                        emit!(MezmoTagCardinalityLimitRejectingTag {
+                                            tag_key: key,
+                                            tag_value: &String::from_utf8_lossy(value.as_ref()),
+                                        });
+                                        false
+                                    }
                                 } else {
-                                    emit!(MezmoTagCardinalityLimitRejectingTag {
-                                        tag_key: key,
-                                        tag_value: &value.to_string(),
-                                    });
-                                    false
+                                    true // Let through tags not specified
                                 }
                             });
                         }
@@ -188,4 +217,20 @@ fn get_tags_mut<'a>(
             )
         },
     )
+}
+
+/// Truncate a bytes value at the provided `max`
+fn truncate(v: &Value, max: usize) -> Bytes {
+    let bytes = v.as_bytes().unwrap(); // Assumed to be pre-validated in `get_tags_mut()`
+    bytes.slice(..std::cmp::min(bytes.len(), max))
+}
+
+#[test]
+fn test_truncate() {
+    let value = Value::Bytes(Bytes::from(vec![97, 98, 99]));
+    assert_eq!(truncate(&value, 0), "");
+    assert_eq!(truncate(&value, 1), "a");
+    assert_eq!(truncate(&value, 2), "ab");
+    assert_eq!(truncate(&value, 3), "abc");
+    assert_eq!(truncate(&value, 100), "abc");
 }
