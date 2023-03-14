@@ -6,21 +6,30 @@ COPY . .
 # Output timberio/vector-dev distro (currently Ubuntu)
 RUN cat /etc/os-release
 
-RUN cargo build --release
+# LOG-16280: Install tokio-console in the image (it needs to be built locally) so
+# it can be included in the release container for debugging. This places the
+# package at /build/target/bin/tokio-console
+RUN cargo install --root /build/target tokio-console
 
+# Then build vector
+RUN cargo build --release
 RUN ls -lh /build/target/release
 
 # Smoke test on relese-builder
+RUN ["/build/target/bin/tokio-console", "--version"]
 RUN ["/build/target/release/vector", "--version"]
 
 FROM docker.io/debian:bullseye-slim as release
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata systemd && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata systemd gdb && rm -rf /var/lib/apt/lists/*
 
+COPY --from=release-builder /build/target/bin/tokio-console /usr/local/bin/tokio-console
 COPY --from=release-builder /build/target/release/vector /usr/local/bin/vector
 RUN mkdir -p /var/lib/vector
 
-# Smoke test on release
+# Smoke test on vector and tools
+RUN ["gdb", "--version"]
+RUN ["tokio-console", "--version"]
 RUN ["vector", "--version"]
 
 ARG BUILD_DATE
