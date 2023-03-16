@@ -1,18 +1,22 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
-use value::Value;
 use vector_config::configurable_component;
-use vector_core::config::{log_schema, LogNamespace};
-use vector_core::event::metric::mezmo::TransformError;
-use vector_core::event::metric::{Bucket, Quantile, Sample};
-use vector_core::event::{Metric, MetricKind, MetricValue, StatisticKind, MetricTags};
+use vector_core::config::LogNamespace;
+use vector_core::event::{
+    metric::{Bucket, Quantile, Sample},
+    StatisticKind,
+};
 
-use crate::mezmo::user_trace::handle_transform_error;
 use crate::{
-    config::{DataType, GenerateConfig, Input, Output, TransformConfig, TransformContext},
-    event::Event,
-    mezmo::MezmoContext,
+    config::{
+        log_schema, DataType, GenerateConfig, Input, Output, TransformConfig, TransformContext,
+    },
+    event::{
+        metric::{Metric, MetricKind, MetricTags, MetricValue},
+        Event, Value,
+    },
+    mezmo::{user_trace::MezmoUserLog, MezmoContext},
     schema,
     transforms::{FunctionTransform, OutputBuffer, Transform},
 };
@@ -66,7 +70,15 @@ impl LogToMetric {
     }
 }
 
-pub fn to_metric(event: &Event) -> Result<Metric, TransformError> {
+enum TransformError {
+    FieldNotFound { field: String },
+    FieldInvalidType { field: String },
+    InvalidMetricType { type_name: String },
+    FieldNull { field: String },
+    ParseIntOverflow { field: String },
+}
+
+fn to_metric(event: &Event) -> Result<Metric, TransformError> {
     let log = event.as_log();
 
     let timestamp = log
@@ -355,7 +367,32 @@ impl FunctionTransform for LogToMetric {
                 buffer = Some(Event::Metric(metric));
             }
             Err(err) => {
-                handle_transform_error(&self.mezmo_ctx, err);
+                match err {
+                    TransformError::FieldNull { field } => {
+                        self.mezmo_ctx
+                            .error(format!("Required field '{}' is null", field));
+                    }
+                    TransformError::FieldNotFound { field } => {
+                        self.mezmo_ctx.error(format!(
+                            "Required field '{}' not found in the log event",
+                            field
+                        ));
+                    }
+                    TransformError::FieldInvalidType { field } => {
+                        self.mezmo_ctx
+                            .error(format!("Field '{}' type is not valid", field));
+                    }
+                    TransformError::InvalidMetricType { type_name } => {
+                        self.mezmo_ctx
+                            .error(format!("Metric type '{}' is not supported", type_name));
+                    }
+                    TransformError::ParseIntOverflow { field } => {
+                        self.mezmo_ctx.error(format!(
+                            "Field '{}' could not be parsed as an unsigned integer",
+                            field
+                        ));
+                    }
+                };
             }
         }
 
