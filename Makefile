@@ -109,7 +109,7 @@ endif
 # Set the Jenkins BUILD_ID variable to make a unique container name to avoid collisions
 # when opening PRs on our Jenkins infrastructure.
 BUILD_TAG ?=
-CONTAINER_ID = $(BUILD_TAG)$(shell date +%s)
+CONTAINER_ID = vector-environment-$(shell echo $(BUILD_TAG) | sed -E 's/[^a-zA-Z0-9_.-]/-/g')$(shell date +%s)
 
 # We use a volume here as non-Linux hosts are extremely slow to share disks, and Linux hosts tend to get permissions clobbered.
 # TODO(mdeltito): cache volumes have been removed for now until we are building on 1.66.1
@@ -119,7 +119,7 @@ define ENVIRONMENT_EXEC
 	@echo "Entering environment..."
 	@mkdir -p target
 	$(CONTAINER_TOOL) run \
-			--name vector-environment-$(CONTAINER_ID) \
+			--name $(CONTAINER_ID) \
 			--rm \
 			$(if $(findstring true,$(ENVIRONMENT_TTY)),--tty,) \
 			--init \
