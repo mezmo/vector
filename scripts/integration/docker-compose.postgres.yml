@@ -25,7 +25,7 @@ services:
       - "--no-fail-fast"
       - "--no-default-features"
       - "--features"
-      - "postgresql_metrics-integration-tests,postgresql-integration-tests"
+      - "postgresql_metrics-integration-tests,postgresql-integration-tests,tokio-console"
       - "--lib"
       - "${FILTER:-::postgres}"
     depends_on:

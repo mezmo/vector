@@ -20,7 +20,7 @@ services:
       - "--no-fail-fast"
       - "--no-default-features"
       - "--features"
-      - "gcp-integration-tests"
+      - "gcp-integration-tests,tokio-console"
       - "--lib"
       - "::gcp::"
     environment:

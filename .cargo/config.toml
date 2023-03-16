@@ -3,10 +3,6 @@ rustflags = [
   "-Dclippy::print_stdout",
   "-Dclippy::print_stderr",
   "-Dclippy::dbg_macro",
-]
-
-[target.'cfg(feature = "tokio-console")']
-rustflags = [
   "--cfg", "tokio_unstable",
 ]
 

@@ -38,7 +38,7 @@ bench = false
 # This results in roughly a 5% reduction in performance when compiling locally vs when
 # compiled via the CI pipeline.
 [profile.release]
-debug = true
+debug = 1 # emit line tables only instead of full debug info
 
 [profile.bench]
 debug = false

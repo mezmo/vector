@@ -16,7 +16,7 @@ services:
       - "--no-fail-fast"
       - "--no-default-features"
       - "--features"
-      - "fluent-integration-tests"
+      - "fluent-integration-tests,tokio-console"
       - "--lib"
       - "::fluent::"
     volumes:

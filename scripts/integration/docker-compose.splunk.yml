@@ -27,7 +27,7 @@ services:
       - "--no-fail-fast"
       - "--no-default-features"
       - "--features"
-      - "splunk-integration-tests"
+      - "splunk-integration-tests,tokio-console"
       - "--lib"
       - "${FILTER:-::splunk_hec::}"
     depends_on:

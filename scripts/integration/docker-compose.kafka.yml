@@ -47,7 +47,7 @@ services:
       - "--no-fail-fast"
       - "--no-default-features"
       - "--features"
-      - "kafka-integration-tests"
+      - "kafka-integration-tests,tokio-console"
       - "--lib"
       - "${FILTER:-::kafka::}"
     depends_on:

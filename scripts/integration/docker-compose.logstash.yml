@@ -38,7 +38,7 @@ services:
       - "--no-fail-fast"
       - "--no-default-features"
       - "--features"
-      - "logstash-integration-tests"
+      - "logstash-integration-tests,tokio-console"
       - "--lib"
       - "::logstash::integration_tests::"
     environment:

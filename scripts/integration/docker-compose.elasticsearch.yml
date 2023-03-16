@@ -45,7 +45,7 @@ services:
       - "--no-fail-fast"
       - "--no-default-features"
       - "--features"
-      - "es-integration-tests"
+      - "es-integration-tests,tokio-console"
       - "--lib"
       - "--"
       - "::elasticsearch::integration_tests::"
