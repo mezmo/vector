@@ -1,4 +1,10 @@
-use std::{collections::HashMap, num::NonZeroUsize, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    num::NonZeroUsize,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use futures::StreamExt;
 #[cfg(feature = "enterprise")]
@@ -363,11 +369,56 @@ impl Application {
                     signal = signal_rx.recv() => {
                         match signal {
                             Ok(SignalTo::ReloadFromConfigBuilder(config_builder)) => {
+                                let start = Instant::now();
                                 let mut topology_controller = topology_controller.lock().await;
                                 let new_config = config_builder.build().map_err(handle_config_errors).ok();
-                                if let ReloadOutcome::FatalError = topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone())).await {
-                                    break SignalTo::Shutdown;
+                                let mut reload_outcome = ReloadOutcome::NoConfig;
+                                let reload_future = topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone()));
+                                tokio::pin!(reload_future);
+                                for i in 1.. {
+                                    tokio::select! {
+                                        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                                            info!("Waiting for topology to be reloaded after {i} secs")
+                                        },
+                                        outcome = &mut reload_future => {
+                                            reload_outcome = outcome;
+                                            break;
+                                        }
+                                    }
                                 }
+
+                                let elapsed = Instant::now() - start;
+
+                                match reload_outcome {
+                                    ReloadOutcome::NoConfig => {
+                                        warn!(
+                                            message = "Config reload resulted in no config",
+                                            ?elapsed
+                                        );
+                                    },
+                                    ReloadOutcome::MissingApiKey => {
+                                        warn!(
+                                            message = "Config reload missing API key",
+                                            ?elapsed
+                                        );
+                                    },
+                                    ReloadOutcome::Success => {
+                                        info!("Config reload succeeded, took {:?}", elapsed);
+                                    },
+                                    ReloadOutcome::RolledBack => {
+                                        warn!(
+                                            message = "Config reload rolled back",
+                                            ?elapsed
+                                        );
+                                    },
+                                    ReloadOutcome::FatalError => {
+                                        error!(
+                                            message = "Config reload fatal error",
+                                            ?elapsed
+                                        );
+                                        break SignalTo::Shutdown;
+                                    },
+                                };
                             }
                             Ok(SignalTo::ReloadFromDisk) => {
                                 let mut topology_controller = topology_controller.lock().await;

@@ -84,6 +84,7 @@ mod lua;
 #[cfg(feature = "transforms-metric_to_log")]
 mod metric_to_log;
 mod mezmo_aggregate;
+pub mod mezmo_generate_config_error;
 #[cfg(feature = "transforms-tag_cardinality_limit")]
 mod mezmo_tag_cardinality_limit;
 #[cfg(feature = "sources-mongodb_metrics")]

@@ -3,6 +3,7 @@ use vector_config::{configurable_component, NamedComponent};
 
 use crate::{
     config::{ConfigBuilder, ProviderConfig},
+    mezmo::config::MezmoPartitionConfig,
     signal,
 };
 
@@ -15,9 +16,13 @@ pub type BuildResult = std::result::Result<ConfigBuilder, Vec<String>>;
 #[derive(Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[enum_dispatch(ProviderConfig)]
+#[allow(clippy::large_enum_variant)]
 pub enum Providers {
     /// HTTP.
     Http(#[configurable(derived)] http::HttpConfig),
+
+    /// Mezmo Pipeline config provider.
+    MezmoPartition(#[configurable(derived)] MezmoPartitionConfig),
 }
 
 // We can't use `enum_dispatch` here because it doesn't support associated constants.
@@ -27,6 +32,7 @@ impl NamedComponent for Providers {
     fn get_component_name(&self) -> &'static str {
         match self {
             Self::Http(config) => config.get_component_name(),
+            Self::MezmoPartition(config) => config.get_component_name(),
         }
     }
 }

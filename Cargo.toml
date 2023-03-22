@@ -359,6 +359,7 @@ base64 = "0.20.0"
 criterion = { version = "0.4.0", features = ["html_reports", "async_tokio"] }
 itertools = { version = "0.10.5", default-features = false }
 libc = "0.2.139"
+mockall = "0.11.4"
 similar-asserts = "1.4.2"
 proptest = "1.0"
 quickcheck = "1.0.3"
