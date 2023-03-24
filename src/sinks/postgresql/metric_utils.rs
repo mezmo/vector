@@ -14,7 +14,7 @@ fn get_tag_value<'a>(
     if let Some(tags) = tags {
         if let Some(BorrowedSegment::Field(tag_name)) = iter.next().as_ref() {
             if iter.peek().is_none() {
-                return tags.get(&tag_name.to_string()).map(|s| Value::from(s));
+                return tags.get(tag_name).map(Value::from);
             }
         }
     }
@@ -87,7 +87,7 @@ mod tests {
     use vector_core::metric_tags;
 
     fn new_metric() -> Metric {
-        let ts = chrono::NaiveDate::from_ymd(2022, 10, 01).and_hms(13, 51, 30);
+        let ts = chrono::NaiveDate::from_ymd(2022, 10, 1).and_hms(13, 51, 30);
         let ts = chrono::DateTime::from_utc(ts, chrono::Utc);
 
         Metric::new(

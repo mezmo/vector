@@ -1,3 +1,6 @@
+def WORKSPACE_PATH = "/tmp/workspace/${env.BUILD_TAG.replace('%2F', '/')}"
+def RUST_CI_IMAGE = "us.gcr.io/logdna-k8s/rust:bullseye-1-stable-x86_64"
+
 pipeline {
     agent {
         node {
@@ -23,11 +26,22 @@ pipeline {
                 """
             }
         }
-        stage('Unit test'){
-            steps {
-                sh """
+        stage('Lint and Test'){
+            parallel {
+              stage('Lint'){
+                steps {
+                  sh """
+                    make check-all ENVIRONMENT=true
+                  """
+                }
+              }
+              stage('Unit test'){
+                steps {
+                  sh """
                     make test ENVIRONMENT=true
-                """
+                  """
+                }
+              }
             }
         }
         stage('Build image and publish') {

@@ -80,7 +80,7 @@ impl Aggregate {
         Ok(Self {
             interval: Duration::from_millis(config.interval_ms),
             map: Default::default(),
-            mezmo_ctx: mezmo_ctx,
+            mezmo_ctx,
         })
     }
 

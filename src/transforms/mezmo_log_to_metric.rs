@@ -67,7 +67,7 @@ impl FunctionTransform for LogToMetric {
 
         match to_metric(event.into_log()) {
             Ok(metric) => {
-                buffer = Some(Event::Metric(metric.into()));
+                buffer = Some(Event::Metric(metric));
             }
             Err(err) => {
                 handle_transform_error(&self.mezmo_ctx, err);

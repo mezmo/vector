@@ -146,13 +146,14 @@ where
 #[track_caller]
 pub(crate) fn spawn_named<T>(
     task: impl std::future::Future<Output = T> + Send + 'static,
-    _name: &str,
+    #[cfg(tokio_unstable)] name: &str,
+    #[cfg(not(tokio_unstable))] _name: &str,
 ) -> tokio::task::JoinHandle<T>
 where
     T: Send + 'static,
 {
     #[cfg(tokio_unstable)]
-    return tokio::task::Builder::new().name(_name).spawn(task).unwrap();
+    return tokio::task::Builder::new().name(name).spawn(task).unwrap();
 
     #[cfg(not(tokio_unstable))]
     tokio::spawn(task)

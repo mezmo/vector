@@ -152,7 +152,7 @@ impl SinkConfig for AzureBlobSinkConfig {
         let healthcheck = azure_common::config::build_healthcheck(
             self.container_name.clone(),
             client.clone(),
-            cx.clone(),
+            cx,
         )?;
         let sink = self.build_processor(client)?;
         Ok((sink, healthcheck))

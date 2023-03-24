@@ -2,7 +2,6 @@ pub mod prelude;
 
 mod adaptive_concurrency;
 mod aggregate;
-mod mezmo_aggregate;
 #[cfg(any(feature = "sources-amqp", feature = "sinks-amqp"))]
 mod amqp;
 #[cfg(feature = "sources-apache_metrics")]
@@ -84,6 +83,9 @@ mod loki;
 mod lua;
 #[cfg(feature = "transforms-metric_to_log")]
 mod metric_to_log;
+mod mezmo_aggregate;
+#[cfg(feature = "transforms-tag_cardinality_limit")]
+mod mezmo_tag_cardinality_limit;
 #[cfg(feature = "sources-mongodb_metrics")]
 mod mongodb_metrics;
 #[cfg(feature = "sinks-nats")]
@@ -114,8 +116,6 @@ mod splunk_hec;
 mod statsd_sink;
 #[cfg(feature = "transforms-tag_cardinality_limit")]
 mod tag_cardinality_limit;
-#[cfg(feature = "transforms-tag_cardinality_limit")]
-mod mezmo_tag_cardinality_limit;
 
 mod tcp;
 mod template;
@@ -139,8 +139,6 @@ pub(crate) use mongodb_metrics::*;
 
 #[cfg(feature = "transforms-aggregate")]
 pub(crate) use self::aggregate::*;
-#[cfg(feature = "transforms-aggregate")]
-pub(crate) use self::mezmo_aggregate::*;
 #[cfg(any(feature = "sources-amqp", feature = "sinks-amqp"))]
 pub(crate) use self::amqp::*;
 #[cfg(feature = "sources-apache_metrics")]
@@ -229,6 +227,10 @@ pub(crate) use self::loki::*;
 pub(crate) use self::lua::*;
 #[cfg(feature = "transforms-metric_to_log")]
 pub(crate) use self::metric_to_log::*;
+#[cfg(feature = "transforms-aggregate")]
+pub(crate) use self::mezmo_aggregate::*;
+#[cfg(feature = "transforms-tag_cardinality_limit")]
+pub(crate) use self::mezmo_tag_cardinality_limit::*;
 #[cfg(feature = "sinks-nats")]
 pub(crate) use self::nats::*;
 #[cfg(feature = "sources-nginx_metrics")]
@@ -256,8 +258,6 @@ pub(crate) use self::splunk_hec::*;
 pub(crate) use self::statsd_sink::*;
 #[cfg(feature = "transforms-tag_cardinality_limit")]
 pub(crate) use self::tag_cardinality_limit::*;
-#[cfg(feature = "transforms-tag_cardinality_limit")]
-pub(crate) use self::mezmo_tag_cardinality_limit::*;
 
 #[cfg(feature = "transforms-throttle")]
 pub(crate) use self::throttle::*;

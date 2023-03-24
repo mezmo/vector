@@ -226,6 +226,7 @@ impl MezmoDemoLogsConfig {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn mezmo_demo_logs_source(
     interval: f64,
     count: usize,

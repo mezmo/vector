@@ -1,3 +1,4 @@
+#![allow(clippy::excessive_precision)]
 /// Module for generating fake environmental sensor telemetry data based on a sample
 /// of a real source. This is the same data set used in the Mezmo demo systems code base
 /// but modified to avoid file I/O from a sample data file and limited memory usage.

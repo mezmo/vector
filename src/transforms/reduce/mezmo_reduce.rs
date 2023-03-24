@@ -117,7 +117,7 @@ struct MezmoMetadata {
 impl MezmoMetadata {
     fn new(date_formats: HashMap<String, String>) -> Self {
         Self {
-            date_formats: date_formats,
+            date_formats,
             date_kinds: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -161,7 +161,7 @@ impl_generate_config_from_default!(MezmoReduceConfig);
 #[async_trait::async_trait]
 impl TransformConfig for MezmoReduceConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
-        MezmoReduce::new(self, &context).map(Transform::event_task)
+        MezmoReduce::new(self, context).map(Transform::event_task)
     }
 
     fn input(&self) -> Input {
@@ -277,10 +277,7 @@ impl ReduceState {
 
         // Use default merge strategies for root fields
         let fields = if let Value::Object(fields) = value {
-            fields
-                .into_iter()
-                .filter_map(|(k, v)| Some((k, v.into())))
-                .collect()
+            fields.into_iter().map(|(k, v)| (k, v.into())).collect()
         } else {
             HashMap::new()
         };
@@ -402,7 +399,7 @@ impl ReduceState {
     // create a Value() that matches the incoming data type for the field, e.g. a String.
     fn coerce_from_timestamp_if_needed(&self, log_event: &mut LogEvent) {
         let date_formats = &self.mezmo_metadata.date_formats;
-        if date_formats.len() == 0 {
+        if date_formats.is_empty() {
             debug!(message = "There are no custom date formats to coerce");
             return;
         }
@@ -435,15 +432,13 @@ impl ReduceState {
                                 start_date_string, end_date_string
                             );
                             let start_val = start_date_string
-                            .parse::<i64>()
-                            .and_then(|date_int| Ok(Value::from(date_int)))
+                            .parse::<i64>().map(Value::from)
                             .unwrap_or_else(|error| {
                                 warn!(message = "Could not coerce start date back into an integer Value", date_prop, %error);
                                 Value::from(start_date_string)
                             });
                             let end_val = end_date_string
-                            .parse::<i64>()
-                            .and_then(|date_int| Ok(Value::from(date_int)))
+                            .parse::<i64>().map(Value::from)
                             .unwrap_or_else(|error| {
                                 warn!(message = "Could not coerce end date back into an integer Value", end_prop, %error);
                                 Value::from(end_date_string)
@@ -630,8 +625,8 @@ impl MezmoReduce {
     // `format` should be parsed from their string versions and sent through the reduce process
     // as a Value::Timestamp.
     fn coerce_into_timestamp_if_needed(&mut self, log_event: &mut LogEvent) {
-        if self.mezmo_metadata.date_formats.len() == 0 {
-            return ();
+        if self.mezmo_metadata.date_formats.is_empty() {
+            return;
         }
         for (prop, format) in self.mezmo_metadata.date_formats.iter() {
             let prop_str = prop.as_str();
@@ -653,7 +648,6 @@ impl MezmoReduce {
                 };
             }
         }
-        ()
     }
 
     // Mezmo-specific method. Incoming events from Mezmo will have all customer fields inside
@@ -662,8 +656,7 @@ impl MezmoReduce {
     fn extract_message_event(&mut self, event: &mut LogEvent) -> Event {
         Event::from(
             if let Some(Value::Object(message_object)) = event.remove("message") {
-                let mut message_event =
-                    LogEvent::from_map(message_object.clone(), Default::default());
+                let mut message_event = LogEvent::from_map(message_object, Default::default());
 
                 self.coerce_into_timestamp_if_needed(&mut message_event);
 

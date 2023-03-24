@@ -124,7 +124,7 @@ impl Default for PostgreSQLSinkConfig {
     }
 }
 
-fn default_max_pool_size() -> usize {
+const fn default_max_pool_size() -> usize {
     4
 }
 

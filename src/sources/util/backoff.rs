@@ -13,7 +13,7 @@ pub struct Backoff {
 }
 
 impl Backoff {
-    pub fn new() -> Backoff {
+    pub const fn new() -> Backoff {
         Backoff { step: 0 }
     }
 

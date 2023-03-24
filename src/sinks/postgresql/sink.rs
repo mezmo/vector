@@ -81,22 +81,22 @@ fn pool_config(connect_url: &str, max_pool_size: usize) -> crate::Result<Config>
 /// up the statement string.
 fn generate_sql(
     table: &str,
-    fields: &Vec<PostgreSQLFieldConfig>,
+    fields: &[PostgreSQLFieldConfig],
     conflicts: &Option<PostgreSQLConflictsConfig>,
 ) -> crate::Result<String> {
     let mut field_list = String::new();
     let mut param_list = String::new();
     let mut field_iter = fields.iter().enumerate();
     if let Some((_, field)) = field_iter.next() {
-        field_list.push_str(&*field.name);
+        field_list.push_str(&field.name);
         param_list.push_str("$1");
 
         for (idx, field) in field_iter {
             field_list.push(',');
-            field_list.push_str(&*field.name);
+            field_list.push_str(&field.name);
 
             param_list.push_str(",$");
-            param_list.push_str(&*(idx + 1).to_string());
+            param_list.push_str(&(idx + 1).to_string());
         }
     }
 
@@ -126,9 +126,9 @@ fn generate_sql(
                             }));
                         }
                     };
-                    conflict_chunk.push_str(&*u_field);
+                    conflict_chunk.push_str(u_field);
                     conflict_chunk.push_str("=$");
-                    conflict_chunk.push_str(&*f_idx.to_string());
+                    conflict_chunk.push_str(&f_idx.to_string());
 
                     for u_field in update_iter {
                         conflict_chunk.push(',');
@@ -141,9 +141,9 @@ fn generate_sql(
                                 ));
                             }
                         };
-                        conflict_chunk.push_str(&*u_field);
+                        conflict_chunk.push_str(u_field);
                         conflict_chunk.push_str("=$");
-                        conflict_chunk.push_str(&*f_idx.to_string());
+                        conflict_chunk.push_str(&f_idx.to_string());
                     }
                 }
             }
@@ -177,7 +177,7 @@ fn build_request(
                     field_name: field.path.to_owned(),
                 },
             ),
-            Event::Metric(_) => get_from_metric(&e.as_metric(), &*field.path).ok_or(
+            Event::Metric(_) => get_from_metric(e.as_metric(), &*field.path).ok_or(
                 PostgreSQLSinkError::MissingField {
                     field_name: field.path.to_owned(),
                 },
@@ -213,26 +213,26 @@ mod tests {
 
     #[test]
     fn generate_sql_single_field_test() {
-        let mut field_conf = Vec::new();
-        field_conf.push(PostgreSQLFieldConfig {
+        let field_conf = vec![PostgreSQLFieldConfig {
             name: "message".to_owned(),
             path: ".message".to_owned(),
-        });
+        }];
         let actual = generate_sql("tbl_123", &field_conf, &None).unwrap();
         assert_eq!(actual, "INSERT INTO tbl_123 (message) VALUES ($1)");
     }
 
     #[test]
     fn generate_sql_multi_field_test() {
-        let mut field_conf = Vec::new();
-        field_conf.push(PostgreSQLFieldConfig {
-            name: "timestamp".to_owned(),
-            path: ".timestamp".to_owned(),
-        });
-        field_conf.push(PostgreSQLFieldConfig {
-            name: "message".to_owned(),
-            path: ".message".to_owned(),
-        });
+        let field_conf = vec![
+            PostgreSQLFieldConfig {
+                name: "timestamp".to_owned(),
+                path: ".timestamp".to_owned(),
+            },
+            PostgreSQLFieldConfig {
+                name: "message".to_owned(),
+                path: ".message".to_owned(),
+            },
+        ];
         let actual = generate_sql("tbl_123", &field_conf, &None).unwrap();
         assert_eq!(
             actual,
@@ -242,19 +242,20 @@ mod tests {
 
     #[test]
     fn generate_sql_confict_do_nothing_test() {
-        let mut field_conf = Vec::new();
-        field_conf.push(PostgreSQLFieldConfig {
-            name: "timestamp".to_owned(),
-            path: ".timestamp".to_owned(),
-        });
-        field_conf.push(PostgreSQLFieldConfig {
-            name: "host".to_owned(),
-            path: ".host".to_owned(),
-        });
-        field_conf.push(PostgreSQLFieldConfig {
-            name: "message".to_owned(),
-            path: ".message".to_owned(),
-        });
+        let field_conf = vec![
+            PostgreSQLFieldConfig {
+                name: "timestamp".to_owned(),
+                path: ".timestamp".to_owned(),
+            },
+            PostgreSQLFieldConfig {
+                name: "host".to_owned(),
+                path: ".host".to_owned(),
+            },
+            PostgreSQLFieldConfig {
+                name: "message".to_owned(),
+                path: ".message".to_owned(),
+            },
+        ];
         let confict_conf = Some(PostgreSQLConflictsConfig::Nothing {
             target: vec!["host".to_owned(), "message".to_owned()],
         });
@@ -268,19 +269,20 @@ mod tests {
 
     #[test]
     fn generate_sql_on_conflict_set_test() {
-        let mut field_conf = Vec::new();
-        field_conf.push(PostgreSQLFieldConfig {
-            name: "timestamp".to_owned(),
-            path: ".timestamp".to_owned(),
-        });
-        field_conf.push(PostgreSQLFieldConfig {
-            name: "ratio".to_owned(),
-            path: ".ratio".to_owned(),
-        });
-        field_conf.push(PostgreSQLFieldConfig {
-            name: "message".to_owned(),
-            path: ".message".to_owned(),
-        });
+        let field_conf = vec![
+            PostgreSQLFieldConfig {
+                name: "timestamp".to_owned(),
+                path: ".timestamp".to_owned(),
+            },
+            PostgreSQLFieldConfig {
+                name: "ratio".to_owned(),
+                path: ".ratio".to_owned(),
+            },
+            PostgreSQLFieldConfig {
+                name: "message".to_owned(),
+                path: ".message".to_owned(),
+            },
+        ];
         let confict_conf = Some(PostgreSQLConflictsConfig::Update {
             target: vec!["message".to_owned()],
             fields: vec!["ratio".to_owned(), "timestamp".to_owned()],
