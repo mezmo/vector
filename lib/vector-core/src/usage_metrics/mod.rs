@@ -334,7 +334,7 @@ pub fn mezmo_byte_size(array: &EventArray) -> usize {
     }
 }
 
-fn value_size(v: &Value) -> usize {
+pub fn value_size(v: &Value) -> usize {
     match v {
         Value::Bytes(v) => v.len(),
         Value::Boolean(_) => 1,

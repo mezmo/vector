@@ -153,6 +153,9 @@ const fn default_flush_period_ms() -> Duration {
     Duration::from_millis(1000)
 }
 
+const REDUCE_BYTE_THRESHOLD_PER_STATE_DEFAULT: usize = 100 * 1024; // 100K
+const REDUCE_BYTE_THRESHOLD_ALL_STATES_DEFAULT: usize = 1024 * 1024; // 1MB
+
 impl_generate_config_from_default!(MezmoReduceConfig);
 
 #[async_trait::async_trait]
@@ -257,9 +260,10 @@ impl TransformConfig for MezmoReduceConfig {
 struct ReduceState {
     fields: HashMap<String, Box<dyn ReduceValueMerger>>,
     message_fields: HashMap<String, Box<dyn ReduceValueMerger>>, // Mezmo-specific. Fields under "message".
-    stale_since: Instant,
+    started_at: Instant,
     metadata: EventMetadata,
     mezmo_metadata: MezmoMetadata,
+    size_estimate: usize,
 }
 
 impl ReduceState {
@@ -283,20 +287,27 @@ impl ReduceState {
 
         let (value, _) = message_event.into_parts();
 
+        let mut size_estimate: usize = 0;
+
         let message_fields = if let Value::Object(fields) = value {
             fields
                 .into_iter()
                 .filter_map(|(k, v)| {
                     if let Some(strat) = strategies.get(&k) {
                         match get_value_merger(v, strat) {
-                            Ok(m) => Some((k, m)),
+                            Ok(m) => {
+                                size_estimate += m.size_estimate();
+                                Some((k, m))
+                            }
                             Err(error) => {
                                 warn!(message = "Failed to create merger.", field = ?k, %error);
                                 None
                             }
                         }
                     } else {
-                        Some((k, v.into()))
+                        let m: Box<dyn ReduceValueMerger> = v.into();
+                        size_estimate += m.size_estimate();
+                        Some((k, m))
                     }
                 })
                 .collect()
@@ -305,11 +316,12 @@ impl ReduceState {
         };
 
         Self {
-            stale_since: Instant::now(),
+            started_at: Instant::now(),
             fields,
             message_fields,
             metadata,
             mezmo_metadata,
+            size_estimate,
         }
     }
 
@@ -357,6 +369,7 @@ impl ReduceState {
                     if let Some(strat) = strategy {
                         match get_value_merger(v, strat) {
                             Ok(m) => {
+                                self.size_estimate += m.size_estimate();
                                 entry.insert(m);
                             }
                             Err(error) => {
@@ -364,18 +377,25 @@ impl ReduceState {
                             }
                         }
                     } else {
-                        entry.insert(v.clone().into());
+                        let m: Box<dyn ReduceValueMerger> = v.clone().into();
+                        self.size_estimate += m.size_estimate();
+                        entry.insert(m);
                     }
                 }
                 hash_map::Entry::Occupied(mut entry) => {
-                    if let Err(error) = entry.get_mut().add(v.clone()) {
-                        warn!(message = "Failed to merge value.", %error);
-                    }
+                    // Mezmo-specific: here we are *updating* the size of the value merger. Subtract the original value before
+                    // adding whatever the new value is (for example, when array lengths change)
+                    let original_size = entry.get().size_estimate();
+                    entry.get_mut().add(v.clone()).map_or_else(
+                        |error| warn!(message = "Failed to merge value.", %error),
+                        |_| {
+                            let delta = entry.get().size_estimate() - original_size;
+                            self.size_estimate += delta;
+                        },
+                    );
                 }
             }
         }
-
-        self.stale_since = Instant::now();
     }
 
     // Mezmo-specific method. Take the timestamp fields (and their _end counterparts) and
@@ -479,6 +499,8 @@ pub struct MezmoReduce {
     ends_when: Option<Condition>,
     starts_when: Option<Condition>,
     mezmo_metadata: MezmoMetadata,
+    byte_threshold_per_state: usize,
+    byte_threshold_all_states: usize,
 }
 
 impl MezmoReduce {
@@ -499,6 +521,19 @@ impl MezmoReduce {
             .transpose()?;
         let group_by = config.group_by.clone().into_iter().collect();
 
+        let byte_threshold_per_state = match std::env::var("REDUCE_BYTE_THRESHOLD_PER_STATE") {
+            Ok(env_var) => env_var
+                .parse()
+                .unwrap_or(REDUCE_BYTE_THRESHOLD_PER_STATE_DEFAULT),
+            _ => REDUCE_BYTE_THRESHOLD_PER_STATE_DEFAULT,
+        };
+        let byte_threshold_all_states = match std::env::var("REDUCE_BYTE_THRESHOLD_ALL_STATES") {
+            Ok(env_var) => env_var
+                .parse()
+                .unwrap_or(REDUCE_BYTE_THRESHOLD_ALL_STATES_DEFAULT),
+            _ => REDUCE_BYTE_THRESHOLD_ALL_STATES_DEFAULT,
+        };
+
         Ok(MezmoReduce {
             expire_after: config.expire_after_ms,
             flush_period: config.flush_period_ms,
@@ -508,28 +543,64 @@ impl MezmoReduce {
             ends_when,
             starts_when,
             mezmo_metadata: MezmoMetadata::new(config.date_formats.clone()),
+            byte_threshold_per_state,
+            byte_threshold_all_states,
         })
     }
 
     fn flush_into(&mut self, output: &mut Vec<Event>) {
-        let mut flush_discriminants = Vec::new();
-        for (k, t) in &self.reduce_merge_states {
-            if t.stale_since.elapsed() >= self.expire_after {
-                flush_discriminants.push(k.clone());
+        let mut total_states_size_estimate = 0;
+        let mut flush_discriminants: BTreeMap<Instant, Discriminant> = BTreeMap::new();
+
+        debug!(
+            message = "Flush called",
+            number_of_states = &self.reduce_merge_states.len()
+        );
+
+        for (discriminant, state) in &self.reduce_merge_states {
+            if state.started_at.elapsed() >= self.expire_after {
+                debug!(message = "Flushing based on started_at exceeding expire_after_ms");
+                flush_discriminants.insert(state.started_at.clone(), discriminant.clone());
+            } else if state.size_estimate > self.byte_threshold_per_state {
+                warn!("Flushing because the state size of {} has exceeded the per-state threshold of {}",
+                    state.size_estimate, self.byte_threshold_per_state
+                );
+                flush_discriminants.insert(state.started_at.clone(), discriminant.clone());
+            } else {
+                // Only add to the total state size if we HAVE NOT flushed the state yet
+                total_states_size_estimate += state.size_estimate;
             }
         }
-        for k in &flush_discriminants {
-            if let Some(t) = self.reduce_merge_states.remove(k) {
+
+        // Flush any stale states, sorted by started_at.
+        // This also emits an event, whereas flush_all_into does not (because they're not "stale")
+        for (_, discriminant) in flush_discriminants {
+            if let Some(state) = self.reduce_merge_states.remove(&discriminant) {
                 emit!(ReduceStaleEventFlushed);
-                output.push(Event::from(t.flush()));
+                output.push(Event::from(state.flush()));
             }
+        }
+
+        debug!("Total size of all states: {}", total_states_size_estimate);
+        if total_states_size_estimate > self.byte_threshold_all_states {
+            warn!(
+                "Flushing all states because the byte total {} exceeds the threshold of {}",
+                total_states_size_estimate, self.byte_threshold_all_states
+            );
+            self.flush_all_into(output);
         }
     }
 
     fn flush_all_into(&mut self, output: &mut Vec<Event>) {
-        self.reduce_merge_states
-            .drain()
-            .for_each(|(_, s)| output.push(Event::from(s.flush())));
+        // Make sure to sort by `started_at` so that line order is preserved as closely as possible
+        let mut sorted_states: Vec<(Discriminant, ReduceState)> =
+            self.reduce_merge_states.drain().collect();
+
+        sorted_states.sort_by(|(_, a), (_, b)| a.started_at.cmp(&b.started_at));
+
+        for (_, state) in sorted_states {
+            output.push(Event::from(state.flush()))
+        }
     }
 
     fn push_or_new_reduce_state(
@@ -700,6 +771,7 @@ impl TaskTransform<Event> for MezmoReduce {
 
 #[cfg(test)]
 mod test {
+    use assay::assay;
     use serde_json::json;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
@@ -709,6 +781,8 @@ mod test {
     use crate::test_util::components::assert_transform_compliance;
     use crate::transforms::test::create_topology;
     use chrono::{Duration, Utc};
+    use vector_common::btreemap;
+    use vector_core::config::log_schema;
 
     #[test]
     fn generate_config() {
@@ -716,8 +790,12 @@ mod test {
     }
 
     #[tokio::test]
-    async fn mezmo_reduce_default_behavior() {
-        let reduce_config = toml::from_str::<MezmoReduceConfig>("").unwrap();
+    async fn mezmo_reduce_default_behavior_uses_expire_after() {
+        // This test is different than the others since it uses `tx.send()` to send each payload, and thus
+        // it will follow guidelines for ending the test based on `expire_after_ms`.  The other tests call
+        // `transform_events` manually which ends the test after they're consumed.
+
+        let reduce_config = toml::from_str::<MezmoReduceConfig>("expire_after_ms = 3000").unwrap();
 
         assert_transform_compliance(async move {
             let (tx, rx) = mpsc::channel(1);
@@ -1455,6 +1533,175 @@ mod test {
         assert_eq!(
             output_1["message.\"concat-me!\""],
             "seven eight nine".into()
+        );
+    }
+
+    #[assay(
+        env = [
+          ("REDUCE_BYTE_THRESHOLD_PER_STATE", "30"),
+        ]
+      )]
+    async fn mezmo_reduce_state_exceeds_threshold() {
+        let reduce = toml::from_str::<MezmoReduceConfig>(
+            r#"
+                [merge_strategies]
+                "key1" = "array"
+            "#,
+        )
+        .unwrap()
+        .build(&TransformContext::default())
+        .await
+        .unwrap();
+        let reduce = reduce.into_task();
+
+        let mut e_1 = LogEvent::default();
+        e_1.insert(
+            log_schema().message_key(),
+            btreemap! {
+                "key1" => "first one",
+                "key2" => "first"
+            },
+        );
+        let mut e_2 = LogEvent::default();
+        e_2.insert(
+            log_schema().message_key(),
+            btreemap! {
+                "key1" => "second one",
+                "key2" => "NOPE"
+            },
+        );
+        let mut e_3 = LogEvent::default();
+        e_3.insert(
+            // This will cause the threshold to be exceeded
+            log_schema().message_key(),
+            btreemap! {
+                "key1" => "and now you're too big!",
+                "key2" => "NEIGH"
+            },
+        );
+        let mut e_4 = LogEvent::default();
+        e_4.insert(
+            // This will be a new event
+            log_schema().message_key(),
+            btreemap! {
+                "key1" => "a new reduce event",
+                "key2" => "yep"
+            },
+        );
+
+        let inputs = vec![e_1.into(), e_2.into(), e_3.into(), e_4.into()];
+        let in_stream = Box::pin(stream::iter(inputs));
+        let mut out_stream = reduce.transform_events(in_stream);
+
+        let output_1 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_1,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "key1" => json!(["first one", "second one", "and now you're too big!"]),
+                    "key2" => "first",
+                }
+            })
+        );
+
+        let output_2 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_2,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "key1" => json!(["a new reduce event"]),
+                    "key2" => "yep",
+                }
+            })
+        );
+    }
+
+    #[assay(
+        env = [
+          ("REDUCE_BYTE_THRESHOLD_ALL_STATES", "30"),
+        ]
+      )]
+    async fn mezmo_reduce_all_states_total_exceeds_threshold() {
+        let reduce = toml::from_str::<MezmoReduceConfig>(
+            r#"
+                group_by = [ "request_id" ]
+
+                [merge_strategies]
+                "key1" = "array"
+            "#,
+        )
+        .unwrap()
+        .build(&TransformContext::default())
+        .await
+        .unwrap();
+        let reduce = reduce.into_task();
+
+        // Different request ids will cause multiple states since each unique `id` is a discriminant and state
+        let mut e_1 = LogEvent::default();
+        e_1.insert(
+            log_schema().message_key(),
+            btreemap! {
+                "request_id" => "1",
+                "key1" => "one",
+            },
+        );
+        let mut e_2 = LogEvent::default();
+        e_2.insert(
+            log_schema().message_key(),
+            btreemap! {
+                "request_id" => "1",
+                "key1" => "two",
+            },
+        );
+        let mut e_3 = LogEvent::default();
+        e_3.insert(
+            log_schema().message_key(),
+            btreemap! {
+                "request_id" => "2",
+                "key1" => "one",
+            },
+        );
+        let mut e_4 = LogEvent::default();
+        e_4.insert(
+            log_schema().message_key(),
+            btreemap! {
+                "request_id" => "2",
+                "key1" => "two",
+            },
+        );
+        let mut e_5 = LogEvent::default();
+        e_5.insert(
+            log_schema().message_key(),
+            btreemap! {
+                "request_id" => "2",
+                "key1" => "aaaaaaaaaaaand we're way too long now",
+            },
+        );
+
+        let inputs = vec![e_1.into(), e_2.into(), e_3.into(), e_4.into(), e_5.into()];
+        let in_stream = Box::pin(stream::iter(inputs));
+        let mut out_stream = reduce.transform_events(in_stream);
+
+        let output_1 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_1,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "key1" => json!(["one", "two"]),
+                    "request_id" => "1",
+                }
+            })
+        );
+
+        let output_2 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_2,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "key1" => json!(["one", "two", "aaaaaaaaaaaand we're way too long now"]),
+                    "request_id" => "2",
+                }
+            })
         );
     }
 }
