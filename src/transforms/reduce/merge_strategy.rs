@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::mem::size_of;
 
 use bytes::{Bytes, BytesMut};
 use chrono::{DateTime, Utc};
@@ -6,6 +7,7 @@ use ordered_float::NotNan;
 use vector_config::configurable_component;
 
 use crate::event::{LogEvent, Value};
+use vector_core::usage_metrics::value_size;
 
 /// Strategies for merging events.
 #[configurable_component]
@@ -54,11 +56,13 @@ pub enum MergeStrategy {
 #[derive(Debug, Clone)]
 struct DiscardMerger {
     v: Value,
+    size_estimate: usize,
 }
 
 impl DiscardMerger {
-    const fn new(v: Value) -> Self {
-        Self { v }
+    fn new(v: Value) -> Self {
+        let size_estimate = value_size(&v);
+        Self { v, size_estimate }
     }
 }
 
@@ -71,17 +75,23 @@ impl ReduceValueMerger for DiscardMerger {
         v.insert(k.as_str(), self.v);
         Ok(())
     }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
+    }
 }
 
 #[derive(Debug, Clone)]
 struct RetainMerger {
     v: Value,
+    size_estimate: usize,
 }
 
 impl RetainMerger {
     #[allow(clippy::missing_const_for_fn)] // const cannot run destructor
     fn new(v: Value) -> Self {
-        Self { v }
+        let size_estimate = value_size(&v);
+        Self { v, size_estimate }
     }
 }
 
@@ -89,6 +99,7 @@ impl ReduceValueMerger for RetainMerger {
     fn add(&mut self, v: Value) -> Result<(), String> {
         if Value::Null != v {
             self.v = v;
+            self.size_estimate = value_size(&self.v);
         }
         Ok(())
     }
@@ -97,12 +108,17 @@ impl ReduceValueMerger for RetainMerger {
         v.insert(k.as_str(), self.v);
         Ok(())
     }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
+    }
 }
 
 #[derive(Debug, Clone)]
 struct ConcatMerger {
     v: BytesMut,
     join_by: Option<Vec<u8>>,
+    size_estimate: usize,
 }
 
 impl ConcatMerger {
@@ -110,9 +126,12 @@ impl ConcatMerger {
         // We need to get the resulting bytes for this character in case it's actually a multi-byte character.
         let join_by = join_by.map(|c| c.to_string().into_bytes());
 
+        let v = BytesMut::from(&v[..]);
+        let size_estimate = v.len();
         Self {
-            v: BytesMut::from(&v[..]),
+            v,
             join_by,
+            size_estimate,
         }
     }
 }
@@ -124,6 +143,7 @@ impl ReduceValueMerger for ConcatMerger {
                 self.v.extend(&buf[..]);
             }
             self.v.extend_from_slice(&b);
+            self.size_estimate = self.v.len();
             Ok(())
         } else {
             Err(format!(
@@ -137,24 +157,32 @@ impl ReduceValueMerger for ConcatMerger {
         v.insert(k.as_str(), Value::Bytes(self.v.into()));
         Ok(())
     }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
+    }
 }
 
 #[derive(Debug, Clone)]
 struct ConcatArrayMerger {
     v: Vec<Value>,
+    size_estimate: usize,
 }
 
 impl ConcatArrayMerger {
     fn new(v: Vec<Value>) -> Self {
-        Self { v }
+        let size_estimate = v.iter().map(|v| value_size(v)).sum::<usize>();
+        Self { v, size_estimate }
     }
 }
 
 impl ReduceValueMerger for ConcatArrayMerger {
     fn add(&mut self, v: Value) -> Result<(), String> {
         if let Value::Array(a) = v {
+            self.size_estimate += a.iter().map(|v| value_size(v)).sum::<usize>();
             self.v.extend_from_slice(&a);
         } else {
+            self.size_estimate += value_size(&v);
             self.v.push(v);
         }
         Ok(())
@@ -164,21 +192,31 @@ impl ReduceValueMerger for ConcatArrayMerger {
         v.insert(k.as_str(), Value::Array(self.v));
         Ok(())
     }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
+    }
 }
 
 #[derive(Debug, Clone)]
 struct ArrayMerger {
     v: Vec<Value>,
+    size_estimate: usize,
 }
 
 impl ArrayMerger {
     fn new(v: Value) -> Self {
-        Self { v: vec![v] }
+        let size_estimate = value_size(&v);
+        Self {
+            v: vec![v],
+            size_estimate,
+        }
     }
 }
 
 impl ReduceValueMerger for ArrayMerger {
     fn add(&mut self, v: Value) -> Result<(), String> {
+        self.size_estimate += value_size(&v);
         self.v.push(v);
         Ok(())
     }
@@ -187,16 +225,22 @@ impl ReduceValueMerger for ArrayMerger {
         v.insert(k.as_str(), Value::Array(self.v));
         Ok(())
     }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
+    }
 }
 
 #[derive(Debug, Clone)]
 struct LongestArrayMerger {
     v: Vec<Value>,
+    size_estimate: usize,
 }
 
 impl LongestArrayMerger {
     fn new(v: Vec<Value>) -> Self {
-        Self { v }
+        let size_estimate = v.iter().map(|v| value_size(v)).sum::<usize>();
+        Self { v, size_estimate }
     }
 }
 
@@ -204,6 +248,7 @@ impl ReduceValueMerger for LongestArrayMerger {
     fn add(&mut self, v: Value) -> Result<(), String> {
         if let Value::Array(a) = v {
             if a.len() > self.v.len() {
+                self.size_estimate = a.iter().map(|v| value_size(v)).sum::<usize>();
                 self.v = a;
             }
             Ok(())
@@ -219,16 +264,22 @@ impl ReduceValueMerger for LongestArrayMerger {
         v.insert(k.as_str(), Value::Array(self.v));
         Ok(())
     }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
+    }
 }
 
 #[derive(Debug, Clone)]
 struct ShortestArrayMerger {
     v: Vec<Value>,
+    size_estimate: usize,
 }
 
 impl ShortestArrayMerger {
     fn new(v: Vec<Value>) -> Self {
-        Self { v }
+        let size_estimate = v.iter().map(|v| value_size(v)).sum::<usize>();
+        Self { v, size_estimate }
     }
 }
 
@@ -236,6 +287,7 @@ impl ReduceValueMerger for ShortestArrayMerger {
     fn add(&mut self, v: Value) -> Result<(), String> {
         if let Value::Array(a) = v {
             if a.len() < self.v.len() {
+                self.size_estimate = a.iter().map(|v| value_size(v)).sum::<usize>();
                 self.v = a;
             }
             Ok(())
@@ -251,44 +303,65 @@ impl ReduceValueMerger for ShortestArrayMerger {
         v.insert(k.as_str(), Value::Array(self.v));
         Ok(())
     }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
+    }
 }
 
 #[derive(Debug, Clone)]
 struct FlatUniqueMerger {
     v: HashSet<Value>,
+    size_estimate: usize,
 }
 
 #[allow(clippy::mutable_key_type)] // false positive due to bytes::Bytes
-fn insert_value(h: &mut HashSet<Value>, v: Value) {
+fn insert_value(h: &mut HashSet<Value>, v: Value) -> usize {
+    let mut size_estimate_delta = 0;
+    // Do size estimates for every value, and if the insert succeeds, add that size to the delta.
+    // Doing value_size for each value (even if not inserted) is cheaper and faster than inserting v.clone().
     match v {
         Value::Object(m) => {
             for (_, v) in m {
-                h.insert(v);
+                let val_size = value_size(&v);
+                if h.insert(v) {
+                    size_estimate_delta += val_size
+                }
             }
         }
         Value::Array(vec) => {
             for v in vec {
-                h.insert(v);
+                let val_size = value_size(&v);
+                if h.insert(v) {
+                    size_estimate_delta += val_size
+                }
             }
         }
         _ => {
-            h.insert(v);
+            let val_size = value_size(&v);
+            if h.insert(v) {
+                size_estimate_delta += val_size
+            }
         }
     }
+    size_estimate_delta
 }
 
 impl FlatUniqueMerger {
     #[allow(clippy::mutable_key_type)] // false positive due to bytes::Bytes
     fn new(v: Value) -> Self {
         let mut h = HashSet::default();
-        insert_value(&mut h, v);
-        Self { v: h }
+        let size_estimate = insert_value(&mut h, v);
+        Self {
+            v: h,
+            size_estimate,
+        }
     }
 }
 
 impl ReduceValueMerger for FlatUniqueMerger {
     fn add(&mut self, v: Value) -> Result<(), String> {
-        insert_value(&mut self.v, v);
+        self.size_estimate += insert_value(&mut self.v, v);
         Ok(())
     }
 
@@ -296,12 +369,17 @@ impl ReduceValueMerger for FlatUniqueMerger {
         v.insert(k.as_str(), Value::Array(self.v.into_iter().collect()));
         Ok(())
     }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
+    }
 }
 
 #[derive(Debug, Clone)]
 struct TimestampWindowMerger {
     started: DateTime<Utc>,
     latest: DateTime<Utc>,
+    size_estimate: usize,
 }
 
 impl TimestampWindowMerger {
@@ -309,6 +387,7 @@ impl TimestampWindowMerger {
         Self {
             started: v,
             latest: v,
+            size_estimate: size_of::<DateTime<Utc>>() * 2,
         }
     }
 }
@@ -330,6 +409,10 @@ impl ReduceValueMerger for TimestampWindowMerger {
         v.insert(format!("{}_end", k).as_str(), Value::Timestamp(self.latest));
         v.insert(k.as_str(), Value::Timestamp(self.started));
         Ok(())
+    }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
     }
 }
 
@@ -354,11 +437,16 @@ impl From<NotNan<f64>> for NumberMergerValue {
 #[derive(Debug, Clone)]
 struct AddNumbersMerger {
     v: NumberMergerValue,
+    size_estimate: usize,
 }
 
 impl AddNumbersMerger {
     const fn new(v: NumberMergerValue) -> Self {
-        Self { v }
+        let size_estimate = match v {
+            NumberMergerValue::Float(_) => size_of::<NotNan<f64>>(),
+            NumberMergerValue::Int(_) => size_of::<i64>(),
+        };
+        Self { v, size_estimate }
     }
 }
 
@@ -394,16 +482,25 @@ impl ReduceValueMerger for AddNumbersMerger {
         };
         Ok(())
     }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
+    }
 }
 
 #[derive(Debug, Clone)]
 struct MaxNumberMerger {
     v: NumberMergerValue,
+    size_estimate: usize,
 }
 
 impl MaxNumberMerger {
     const fn new(v: NumberMergerValue) -> Self {
-        Self { v }
+        let size_estimate = match v {
+            NumberMergerValue::Float(_) => size_of::<NotNan<f64>>(),
+            NumberMergerValue::Int(_) => size_of::<i64>(),
+        };
+        Self { v, size_estimate }
     }
 }
 
@@ -453,16 +550,25 @@ impl ReduceValueMerger for MaxNumberMerger {
         };
         Ok(())
     }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
+    }
 }
 
 #[derive(Debug, Clone)]
 struct MinNumberMerger {
     v: NumberMergerValue,
+    size_estimate: usize,
 }
 
 impl MinNumberMerger {
     const fn new(v: NumberMergerValue) -> Self {
-        Self { v }
+        let size_estimate = match v {
+            NumberMergerValue::Float(_) => size_of::<NotNan<f64>>(),
+            NumberMergerValue::Int(_) => size_of::<i64>(),
+        };
+        Self { v, size_estimate }
     }
 }
 
@@ -512,11 +618,16 @@ impl ReduceValueMerger for MinNumberMerger {
         };
         Ok(())
     }
+
+    fn size_estimate(&self) -> usize {
+        self.size_estimate
+    }
 }
 
 pub trait ReduceValueMerger: std::fmt::Debug + Send + Sync {
     fn add(&mut self, v: Value) -> Result<(), String>;
     fn insert_into(self: Box<Self>, k: String, v: &mut LogEvent) -> Result<(), String>;
+    fn size_estimate(&self) -> usize;
 }
 
 impl From<Value> for Box<dyn ReduceValueMerger> {
@@ -609,10 +720,11 @@ pub(crate) fn get_value_merger(
 
 #[cfg(test)]
 mod test {
+    use chrono::Utc;
     use serde_json::json;
 
     use super::*;
-    use crate::event::LogEvent;
+    use crate::event::{LogEvent, Value};
 
     #[test]
     fn initial_values() {
@@ -875,5 +987,312 @@ mod test {
         let mut output = LogEvent::default();
         merger.insert_into("out".into(), &mut output)?;
         Ok(output.remove("out").unwrap())
+    }
+
+    #[test]
+    fn mezmo_sum_size_estimate() {
+        let mut m = get_value_merger(3587.into(), &MergeStrategy::Sum).unwrap();
+        assert_eq!(m.size_estimate(), 8, "size of int is correct");
+
+        m.add(2.1.into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            8,
+            "added float, but size remains unchanged"
+        );
+
+        m.add(655360.into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            8,
+            "added int; but size remains unchanged"
+        );
+    }
+
+    #[test]
+    fn mezmo_max_size_estimate() {
+        let mut m = get_value_merger(3587.into(), &MergeStrategy::Max).unwrap();
+        assert_eq!(m.size_estimate(), 8, "size of int is correct");
+
+        m.add(3588.8.into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            8,
+            "added float, but size remains unchanged"
+        );
+
+        m.add(655360.into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            8,
+            "added int; but size remains unchanged"
+        );
+    }
+
+    #[test]
+    fn mezmo_min_size_estimate() {
+        let mut m = get_value_merger(3587.into(), &MergeStrategy::Min).unwrap();
+        assert_eq!(m.size_estimate(), 8, "size of int is correct");
+
+        m.add(2.1.into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            8,
+            "added float, but size remains unchanged"
+        );
+
+        m.add(1.into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            8,
+            "added int; but size remains unchanged"
+        );
+    }
+
+    #[test]
+    fn mezmo_concat_size_estimate() {
+        let mut m = get_value_merger("hello".into(), &MergeStrategy::Concat).unwrap();
+        assert_eq!(m.size_estimate(), 5, "size of string is correct");
+        m.add("somethinglonger".into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            21,
+            "value updated; concats the longer value, space-delimited"
+        );
+
+        let mut m = get_value_merger(
+            vec![Value::from("hello"), Value::from("there")].into(),
+            &MergeStrategy::Concat,
+        )
+        .unwrap();
+        assert_eq!(m.size_estimate(), 10, "size of array elements is correct");
+        m.add("onemore".into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            17,
+            "value updated; concats the added value"
+        );
+
+        let mut m = get_value_merger(json!([1, 2, 3]).into(), &MergeStrategy::Concat).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            24,
+            "size of integer array elements is correct"
+        );
+        m.add(4.into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            32,
+            "value updated; concats the added value"
+        );
+    }
+
+    #[test]
+    fn mezmo_concat_newline_size_estimate() {
+        let mut m = get_value_merger("hello".into(), &MergeStrategy::ConcatNewline).unwrap();
+        assert_eq!(m.size_estimate(), 5, "size of string is correct");
+
+        m.add("line2".into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            11,
+            "value updated; concats the second value, newline-delimited"
+        );
+
+        m.add("line3".into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            17,
+            "value updated; concats the third value, newline-delimited"
+        );
+    }
+
+    #[test]
+    fn mezmo_concat_raw_size_estimate() {
+        let mut m = get_value_merger("hello".into(), &MergeStrategy::ConcatRaw).unwrap();
+        assert_eq!(m.size_estimate(), 5, "size of string is correct");
+
+        m.add("line2".into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            10,
+            "value updated; concats the second value WITHOUT a delimiter"
+        );
+
+        m.add("line3".into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            15,
+            "value updated; concats the third value, no delimiter"
+        );
+    }
+
+    #[test]
+    fn mezmo_array_size_estimate() {
+        let mut m = get_value_merger("hello".into(), &MergeStrategy::Array).unwrap();
+        assert_eq!(m.size_estimate(), 5, "size of string is correct");
+
+        m.add("second".into()).unwrap();
+        assert_eq!(m.size_estimate(), 11, "Concats a string to the array");
+
+        m.add(4.into()).unwrap();
+        assert_eq!(m.size_estimate(), 19, "Concats an integer to the array");
+
+        m.add(5.12.into()).unwrap();
+        assert_eq!(m.size_estimate(), 27, "Concats an float to the array");
+    }
+
+    #[test]
+    fn mezmo_shortest_array_size_estimate() {
+        let mut m =
+            get_value_merger(json!([1, 2, 3, 4]).into(), &MergeStrategy::ShortestArray).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            32,
+            "size of the initial array is correct"
+        );
+
+        m.add(json!([1, 2, 3, 4, 5]).into()).unwrap();
+        assert_eq!(m.size_estimate(), 32, "Longer array is ignored");
+
+        m.add(json!([1, 2, 3]).into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            24,
+            "Shorter array overwrites the original array"
+        );
+
+        m.add(json!(["something really big", "something else really big"]).into())
+            .unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            45,
+            "Shorter array overwrites, even though its size is greater"
+        );
+    }
+
+    #[test]
+    fn mezmo_longest_array_size_estimate() {
+        let mut m = get_value_merger(json!([1, 2]).into(), &MergeStrategy::LongestArray).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            16,
+            "size of the initial array is correct"
+        );
+
+        m.add(json!([1, 2, 3]).into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            24,
+            "Longer array overwrites the original array"
+        );
+
+        m.add(json!([1, 2]).into()).unwrap();
+        assert_eq!(m.size_estimate(), 24, "Shorter array is ignored");
+
+        m.add(
+            json!([
+                "something really big",      // len: 20
+                "something else really big", // len: 25
+                "boo",                       // len: 3
+                "hiss",                      // len: 4
+                3587                         // len: 8
+            ])
+            .into(),
+        )
+        .unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            60,
+            "Longer array overwrites with mixed data types"
+        );
+    }
+
+    #[test]
+    fn mezmo_discard_size_estimate() {
+        let m = get_value_merger(35.into(), &MergeStrategy::Discard).unwrap();
+        assert_eq!(m.size_estimate(), 8, "size of integer is correct");
+
+        let mut m = get_value_merger("hello".into(), &MergeStrategy::Discard).unwrap();
+        assert_eq!(m.size_estimate(), 5, "size of string is correct");
+        m.add("somethinglonger".into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            5,
+            "value unchanged; discarded longer value"
+        );
+
+        // NOTE: Because this ValueMerger doesn't need to unwrap arrays, its size will also include
+        // the `BASE_ARRAY_SIZE` of 8 bytes when doing `size_of(Value::Array)`
+        let mut m = get_value_merger(
+            vec![Value::from("hello"), Value::from(35)].into(),
+            &MergeStrategy::Discard,
+        )
+        .unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            21,
+            "size of array elements is correct; includes BASE_ARRAY_SIZE"
+        );
+        m.add("short".into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            21,
+            "value unchanged; discarded shorter value"
+        );
+    }
+
+    #[test]
+    fn mezmo_retain_size_estimate() {
+        let m = get_value_merger(35.into(), &MergeStrategy::Retain).unwrap();
+        assert_eq!(m.size_estimate(), 8, "size of integer is correct");
+
+        let mut m = get_value_merger("hello".into(), &MergeStrategy::Retain).unwrap();
+        assert_eq!(m.size_estimate(), 5, "size of string is correct");
+        m.add("somethinglonger".into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            15,
+            "value updated; retains the longer value"
+        );
+
+        let mut m = get_value_merger(
+            vec![Value::from("hello"), Value::from(5)].into(),
+            &MergeStrategy::Retain,
+        )
+        .unwrap();
+        assert_eq!(m.size_estimate(), 21, "size of array elements is correct");
+        m.add("short".into()).unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            5,
+            "value updated; retains the shorter value"
+        );
+    }
+
+    #[test]
+    fn mezmo_flat_unique_size_estimate() {
+        let mut m = get_value_merger("first".into(), &MergeStrategy::FlatUnique).unwrap();
+        assert_eq!(m.size_estimate(), 5, "size of the initial set is correct");
+
+        m.add("first".into()).unwrap();
+        assert_eq!(m.size_estimate(), 5, "Duplicate value ignored");
+
+        m.add(json!(["second", "third"]).into()).unwrap();
+        assert_eq!(m.size_estimate(), 16, "New values added via an array");
+
+        m.add(json!({"key1": "second", "key2": "third", "key3": "fourth", "key4": "fifth"}).into())
+            .unwrap();
+        assert_eq!(
+            m.size_estimate(),
+            27,
+            "New values added via object; Ignores duplicate values alread in the set"
+        );
+    }
+
+    #[test]
+    fn mezmo_datetime_size_estimate() {
+        let m = TimestampWindowMerger::new(Utc::now());
+        assert_eq!(m.size_estimate(), 24, "size includes 2 timestamps");
     }
 }

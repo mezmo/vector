@@ -6,6 +6,7 @@
     - [Environment Variables](#environment-variables)
   - [Create a Mezmo-specific Reduce transform](#create-a-mezmo-specific-reduce-transform)
     - [Notable Changes](#notable-changes-1)
+    - [Environment Variables](#environment-variables-1)
 
 <!-- /TOC -->
 # Mezmo Developments
@@ -43,6 +44,8 @@ If set to `"1"`, the reshaping will happen as long as the LogEvent is an object 
 
 * **Date:** 12-21-2022
 * **PR**: https://github.com/answerbook/vector/pull/141
+* **Updated:** 3-24-2023
+* **PR**: https://github.com/answerbook/vector/pull/224
 
 ### Notable Changes
 * Added code `src/transforms/reduce/mezmo_reduce.rs`
@@ -51,5 +54,23 @@ If set to `"1"`, the reshaping will happen as long as the LogEvent is an object 
   * Support for `date_formats` and general date parsing
   * Proper persistence of date data types (string or integer epocs)
   * Operates on the `message` contents instead of root contents
+  * Tracks a byte size estimate for each reduce merger. Some of these (like "Array") can continually grow.
+  * ENV variables can control the byte size total that reduce is allowed to use.
+    Limits can be set on a per-state basis, or total bytes for all states.
+* Changed the logic so that `expire_after_ms` is never reset and always flushes events after the specified time.
+  The previous logic would wait for a gap in the data before flushing, which our pipelines may never have.
+
+### Environment Variables
+
+* `REDUCE_BYTE_THRESHOLD_PER_STATE="nnn"` - Byte limit for any 1 state
+* `REDUCE_BYTE_THRESHOLD_ALL_STATES="nnn"` - Byte limit for all states combined
+
+These optional variables control the byte size limits that are enforced in reduce (where `nnn` is an integer representing bytes).
+If the per-state threshold is exceeded for any 1 state, it will be flushed at the next timer tick (of 1 second).
+If `group_by` is used, multiple states will be instantiated to track data in those groupings, therefore
+the "all states" threshold can be used to set a limit for the total size for all states.  If this is exceeded,
+then `flush_all_into` is called on the next timer tick, and they are flushed in order of `started_at`.
+
+If the ENV vars are not set, sane defaults are used from `const` declarations in the code.
 
 ---
