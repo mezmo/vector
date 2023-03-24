@@ -9,8 +9,9 @@ use bytes::{Bytes, BytesMut};
 pub use error::StreamDecodingError;
 pub use format::{
     BoxedDeserializer, BytesDeserializer, BytesDeserializerConfig, GelfDeserializer,
-    GelfDeserializerConfig, JsonDeserializer, JsonDeserializerConfig, NativeDeserializer,
-    NativeDeserializerConfig, NativeJsonDeserializer, NativeJsonDeserializerConfig,
+    GelfDeserializerConfig, JsonDeserializer, JsonDeserializerConfig, MezmoDeserializer,
+    NativeDeserializer, NativeDeserializerConfig, NativeJsonDeserializer,
+    NativeJsonDeserializerConfig,
 };
 #[cfg(feature = "syslog")]
 pub use format::{SyslogDeserializer, SyslogDeserializerConfig};
@@ -275,6 +276,12 @@ pub enum DeserializerConfig {
     ///
     /// [gelf]: https://docs.graylog.org/docs/gelf
     Gelf,
+
+    /// Decode the raw bytes using one of Mezmo's deserializers
+    ///
+    /// Delegates the Deserializer configuration to the MezmoDeserializer
+    /// types
+    Mezmo(MezmoDeserializer),
 }
 
 impl From<BytesDeserializerConfig> for DeserializerConfig {
@@ -317,6 +324,7 @@ impl DeserializerConfig {
                 Deserializer::NativeJson(NativeJsonDeserializerConfig.build())
             }
             DeserializerConfig::Gelf => Deserializer::Gelf(GelfDeserializerConfig.build()),
+            DeserializerConfig::Mezmo(config) => Deserializer::Boxed(config.build()),
         }
     }
 
@@ -330,6 +338,7 @@ impl DeserializerConfig {
             | DeserializerConfig::NativeJson => FramingConfig::NewlineDelimited {
                 newline_delimited: Default::default(),
             },
+            DeserializerConfig::Mezmo(config) => config.default_stream_framing(),
             #[cfg(feature = "syslog")]
             DeserializerConfig::Syslog => FramingConfig::NewlineDelimited {
                 newline_delimited: Default::default(),
@@ -347,6 +356,7 @@ impl DeserializerConfig {
             DeserializerConfig::Native => NativeDeserializerConfig.output_type(),
             DeserializerConfig::NativeJson => NativeJsonDeserializerConfig.output_type(),
             DeserializerConfig::Gelf => GelfDeserializerConfig.output_type(),
+            DeserializerConfig::Mezmo(config) => config.output_type(),
         }
     }
 
@@ -364,6 +374,7 @@ impl DeserializerConfig {
                 NativeJsonDeserializerConfig.schema_definition(log_namespace)
             }
             DeserializerConfig::Gelf => GelfDeserializerConfig.schema_definition(log_namespace),
+            DeserializerConfig::Mezmo(config) => config.schema_definition(log_namespace),
         }
     }
 
@@ -396,6 +407,7 @@ impl DeserializerConfig {
             ) => "text/plain",
             #[cfg(feature = "syslog")]
             (DeserializerConfig::Syslog, _) => "text/plain",
+            (DeserializerConfig::Mezmo(config), framer) => config.content_type(framer),
         }
     }
 }

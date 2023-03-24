@@ -11,10 +11,13 @@ mod native_json;
 #[cfg(feature = "syslog")]
 mod syslog;
 
+mod mezmo;
+
 use ::bytes::Bytes;
 use dyn_clone::DynClone;
 pub use gelf::{GelfDeserializer, GelfDeserializerConfig};
 pub use json::{JsonDeserializer, JsonDeserializerConfig};
+pub use mezmo::MezmoDeserializer;
 pub use native::{NativeDeserializer, NativeDeserializerConfig};
 pub use native_json::{NativeJsonDeserializer, NativeJsonDeserializerConfig};
 use smallvec::SmallVec;
