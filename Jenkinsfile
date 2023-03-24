@@ -1,11 +1,10 @@
 def WORKSPACE_PATH = "/tmp/workspace/${env.BUILD_TAG.replace('%2F', '/')}"
-def RUST_CI_IMAGE = "us.gcr.io/logdna-k8s/rust:bullseye-1-stable-x86_64"
 
 pipeline {
     agent {
         node {
             label "rust-x86_64"
-            customWorkspace("/tmp/workspace/${env.BUILD_TAG}")
+            customWorkspace(WORKSPACE_PATH)
         }
     }
     options {
