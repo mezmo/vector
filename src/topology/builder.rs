@@ -784,7 +784,7 @@ impl Runner {
 
     async fn send_outputs(&mut self, outputs_buf: &mut TransformOutputsBuf) -> crate::Result<()> {
         self.timer.start_wait();
-        self.outputs.send(outputs_buf, &self.usage_tracker).await
+        self.outputs.send(outputs_buf, &*self.usage_tracker).await
     }
 
     async fn run_inline(mut self) -> TaskResult {

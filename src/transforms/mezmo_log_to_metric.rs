@@ -65,7 +65,7 @@ impl FunctionTransform for LogToMetric {
         // Metrics are "all or none" for a specific log. If a single fails, none are produced.
         let mut buffer: Option<Event> = None;
 
-        match to_metric(event.into_log()) {
+        match to_metric(&event.into_log()) {
             Ok(metric) => {
                 buffer = Some(Event::Metric(metric));
             }

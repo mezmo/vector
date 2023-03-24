@@ -555,12 +555,12 @@ impl MezmoReduce {
         for (discriminant, state) in &self.reduce_merge_states {
             if state.started_at.elapsed() >= self.expire_after {
                 debug!(message = "Flushing based on started_at exceeding expire_after_ms");
-                flush_discriminants.insert(state.started_at.clone(), discriminant.clone());
+                flush_discriminants.insert(state.started_at, discriminant.clone());
             } else if state.size_estimate > self.byte_threshold_per_state {
                 warn!("Flushing because the state size of {} has exceeded the per-state threshold of {}",
                     state.size_estimate, self.byte_threshold_per_state
                 );
-                flush_discriminants.insert(state.started_at.clone(), discriminant.clone());
+                flush_discriminants.insert(state.started_at, discriminant.clone());
             } else {
                 // Only add to the total state size if we HAVE NOT flushed the state yet
                 total_states_size_estimate += state.size_estimate;

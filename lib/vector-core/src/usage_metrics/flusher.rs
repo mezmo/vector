@@ -78,15 +78,11 @@ impl DbFlusher {
         let mut cfg = Config::new();
         cfg.host = url.host().map(|h| h.to_string());
         cfg.port = url.port();
-        cfg.user = if url.username().len() > 0 {
-            Some(
-                urlencoding::decode(url.username())
-                    .expect("UTF-8")
-                    .to_string(),
-            )
-        } else {
-            None
-        };
+        cfg.user = (!url.username().is_empty()).then(|| {
+            urlencoding::decode(url.username())
+                .expect("UTF-8")
+                .to_string()
+        });
         cfg.password = url
             .password()
             .map(|v| urlencoding::decode(v).expect("UTF-8").to_string());
@@ -107,7 +103,7 @@ impl DbFlusher {
     async fn insert_metrics(&self, k: UsageMetricsKey, v: UsageMetricsValue) {
         let event_ts = Utc::now();
         let metric = "count".to_string();
-        let value = v.total_count as i32;
+        let value = v.total_count as i64;
         let params_count: Vec<&(dyn ToSql + Sync)> = vec![
             &event_ts,
             &k.account_id,
@@ -118,7 +114,7 @@ impl DbFlusher {
             &value,
         ];
 
-        let value = v.total_size as i32;
+        let value = v.total_size as i64;
         let metric = "byte_size".to_string();
         let params_size: Vec<&(dyn ToSql + Sync)> = vec![
             &event_ts,
@@ -141,10 +137,10 @@ impl DbFlusher {
                             trace!(
                                 message = "Flushed usage metrics records for component",
                                 component_id = k.component_id
-                            )
+                            );
                         }
                         Err(error) => {
-                            error!(message = "Usage metrics insert failed", %error)
+                            error!(message = "Usage metrics insert failed", %error);
                         }
                     }
                 } else {
@@ -152,7 +148,7 @@ impl DbFlusher {
                 }
             }
             Err(error) => {
-                error!(message = "Usage metrics db pool failed to obtain a connection", %error)
+                error!(message = "Usage metrics db pool failed to obtain a connection", %error);
             }
         }
     }
@@ -203,6 +199,7 @@ pub(crate) struct StdErrFlusher {}
 
 #[async_trait]
 impl MetricsFlusher for StdErrFlusher {
+    #[allow(clippy::print_stderr)]
     async fn save_metrics(&self, metrics_map: HashMap<UsageMetricsKey, UsageMetricsValue>) {
         for (k, v) in metrics_map {
             let key = serde_json::to_string(&k).unwrap();

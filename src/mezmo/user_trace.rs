@@ -240,6 +240,9 @@ pub fn handle_transform_error(ctx: &Option<MezmoContext>, err: TransformError) {
                 field
             ));
         }
+        TransformError::NumberTruncation { field } => {
+            ctx.error(format!("Field '{}' was truncated during parsing", field));
+        }
     };
 }
 

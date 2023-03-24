@@ -66,9 +66,7 @@ async fn s3_message_objects_are_reshaped() {
     let response_lines = get_lines(obj).await;
     let input = Bytes::from(response_lines[0].clone());
     let deserializer = JsonDeserializerConfig::new().build();
-    let got_events = deserializer
-        .parse(input.clone(), LogNamespace::Vector)
-        .unwrap();
+    let got_events = deserializer.parse(input, LogNamespace::Vector).unwrap();
 
     // Loop to assert results for 2 reasons:
     // 1) SmallVec (AWS results) cannot be `assert_eq!` compared with Vec (generated events)
@@ -122,9 +120,7 @@ async fn s3_message_objects_not_reshaped_because_of_env() {
     let response_lines = get_lines(obj).await;
     let input = Bytes::from(response_lines[0].clone());
     let deserializer = JsonDeserializerConfig::new().build();
-    let got_events = deserializer
-        .parse(input.clone(), LogNamespace::Vector)
-        .unwrap();
+    let got_events = deserializer.parse(input, LogNamespace::Vector).unwrap();
 
     // The `message` property should still exist
 

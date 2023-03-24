@@ -286,7 +286,7 @@ impl TransformOutputs {
     pub async fn send(
         &mut self,
         buf: &mut TransformOutputsBuf,
-        usage_tracker: &Box<dyn OutputUsageTracker>,
+        usage_tracker: &dyn OutputUsageTracker,
     ) -> Result<(), Box<dyn error::Error + Send + Sync>> {
         if let Some(primary) = self.primary_output.as_mut() {
             let count = buf.primary_buffer.as_ref().map_or(0, OutputBuffer::len);
