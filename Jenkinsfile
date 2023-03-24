@@ -19,19 +19,41 @@ pipeline {
     }
     stages {
         stage('Check'){
-            steps {
-                sh """
-                    make check ENVIRONMENT=true
-                """
+          parallel {
+            stage('Check'){
+                steps {
+                    sh """
+                        make check ENVIRONMENT=true
+                    """
+                }
             }
+            stage('Style'){
+                steps {
+                    sh """
+                        make check-fmt ENVIRONMENT=true
+                        make check-style ENVIRONMENT=true
+                    """
+                }
+            }
+          }
         }
         stage('Lint and Test'){
             parallel {
               stage('Lint'){
                 steps {
                   sh """
-                    make check-all ENVIRONMENT=true
+                    make check-clippy ENVIRONMENT=true
+                    make check-scripts ENVIRONMENT=true
                   """
+                }
+              }
+              stage('Deny'){
+                steps {
+                  catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    sh """
+                      make check-deny ENVIRONMENT=true
+                    """
+                  }
                 }
               }
               stage('Unit test'){

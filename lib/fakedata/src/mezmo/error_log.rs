@@ -27,7 +27,7 @@ const INFO_MESSAGES: [&str; 16] = [
 ];
 
 const WARN_MESSAGES: [&str; 2] = [
-    "pid file /opt/CA/BrightStorARCserve/httpd/logs/httpd.pid overwritten -- Unclean shutdown of previous Apache run?", 
+    "pid file /opt/CA/BrightStorARCserve/httpd/logs/httpd.pid overwritten -- Unclean shutdown of previous Apache run?",
     "caught SIGTERM, shutting down"
 ];
 

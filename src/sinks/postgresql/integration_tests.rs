@@ -35,7 +35,7 @@ fn log_table_schema(table_name: &str) -> Vec<String> {
             r#"CREATE TABLE IF NOT EXISTS {table_name} (
                 event_ts TIMESTAMP WITH TIME ZONE,
                 message VARCHAR(100),
-                one VARCHAR(80),   
+                one VARCHAR(80),
                 two VARCHAR(80),
                 UNIQUE(one, two)
             )"#
@@ -50,7 +50,7 @@ fn metric_table_schema(table_name: &str) -> Vec<String> {
             r#"CREATE TABLE IF NOT EXISTS {table_name} (
                 event_ts TIMESTAMP WITH TIME ZONE,
                 name VARCHAR(80),
-                tag VARCHAR(80),   
+                tag VARCHAR(80),
                 value DOUBLE PRECISION
             )"#
         ),

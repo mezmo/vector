@@ -20,7 +20,7 @@ const SSHD_MESSAGES: [(&str, f32); 9] = [
     ("authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=218.188.2.4", 1.0),
     ("authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=220-135-151-1.hinet-ip.hinet.net  user=root", 1.0),
     ("authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=061092085098.ctinets.com", 1.0),
-    ("authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=d211-116-254-214.rev.krline.net", 1.0), 
+    ("authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=d211-116-254-214.rev.krline.net", 1.0),
     ("authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=62-192-102-94.dsl.easynet.nl  user=root", 1.0),
     ("authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=troi.bluesky-technologies.com  user=root", 1.0),
     ("authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=n219076184117.netvigator.com  user=root", 1.0),
