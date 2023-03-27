@@ -61,8 +61,8 @@ jobs:
           # - test: 'pulsar'
           # - test: 'redis'
           # - test: 'shutdown'
-          - test: 'splunk'
           - test: 'postgres'
+          - test: 'splunk'
             env:
               SPLUNK_VERSION: 7.3.9
           - test: 'splunk'
