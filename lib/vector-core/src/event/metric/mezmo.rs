@@ -19,6 +19,7 @@ pub enum TransformError {
     InvalidMetricType { type_name: String },
     FieldNull { field: String },
     ParseIntOverflow { field: String },
+    NumberTruncation { field: String },
 }
 
 fn parse_value(
@@ -166,7 +167,11 @@ fn parse_sample(value: &Value) -> Result<Sample, TransformError> {
         })?;
     Ok(Sample {
         value: get_float(value, "value")?,
-        rate: get_u64(value, "rate")? as u32,
+        rate: std::convert::TryInto::<u32>::try_into(get_u64(value, "rate")?).map_err(|_| {
+            TransformError::NumberTruncation {
+                field: "rate".into(),
+            }
+        })?,
     })
 }
 
@@ -185,8 +190,15 @@ fn get_float(value_object: &BTreeMap<String, Value>, name: &str) -> Result<f64, 
     // Depending on the serialization format and input value (which we don't control)
     // a float value might appear as a Value::Float or Value::Integer
     match value {
-        Value::Integer(v) => Ok(*v as f64),
-        Value::Float(v) => Ok(v.into_inner().clone()),
+        Value::Integer(v) => {
+            if v < &(2i64.pow(52)) {
+                #[allow(clippy::cast_precision_loss)]
+                Ok(*v as f64)
+            } else {
+                Err(TransformError::NumberTruncation { field: name.into() })
+            }
+        }
+        Value::Float(v) => Ok(v.into_inner()),
         _ => Err(TransformError::FieldInvalidType { field: name.into() }),
     }
 }
@@ -219,11 +231,14 @@ fn get_property<'a>(
     }
 }
 
-pub fn to_metric(log: LogEvent) -> Result<Metric, TransformError> {
+/// # Errors
+///
+/// Will return `Err` if any field transformations fail
+pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
     let timestamp = log
         .get(log_schema().timestamp_key())
         .and_then(Value::as_timestamp)
-        .cloned()
+        .copied()
         .or_else(|| Some(Utc::now()));
     let metadata = log.metadata().clone();
 
@@ -245,8 +260,7 @@ pub fn to_metric(log: LogEvent) -> Result<Metric, TransformError> {
             })?;
     let namespace = root
         .get("namespace")
-        .map(|v| v.as_str().map(|b| b.to_string()))
-        .flatten();
+        .and_then(|v| v.as_str().map(|b| b.to_string()));
 
     let tags = if let Some(tags) = root.get("tags") {
         let tags = tags
@@ -255,9 +269,9 @@ pub fn to_metric(log: LogEvent) -> Result<Metric, TransformError> {
                 field: "tags".into(),
             })?;
         let mut map = MetricTags::default();
-        for (k, v) in tags.into_iter() {
+        for (k, v) in tags.iter() {
             map.insert(
-                k.to_owned(),
+                k.clone(),
                 v.as_str().map(|v| v.to_string()).ok_or_else(|| {
                     TransformError::FieldInvalidType {
                         field: "tags".into(),
@@ -294,13 +308,13 @@ pub fn to_metric(log: LogEvent) -> Result<Metric, TransformError> {
         MetricSeries {
             name: MetricName {
                 name: name.into(),
-                namespace: namespace,
+                namespace,
             },
-            tags: tags,
+            tags,
         },
         MetricData {
             time: MetricTime {
-                timestamp: timestamp,
+                timestamp,
                 interval_ms: None,
             },
             kind,
@@ -310,7 +324,7 @@ pub fn to_metric(log: LogEvent) -> Result<Metric, TransformError> {
     ))
 }
 
-fn from_buckets(buckets: &Vec<Bucket>) -> Value {
+fn from_buckets(buckets: &[Bucket]) -> Value {
     buckets
         .iter()
         .map(|b| {
@@ -324,7 +338,7 @@ fn from_buckets(buckets: &Vec<Bucket>) -> Value {
         .into()
 }
 
-fn from_samples(samples: &Vec<Sample>) -> Value {
+fn from_samples(samples: &[Sample]) -> Value {
     samples
         .iter()
         .map(|s| {
@@ -338,7 +352,7 @@ fn from_samples(samples: &Vec<Sample>) -> Value {
         .into()
 }
 
-fn from_quantiles(quantiles: &Vec<Quantile>) -> Value {
+fn from_quantiles(quantiles: &[Quantile]) -> Value {
     quantiles
         .iter()
         .map(|q| {
@@ -353,10 +367,16 @@ fn from_quantiles(quantiles: &Vec<Quantile>) -> Value {
 }
 
 fn from_tags(tags: &MetricTags) -> Value {
-    BTreeMap::from_iter(tags.iter_all().map(|(k, v)| ((k.to_owned(), v.into())))).into()
+    tags.iter_all()
+        .map(|(k, v)| (k.to_owned(), v.into()))
+        .collect::<BTreeMap<_, _>>()
+        .into()
 }
 
-pub fn from_metric(metric: Metric) -> LogEvent {
+/// # Panics
+///
+/// Will panic upon encountering unsupported metric type
+pub fn from_metric(metric: &Metric) -> LogEvent {
     let mut values = BTreeMap::<String, Value>::new();
 
     values.insert("name".to_owned(), metric.name().into());
@@ -393,9 +413,7 @@ pub fn from_metric(metric: Metric) -> LogEvent {
                     "value".to_owned(),
                     BTreeMap::from([(
                         "values".to_owned(),
-                        Value::from(Value::Array(
-                            values.iter().map(|i| i.clone().into()).collect(),
-                        )),
+                        Value::Array(values.iter().map(|i| i.clone().into()).collect()),
                     )])
                     .into(),
                 ),
@@ -491,7 +509,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(to_metric(expected.clone()).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap());
 
         assert_eq!(expected, actual);
     }
@@ -515,7 +533,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(to_metric(expected.clone()).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap());
 
         assert_eq!(expected, actual);
     }
@@ -539,7 +557,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(to_metric(expected.clone()).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap());
 
         assert_eq!(expected, actual);
     }
@@ -588,7 +606,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(to_metric(expected.clone()).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap());
 
         assert_eq!(expected, actual);
     }
@@ -637,7 +655,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(to_metric(expected.clone()).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap());
 
         assert_eq!(expected, actual);
     }
@@ -667,7 +685,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(to_metric(expected.clone()).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap());
 
         assert_eq!(expected, actual);
     }

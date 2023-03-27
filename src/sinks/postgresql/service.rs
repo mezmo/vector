@@ -86,7 +86,7 @@ impl Service<PostgreSQLRequest> for PostgreSQLService {
     }
 
     fn call(&mut self, req: PostgreSQLRequest) -> Self::Future {
-        let connection_pool = self.connection_pool.clone();
+        let connection_pool = Arc::clone(&self.connection_pool);
         let sql = self.sql.clone();
         let bytes_sent_handle = self.bytes_sent_handle.clone();
         Box::pin(async move {
@@ -139,7 +139,7 @@ impl ToSql for ValueSqlAdapter<'_> {
             }
             "timestamp" => {
                 let raw_value = value.as_timestamp().expect("timestamp");
-                <DateTime<Utc> as ToSql>::to_sql(&raw_value, ty, out)
+                <DateTime<Utc> as ToSql>::to_sql(raw_value, ty, out)
             }
             "integer" => {
                 let raw_value = value.as_integer().expect("integer");

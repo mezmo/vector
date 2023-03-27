@@ -54,9 +54,9 @@ impl FromStr for ComponentKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut internal = false;
-        let to_parse = if s.starts_with("internal_") {
+        let to_parse = if let Some(s) = s.strip_prefix("internal_") {
             internal = true;
-            &s[9..]
+            s
         } else {
             s
         };
@@ -161,7 +161,7 @@ impl FromStr for UsageMetricsKey {
         if !s.starts_with("v1:") {
             return Err(Self::Err::InvalidRoot);
         }
-        let parts: Vec<&str> = s.split(":").collect();
+        let parts: Vec<&str> = s.split(':').collect();
         if parts.len() < 4 {
             return Err(Self::Err::InvalidFormat);
         }
@@ -198,13 +198,15 @@ fn track_usage(
     events: usize,
     total_size: usize,
 ) {
-    match tx.send(UsageMetrics {
-        key: key.clone(),
-        events,
-        total_size,
-    }) {
-        Err(_) => warn!("Usage metrics channel closed"),
-        _ => {}
+    if tx
+        .send(UsageMetrics {
+            key: key.clone(),
+            events,
+            total_size,
+        })
+        .is_err()
+    {
+        warn!("Usage metrics channel closed");
     }
 }
 
@@ -294,7 +296,7 @@ impl OutputUsageTracker for DefaultOutputTracker {
 }
 
 /// Estimates the byte size of a group of events according to Mezmo billing practices, documented in the ADR
-/// https://github.com/answerbook/pipeline-prototype/blob/main/doc/adr/0018-billing-ingress-egress.md
+/// <https://github.com/answerbook/pipeline-prototype/blob/main/doc/adr/0018-billing-ingress-egress.md>
 pub fn mezmo_byte_size(array: &EventArray) -> usize {
     match array {
         // For logs: account for the value size of ".message" and ".meta"
@@ -338,9 +340,7 @@ pub fn value_size(v: &Value) -> usize {
     match v {
         Value::Bytes(v) => v.len(),
         Value::Boolean(_) => 1,
-        Value::Timestamp(_) => 8,
-        Value::Integer(_) => 8,
-        Value::Float(_) => 8,
+        Value::Timestamp(_) | Value::Integer(_) | Value::Float(_) => 8,
         Value::Regex(v) => v.as_str().len(),
         Value::Object(v) => {
             BASE_BTREE_SIZE
@@ -356,10 +356,9 @@ pub fn value_size(v: &Value) -> usize {
 /// Estimate the value of the metric based on the type
 fn metric_value_size(v: &MetricValue) -> usize {
     match v {
-        MetricValue::Counter { .. } => 8,
-        MetricValue::Gauge { .. } => 8,
+        MetricValue::Counter { .. } | MetricValue::Gauge { .. } => 8,
         MetricValue::Set { values } => {
-            BASE_BTREE_SIZE + values.iter().map(|v| v.len()).sum::<usize>()
+            BASE_BTREE_SIZE + values.iter().map(std::string::String::len).sum::<usize>()
         }
         MetricValue::AggregatedHistogram { buckets, .. } => {
             16 + // count and sum
@@ -386,23 +385,21 @@ fn metric_value_size(v: &MetricValue) -> usize {
     }
 }
 
+/// # Errors
+///
+/// Returns `Err` if it can't get a flusher
 pub async fn start_publishing_metrics(
     rx: UnboundedReceiver<UsageMetrics>,
 ) -> Result<(), MetricsPublishingError> {
-    let agg_window = match std::env::var("USAGE_METRICS_FLUSH_INTERVAL_SECS") {
-        Ok(interval_str) => {
-            let secs = interval_str.parse().unwrap_or_else(|_| {
-                warn!(
-                    "USAGE_METRICS_FLUSH_INTERVAL_SECS environment variable invalid, using default"
-                );
-                DEFAULT_FLUSH_INTERVAL_SECS
-            });
-            Duration::from_secs(secs)
-        }
-        Err(_) => {
-            info!("USAGE_METRICS_FLUSH_INTERVAL_SECS environment variable not set, using default");
-            Duration::from_secs(DEFAULT_FLUSH_INTERVAL_SECS)
-        }
+    let agg_window = if let Ok(interval_str) = std::env::var("USAGE_METRICS_FLUSH_INTERVAL_SECS") {
+        let secs = interval_str.parse().unwrap_or_else(|_| {
+            warn!("USAGE_METRICS_FLUSH_INTERVAL_SECS environment variable invalid, using default");
+            DEFAULT_FLUSH_INTERVAL_SECS
+        });
+        Duration::from_secs(secs)
+    } else {
+        info!("USAGE_METRICS_FLUSH_INTERVAL_SECS environment variable not set, using default");
+        Duration::from_secs(DEFAULT_FLUSH_INTERVAL_SECS)
     };
 
     let flusher = get_flusher().await?;
@@ -412,7 +409,7 @@ pub async fn start_publishing_metrics(
 
 async fn get_flusher() -> Result<Arc<dyn MetricsFlusher + Send>, MetricsPublishingError> {
     let endpoint_url = env::var("MEZMO_METRICS_DB_URL").ok();
-    let pod_name = env::var("POD_NAME").unwrap_or("not-set".to_string());
+    let pod_name = env::var("POD_NAME").unwrap_or_else(|_| "not-set".to_string());
 
     if let Some(endpoint_url) = endpoint_url {
         // Allow to be black-box tested

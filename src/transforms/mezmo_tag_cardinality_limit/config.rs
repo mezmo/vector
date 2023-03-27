@@ -105,7 +105,7 @@ impl GenerateConfig for TagCardinalityLimitConfig {
             value_limit: default_value_limit(),
             limit_exceeded_action: default_limit_exceeded_action(),
             max_tag_size: default_max_tag_size(),
-            tags: None
+            tags: None,
         })
         .unwrap()
     }

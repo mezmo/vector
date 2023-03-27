@@ -68,7 +68,7 @@ impl TagCardinalityLimit {
         // Tag value not yet part of the accepted set.
         if tag_value_set.len() < self.config.value_limit as usize {
             // accept the new value
-            tag_value_set.insert(Bytes::copy_from_slice(&value));
+            tag_value_set.insert(Bytes::copy_from_slice(value));
 
             if tag_value_set.len() == self.config.value_limit as usize {
                 emit!(MezmoTagCardinalityValueLimitReached { key });
@@ -97,7 +97,7 @@ impl TagCardinalityLimit {
         self.accepted_tags
             .entry_ref(key)
             .or_insert_with(|| AcceptedTagValueSet::new(self.config.value_limit, &self.config.mode))
-            .insert(Bytes::copy_from_slice(&value));
+            .insert(Bytes::copy_from_slice(value));
     }
 
     fn transform_one(&mut self, mut event: Event) -> Option<Event> {
@@ -186,9 +186,9 @@ impl TaskTransform<Event> for TagCardinalityLimit {
     }
 }
 
-fn get_tags_mut<'a>(
-    log: &'a mut LogEvent,
-) -> Result<Option<&'a mut BTreeMap<String, Value>>, TransformError> {
+fn get_tags_mut(
+    log: &mut LogEvent,
+) -> Result<Option<&mut BTreeMap<String, Value>>, TransformError> {
     log.get_mut(log_schema().message_key()).map_or(
         Err(TransformError::FieldNotFound {
             field: "message".to_string(),

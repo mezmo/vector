@@ -133,7 +133,7 @@ pub fn build_healthcheck(
                             }
                             Err(_) => {
                                 let msg = "unknown status code";
-                                cx.mezmo_ctx.error(Value::from(msg.clone()));
+                                cx.mezmo_ctx.error(Value::from(msg));
                                 msg.into()
                             }
                         },

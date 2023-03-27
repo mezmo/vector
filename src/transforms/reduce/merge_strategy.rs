@@ -171,7 +171,7 @@ struct ConcatArrayMerger {
 
 impl ConcatArrayMerger {
     fn new(v: Vec<Value>) -> Self {
-        let size_estimate = v.iter().map(|v| value_size(v)).sum::<usize>();
+        let size_estimate = v.iter().map(value_size).sum::<usize>();
         Self { v, size_estimate }
     }
 }
@@ -179,7 +179,7 @@ impl ConcatArrayMerger {
 impl ReduceValueMerger for ConcatArrayMerger {
     fn add(&mut self, v: Value) -> Result<(), String> {
         if let Value::Array(a) = v {
-            self.size_estimate += a.iter().map(|v| value_size(v)).sum::<usize>();
+            self.size_estimate += a.iter().map(value_size).sum::<usize>();
             self.v.extend_from_slice(&a);
         } else {
             self.size_estimate += value_size(&v);
@@ -239,7 +239,7 @@ struct LongestArrayMerger {
 
 impl LongestArrayMerger {
     fn new(v: Vec<Value>) -> Self {
-        let size_estimate = v.iter().map(|v| value_size(v)).sum::<usize>();
+        let size_estimate = v.iter().map(value_size).sum::<usize>();
         Self { v, size_estimate }
     }
 }
@@ -248,7 +248,7 @@ impl ReduceValueMerger for LongestArrayMerger {
     fn add(&mut self, v: Value) -> Result<(), String> {
         if let Value::Array(a) = v {
             if a.len() > self.v.len() {
-                self.size_estimate = a.iter().map(|v| value_size(v)).sum::<usize>();
+                self.size_estimate = a.iter().map(value_size).sum::<usize>();
                 self.v = a;
             }
             Ok(())
@@ -278,7 +278,7 @@ struct ShortestArrayMerger {
 
 impl ShortestArrayMerger {
     fn new(v: Vec<Value>) -> Self {
-        let size_estimate = v.iter().map(|v| value_size(v)).sum::<usize>();
+        let size_estimate = v.iter().map(value_size).sum::<usize>();
         Self { v, size_estimate }
     }
 }
@@ -287,7 +287,7 @@ impl ReduceValueMerger for ShortestArrayMerger {
     fn add(&mut self, v: Value) -> Result<(), String> {
         if let Value::Array(a) = v {
             if a.len() < self.v.len() {
-                self.size_estimate = a.iter().map(|v| value_size(v)).sum::<usize>();
+                self.size_estimate = a.iter().map(value_size).sum::<usize>();
                 self.v = a;
             }
             Ok(())

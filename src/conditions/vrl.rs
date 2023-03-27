@@ -54,7 +54,9 @@ impl ConditionalConfig for VrlConfig {
 
         let mut config = CompileConfig::default();
         config.set_custom(enrichment_tables.clone());
-        mezmo_ctx.map(|ctx| config.set_custom(ctx));
+        if let Some(ctx) = mezmo_ctx {
+            config.set_custom(ctx)
+        }
         config.set_read_only();
 
         let CompilationResult {

@@ -242,7 +242,7 @@ impl Device {
         let name = format!(
             "/dev/{}{}",
             choose(&UNIX_DEVICE_PREFIX),
-            choose(&LOWER_CHARS) as char
+            choose(LOWER_CHARS) as char
         );
         let vrs = format!(
             "1.{}.{}",

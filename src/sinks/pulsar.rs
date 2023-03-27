@@ -322,7 +322,7 @@ async fn healthcheck(
         mezmo_ctx.error(Value::from(format!("{error}")));
         error
     });
-    return Ok(());
+    Ok(())
 }
 
 impl PulsarSink {

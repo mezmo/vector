@@ -565,7 +565,7 @@ mod tests {
         let body = std::str::from_utf8(&req.body).unwrap();
 
         let found = serde_json::from_str::<serde_json::Value>(body).unwrap();
-        let expected = serde_json::to_value(&events[0].as_log()).unwrap();
+        let expected = serde_json::to_value(events[0].as_log()).unwrap();
 
         assert_eq!(found, expected, "The payload was correctly NOT reshaped");
     }
@@ -581,7 +581,7 @@ mod tests {
 
         let found = serde_json::from_str::<serde_json::Value>(body).unwrap();
         reshape_log_event_by_message(events[0].as_mut_log());
-        let expected = serde_json::to_value(&events[0].as_log()).unwrap();
+        let expected = serde_json::to_value(events[0].as_log()).unwrap();
 
         assert_eq!(found, expected, "The payload was correctly reshaped");
     }

@@ -173,7 +173,9 @@ impl RemapConfig {
 
         config.set_custom(enrichment_tables);
         config.set_custom(MeaningList::default());
-        mezmo_ctx.map(|ctx| config.set_custom(ctx));
+        if let Some(ctx) = mezmo_ctx {
+            config.set_custom(ctx)
+        }
 
         compile_vrl(&source, &functions, &state, config)
             .map_err(|diagnostics| {

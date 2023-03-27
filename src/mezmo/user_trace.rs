@@ -3,7 +3,6 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use futures_util::{future::ready, Stream, StreamExt};
 use once_cell::sync::OnceCell;
-use vector_core::event::metric::mezmo::TransformError;
 use std::future::Future;
 use std::task::{Context, Poll};
 use tokio::sync::broadcast::{self, Receiver, Sender};
@@ -11,6 +10,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tower::Service;
 use tracing::log::Level;
 use value::Value;
+use vector_core::event::metric::mezmo::TransformError;
 use vector_core::{event::LogEvent, ByteSizeOf};
 
 use crate::sinks::util::http::HttpBatchService;
@@ -165,7 +165,7 @@ pub struct MezmoHttpBatchLoggingService<F, B = Bytes> {
 }
 
 impl<F, B> MezmoHttpBatchLoggingService<F, B> {
-    pub fn new(inner: HttpBatchService<F, B>, ctx: Option<MezmoContext>) -> Self {
+    pub const fn new(inner: HttpBatchService<F, B>, ctx: Option<MezmoContext>) -> Self {
         MezmoHttpBatchLoggingService { inner, ctx }
     }
 }
@@ -239,6 +239,9 @@ pub fn handle_transform_error(ctx: &Option<MezmoContext>, err: TransformError) {
                 "Field '{}' could not be parsed as an unsigned integer",
                 field
             ));
+        }
+        TransformError::NumberTruncation { field } => {
+            ctx.error(format!("Field '{}' was truncated during parsing", field));
         }
     };
 }
@@ -392,7 +395,7 @@ mod tests {
         }
 
         fn call(&mut self, req: &'static str) -> Self::Future {
-            let res = self.inner.call(req.clone());
+            let res = self.inner.call(req);
             Box::pin(async move {
                 match res.await {
                     Ok(_) => Ok(ServiceTestResponse {}),

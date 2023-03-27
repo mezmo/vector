@@ -1,8 +1,10 @@
+def WORKSPACE_PATH = "/tmp/workspace/${env.BUILD_TAG.replace('%2F', '/')}"
+
 pipeline {
     agent {
         node {
             label "rust-x86_64"
-            customWorkspace("/tmp/workspace/${env.BUILD_TAG}")
+            customWorkspace(WORKSPACE_PATH)
         }
     }
     options {
@@ -17,17 +19,50 @@ pipeline {
     }
     stages {
         stage('Check'){
-            steps {
-                sh """
-                    make check ENVIRONMENT=true
-                """
+          parallel {
+            stage('Check'){
+                steps {
+                    sh """
+                        make check ENVIRONMENT=true
+                    """
+                }
             }
+            stage('Style'){
+                steps {
+                    sh """
+                        make check-fmt ENVIRONMENT=true
+                        make check-style ENVIRONMENT=true
+                    """
+                }
+            }
+          }
         }
-        stage('Unit test'){
-            steps {
-                sh """
+        stage('Lint and Test'){
+            parallel {
+              stage('Lint'){
+                steps {
+                  sh """
+                    make check-clippy ENVIRONMENT=true
+                    make check-scripts ENVIRONMENT=true
+                  """
+                }
+              }
+              stage('Deny'){
+                steps {
+                  catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                    sh """
+                      make check-deny ENVIRONMENT=true
+                    """
+                  }
+                }
+              }
+              stage('Unit test'){
+                steps {
+                  sh """
                     make test ENVIRONMENT=true
-                """
+                  """
+                }
+              }
             }
         }
         stage('Build image and publish') {

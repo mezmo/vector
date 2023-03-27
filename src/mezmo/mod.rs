@@ -76,7 +76,7 @@ impl TryFrom<String> for MezmoContext {
     type Error = ContextParseError;
 
     fn try_from(id: String) -> Result<Self, Self::Error> {
-        let mut parts: Vec<&str> = id.split(":").collect();
+        let mut parts: Vec<&str> = id.split(':').collect();
         if parts.len() == 4 && parts[3] == "shared" {
             // Format: {version}:{kind}:{component_id}:shared
             // Example: 'v1:internal_source:metrics:shared'
@@ -119,7 +119,7 @@ impl TryFrom<String> for MezmoContext {
 /// the root of a new LogEvent message.
 pub fn reshape_log_event_by_message(log: &mut LogEvent) {
     let message_key = log_schema().message_key();
-    if let Some(_) = log.get(message_key) {
+    if log.get(message_key).is_some() {
         log.rename_key(message_key, ".");
     }
 }

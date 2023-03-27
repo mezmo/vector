@@ -42,7 +42,7 @@ export CURRENT_DIR = $(shell pwd)
 # Override this to automatically enter a container containing the correct, full, official build environment for Vector, ready for development
 export ENVIRONMENT ?= false
 # The upstream container we publish artifacts to on a successful master build.
-export ENVIRONMENT_UPSTREAM ?= docker.io/timberio/vector-dev:sha-3eadc96742a33754a5859203b58249f6a806972a
+export ENVIRONMENT_UPSTREAM ?= docker.io/timberio/vector-dev:sha-549cf7300122639cffc7d31a916f32cf835c769f
 # Override to disable building the container, having it pull from the Github packages repo instead
 # TODO: Disable this by default. Blocked by `docker pull` from Github Packages requiring authenticated login
 export ENVIRONMENT_AUTOBUILD ?= true
@@ -109,7 +109,7 @@ endif
 # Set the Jenkins BUILD_ID variable to make a unique container name to avoid collisions
 # when opening PRs on our Jenkins infrastructure.
 BUILD_TAG ?=
-CONTAINER_ID = vector-environment-$(shell echo $(BUILD_TAG) | sed -E 's/[^a-zA-Z0-9_.-]/-/g')$(shell date +%s)
+CONTAINER_ID = vector-environment-$(shell echo $(BUILD_TAG) | sed -E 's/[^a-zA-Z0-9_.-]/-/g')$(shell date +%s)-$(shell echo $$PPID)
 
 # We use a volume here as non-Linux hosts are extremely slow to share disks, and Linux hosts tend to get permissions clobbered.
 # TODO(mdeltito): cache volumes have been removed for now until we are building on 1.66.1

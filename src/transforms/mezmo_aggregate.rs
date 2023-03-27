@@ -80,12 +80,12 @@ impl Aggregate {
         Ok(Self {
             interval: Duration::from_millis(config.interval_ms),
             map: Default::default(),
-            mezmo_ctx: mezmo_ctx,
+            mezmo_ctx,
         })
     }
 
     fn record(&mut self, event: Event) {
-        let event = to_metric(event.into_log());
+        let event = to_metric(&event.into_log());
         match event {
             Ok(event) => {
                 let (series, data, metadata) = event.into_parts();
@@ -122,7 +122,7 @@ impl Aggregate {
     fn flush_into(&mut self, output: &mut Vec<Event>) {
         let map = std::mem::take(&mut self.map);
         for (series, entry) in map.into_iter() {
-            output.push(Event::Log(from_metric(Metric::from_parts(
+            output.push(Event::Log(from_metric(&Metric::from_parts(
                 series, entry.0, entry.1,
             ))));
         }
@@ -192,7 +192,7 @@ mod tests {
     }
 
     fn make_metric(name: &str, kind: metric::MetricKind, value: metric::MetricValue) -> Event {
-        Event::Log(metric::mezmo::from_metric(Metric::new(name, kind, value)))
+        Event::Log(metric::mezmo::from_metric(&Metric::new(name, kind, value)))
     }
 
     #[test]

@@ -65,7 +65,7 @@ async fn find_entries(events: &[JsonValue]) -> bool {
         found_all = events.iter().all(|message| {
             entries.iter().any(|entry| {
                 let event_json =
-                    serde_json::from_str::<serde_json::Value>(&entry["_raw"].as_str().unwrap())
+                    serde_json::from_str::<serde_json::Value>(entry["_raw"].as_str().unwrap())
                         .unwrap();
                 &event_json == message
             })
