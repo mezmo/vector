@@ -172,7 +172,7 @@ where
     T: Send + 'static,
 {
     #[cfg(tokio_unstable)]
-    return tokio::task::Builder::new().name(_name).spawn(task).unwrap();
+    return tokio::task::Builder::new().name(_name).spawn(task);
 
     #[cfg(not(tokio_unstable))]
     tokio::spawn(task)

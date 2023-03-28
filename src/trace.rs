@@ -72,10 +72,7 @@ pub fn init(color: bool, json: bool, levels: &str, internal_log_rate_limit: u64)
         .with(metrics_layer)
         .with(broadcast_layer);
 
-    // The call to `spawn()` binds a server to a port, which can be set via an environment
-    // variable. To avoid issues with unit tests, only perform this layer initialization when
-    // the feature flag is set and not part of test execution.
-    #[cfg(all(feature = "tokio-console", not(test)))]
+    #[cfg(feature = "tokio-console")]
     let subscriber = {
         let console_layer = console_subscriber::ConsoleLayer::builder()
             .with_default_env()
