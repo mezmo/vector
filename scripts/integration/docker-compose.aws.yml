@@ -36,7 +36,7 @@ services:
       - "--no-fail-fast"
       - "--no-default-features"
       - "--features"
-      - "aws-integration-tests,tokio-console"
+      - "aws-integration-tests"
       - "--lib"
       - "${FILTER:-::aws_}"
     depends_on:
