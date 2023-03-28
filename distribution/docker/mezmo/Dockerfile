@@ -15,12 +15,12 @@ RUN ["/build/target/release/vector", "--version"]
 
 FROM docker.io/debian:bullseye-slim as release
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata systemd && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata systemd gdb && rm -rf /var/lib/apt/lists/*
 
 COPY --from=release-builder /build/target/release/vector /usr/local/bin/vector
 RUN mkdir -p /var/lib/vector
 
-# Smoke test on release
+RUN ["gdb", "--version"]
 RUN ["vector", "--version"]
 
 ARG BUILD_DATE
