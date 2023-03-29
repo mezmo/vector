@@ -272,6 +272,7 @@ impl ReduceState {
         message_event: LogEvent,
         strategies: &IndexMap<String, MergeStrategy>,
         mezmo_metadata: MezmoMetadata,
+        group_by: &[String],
     ) -> Self {
         let (value, metadata) = event.into_parts();
 
@@ -290,6 +291,11 @@ impl ReduceState {
             fields
                 .into_iter()
                 .filter_map(|(k, v)| {
+                    // Do not allow merge strategies on `group_by` fields. Keep the first value, but discard the others.
+                    if group_by.contains(&k) {
+                        let m = get_value_merger(v, &MergeStrategy::Discard).unwrap();
+                        return Some((k, m));
+                    }
                     if let Some(strat) = strategies.get(&k) {
                         match get_value_merger(v, strat) {
                             Ok(m) => {
@@ -611,6 +617,7 @@ impl MezmoReduce {
                     message_event,
                     &self.merge_strategies,
                     self.mezmo_metadata.clone(),
+                    &self.group_by,
                 ));
             }
             hash_map::Entry::Occupied(mut entry) => {
@@ -705,6 +712,7 @@ impl MezmoReduce {
                     message_event,
                     &self.merge_strategies,
                     self.mezmo_metadata.clone(),
+                    &self.group_by,
                 )
                 .flush()
                 .into(),
@@ -1695,6 +1703,86 @@ mod test {
                     "request_id" => "2",
                 }
             })
+        );
+    }
+
+    #[tokio::test]
+    async fn mezmo_reduce_group_by_number_field() {
+        let reduce = toml::from_str::<MezmoReduceConfig>(
+            r#"
+        group_by = ["status"]
+
+        [merge_strategies]
+            "method" = "array"
+            "status" = "sum" # Should be IGNORED
+        "#,
+        )
+        .unwrap()
+        .build(&TransformContext::default())
+        .await
+        .unwrap();
+        let reduce = reduce.into_task();
+
+        let e_1 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "status" => 1,
+                "method" => "GET",
+            },
+        });
+
+        let e_2 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "status" => 1,
+                "method" => "POST",
+            },
+        });
+
+        let e_3 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "status" => 1,
+                "method" => "POST",
+            },
+        });
+
+        let e_4 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "status" => 2,
+                "method" => "POST",
+            },
+        });
+
+        let e_5 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "status" => 2,
+                "method" => "POST",
+            },
+        });
+
+        let inputs = vec![e_1.into(), e_2.into(), e_3.into(), e_4.into(), e_5.into()];
+        let in_stream = Box::pin(stream::iter(inputs));
+        let mut out_stream = reduce.transform_events(in_stream);
+
+        let output_1 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_1,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "status" => 1,
+                    "method" => json!(["GET", "POST", "POST"])
+                }
+            }),
+            "group_by did not apply merge strategies to its fields"
+        );
+        let output_2 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_2,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "status" => 2,
+                    "method" => json!(["POST", "POST"])
+                }
+            }),
+            "group_by did not apply merge strategies to its fields"
         );
     }
 }
