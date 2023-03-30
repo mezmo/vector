@@ -173,6 +173,7 @@ default = [
     "parse_regex",
     "parse_regex_all",
     "parse_ruby_hash",
+    "parse_splunk_hec",
     "parse_syslog",
     "parse_timestamp",
     "parse_tokens",
@@ -321,6 +322,7 @@ parse_query_string = ["dep:url"]
 parse_regex = ["dep:regex"]
 parse_regex_all = ["dep:regex"]
 parse_ruby_hash = ["dep:nom"]
+parse_splunk_hec = ["dep:serde_json", "value/json"]
 parse_syslog = ["dep:syslog_loose", "dep:chrono", "vector-common/conversion"]
 parse_timestamp = ["vector-common/conversion", "dep:chrono"]
 parse_tokens = ["vector-common/tokenize"]

@@ -108,6 +108,7 @@ features = [
     "parse_regex",
     "parse_regex_all",
     "parse_ruby_hash",
+    "parse_splunk_hec",
     "parse_syslog",
     "parse_timestamp",
     "parse_tokens",
