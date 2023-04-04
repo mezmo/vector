@@ -1,5 +1,6 @@
 def WORKSPACE_PATH = "/tmp/workspace/${env.BUILD_TAG.replace('%2F', '/')}"
 def DEFAULT_BRANCH = "master"
+def PROJECT_NAME = "vector"
 
 pipeline {
     agent {
