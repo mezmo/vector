@@ -5,6 +5,26 @@ services:
     image: docker.io/rabbitmq:3.8
     ports:
       - 5672:5672
+      - 5671:5671
+    environment:
+      - RABBITMQ_SSL_KEYFILE=/code/tests/data/ca/intermediate_server/private/rabbitmq.key.pem
+      - RABBITMQ_SSL_CERTFILE=/code/tests/data/ca/intermediate_server/certs/rabbitmq.cert.pem
+      - RABBITMQ_SSL_CACERTFILE=/code/tests/data/ca/intermediate_server/certs/ca-chain.cert.pem
+      - RABBITMQ_SSL_FAIL_IF_NO_PEER_CERT=false
+    volumes:
+      - ${PWD}:/code
+
+  wait_rabbitmq:
+    image: integration-runner
+    command: ["tail", "-f", "/dev/null"]
+    depends_on:
+      - rabbitmq
+    healthcheck:
+        test: ["CMD", "curl", "-f", "http://rabbitmq:15692/metrics"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
+
   runner:
     build:
       context:  ${PWD}
@@ -23,7 +43,8 @@ services:
       - "--lib"
       - "${FILTER:-::amqp::}"
     depends_on:
-      - rabbitmq
+      wait_rabbitmq:
+         condition: service_healthy
     volumes:
       - ${PWD}:/code
       - target:/code/target
