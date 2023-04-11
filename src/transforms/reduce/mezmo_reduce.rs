@@ -4,6 +4,8 @@
 // to return date fields in the same format as originally received. For example, an epoch field
 // can be an integer or a string, and it will match the output type based on the incoming data.
 
+use lookup::parser;
+use lookup::Segment::Field;
 use std::collections::BTreeMap;
 use std::{
     collections::{hash_map, HashMap},
@@ -287,15 +289,33 @@ impl ReduceState {
 
         let mut size_estimate: usize = 0;
 
+        // Create a list of root property names after their field path notations are parsed (."my-thing" === "my-thing")
+        // Doing this at a higher level is a mess with lifetimes and the borrow checker that isn't worth it.
+        let mut group_by_lookups = vec![];
+        for key in group_by {
+            match parser::parse_lookup(key) {
+                Err(e) => {
+                    warn!("Could not create group_by lookup for key {}: {}", key, e);
+                }
+                Ok(mut lookup) => {
+                    // We only care about root properties, so we can ignore any nested Fields. Take the first one.
+                    if let Some(Field(first_field)) = lookup.get(0) {
+                        group_by_lookups.push(first_field.name.to_string());
+                    }
+                }
+            };
+        }
+
         let message_fields = if let Value::Object(fields) = value {
             fields
                 .into_iter()
                 .filter_map(|(k, v)| {
                     // Do not allow merge strategies on `group_by` fields. Keep the first value, but discard the others.
-                    if group_by.contains(&k) {
+                    if group_by_lookups.contains(&k) {
                         let m = get_value_merger(v, &MergeStrategy::Discard).unwrap();
                         return Some((k, m));
                     }
+
                     if let Some(strat) = strategies.get(&k) {
                         match get_value_merger(v, strat) {
                             Ok(m) => {
@@ -1783,6 +1803,275 @@ mod test {
                 }
             }),
             "group_by did not apply merge strategies to its fields"
+        );
+    }
+
+    #[tokio::test]
+    async fn mezmo_reduce_group_by_number_field_using_dot_notation() {
+        let reduce = toml::from_str::<MezmoReduceConfig>(
+            r#"
+        group_by = [".status"]
+
+        [merge_strategies]
+            "method" = "array"
+            "status" = "sum" # Should be IGNORED
+        "#,
+        )
+        .unwrap()
+        .build(&TransformContext::default())
+        .await
+        .unwrap();
+        let reduce = reduce.into_task();
+
+        let e_1 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "status" => 1,
+                "method" => "GET",
+            },
+        });
+
+        let e_2 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "status" => 1,
+                "method" => "POST",
+            },
+        });
+
+        let e_3 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "status" => 1,
+                "method" => "POST",
+            },
+        });
+
+        let e_4 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "status" => 2,
+                "method" => "POST",
+            },
+        });
+
+        let e_5 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "status" => 2,
+                "method" => "POST",
+            },
+        });
+
+        let inputs = vec![e_1.into(), e_2.into(), e_3.into(), e_4.into(), e_5.into()];
+        let in_stream = Box::pin(stream::iter(inputs));
+        let mut out_stream = reduce.transform_events(in_stream);
+
+        let output_1 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_1,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "status" => 1,
+                    "method" => json!(["GET", "POST", "POST"])
+                }
+            }),
+            "group_by did not apply merge strategies to its fields"
+        );
+        let output_2 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_2,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "status" => 2,
+                    "method" => json!(["POST", "POST"])
+                }
+            }),
+            "group_by did not apply merge strategies to its fields"
+        );
+    }
+
+    #[tokio::test]
+    async fn mezmo_reduce_group_by_number_field_with_special_chars() {
+        let reduce = toml::from_str::<MezmoReduceConfig>(
+            r#"
+        group_by = ['."my-status"']
+
+        [merge_strategies]
+            "method" = "array"
+            "my-status" = "sum" # Should be IGNORED
+        "#,
+        )
+        .unwrap()
+        .build(&TransformContext::default())
+        .await
+        .unwrap();
+        let reduce = reduce.into_task();
+
+        let e_1 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "my-status" => 1,
+                "method" => "GET",
+            },
+        });
+
+        let e_2 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "my-status" => 1,
+                "method" => "POST",
+            },
+        });
+
+        let e_3 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "my-status" => 1,
+                "method" => "POST",
+            },
+        });
+
+        let e_4 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "my-status" => 2,
+                "method" => "POST",
+            },
+        });
+
+        let e_5 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "my-status" => 2,
+                "method" => "POST",
+            },
+        });
+
+        let inputs = vec![e_1.into(), e_2.into(), e_3.into(), e_4.into(), e_5.into()];
+        let in_stream = Box::pin(stream::iter(inputs));
+        let mut out_stream = reduce.transform_events(in_stream);
+
+        let output_1 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_1,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "my-status" => 1,
+                    "method" => json!(["GET", "POST", "POST"])
+                }
+            }),
+            "group_by did not apply merge strategies to its fields"
+        );
+        let output_2 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_2,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "my-status" => 2,
+                    "method" => json!(["POST", "POST"])
+                }
+            }),
+            "group_by did not apply merge strategies to its fields"
+        );
+    }
+
+    #[tokio::test]
+    async fn mezmo_reduce_group_by_with_nested_object() {
+        let reduce = toml::from_str::<MezmoReduceConfig>(
+            r#"
+        group_by = ['."user.data".user_ids[0]']
+
+        [merge_strategies]
+            "method" = "array"
+        "#,
+        )
+        .unwrap()
+        .build(&TransformContext::default())
+        .await
+        .unwrap();
+        let reduce = reduce.into_task();
+
+        let e_1 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "user.data" => btreemap! {
+                    "user_ids" => json!([1]),
+                    "some_key" => "first",
+                    "my_int" => 55
+                },
+                "method" => "GET",
+            },
+        });
+
+        let e_2 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "user.data" => btreemap! {
+                    "user_ids" => json!([1]),
+                    "some_key" => "second",
+                    "my_int" => 1
+                },
+                "method" => "POST",
+            },
+        });
+
+        let e_3 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "user.data" => btreemap! {
+                    "user_ids" => json!([1]),
+                    "some_key" => "third",
+                    "my_int" => 2
+                },
+                "method" => "POST",
+            },
+        });
+
+        let e_4 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "user.data" => btreemap! {
+                    "user_ids" => json!([2]),
+                    "some_key" => "first",
+                    "my_int" => 66
+                },
+                "method" => "POST",
+            },
+        });
+
+        let e_5 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "user.data" => btreemap! {
+                    "user_ids" => json!([2]),
+                    "some_key" => "second",
+                    "my_int" => 4
+                },
+                "method" => "POST",
+            },
+        });
+
+        let inputs = vec![e_1.into(), e_2.into(), e_3.into(), e_4.into(), e_5.into()];
+        let in_stream = Box::pin(stream::iter(inputs));
+        let mut out_stream = reduce.transform_events(in_stream);
+
+        // Nested objects are NOT reduced, so the entire object, although used in group_by, should be a Discard
+        // strategy where only the first value is kept in its entirety.
+        let output_1 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_1,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "user.data" => btreemap! {
+                        "user_ids" => json!([1]),
+                        "some_key" => "first",
+                        "my_int" => 55
+                    },
+                    "method" => json!(["GET", "POST", "POST"])
+                }
+            }),
+            "group_by worked using a nested structure and field paths"
+        );
+        let output_2 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_2,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "user.data" => btreemap! {
+                        "user_ids" => json!([2]),
+                        "some_key" => "first",
+                        "my_int" => 66
+                    },
+                    "method" => json!(["POST", "POST"])
+                }
+            }),
+            "group_by worked using a nested structure and field paths"
         );
     }
 }
