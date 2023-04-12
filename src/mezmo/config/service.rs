@@ -119,11 +119,29 @@ impl ConfigService for DefaultConfigService {
         )
         .await?;
 
-        let r: HashMap<PipelineId, Revision> =
+        let revisions: HashMap<PipelineId, Revision> =
             serde_json::from_slice(&response_body).map_err(|e| e.to_string())?;
 
-        Ok(r)
+        Ok(adapt_revisions(revisions))
     }
+}
+
+fn adapt_revisions(mut revisions: HashMap<PipelineId, Revision>) -> HashMap<PipelineId, Revision> {
+    let mut to_remove = Vec::new();
+    for (k, r) in revisions.iter() {
+        // Non-durable pipelines still exist in the DB
+        // Leave them out manually.
+        if r.config.contains("sources = { }") {
+            to_remove.push(k.clone());
+            continue;
+        }
+    }
+
+    for k in to_remove {
+        revisions.remove(&k);
+    }
+
+    revisions
 }
 
 /// Makes an HTTP request to the provided endpoint, returning the String body.
@@ -137,6 +155,7 @@ async fn http_request(
 
     if body.is_some() {
         builder = builder.method("POST");
+        builder = builder.header("Content-Type", "application/json");
     }
 
     // Augment with headers. These may be required e.g. for authentication to private endpoints.
