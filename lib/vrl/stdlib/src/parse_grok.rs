@@ -7,6 +7,23 @@ use vrl::{
     prelude::*,
 };
 
+static MEZMO_PATTERNS: &[(&str, &str)] = &[
+    ("JSON_OBJECT", r#"{.*}"#),
+    ("JSON_ARRAY", r#"\[.*\]"#),
+    ("XML", r#"<[\w"=\s]+>.*<\/[\w\s]+>"#),
+    ("CURLY_BRACKET", r#"{|}"#),
+    ("SQUARE_BRACKET", r#"\[|\]"#),
+    ("TAB", r#"\t"#),
+    ("SINGLE_SPACE", r#"\s"#), // SPACE is already defined in builtin patterns but it's greedy
+    ("ANY_CHAR", r#"."#),
+    ("DOUBLE_QUOTE", r#"""#),
+    ("SINGLE_QUOTE", r#"'"#),
+    ("PERIOD", r#"\."#),
+    ("UTF8_WORD", r#"\p{L}+"#),
+    ("SENTENCE", r#"[\p{L},":;\s\-]+"#), // Sentence with UTF8 chars
+    ("OPTIONAL_SENTENCE", r#"[\p{L},":;\s\-]*"#),
+];
+
 fn parse_grok(value: Value, pattern: Arc<grok::Pattern>) -> Resolved {
     let bytes = value.try_bytes_utf8_lossy()?;
     match pattern.match_against(&bytes) {
@@ -112,7 +129,7 @@ impl Function for ParseGrok {
             .expect("grok pattern not bytes")
             .into_owned();
 
-        let mut grok = grok::Grok::with_default_patterns();
+        let mut grok = grok_with_mezmo_patterns();
         let pattern =
             Arc::new(grok.compile(&pattern, true).map_err(|e| {
                 Box::new(Error::InvalidGrokPattern(e)) as Box<dyn DiagnosticMessage>
@@ -120,6 +137,14 @@ impl Function for ParseGrok {
 
         Ok(ParseGrokFn { value, pattern }.as_expr())
     }
+}
+
+fn grok_with_mezmo_patterns() -> grok::Grok {
+    let mut grok = grok::Grok::with_default_patterns();
+    for &(key, value) in MEZMO_PATTERNS {
+        grok.add_pattern(String::from(key), String::from(value));
+    }
+    grok
 }
 
 #[derive(Clone, Debug)]
@@ -189,6 +214,150 @@ mod test {
                               pattern: "(%{TIMESTAMP_ISO8601:timestamp}|%{LOGLEVEL:level})"],
             want: Ok(Value::from(btreemap! {
                 "timestamp" => "2020-10-02T23:22:12.223222Z",
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_json_object {
+            args: func_args![ value: r#"hello {"prop": 1} info"#,
+                            pattern: "%{DATA}%{JSON_OBJECT:json} %{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "json" => r#"{"prop": 1}"#,
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_json_array {
+            args: func_args![ value: "hello [1, 2, 3] info",
+                            pattern: "%{DATA}%{JSON_ARRAY:json} %{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "json" => "[1, 2, 3]",
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_xml {
+            args: func_args![ value: r#"hello <tag prop="value">inner</tag> info"#,
+                            pattern: "%{DATA}%{XML:xml} %{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "xml" => r#"<tag prop="value">inner</tag>"#,
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_curly_bracket {
+            args: func_args![ value: "hello {world} info",
+                            pattern: "hello %{CURLY_BRACKET}%{DATA:body}%{CURLY_BRACKET} %{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "body" => "world",
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_square_bracket {
+            args: func_args![ value: "hello [world] info",
+                            pattern: "hello %{SQUARE_BRACKET}%{DATA:body}%{SQUARE_BRACKET} %{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "body" => "world",
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_any_char {
+            args: func_args![ value: "hello `world* info",
+                            pattern: "hello %{ANY_CHAR}%{WORD:body}%{ANY_CHAR} %{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "body" => "world",
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_tab {
+            args: func_args![value: "hello	world	info", // separated by tabs
+                            pattern: "hello%{TAB}%{WORD:body}%{TAB}%{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "body" => "world",
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_single_space {
+            args: func_args![ value: "hello world info",
+                            pattern: "hello%{SINGLE_SPACE}%{WORD:body}%{SINGLE_SPACE}%{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "body" => "world",
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_double_quote {
+            args: func_args![ value: "hello \"world\" info",
+                            pattern: "hello %{DOUBLE_QUOTE}%{WORD:body}%{DOUBLE_QUOTE} %{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "body" => "world",
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_single_quote {
+            args: func_args![ value: "hello 'world' info",
+                            pattern: "hello %{SINGLE_QUOTE}%{WORD:body}%{SINGLE_QUOTE} %{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "body" => "world",
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_period {
+            args: func_args![ value: "hello .world info",
+                            pattern: "hello %{PERIOD}%{WORD:body} %{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "body" => "world",
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_utf8_word {
+            args: func_args![ value: "hello Visca Barça España 你好 info",
+                            pattern: "hello %{UTF8_WORD:a} %{UTF8_WORD:b} %{UTF8_WORD:c} %{UTF8_WORD:d} %{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "a" => "Visca",
+                "b" => "Barça",
+                "c" => "España",
+                "d" => "你好",
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_sentence {
+            args: func_args![ value: "hello Visca Barça España 你好 info",
+                            pattern: "hello %{SENTENCE:body} %{LOGLEVEL:level}"],
+            want: Ok(Value::from(btreemap! {
+                "body" => "Visca Barça España 你好",
+                "level" => "info"
+            })),
+            tdef: TypeDef::object(Collection::any()).fallible(),
+        }
+
+        parsed_mezmo_optional_sentence {
+            args: func_args![ value: "hello Visca Barça España 你好 info",
+                            pattern: "hello %{OPTIONAL_SENTENCE:body} %{LOGLEVEL:level}%{OPTIONAL_SENTENCE:empty}"],
+            want: Ok(Value::from(btreemap! {
+                "body" => "Visca Barça España 你好",
+                "level" => "info",
+                "empty" => ""
             })),
             tdef: TypeDef::object(Collection::any()).fallible(),
         }
