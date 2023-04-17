@@ -4,8 +4,6 @@ use std::collections::{HashMap, HashSet};
 
 use async_stream::stream;
 use futures::Stream;
-use futures_util::pin_mut;
-use futures_util::stream::StreamExt;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tokio::time;
@@ -96,13 +94,12 @@ fn poll_config(
             last_run = time::Instant::now();
 
             match mezmo_config_builder.build_incrementally().await {
-                Ok(config_stream) => {
-                    pin_mut!(config_stream);
-
-                    while let Some(config_builder) = config_stream.next().await {
-                        info!("Sending reload config signal");
-                        yield signal::SignalTo::ReloadFromConfigBuilder(config_builder);
-                    }
+                Ok((Some(config_builder), _)) => {
+                    info!("Sending reload config signal");
+                    yield signal::SignalTo::ReloadFromConfigBuilder(config_builder);
+                },
+                Ok((None, _)) => {
+                    // No changes -> keep polling
                 },
                 Err(e) => {
                     error!("Error building the config incrementally: {e}");
@@ -206,12 +203,11 @@ impl MezmoConfigBuilder {
         }
     }
 
-    /// Yields a new `ConfigBuilder` by each new revision found.
+    /// Creates `ConfigBuilder` instances incrementally by each new revision found, returning
+    /// once all valid config have been loaded.
     /// It errors out when getting the partition info or getting new revisions fail (should be retried periodically).
-    async fn build_incrementally(
-        &mut self,
-    ) -> Result<impl Stream<Item = ConfigBuilder> + '_, String> {
-        info!("Build config incrementally started");
+    async fn build_incrementally(&mut self) -> Result<(Option<ConfigBuilder>, usize), String> {
+        info!("Incremental config build starting");
         let (pipelines, common_config) = self.service.get_pipelines_by_partition().await?;
 
         // Compare pipelines ids, delete pipelines that no longer exist
@@ -224,77 +220,85 @@ impl MezmoConfigBuilder {
         // Incrementally build the configuration
         let pipelines_with_changes = self.get_pipeline_with_config_changes().await?;
 
-        let s = stream! {
-            let common_config = self.common_config.as_ref().unwrap();
+        let common_config = self.common_config.as_ref().unwrap();
+        let mut result_builder = None;
+        let mut generated = 0;
 
-            if pipelines_removed || common_config_changed {
-                info!(
-                    message = "Updating the configuration based on a diff changes",
-                    pipelines_removed,
-                    common_config_changed
-                );
-                match generate_config(common_config, &self.cache, None) {
-                    Ok(builder) => {
-                        yield builder;
-                    },
-                    Err(errors) => {
-                        emit!(MezmoGenerateConfigError{
-                            errors,
-                            pipeline_id: None,
-                            revision_id: None,
-                            incremental: true,
-                            cache_len: self.cache.len(),
-                        });
-                    },
+        if pipelines_removed || common_config_changed {
+            info!(
+                message = "Updating the configuration based on a diff changes",
+                pipelines_removed, common_config_changed
+            );
+            match generate_config(common_config, &self.cache, None) {
+                Ok(builder) => {
+                    result_builder = Some(builder);
+                    generated += 1;
+                }
+                Err(errors) => {
+                    emit!(MezmoGenerateConfigError {
+                        errors,
+                        pipeline_id: None,
+                        revision_id: None,
+                        incremental: true,
+                        cache_len: self.cache.len(),
+                    });
+                }
+            }
+        }
+
+        if pipelines_with_changes.is_empty() {
+            info!("No config changes for individual pipelines")
+        } else {
+            info!(
+                "Config changes for {} pipelines",
+                pipelines_with_changes.len()
+            )
+        }
+
+        for (pipeline_id, revision) in pipelines_with_changes.into_iter() {
+            match self.cache.get_key_value(&pipeline_id) {
+                Some(existing) if existing.1.id != revision.id => {
+                    info!(
+                        "Building config for updated pipeline {} with revision {}",
+                        &pipeline_id, &revision.id
+                    );
+                }
+                None => {
+                    info!(
+                        "Building config for new pipeline {} with revision {}",
+                        &pipeline_id, &revision.id
+                    );
+                }
+                Some(_) => {
+                    // Revision matched the stored revision, there's a problem with the logic or the service
+                    warn!("Unexpected existing revision for pipeline {}", &pipeline_id);
+                    continue;
                 }
             }
 
-            if pipelines_with_changes.is_empty() {
-                info!("No config changes for individual pipelines")
-            } else {
-                info!("Config changes for {} pipelines", pipelines_with_changes.len())
-            }
-
-            for (pipeline_id, revision) in pipelines_with_changes.into_iter() {
-                match self.cache.get_key_value(&pipeline_id) {
-                    Some(existing) if existing.1.id != revision.id => {
-                        info!("Building config for updated pipeline {} with revision {}", &pipeline_id, &revision.id);
-                    },
-                    None => {
-                        info!("Building config for new pipeline {} with revision {}", &pipeline_id, &revision.id);
-                    },
-                    Some(_) => {
-                        // Revision matched the stored revision, there's a problem with the logic or the service
-                        warn!("Unexpected existing revision for pipeline {}", &pipeline_id);
-                        continue;
-                    }
+            match generate_config(common_config, &self.cache, Some((&pipeline_id, &revision))) {
+                Ok(builder) => {
+                    self.cache.insert(pipeline_id, revision);
+                    result_builder = Some(builder);
+                    generated += 1;
                 }
-
-                match generate_config(common_config, &self.cache, Some((&pipeline_id, &revision))) {
-                    Ok(builder) => {
-                        self.cache.insert(pipeline_id, revision);
-
-                        // Yield to reload the config.
-                        // Reloading the config every time there's a change instead of joining all changes
-                        // can be considered wasteful but at least we get a good trace of what occurred.
-                        // Given that we only reload when there's a change, we can check for new configs more eagerly.
-                        // The topology builder will calculate the diff and only start/shutdown components that changed.
-                        yield builder;
-                    }
-                    Err(errors) => {
-                        emit!(MezmoGenerateConfigError{
-                            errors,
-                            pipeline_id: Some(pipeline_id.clone()),
-                            revision_id: Some(revision.id.clone()),
-                            incremental: true,
-                            cache_len: self.cache.len(),
-                        });
-                    }
+                Err(errors) => {
+                    emit!(MezmoGenerateConfigError {
+                        errors,
+                        pipeline_id: Some(pipeline_id.clone()),
+                        revision_id: Some(revision.id.clone()),
+                        incremental: true,
+                        cache_len: self.cache.len(),
+                    });
                 }
             }
-        };
+        }
 
-        Ok(s)
+        if generated > 0 {
+            info!("Incremental config build generated {generated} configurations successfully");
+        }
+
+        Ok((result_builder, generated))
     }
 
     /// Extracts the current revisions of each pipeline and fetches the new configuration (if any).
@@ -390,7 +394,6 @@ impl ProviderConfig for MezmoPartitionConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::stream::StreamExt;
     use http::StatusCode;
     use mockall::mock;
     use wiremock::{
@@ -548,22 +551,20 @@ mod tests {
         let service = DefaultConfigService::new(&partition_config);
         let mut b = new_test_builder(Box::new(service));
 
-        let stream = b.build_incrementally().await?;
+        let (_, generated) = b.build_incrementally().await?;
         // First time
-        let events = stream.take(10).collect::<Vec<_>>().await;
-        assert_eq!(events.len(), 2, "First reload and then the pipeline");
+        assert_eq!(generated, 2, "First reload and then the pipeline");
         assert_eq!(b.cache.len(), 1, "Pipeline cached");
 
         // Second time
-        let stream = b.build_incrementally().await?;
-        let events = stream.take(10).collect::<Vec<_>>().await;
-        assert_eq!(events.len(), 0, "No new events");
+        let (config_builder, generated) = b.build_incrementally().await?;
+        assert_eq!(generated, 0, "No new events");
+        assert!(config_builder.is_none(), "No new config");
         assert_eq!(b.cache.len(), 1, "Pipeline still cached");
 
-        // Following time
-        let stream = b.build_incrementally().await?;
-        let events = stream.take(10).collect::<Vec<_>>().await;
-        assert_eq!(events.len(), 1, "Config changed");
+        // Following times
+        let (_, generated) = b.build_incrementally().await?;
+        assert_eq!(generated, 1, "Config changed");
         assert_eq!(b.cache.len(), 0, "Pipeline removed from cache");
         Ok(())
     }
@@ -613,9 +614,8 @@ mod tests {
         let service = DefaultConfigService::new(&partition_config);
         let mut b = new_test_builder(Box::new(service));
 
-        let stream = b.build_incrementally().await?;
-        let events = stream.take(10).collect::<Vec<_>>().await;
-        assert_eq!(events.len(), 3, "First reload and then the good pipelines");
+        let (_, generated) = b.build_incrementally().await?;
+        assert_eq!(generated, 3, "First reload and then the good pipelines");
         assert!(b.cache.get("pipeline1").is_some(), "Pipeline 1 cached");
         assert!(b.cache.get("pipeline4").is_some(), "Pipeline 3 cached");
         assert_eq!(b.cache.len(), 2, "Pipelines cached");
