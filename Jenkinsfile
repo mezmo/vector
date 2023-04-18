@@ -3,6 +3,14 @@ library 'magic-butler-catalogue'
 def WORKSPACE_PATH = "/tmp/workspace/${env.BUILD_TAG.replace('%2F', '/')}"
 def DEFAULT_BRANCH = "master"
 def PROJECT_NAME = "vector"
+def CURRENT_BRANCH = [env.CHANGE_BRANCH, env.BRANCH_NAME]?.find{branch -> branch != null}
+
+def slugify(str) {
+  def s = str.toLowerCase()
+  s = s.replaceAll(/[^a-z0-9\s-\/]/, "").replaceAll(/\s+/, " ").trim()
+  s = s.replaceAll(/[\/\s]/, '-').replaceAll(/-{2,}/, '-')
+  s
+}
 
 pipeline {
     agent {
@@ -92,15 +100,43 @@ pipeline {
                   """
                 }
               }
+              stage('Test build container image') {
+                  when {
+                    not {
+                      branch pattern: "(^main|^master|v\\d+\\.\\d+.\\d+.\\d+(-[a-z_\\-0-9]+)?)", comparator: "REGEXP"
+                    }
+                  }
+                  steps {
+                    script {
+                      buildx.build(
+                        project: PROJECT_NAME
+                      , push: false
+                      , tags: [slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")]
+                      , dockerfile: "distribution/docker/mezmo/Dockerfile"
+                      )
+                    }
+                  }
+              }
             }
         }
         stage('Build image and publish') {
             when {
-                branch pattern: "v\\d+\\.\\d+.\\d+.\\d+(-[a-z_\\-0-9]+)?", comparator: "REGEXP"
+              branch pattern: "(v\\d+\\.\\d+.\\d+.\\d+(-[a-z_\\-0-9]+)?)|(feature\\/LOG-\\d+)", comparator: "REGEXP"
             }
+
             steps {
-                sh 'make mezmo-build-image BUILD_VERSION=${BRANCH_NAME}'
-                sh 'make mezmo-publish-image BUILD_VERSION=${BRANCH_NAME}'
+              script {
+                def tag = CURRENT_BRANCH
+                if (CURRENT_BRANCH ==~ /feature\/LOG-\d+/) {
+                  tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
+                }
+                buildx.build(
+                  project: PROJECT_NAME
+                , push: true
+                , tags: [tag]
+                , dockerfile: "distribution/docker/mezmo/Dockerfile"
+                )
+              }
             }
         }
     }
