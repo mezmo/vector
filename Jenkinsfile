@@ -92,15 +92,38 @@ pipeline {
                   """
                 }
               }
+              stage('Test build container image') {
+                  when {
+                    not {
+                      branch pattern: "(^main|^master|v\\d+\\.\\d+.\\d+.\\d+(-[a-z_\\-0-9]+)?)", comparator: "REGEXP"
+                    }
+                  }
+                  steps {
+                    script {
+                      buildx.build(
+                        project: PROJECT_NAME
+                      , push: false
+                      , tags: [BRANCH_NAME]
+                      , dockerfile: "distribution/docker/mezmo/Dockerfile"
+                      )
+                    }
+                  }
+              }
             }
         }
         stage('Build image and publish') {
             when {
-                branch pattern: "v\\d+\\.\\d+.\\d+.\\d+(-[a-z_\\-0-9]+)?", comparator: "REGEXP"
+                branch pattern: "(v\\d+\\.\\d+.\\d+.\\d+(-[a-z_\\-0-9]+)?)|(feature\\/LOG-\\d+)", comparator: "REGEXP"
             }
             steps {
-                sh 'make mezmo-build-image BUILD_VERSION=${BRANCH_NAME}'
-                sh 'make mezmo-publish-image BUILD_VERSION=${BRANCH_NAME}'
+              script {
+                buildx.build(
+                  project: PROJECT_NAME
+                , push: true
+                , tags: [BRANCH_NAME]
+                , dockerfile: "distribution/docker/mezmo/Dockerfile"
+                )
+              }
             }
         }
     }

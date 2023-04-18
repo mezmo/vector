@@ -1,4 +1,17 @@
-FROM us.gcr.io/logdna-k8s/vector-dev:latest AS release-builder
+# use a source that has multi-arch support (amd64+arm64)
+FROM rust:1-slim-bullseye as release-builder
+
+# deps for compiler
+RUN DEPS='gcc g++ make cmake xz-utils locales python libexpat1-dev gettext libz-dev libssl-dev autoconf pkg-config bzip2 protobuf-compiler libsasl2-dev' \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends $DEPS \
+  && echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen \
+  && locale-gen en_US.UTF-8 \
+  && /usr/sbin/update-locale LANG=en_US.UTF-8 \
+  && apt-get remove --purge autoconf libz-dev libexpat1-dev -y \
+  && apt-get autoremove -y \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc
 
 WORKDIR /build
 COPY . .
@@ -13,9 +26,14 @@ RUN ls -lh /build/target/release
 # Smoke test on relese-builder
 RUN ["/build/target/release/vector", "--version"]
 
-FROM docker.io/debian:bullseye-slim as release
+# use internal base image
+FROM us.gcr.io/logdna-k8s/release:bullseye as release
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata systemd gdb && rm -rf /var/lib/apt/lists/*
+# install remaining dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends systemd gdb \
+  && apt-get autoremove -y \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc
 
 COPY --from=release-builder /build/target/release/vector /usr/local/bin/vector
 RUN mkdir -p /var/lib/vector
