@@ -116,7 +116,15 @@ pub fn apache_common_log_line() -> String {
 
 pub fn nginx_access_log_line() -> String {
     let user_agent = choose_weighted(&USER_AGENTS);
-    format!("{} {user_agent}", apache_common_log_line())
+    let referer = thread_rng().gen::<Domain>().to_string();
+
+    // This combined format mirrors what the VRL `parse_nginx_log` is capable of
+    // parsing: https://github.com/answerbook/vector/blob/e4b96c57c6c62d91a3d53d1d327cba9501e342f3/lib/vrl/stdlib/src/parse_nginx_log.rs#L81
+    // 62.226.10.16 - - [20/Apr/2023:16:50:58 +0000] "POST /js4e5d442adc4ce8033c741dae179a67e HTTP/1.1" 403 8754 "willms.com" "Mozilla/5.0 (Android 7.1.1; Mobile; rv:64.0) Gecko/64.0 Firefox/64.0"
+    format!(
+        "{} \"{referer}\" \"{user_agent}\"",
+        apache_common_log_line()
+    )
 }
 
 #[derive(Debug, Serialize)]
