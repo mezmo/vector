@@ -48,7 +48,7 @@ pub struct RemapMappingAbort {
 
 impl InternalEvent for RemapMappingAbort {
     fn emit(self) {
-        debug!(
+        trace!(
             message = "Event mapping aborted.",
             internal_log_rate_limit = true
         );
