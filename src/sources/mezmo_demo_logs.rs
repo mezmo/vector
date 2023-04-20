@@ -160,7 +160,6 @@ impl MezmoOutputFormat {
             }
             Self::Financial { devices } => {
                 if !financial_evt_state.initialized() {
-                    //
                     let _ = financial_evt_state.set(EventGenerator::new(*devices));
                 }
                 let gen = financial_evt_state
