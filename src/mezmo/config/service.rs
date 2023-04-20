@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Instant};
 
 use hyper::Body;
 use indexmap::IndexMap;
@@ -9,7 +9,9 @@ use vector_core::{
     tls::{TlsConfig, TlsSettings},
 };
 
-use crate::{built_info, http::HttpClient};
+use crate::{
+    built_info, http::HttpClient, internal_events::mezmo_config::MezmoConfigServiceResponse,
+};
 
 use super::{MezmoPartitionConfig, PipelineId, Revision, RevisionId};
 
@@ -167,11 +169,7 @@ async fn http_request(
         .body(body.unwrap_or_else(Body::empty))
         .map_err(|_| "Couldn't create HTTP request".to_string())?;
 
-    info!(
-        message = "Attempting to retrieve configuration.",
-        url = ?url.as_str()
-    );
-
+    let start = Instant::now();
     let response = http_client.send(request).await.map_err(|err| {
         let message = "HTTP error";
         error!(
@@ -182,9 +180,13 @@ async fn http_request(
         format!("{message}. Error: {err:?}")
     })?;
 
-    info!(message = "Response received.", url = ?url.as_str(), status_code = ?response.status());
-
     let status = response.status();
+    emit!(MezmoConfigServiceResponse {
+        elapsed: Instant::now() - start,
+        url: url.as_str(),
+        status,
+    });
+
     let body = hyper::body::to_bytes(response.into_body())
         .await
         .map_err(|err| {

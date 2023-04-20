@@ -33,7 +33,11 @@ use crate::service;
 use crate::{api, internal_events::ApiStarted};
 use crate::{
     cli::{handle_config_errors, Color, LogFormat, Opts, RootOpts, SubCommand},
-    config, generate, generate_schema, graph, heartbeat, list,
+    config, generate, generate_schema, graph, heartbeat,
+    internal_events::mezmo_config::{
+        MezmoConfigCompile, MezmoConfigReload, MezmoConfigReloadSignalReceive,
+    },
+    list,
     signal::{self, SignalTo},
     topology::{self, ReloadOutcome, RunningTopology, TopologyController},
     trace, unit_test, validate,
@@ -369,9 +373,11 @@ impl Application {
                     signal = signal_rx.recv() => {
                         match signal {
                             Ok(SignalTo::ReloadFromConfigBuilder(config_builder)) => {
+                                emit!(MezmoConfigReloadSignalReceive{});
                                 let start = Instant::now();
                                 let mut topology_controller = topology_controller.lock().await;
                                 let new_config = config_builder.build().map_err(handle_config_errors).ok();
+                                emit!(MezmoConfigCompile{elapsed: Instant::now() - start});
                                 let mut reload_outcome = ReloadOutcome::NoConfig;
                                 let reload_future = topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone()));
                                 tokio::pin!(reload_future);
@@ -391,31 +397,24 @@ impl Application {
 
                                 match reload_outcome {
                                     ReloadOutcome::NoConfig => {
-                                        warn!(
-                                            message = "Config reload resulted in no config",
-                                            ?elapsed
-                                        );
+                                        emit!(MezmoConfigReload{ elapsed, success: false });
+                                        warn!("Config reload resulted in no config");
                                     },
                                     ReloadOutcome::MissingApiKey => {
-                                        warn!(
-                                            message = "Config reload missing API key",
-                                            ?elapsed
-                                        );
+                                        emit!(MezmoConfigReload{ elapsed, success: false });
+                                        warn!("Config reload missing API key");
                                     },
                                     ReloadOutcome::Success => {
+                                        emit!(MezmoConfigReload{ elapsed, success: true });
                                         info!("Config reload succeeded, took {:?}", elapsed);
                                     },
                                     ReloadOutcome::RolledBack => {
-                                        warn!(
-                                            message = "Config reload rolled back",
-                                            ?elapsed
-                                        );
+                                        emit!(MezmoConfigReload{ elapsed, success: false });
+                                        warn!("Config reload rolled back");
                                     },
                                     ReloadOutcome::FatalError => {
-                                        error!(
-                                            message = "Config reload fatal error",
-                                            ?elapsed
-                                        );
+                                        emit!(MezmoConfigReload{ elapsed, success: false });
+                                        error!("Config reload fatal error");
                                         break SignalTo::Shutdown;
                                     },
                                 };

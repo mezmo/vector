@@ -11,7 +11,9 @@ use vector_config::configurable_component;
 
 use crate::{
     config::{self, provider::ProviderConfig, ConfigBuilder},
-    internal_events::mezmo_generate_config_error::MezmoGenerateConfigError,
+    internal_events::mezmo_config::{
+        MezmoConfigBuildFailure, MezmoConfigReloadSignalSend, MezmoGenerateConfigError,
+    },
     providers::BuildResult,
     signal,
 };
@@ -95,14 +97,14 @@ fn poll_config(
 
             match mezmo_config_builder.build_incrementally().await {
                 Ok((Some(config_builder), _)) => {
-                    info!("Sending reload config signal");
+                    emit!(MezmoConfigReloadSignalSend {});
                     yield signal::SignalTo::ReloadFromConfigBuilder(config_builder);
                 },
                 Ok((None, _)) => {
                     // No changes -> keep polling
                 },
                 Err(e) => {
-                    error!("Error building the config incrementally: {e}");
+                    emit!(MezmoConfigBuildFailure { error: e});
                 },
             };
         }
