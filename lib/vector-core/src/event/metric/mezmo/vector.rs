@@ -1,14 +1,13 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
-use vrl_lib::prelude::NotNan;
 
 use crate::{
     config::log_schema,
     event::{
         metric::{
-            Bucket, Metric, MetricData, MetricKind, MetricName, MetricSeries, MetricTags,
-            MetricTime, MetricValue, Quantile, Sample,
+            mezmo::from_f64_or_zero, Bucket, Metric, MetricData, MetricKind, MetricName,
+            MetricSeries, MetricTags, MetricTime, MetricValue, Quantile, Sample,
         },
         LogEvent, StatisticKind, Value,
     },
@@ -216,13 +215,6 @@ fn get_u64(value_object: &BTreeMap<String, Value>, name: &str) -> Result<u64, Tr
     }
 
     Ok(value as u64)
-}
-
-fn from_f64_or_zero(value: f64) -> Value {
-    NotNan::new(value).map_or_else(
-        |_| Value::Float(NotNan::new(0.0).expect("0.0 is not NaN")),
-        Value::Float,
-    )
 }
 
 fn get_property<'a>(
