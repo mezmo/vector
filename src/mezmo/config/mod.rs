@@ -45,6 +45,9 @@ pub struct MezmoPartitionConfig {
     /// Url of the "POST latest revision" endpoint
     latest_revisions_url: String,
 
+    /// Url of the "POST loaded revisions" endpoint
+    loaded_revisions_url: String,
+
     /// Url of the "GET pipelines by partition" endpoint
     pipelines_by_partition_url: String,
 
@@ -64,6 +67,8 @@ impl Default for MezmoPartitionConfig {
         Self {
             latest_revisions_url:
                 "http://pipeline-service/v1/control/pipelines/config/latest_revisions".into(),
+            loaded_revisions_url:
+                "http://pipeline-service/v1/control/pipelines/config/loaded_revisions".into(),
             pipelines_by_partition_url:
                 "http://pipeline-service/v1/control/partitions/{partition_id}/pipelines".into(),
             partition_id: "sample_partition".into(),
@@ -96,9 +101,12 @@ fn poll_config(
             last_run = time::Instant::now();
 
             match mezmo_config_builder.build_incrementally().await {
-                Ok((Some(config_builder), _)) => {
+                Ok((Some(config_builder), loaded)) => {
                     emit!(MezmoConfigReloadSignalSend {});
                     yield signal::SignalTo::ReloadFromConfigBuilder(config_builder);
+                    mezmo_config_builder.service.set_loaded_revisions(loaded).await.unwrap_or_else(|e| {
+                        error!("Error setting loaded revisions: {e}");
+                    });
                 },
                 Ok((None, _)) => {
                     // No changes -> keep polling
@@ -164,6 +172,9 @@ impl MezmoConfigBuilder {
             cache.insert(pipeline_id, revision);
         }
 
+        // Optimistically try to build the partition config from the initial cache.
+        // If this fails, the cache is discarded and we fall back to an incremental build
+        // via the execution of the provider's polling loop.
         let common_config = self.common_config.as_ref().unwrap();
         match generate_config(common_config, &cache, None) {
             Ok(r) => {
@@ -185,7 +196,8 @@ impl MezmoConfigBuilder {
             }
         };
 
-        // Try to build using just the common config
+        // Try to build using just the common config to allow the process to run
+        // while the polling loop executes.
         cache = HashMap::new();
         match generate_config(common_config, &cache, None) {
             Ok(r) => {
@@ -208,7 +220,9 @@ impl MezmoConfigBuilder {
     /// Creates `ConfigBuilder` instances incrementally by each new revision found, returning
     /// once all valid config have been loaded.
     /// It errors out when getting the partition info or getting new revisions fail (should be retried periodically).
-    async fn build_incrementally(&mut self) -> Result<(Option<ConfigBuilder>, usize), String> {
+    async fn build_incrementally(
+        &mut self,
+    ) -> Result<(Option<ConfigBuilder>, Vec<(PipelineId, RevisionId)>), String> {
         info!("Incremental config build starting");
         let (pipelines, common_config) = self.service.get_pipelines_by_partition().await?;
 
@@ -224,7 +238,7 @@ impl MezmoConfigBuilder {
 
         let common_config = self.common_config.as_ref().unwrap();
         let mut result_builder = None;
-        let mut generated = 0;
+        let mut loaded: Vec<(PipelineId, RevisionId)> = Vec::new();
 
         if pipelines_removed || common_config_changed {
             info!(
@@ -234,7 +248,6 @@ impl MezmoConfigBuilder {
             match generate_config(common_config, &self.cache, None) {
                 Ok(builder) => {
                     result_builder = Some(builder);
-                    generated += 1;
                 }
                 Err(errors) => {
                     emit!(MezmoGenerateConfigError {
@@ -280,9 +293,9 @@ impl MezmoConfigBuilder {
 
             match generate_config(common_config, &self.cache, Some((&pipeline_id, &revision))) {
                 Ok(builder) => {
+                    loaded.push((pipeline_id.clone(), revision.id.clone()));
                     self.cache.insert(pipeline_id, revision);
                     result_builder = Some(builder);
-                    generated += 1;
                 }
                 Err(errors) => {
                     emit!(MezmoGenerateConfigError {
@@ -296,11 +309,14 @@ impl MezmoConfigBuilder {
             }
         }
 
-        if generated > 0 {
-            info!("Incremental config build generated {generated} configurations successfully");
+        if !loaded.is_empty() {
+            info!(
+                "Incremental config build generated {} configurations successfully",
+                loaded.len()
+            );
         }
 
-        Ok((result_builder, generated))
+        Ok((result_builder, loaded))
     }
 
     /// Extracts the current revisions of each pipeline and fetches the new configuration (if any).
@@ -398,6 +414,7 @@ mod tests {
     use super::*;
     use http::StatusCode;
     use mockall::mock;
+    use serde_json::json;
     use wiremock::{
         matchers::{self, path},
         Mock, MockServer, ResponseTemplate,
@@ -418,6 +435,10 @@ mod tests {
                 &self,
                 current_revisions: Vec<(PipelineId, Option<RevisionId>)>,
             ) -> Result<HashMap<PipelineId, Revision>, String>;
+            async fn set_loaded_revisions(
+                &self,
+                revisions: Vec<(PipelineId, RevisionId)>,
+            ) -> Result<(), String>;
         }
     }
 
@@ -489,13 +510,14 @@ mod tests {
         let partition_id = S!("part1");
         let pipelines_by_partition_url = "/v1/control/partitions/part1/pipelines";
         let latest_revisions_url = "/v1/control/pipelines/config/latest_revisions";
+        let loaded_revisions_url = "/v1/control/pipelines/config/loaded_revisions";
         let mock_server = MockServer::start().await;
 
         Mock::given(matchers::method("GET"))
             .and(path(pipelines_by_partition_url))
             .respond_with(ResponseTemplate::new(StatusCode::OK).set_body_raw(
                 r#"{
-                "pipeline_ids": ["pipeline1"],
+                "pipeline_ids": ["pipeline1", "pipeline2"],
                 "common_config_toml": "data_dir = \"/data/vector\""
             }"#,
                 "application/json",
@@ -522,7 +544,8 @@ mod tests {
         Mock::given(matchers::method("POST"))
             .and(path(latest_revisions_url))
             .respond_with(ResponseTemplate::new(StatusCode::OK).set_body_raw(r#"{
-                "pipeline1": {"id": "rev1", "config": "[sources.in]\ntype = \"test_basic\"\n\n[sinks.out]\ninputs = [\"in\"]\ntype = \"test_basic\""}
+                "pipeline1": {"id": "rev1", "config": "[sources.in1]\ntype = \"test_basic\"\n\n[sinks.out1]\ninputs = [\"in1\"]\ntype = \"test_basic\""},
+                "pipeline2": {"id": "rev999", "config": "[sources.in2]\ntype = \"test_basic\"\n\n[sinks.out2]\ninputs = [\"in2\"]\ntype = \"test_basic\""}
             }"#, "application/json"))
             .up_to_n_times(2)
             .with_priority(1)
@@ -538,8 +561,25 @@ mod tests {
             .mount(&mock_server)
             .await;
 
+        let expected_loaded_revisions = json!({
+            "revisions": [
+                {"pipeline_id": "pipeline1", "revision_id": "rev1"},
+                {"pipeline_id": "pipeline2", "revision_id": "rev999"}
+            ]
+        });
+        Mock::given(matchers::method("POST"))
+            .and(path(loaded_revisions_url))
+            .and(matchers::body_json(&expected_loaded_revisions))
+            .respond_with(
+                ResponseTemplate::new(StatusCode::OK).set_body_raw("{}", "application/json"),
+            )
+            .with_priority(2)
+            .mount(&mock_server)
+            .await;
+
         let partition_config = MezmoPartitionConfig {
             latest_revisions_url: format!("{}{}", mock_server.uri(), latest_revisions_url),
+            loaded_revisions_url: format!("{}{}", mock_server.uri(), loaded_revisions_url),
             pipelines_by_partition_url: format!(
                 "{}{}",
                 mock_server.uri(),
@@ -553,21 +593,33 @@ mod tests {
         let service = DefaultConfigService::new(&partition_config);
         let mut b = new_test_builder(Box::new(service));
 
-        let (_, generated) = b.build_incrementally().await?;
+        let (_, mut loaded) = b.build_incrementally().await?;
+        loaded.sort_by_key(|x| x.0.clone());
+
         // First time
-        assert_eq!(generated, 2, "First reload and then the pipeline");
-        assert_eq!(b.cache.len(), 1, "Pipeline cached");
+        assert_eq!(loaded.len(), 2, "Two pipelines");
+        assert_eq!(
+            loaded[0],
+            ("pipeline1".into(), "rev1".into()),
+            "First pipeline"
+        );
+        assert_eq!(
+            loaded[1],
+            ("pipeline2".into(), "rev999".into()),
+            "Second pipeline"
+        );
+        assert_eq!(b.cache.len(), 2, "Pipelines cached");
 
         // Second time
-        let (config_builder, generated) = b.build_incrementally().await?;
-        assert_eq!(generated, 0, "No new events");
+        let (config_builder, loaded) = b.build_incrementally().await?;
+        assert_eq!(loaded.len(), 0, "No new events");
         assert!(config_builder.is_none(), "No new config");
-        assert_eq!(b.cache.len(), 1, "Pipeline still cached");
+        assert_eq!(b.cache.len(), 2, "Pipelines still cached");
 
         // Following times
-        let (_, generated) = b.build_incrementally().await?;
-        assert_eq!(generated, 1, "Config changed");
-        assert_eq!(b.cache.len(), 0, "Pipeline removed from cache");
+        let (_, loaded) = b.build_incrementally().await?;
+        assert_eq!(loaded.len(), 0, "No new events");
+        assert_eq!(b.cache.len(), 0, "Pipelines removed from cache");
         Ok(())
     }
 
@@ -576,6 +628,7 @@ mod tests {
         let partition_id = S!("part1");
         let pipelines_by_partition_url = "/v1/control/partitions/part1/pipelines";
         let latest_revisions_url = "/v1/control/pipelines/config/latest_revisions";
+        let loaded_revisions_url = "/v1/control/pipelines/config/loaded_revisions";
         let mock_server = MockServer::start().await;
 
         Mock::given(matchers::method("GET"))
@@ -603,6 +656,7 @@ mod tests {
 
         let partition_config = MezmoPartitionConfig {
             latest_revisions_url: format!("{}{}", mock_server.uri(), latest_revisions_url),
+            loaded_revisions_url: format!("{}{}", mock_server.uri(), loaded_revisions_url),
             pipelines_by_partition_url: format!(
                 "{}{}",
                 mock_server.uri(),
@@ -616,8 +670,8 @@ mod tests {
         let service = DefaultConfigService::new(&partition_config);
         let mut b = new_test_builder(Box::new(service));
 
-        let (_, generated) = b.build_incrementally().await?;
-        assert_eq!(generated, 3, "First reload and then the good pipelines");
+        let (_, loaded) = b.build_incrementally().await?;
+        assert_eq!(loaded.len(), 2, "First reload and then the good pipelines");
         assert!(b.cache.get("pipeline1").is_some(), "Pipeline 1 cached");
         assert!(b.cache.get("pipeline4").is_some(), "Pipeline 3 cached");
         assert_eq!(b.cache.len(), 2, "Pipelines cached");
