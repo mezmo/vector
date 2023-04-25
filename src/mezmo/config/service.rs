@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Instant};
+use std::{collections::HashMap, env, time::Instant};
 
 use hyper::Body;
 use indexmap::IndexMap;
@@ -17,6 +17,7 @@ use super::{MezmoPartitionConfig, PipelineId, Revision, RevisionId};
 
 #[async_trait::async_trait]
 pub(crate) trait ConfigService: Send + Sync {
+    /// Gets all the pipelines composing the partition
     async fn get_pipelines_by_partition(&self) -> Result<(Vec<PipelineId>, String), String>;
 
     /// Given a list of current revisions, it returns the new revision configuration (if any).
@@ -24,11 +25,19 @@ pub(crate) trait ConfigService: Send + Sync {
         &self,
         current_revisions: Vec<(PipelineId, Option<RevisionId>)>,
     ) -> Result<HashMap<PipelineId, Revision>, String>;
+
+    /// Set the loaded_revision_id for the given list of pipelines. This indicates the revision
+    /// is actually running within the topology on at least one instance
+    async fn set_loaded_revisions(
+        &self,
+        revisions: Vec<(PipelineId, RevisionId)>,
+    ) -> Result<(), String>;
 }
 
 pub(crate) struct DefaultConfigService {
     http_client: HttpClient,
     latest_revisions_url: Url,
+    loaded_revisions_url: Url,
     pipelines_by_partition_url: Url,
     headers: IndexMap<String, String>,
 }
@@ -45,18 +54,26 @@ impl DefaultConfigService {
                 .replace("{partition_id}", &partition_config.partition_id),
         )
         .expect("a valid pipeline by partition url");
-        pipelines_by_partition_url.set_query(Some(
-            format!("vector_version={}", built_info::PKG_VERSION).as_str(),
-        ));
+
+        let pod_name = env::var("POD_NAME").unwrap_or_else(|_| "not-set".to_string());
+        let query_string = format!(
+            "vector_version={}&vector_pod_name={}",
+            built_info::PKG_VERSION,
+            pod_name
+        );
+
+        pipelines_by_partition_url.set_query(Some(query_string.as_str()));
         let mut latest_revisions_url = Url::parse(&partition_config.latest_revisions_url)
             .expect("a valid pipeline by partition url");
-        latest_revisions_url.set_query(Some(
-            format!("vector_version={}", built_info::PKG_VERSION).as_str(),
-        ));
+        latest_revisions_url.set_query(Some(query_string.as_str()));
+        let mut loaded_revisions_url = Url::parse(&partition_config.loaded_revisions_url)
+            .expect("a valid pipeline by partition url");
+        loaded_revisions_url.set_query(Some(query_string.as_str()));
 
         Self {
             http_client,
             latest_revisions_url,
+            loaded_revisions_url,
             pipelines_by_partition_url,
             headers: partition_config.request.clone().headers,
         }
@@ -80,9 +97,19 @@ struct LatestRevisionRequestItem {
     revision_id: Option<RevisionId>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct LoadedRevisionsRequest {
+    revisions: Vec<LoadedRevisionRequestItem>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct LoadedRevisionRequestItem {
+    pipeline_id: PipelineId,
+    revision_id: RevisionId,
+}
+
 #[async_trait::async_trait]
 impl ConfigService for DefaultConfigService {
-    /// Gets all the pipelines composing the partition
     async fn get_pipelines_by_partition(&self) -> Result<(Vec<PipelineId>, String), String> {
         let body = http_request(
             &self.http_client,
@@ -98,12 +125,11 @@ impl ConfigService for DefaultConfigService {
         Ok((r.pipeline_ids, r.common_config_toml))
     }
 
-    /// Given a list of current revisions, it returns the new revision configuration (if any).
     async fn get_new_revisions(
         &self,
         current_revisions: Vec<(PipelineId, Option<RevisionId>)>,
     ) -> Result<HashMap<PipelineId, Revision>, String> {
-        let revisions = current_revisions
+        let revisions: Vec<LatestRevisionRequestItem> = current_revisions
             .into_iter()
             .map(|(pipeline_id, revision_id)| LatestRevisionRequestItem {
                 pipeline_id,
@@ -125,6 +151,31 @@ impl ConfigService for DefaultConfigService {
             serde_json::from_slice(&response_body).map_err(|e| e.to_string())?;
 
         Ok(adapt_revisions(revisions))
+    }
+
+    async fn set_loaded_revisions(
+        &self,
+        revisions: Vec<(PipelineId, RevisionId)>,
+    ) -> Result<(), String> {
+        let revisions: Vec<LoadedRevisionRequestItem> = revisions
+            .into_iter()
+            .map(|(pipeline_id, revision_id)| LoadedRevisionRequestItem {
+                pipeline_id,
+                revision_id,
+            })
+            .collect();
+        let body =
+            serde_json::to_vec(&LoadedRevisionsRequest { revisions }).map_err(|e| e.to_string())?;
+
+        http_request(
+            &self.http_client,
+            &self.loaded_revisions_url,
+            &self.headers,
+            Some(body.into()),
+        )
+        .await?;
+
+        Ok(())
     }
 }
 
