@@ -223,40 +223,21 @@ impl TransformConfig for RemapConfig {
     }
 
     fn outputs(&self, input_definition: &schema::Definition, _: LogNamespace) -> Vec<Output> {
-        // We need to compile the VRL program in order to know the schema definition output of this
-        // transform. We ignore any compilation errors, as those are caught by the transform build
-        // step.
-        let default_definition = self
-            .compile_vrl_program(
-                enrichment::TableRegistry::default(),
-                input_definition.clone(),
-                None,
-            )
-            .map(|(program, _, _, external_context)| {
-                let meaning = external_context
-                    .get_custom::<MeaningList>()
-                    .cloned()
-                    .expect("context exists")
-                    .0;
+        // MEZMO
+        // Compiling all remaps each time the config reloaded took several seconds with 100+ pipelines.
+        // We intentionally don't care about schemas for VRL.
 
-                let state = program.final_type_state();
+        // Upstream information
+        // Schema in VRL was added in: https://github.com/vectordotdev/vector/issues/11303
+        // See also:
+        // - https://github.com/vectordotdev/vector/pull/11384
+        // - https://github.com/vectordotdev/vector/pull/11513
+        // - https://github.com/vectordotdev/vector/pull/11526
 
-                let mut new_type_def = Definition::new_with_default_metadata(
-                    state.external.target_kind().clone(),
-                    input_definition.log_namespaces().clone(),
-                );
-                for (id, path) in meaning {
-                    new_type_def = new_type_def.with_meaning(path, &id);
-                }
-                new_type_def
-            })
-            .unwrap_or_else(|_| {
-                Definition::new_with_default_metadata(
-                    // The program failed to compile, so it can "never" return a value
-                    Kind::never(),
-                    input_definition.log_namespaces().clone(),
-                )
-            });
+        let default_definition = Definition::new_with_default_metadata(
+            Kind::any(),
+            input_definition.log_namespaces().clone(),
+        );
 
         // When a message is dropped and re-routed, we keep the original event, but also annotate
         // it with additional metadata.
@@ -1376,23 +1357,24 @@ mod tests {
             ..Default::default()
         };
 
-        let schema_definition = schema::Definition::new_with_default_metadata(
-            Kind::any_object(),
-            [LogNamespace::Legacy],
-        )
-        .with_event_field(&owned_value_path!("foo"), Kind::any(), None)
-        .with_event_field(&owned_value_path!("tags"), Kind::any(), None);
+        // No point in testing the schema of the VRL
+        // let schema_definition = schema::Definition::new_with_default_metadata(
+        //     Kind::any_object(),
+        //     [LogNamespace::Legacy],
+        // )
+        // .with_event_field(&owned_value_path!("foo"), Kind::any(), None)
+        // .with_event_field(&owned_value_path!("tags"), Kind::any(), None);
 
-        assert_eq!(
-            conf.outputs(
-                &schema::Definition::new_with_default_metadata(
-                    Kind::any_object(),
-                    [LogNamespace::Legacy]
-                ),
-                LogNamespace::Legacy
-            ),
-            vec![Output::default(DataType::all()).with_schema_definition(schema_definition)]
-        );
+        // assert_eq!(
+        //     conf.outputs(
+        //         &schema::Definition::new_with_default_metadata(
+        //             Kind::any_object(),
+        //             [LogNamespace::Legacy]
+        //         ),
+        //         LogNamespace::Legacy
+        //     ),
+        //     vec![Output::default(DataType::all()).with_schema_definition(schema_definition)]
+        // );
 
         let context = TransformContext {
             key: Some(ComponentKey::from("remapper")),

@@ -5,7 +5,10 @@ use super::{
     SourceConfig, TransformConfig,
 };
 
-pub fn compile(mut builder: ConfigBuilder) -> Result<(Config, Vec<String>), Vec<String>> {
+pub fn compile(
+    mut builder: ConfigBuilder,
+    validate: bool,
+) -> Result<(Config, Vec<String>), Vec<String>> {
     let mut errors = Vec::new();
 
     // component names should not have dots in the configuration file
@@ -23,16 +26,18 @@ pub fn compile(mut builder: ConfigBuilder) -> Result<(Config, Vec<String>), Vec<
 
     expand_globs(&mut builder);
 
-    if let Err(type_errors) = validation::check_shape(&builder) {
-        errors.extend(type_errors);
-    }
+    if validate {
+        if let Err(type_errors) = validation::check_shape(&builder) {
+            errors.extend(type_errors);
+        }
 
-    if let Err(type_errors) = validation::check_resources(&builder) {
-        errors.extend(type_errors);
-    }
+        if let Err(type_errors) = validation::check_resources(&builder) {
+            errors.extend(type_errors);
+        }
 
-    if let Err(output_errors) = validation::check_outputs(&builder) {
-        errors.extend(output_errors);
+        if let Err(output_errors) = validation::check_outputs(&builder) {
+            errors.extend(output_errors);
+        }
     }
 
     #[cfg(feature = "enterprise")]
@@ -70,8 +75,10 @@ pub fn compile(mut builder: ConfigBuilder) -> Result<(Config, Vec<String>), Vec<
         errors.extend(type_errors);
     }
 
-    if let Err(e) = graph.check_for_cycles() {
-        errors.push(e);
+    if validate {
+        if let Err(e) = graph.check_for_cycles() {
+            errors.push(e);
+        }
     }
 
     // Inputs are resolved from string into OutputIds as part of graph construction, so update them
@@ -115,7 +122,10 @@ pub fn compile(mut builder: ConfigBuilder) -> Result<(Config, Vec<String>), Vec<
 
         config.propagate_acknowledgements()?;
 
-        let warnings = validation::warnings(&config);
+        let mut warnings = vec![];
+        if validate {
+            warnings = validation::warnings(&config);
+        }
 
         Ok((config, warnings))
     } else {
@@ -125,6 +135,29 @@ pub fn compile(mut builder: ConfigBuilder) -> Result<(Config, Vec<String>), Vec<
 
 /// Expand globs in input lists
 pub(crate) fn expand_globs(config: &mut ConfigBuilder) {
+    let mut transforms_with_globs = vec![];
+    let mut sinks_with_globs = vec![];
+    for (id, transform) in config.transforms.iter() {
+        for input in transform.inputs.iter() {
+            if input.chars().any(is_glob_reserved_char) {
+                transforms_with_globs.push(id.clone());
+            }
+        }
+    }
+    for (id, sink) in config.sinks.iter() {
+        for input in sink.inputs.iter() {
+            if input.chars().any(is_glob_reserved_char) {
+                sinks_with_globs.push(id.clone());
+            }
+        }
+    }
+
+    if transforms_with_globs.is_empty() && sinks_with_globs.is_empty() {
+        return;
+    }
+
+    warn!("Unexpected use of globs in inputs for Mezmo vector config");
+
     let candidates = config
         .sources
         .iter()
@@ -149,11 +182,13 @@ pub(crate) fn expand_globs(config: &mut ConfigBuilder) {
         .map(|output_id| output_id.to_string())
         .collect::<IndexSet<String>>();
 
-    for (id, transform) in config.transforms.iter_mut() {
+    for id in transforms_with_globs.iter() {
+        let transform = config.transforms.get_mut(id).unwrap();
         expand_globs_inner(&mut transform.inputs, &id.to_string(), &candidates);
     }
 
-    for (id, sink) in config.sinks.iter_mut() {
+    for id in sinks_with_globs.iter() {
+        let sink = config.sinks.get_mut(id).unwrap();
         expand_globs_inner(&mut sink.inputs, &id.to_string(), &candidates);
     }
 }
@@ -196,6 +231,10 @@ fn expand_globs_inner(inputs: &mut Inputs<String>, id: &str, candidates: &IndexS
             inputs.extend(Some(raw_input))
         }
     }
+}
+
+const fn is_glob_reserved_char(c: char) -> bool {
+    c == '*' || c == '?' || c == '[' || c == ']'
 }
 
 #[cfg(test)]

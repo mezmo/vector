@@ -240,8 +240,14 @@ impl ConfigBuilder {
         Ok(config)
     }
 
+    pub fn build_no_validation(self) -> Result<Config, Vec<String>> {
+        // Skipped validation won't produce any warnings, ignore
+        let (config, _warnings) = compiler::compile(self, false)?;
+        Ok(config)
+    }
+
     pub fn build_with_warnings(self) -> Result<(Config, Vec<String>), Vec<String>> {
-        compiler::compile(self)
+        compiler::compile(self, true)
     }
 
     pub fn add_enrichment_table<K: Into<String>, E: Into<EnrichmentTables>>(

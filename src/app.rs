@@ -376,7 +376,11 @@ impl Application {
                                 emit!(MezmoConfigReloadSignalReceive{});
                                 let start = Instant::now();
                                 let mut topology_controller = topology_controller.lock().await;
-                                let new_config = config_builder.build().map_err(handle_config_errors).ok();
+
+                                // We use build_no_validation() to speed up building
+                                // Configs were fully validated when generated and better errors
+                                // won't help us much at this point (as it will blow up anyway)
+                                let new_config = config_builder.build_no_validation().map_err(handle_config_errors).ok();
                                 emit!(MezmoConfigCompile{elapsed: Instant::now() - start});
                                 let mut reload_outcome = ReloadOutcome::NoConfig;
                                 let reload_future = topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone()));
