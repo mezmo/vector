@@ -40,7 +40,7 @@ unsafe impl<A: GlobalAlloc, T: Tracer> GlobalAlloc for GroupedTraceableAllocator
             return actual_ptr;
         }
 
-        let group_id_ptr = actual_ptr.add(offset_to_group_id).cast::<u8>();
+        let group_id_ptr = actual_ptr.add(offset_to_group_id).cast::<u16>();
 
         let object_size = object_layout.size();
 
@@ -64,7 +64,7 @@ unsafe impl<A: GlobalAlloc, T: Tracer> GlobalAlloc for GroupedTraceableAllocator
         // requested layout, not the wrapped layout that was actually allocated.
         let (wrapped_layout, offset_to_group_id) = get_wrapped_layout(object_layout);
 
-        let raw_group_id = object_ptr.add(offset_to_group_id).cast::<u8>().read();
+        let raw_group_id = object_ptr.add(offset_to_group_id).cast::<u16>().read();
 
         // Deallocate before tracking, just to make sure we're reclaiming memory as soon as possible.
         self.allocator.dealloc(object_ptr, wrapped_layout);
@@ -83,7 +83,7 @@ unsafe impl<A: GlobalAlloc, T: Tracer> GlobalAlloc for GroupedTraceableAllocator
 
 #[inline(always)]
 fn get_wrapped_layout(object_layout: Layout) -> (Layout, usize) {
-    static HEADER_LAYOUT: Layout = Layout::new::<u8>();
+    static HEADER_LAYOUT: Layout = Layout::new::<u16>();
 
     // We generate a new allocation layout that gives us a location to store the active allocation group ID ahead
     // of the requested allocation, which lets us always attempt to retrieve it on the deallocation path.

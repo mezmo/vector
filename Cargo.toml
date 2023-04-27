@@ -418,11 +418,7 @@ target-powerpc64le-unknown-linux-gnu = ["api", "api-client", "enrichment-tables"
 target-powerpc-unknown-linux-gnu = ["api", "api-client", "enrichment-tables", "rdkafka?/cmake_build", "sinks", "sources", "sources-dnstap", "transforms", "unix", "vrl-cli", "enterprise"]
 
 # Enables features that work only on systems providing `cfg(unix)`
-#unix = ["tikv-jemallocator", "allocation-tracing"]
-
-# LOG-15810: Disbale the allocation-tracking feature to avoid bugs in the new feature and
-# avoid the performance impact to any of the code.
-unix = ["tikv-jemallocator"]
+unix = ["tikv-jemallocator", "allocation-tracing"]
 allocation-tracing = []
 
 # Enables kubernetes dependencies and shared code. Kubernetes-related sources,
