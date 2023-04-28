@@ -70,7 +70,7 @@ impl InternalEvent for MezmoConfigCompile {
 }
 
 pub struct MezmoConfigBuilderCreate {
-    revisions: usize,
+    pub revisions: usize,
 }
 
 impl InternalEvent for MezmoConfigBuilderCreate {

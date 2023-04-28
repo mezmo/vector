@@ -12,7 +12,8 @@ use vector_config::configurable_component;
 use crate::{
     config::{self, provider::ProviderConfig, ConfigBuilder},
     internal_events::mezmo_config::{
-        MezmoConfigBuildFailure, MezmoConfigReloadSignalSend, MezmoGenerateConfigError,
+        MezmoConfigBuildFailure, MezmoConfigBuilderCreate, MezmoConfigReloadSignalSend,
+        MezmoGenerateConfigError,
     },
     providers::BuildResult,
     signal,
@@ -316,6 +317,9 @@ impl MezmoConfigBuilder {
             );
         }
 
+        emit!(MezmoConfigBuilderCreate {
+            revisions: self.cache.len()
+        });
         Ok((result_builder, loaded))
     }
 
