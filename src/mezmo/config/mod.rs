@@ -105,9 +105,11 @@ fn poll_config(
                 Ok((Some(config_builder), loaded)) => {
                     emit!(MezmoConfigReloadSignalSend {});
                     yield signal::SignalTo::ReloadFromConfigBuilder(config_builder);
-                    mezmo_config_builder.service.set_loaded_revisions(loaded).await.unwrap_or_else(|e| {
-                        error!("Error setting loaded revisions: {e}");
-                    });
+                    if !loaded.is_empty() {
+                        mezmo_config_builder.service.set_loaded_revisions(loaded).await.unwrap_or_else(|e| {
+                            error!("Error setting loaded revisions: {e}");
+                        });
+                    }
                 },
                 Ok((None, _)) => {
                     // No changes -> keep polling
