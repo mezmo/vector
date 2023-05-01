@@ -44,7 +44,7 @@ debug = 1 # emit line tables only instead of full debug info
 debug = false
 
 [profile.test]
-debug = false
+debug = true
 
 [package.metadata.deb]
 name = "vector"
