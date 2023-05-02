@@ -26,6 +26,11 @@ use crate::{
 static HOST: Lazy<Uri> = Lazy::new(|| Uri::from_static("https://logs.logdna.com"));
 
 const PATH: &str = "/logs/ingest";
+const LINE_KEY: &str = "line";
+const APP_KEY: &str = "app";
+const FILE_KEY: &str = "file";
+const ENV_KEY: &str = "env";
+const DEFAULT_VALUE: Value = Value::Null;
 
 /// Configuration for the `logdna` sink.
 #[configurable_component(sink("logdna"))]
@@ -44,14 +49,26 @@ pub struct LogdnaConfig {
     /// Optional line template, only one of `line_field` and `line_template` can be specified
     line_template: Option<Template>,
 
+    /// Optional field selector for the log line's timestamp
+    timestamp_field: Option<String>,
+
+    /// Optional app template
+    app_template: Option<Template>,
+
+    /// Optional template for the file that supplied the log line
+    file_template: Option<Template>,
+
+    /// Optional template for the environment the log line came from
+    env_template: Option<Template>,
+
     /// The hostname that will be attached to each batch of events.
     hostname: Template,
 
     /// The MAC address that will be attached to each batch of events.
-    mac: Option<String>,
+    mac_template: Option<Template>,
 
     /// The IP address that will be attached to each batch of events.
-    ip: Option<String>,
+    ip_template: Option<Template>,
 
     /// The tags that will be attached to each batch of events.
     tags: Option<Vec<Template>>,
@@ -143,40 +160,102 @@ impl SinkConfig for LogdnaConfig {
 pub struct PartitionKey {
     hostname: String,
     tags: Option<Vec<String>>,
+    ip: Option<String>,
+    mac: Option<String>,
 }
 
 pub struct LogdnaEventEncoder {
     cx: SinkContext,
     line_field: Option<String>,
     line_template: Option<Template>,
+    timestamp_field: Option<String>,
+    app_template: Option<Template>,
+    file_template: Option<Template>,
+    env_template: Option<Template>,
     hostname: Template,
     tags: Option<Vec<Template>>,
+    ip_template: Option<Template>,
+    mac_template: Option<Template>,
     transformer: Transformer,
     default_app: Option<String>,
     default_env: Option<String>,
 }
 
 impl LogdnaEventEncoder {
-    fn render_key(
-        &self,
-        event: &Event,
-    ) -> Result<PartitionKey, (Option<&str>, TemplateRenderingError)> {
-        let hostname = self
-            .hostname
-            .render_string(event)
-            .map_err(|e| (Some("hostname"), e))?;
+    fn render_key(&self, event: &Event) -> Option<PartitionKey> {
         let tags = self
             .tags
             .as_ref()
             .map(|tags| {
                 let mut vec = Vec::with_capacity(tags.len());
                 for tag in tags {
-                    vec.push(tag.render_string(event).map_err(|e| (None, e))?);
+                    let t = tag.render_string(event);
+                    match t {
+                        Ok(t) => vec.push(t),
+                        Err(error) => {
+                            self.log_template_error("tag", error, false);
+                        }
+                    }
                 }
-                Ok(Some(vec))
+                if !vec.is_empty() {
+                    Some(vec)
+                } else {
+                    None
+                }
             })
-            .unwrap_or(Ok(None))?;
-        Ok(PartitionKey { hostname, tags })
+            .unwrap_or(None);
+        let ip = self
+            .ip_template
+            .as_ref()
+            .map(|i| {
+                let m = i.render_string(event);
+                match m {
+                    Ok(m) => Some(m),
+                    Err(error) => {
+                        self.log_template_error("ip", error, false);
+                        None
+                    }
+                }
+            })
+            .unwrap_or(None);
+        let mac = self
+            .mac_template
+            .as_ref()
+            .map(|m| {
+                let s = m.render_string(event);
+                match s {
+                    Ok(s) => Some(s),
+                    Err(error) => {
+                        self.log_template_error("mac", error, false);
+                        None
+                    }
+                }
+            })
+            .unwrap_or(None);
+
+        let hostname_result = self.hostname.render_string(event);
+        match hostname_result {
+            Ok(hostname) => Some(PartitionKey {
+                hostname,
+                tags,
+                ip,
+                mac,
+            }),
+            Err(error) => {
+                self.log_template_error("hostname", error, false);
+                None // hostname is required by ingest API, so fail key generation without it
+            }
+        }
+    }
+    fn log_template_error(&self, field: &str, error: TemplateRenderingError, drop_event: bool) {
+        emit!(crate::internal_events::TemplateRenderingError {
+            error: error.clone(),
+            field: Some(field),
+            drop_event,
+        });
+        self.cx
+            .mezmo_ctx
+            .error(Value::from(format!("{field} template error - {error}")));
     }
 }
 
@@ -187,100 +266,154 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>>
         &mut self,
         mut event: Event,
     ) -> Option<PartitionInnerBuffer<serde_json::Value, PartitionKey>> {
-        let key = self
-            .render_key(&event)
-            .map_err(|(field, error)| {
-                emit!(crate::internal_events::TemplateRenderingError {
-                    error: error.clone(),
-                    field,
-                    drop_event: true,
-                });
-                self.cx.mezmo_ctx.error(Value::from(format!("{error}")));
-            })
-            .ok()?;
+        let key = self.render_key(&event)?;
+
+        let message_key: &str = crate::config::log_schema().message_key();
 
         self.transformer.transform(&mut event);
         let mut log = event.into_log();
+        let mut paths_to_remove = Vec::new();
 
         let mut map = serde_json::map::Map::new();
-        let line_key = "line".to_string();
 
+        // line
         if let Some(line_template) = &self.line_template {
-            let line = match line_template.render_string(&log) {
-                Ok(l) => l,
+            match line_template.render_string(&log) {
+                Ok(line) => {
+                    // Remove the template parts later so we don't put them in the meta
+                    let parts = line_template.get_fields().unwrap_or_default();
+                    for path in &parts {
+                        paths_to_remove.push(path.to_owned());
+                    }
+
+                    map.insert(LINE_KEY.to_string(), json!(line));
+                }
                 Err(error) => {
-                    emit!(crate::internal_events::TemplateRenderingError {
-                        error: error.clone(),
-                        field: Some("line"),
-                        drop_event: true,
-                    });
-                    self.cx.mezmo_ctx.error(Value::from(format!("{error}")));
-                    return None;
+                    self.log_template_error("line", error, true);
                 }
             };
-
-            // Remove the template parts so we don't put them in the meta
-            let parts = line_template.get_fields().unwrap_or_default();
-            for path in &parts {
-                log.remove(path.as_str());
-            }
-
-            map.insert(line_key, json!(line));
-        } else {
-            let path = match &self.line_field {
-                Some(l) => l,
-                None => crate::config::log_schema().message_key(),
-            };
-
-            let line = log.remove(path).unwrap_or_else(|| "".into());
+        } else if let Some(path) = &self.line_field {
+            paths_to_remove.push(path.to_string());
+            let line = log.get(path.as_str()).unwrap_or(&DEFAULT_VALUE);
 
             match line.is_object() {
-                false => map.insert(line_key, json!(line)),
+                false => map.insert(LINE_KEY.to_string(), json!(line)),
                 true => {
                     let encoded = serde_json::to_string(&line)
                         .ok()
                         .unwrap_or_else(|| "".into());
-                    map.insert(line_key, json!(encoded))
+                    map.insert(LINE_KEY.to_string(), json!(encoded))
                 }
             };
         }
 
-        let timestamp = log
-            .remove(crate::config::log_schema().timestamp_key())
-            .unwrap_or_else(|| chrono::Utc::now().into());
-        map.insert("timestamp".to_string(), json!(timestamp));
-
-        if let Some(env) = log.remove("env") {
-            map.insert("env".to_string(), json!(env));
+        // timestamp
+        if let Some(path) = &self.timestamp_field {
+            paths_to_remove.push(path.to_string());
+            if let Some(ts) = log.get(path.as_str()) {
+                map.insert("timestamp".to_string(), json!(ts));
+            }
+        } else if let Some(ts) = log.get(crate::config::log_schema().timestamp_key()) {
+            map.insert("timestamp".to_string(), json!(ts));
         }
 
-        if let Some(app) = log.remove("app") {
-            map.insert("app".to_string(), json!(app));
+        // app
+        if let Some(app_template) = &self.app_template {
+            match app_template.render_string(&log) {
+                Ok(app) => {
+                    // Remove the template parts so we don't put them in the meta
+                    let parts = app_template.get_fields().unwrap_or_default();
+                    for path in &parts {
+                        paths_to_remove.push(path.to_owned());
+                    }
+
+                    map.insert(APP_KEY.to_string(), json!(app));
+                }
+                Err(error) => {
+                    self.log_template_error("app", error, false);
+                }
+            };
         }
 
-        if let Some(file) = log.remove("file") {
-            map.insert("file".to_string(), json!(file));
+        // file
+        if let Some(file_template) = &self.file_template {
+            match file_template.render_string(&log) {
+                Ok(file) => {
+                    // Remove the template parts so we don't put them in the meta
+                    let parts = file_template.get_fields().unwrap_or_default();
+                    for path in &parts {
+                        paths_to_remove.push(path.to_owned());
+                    }
+
+                    map.insert(FILE_KEY.to_string(), json!(file));
+                }
+                Err(error) => {
+                    self.log_template_error("file", error, false);
+                }
+            };
         }
 
-        if !map.contains_key("env") {
+        // app fallback
+        if !map.contains_key(APP_KEY) && !map.contains_key(FILE_KEY) {
+            let default_app = match &self.default_app {
+                Some(l) => l,
+                None => "vector",
+            };
+
+            map.insert(APP_KEY.to_string(), json!(default_app));
+        }
+
+        // env
+        if let Some(env_template) = &self.env_template {
+            match env_template.render_string(&log) {
+                Ok(env) => {
+                    // Remove the template parts so we don't put them in the meta
+                    let parts = env_template.get_fields().unwrap_or_default();
+                    for path in &parts {
+                        paths_to_remove.push(path.to_owned());
+                    }
+
+                    map.insert(ENV_KEY.to_string(), json!(env));
+                }
+                Err(error) => {
+                    self.log_template_error("env", error, false);
+                }
+            };
+        }
+
+        if !map.contains_key(ENV_KEY) {
             map.insert(
-                "env".to_string(),
+                ENV_KEY.to_string(),
                 json!(self.default_env.as_deref().unwrap_or("production")),
             );
         }
 
-        if !map.contains_key("app") && !map.contains_key("file") {
-            if let Some(default_app) = &self.default_app {
-                map.insert("app".to_string(), json!(default_app.as_str()));
-            } else {
-                map.insert("app".to_string(), json!("vector"));
-            }
+        //
+        // Handle catch-all cases
+        //
+
+        // Remove used properties
+        for path in paths_to_remove {
+            log.remove(path.as_str());
         }
 
-        let message = log.remove(crate::config::log_schema().message_key());
+        // Handle the default whole message as line or remaining message as meta cases
+        //  after removing other used properties
+        if let Some(message) = log.remove(message_key) {
+            let key = if !map.contains_key(LINE_KEY) {
+                LINE_KEY
+            } else {
+                "meta"
+            };
 
-        if let Some(message_object) = message {
-            map.insert("meta".into(), json!(message_object));
+            if message.is_object() {
+                let encoded = serde_json::to_string(&message)
+                    .ok()
+                    .unwrap_or_else(|| "".into());
+                map.insert(key.to_string(), json!(encoded));
+            } else {
+                map.insert(key.to_string(), json!(message));
+            }
         }
 
         Some(PartitionInnerBuffer::new(map.into(), key))
@@ -304,8 +437,14 @@ impl HttpSink for LogdnaSink {
             cx: self.cx.clone(),
             line_field: self.cfg.line_field.clone(),
             line_template: self.cfg.line_template.clone(),
+            timestamp_field: self.cfg.timestamp_field.clone(),
+            app_template: self.cfg.app_template.clone(),
+            file_template: self.cfg.file_template.clone(),
+            env_template: self.cfg.env_template.clone(),
             hostname: self.cfg.hostname.clone(),
             tags: self.cfg.tags.clone(),
+            ip_template: self.cfg.ip_template.clone(),
+            mac_template: self.cfg.mac_template.clone(),
             transformer: self.cfg.encoding.clone(),
             default_app: self.cfg.default_app.clone(),
             default_env: self.cfg.default_env.clone(),
@@ -324,11 +463,11 @@ impl HttpSink for LogdnaSink {
         query.append_pair("hostname", &key.hostname);
         query.append_pair("now", &now.to_string());
 
-        if let Some(mac) = &self.cfg.mac {
+        if let Some(mac) = &key.mac {
             query.append_pair("mac", mac);
         }
 
-        if let Some(ip) = &self.cfg.ip {
+        if let Some(ip) = &key.ip {
             query.append_pair("ip", ip);
         }
 
@@ -440,12 +579,17 @@ mod tests {
     }
 
     #[test]
-    fn encode_event() {
+    fn encode_event_defaults() {
         let (config, cx) = load_sink::<LogdnaConfig>(
             r#"
             api_key = "mylogtoken"
             hostname = "vector"
-            default_env = "acceptance"
+            app_template = "{{ .message.app }}"
+            file_template = "{{ .message.file }}"
+            env_template = "{{ .message.env }}"
+            timestamp_field = ".message._ts"
+            default_env = "default"
+            default_app = "default"
             codec.except_fields = ["magic"]
         "#,
         )
@@ -453,78 +597,36 @@ mod tests {
         let sink = LogdnaSink { cx, cfg: config };
         let mut encoder = sink.build_encoder();
 
-        let mut event1 = Event::Log(LogEvent::from("hello world"));
-        event1.as_mut_log().insert("app", "notvector");
-        event1.as_mut_log().insert("magic", "vector");
-
-        let mut event2 = Event::Log(LogEvent::from("hello world"));
-        event2.as_mut_log().insert("file", "log.txt");
-
-        let event3 = Event::Log(LogEvent::from("hello world"));
-
-        let mut event4 = Event::Log(LogEvent::from("hello world"));
-        event4.as_mut_log().insert("env", "staging");
-
-        let json_message_payload = json!({
-        "message": "hello world",
-        "code": 200,
-        "success": true,
-        "payload": {
-            "features": [
-                "serde",
-                "json"
-            ]
-        }});
-        let json_event = Event::Log(LogEvent::try_from(json_message_payload).unwrap());
-
-        let json_no_message_payload = json!({
-        "code": 200,
-        "success": true,
-        "payload": {
-            "features": [
-                "serde",
-                "json"
-            ]
-        }});
-        let json_no_message_event =
-            Event::Log(LogEvent::try_from(json_no_message_payload).unwrap());
-
+        let event1 = Event::Log(LogEvent::from("hello world"));
         let event1_out = encoder.encode_event(event1).unwrap().into_parts().0;
         let event1_out = event1_out.as_object().unwrap();
-        let event2_out = encoder.encode_event(event2).unwrap().into_parts().0;
-        let event2_out = event2_out.as_object().unwrap();
-        let event3_out = encoder.encode_event(event3).unwrap().into_parts().0;
-        let event3_out = event3_out.as_object().unwrap();
-        let event4_out = encoder.encode_event(event4).unwrap().into_parts().0;
-        let event4_out = event4_out.as_object().unwrap();
-
-        assert_eq!(event1_out.get("app"), Some(&json!("notvector")));
+        assert_eq!(event1_out.get("app"), Some(&json!("default")));
+        assert!(event1_out.get("file").is_none());
+        assert_eq!(event1_out.get("env"), Some(&json!("default")));
         assert_eq!(event1_out.get("line"), Some(&json!("hello world")));
         assert!(event1_out.get("meta").is_none());
+
+        let message_object = json!({
+        "message": "hello world",
+        "app": "notvector",
+        "file": "log.txt",
+        "env": "staging",
+        "first": "prop",
+        "_ts": "1682022085309",
+        });
+        let mut event2 = Event::Log(LogEvent::from("hello world"));
+        event2.as_mut_log().insert(".message", message_object);
+        let event2_out = encoder.encode_event(event2).unwrap().into_parts().0;
+        let event2_out = event2_out.as_object().unwrap();
+        assert_eq!(event2_out.get("app"), Some(&json!("notvector")));
         assert_eq!(event2_out.get("file"), Some(&json!("log.txt")));
-        assert!(event2_out.get("meta").is_none());
-        assert_eq!(event3_out.get("app"), Some(&json!("vector")));
-        assert_eq!(event3_out.get("env"), Some(&json!("acceptance")));
-        assert_eq!(event4_out.get("env"), Some(&json!("staging")));
-
-        let json_message_event_out = encoder.encode_event(json_event).unwrap().into_parts().0;
-        let json_message_event_out = json_message_event_out.as_object().unwrap();
-
+        assert_eq!(event2_out.get("env"), Some(&json!("staging")));
+        assert_eq!(event2_out.get("timestamp"), Some(&json!("1682022085309")));
         assert_eq!(
-            json_message_event_out.get("line"),
-            Some(&json!("hello world"))
+            event2_out.get("line"),
+            Some(&json!("{\"first\":\"prop\",\"message\":\"hello world\"}"))
         );
-        assert!(json_message_event_out.get("meta").is_none());
-
-        let json_no_message_event_out = encoder
-            .encode_event(json_no_message_event)
-            .unwrap()
-            .into_parts()
-            .0;
-        let json_no_message_event_out = json_no_message_event_out.as_object().unwrap();
-
-        assert_eq!(json_no_message_event_out.get("line"), Some(&json!("")));
-        assert!(json_no_message_event_out.get("meta").is_none());
+        assert!(event1_out.get("meta").is_none());
     }
 
     #[test]
@@ -563,12 +665,7 @@ mod tests {
         let event_out = event_out.as_object().unwrap();
 
         assert_eq!(event_out.get("line"), Some(&json!("hello world")));
-        assert_eq!(
-            event_out.get("meta"),
-            Some(&json!({
-            "other": "stuff"
-            }))
-        );
+        assert_eq!(event_out.get("meta"), Some(&json!("{\"other\":\"stuff\"}")));
     }
 
     #[test]
@@ -585,17 +682,7 @@ mod tests {
         .unwrap();
         let sink = LogdnaSink { cx, cfg: config };
         let mut encoder = sink.build_encoder();
-
-        let payload = json!({
-        "code": 200,
-        "success": true,
-        "payload": {
-            "features": [
-                "serde",
-                "json"
-            ]
-        }});
-        let mut event = Event::Log(LogEvent::try_from(payload).unwrap());
+        let mut event = Event::Log(LogEvent::from("goodbye world"));
 
         let message = json!({
             "line": "hello world",
@@ -613,12 +700,9 @@ mod tests {
         assert_eq!(event_out.get("line"), Some(&json!("hello world - stuff")));
         assert_eq!(
             event_out.get("meta"),
-            Some(&json!({
-            "other": {
-                "nested": "remaining"
-            },
-            "third": "thing"
-            }))
+            Some(&json!(
+                "{\"other\":{\"nested\":\"remaining\"},\"third\":\"thing\"}"
+            ))
         );
     }
 
@@ -635,17 +719,7 @@ mod tests {
         .unwrap();
         let sink = LogdnaSink { cx, cfg: config };
         let mut encoder = sink.build_encoder();
-
-        let payload = json!({
-        "code": 200,
-        "success": true,
-        "payload": {
-            "features": [
-                "serde",
-                "json"
-            ]
-        }});
-        let mut event = Event::Log(LogEvent::try_from(payload).unwrap());
+        let mut event = Event::Log(LogEvent::from("goodbye world"));
 
         let message = json!({
             "line": "hello world",
@@ -667,6 +741,46 @@ mod tests {
     }
 
     #[test]
+    fn encode_event_app_template() {
+        let (config, cx) = load_sink::<LogdnaConfig>(
+            r#"
+            api_key = "mylogtoken"
+            hostname = "vector"
+            default_env = "acceptance"
+            codec.except_fields = ["magic"]
+            default_app = "app-name"
+            app_template = "{{.message.third}} - {{.message.other.thing}}"
+        "#,
+        )
+        .unwrap();
+        let sink = LogdnaSink { cx, cfg: config };
+        let mut encoder = sink.build_encoder();
+        let mut event = Event::Log(LogEvent::from("goodbye world"));
+
+        let message = json!({
+            "line": "hello world",
+            "other": {
+                "thing": "stuff",
+                "nested": "remaining"
+            },
+            "third": "thing"
+        });
+        event.as_mut_log().insert("message", message);
+
+        let event_out = encoder.encode_event(event).unwrap().into_parts().0;
+        let event_out = event_out.as_object().unwrap();
+
+        assert_eq!(event_out.get("app"), Some(&json!("thing - stuff")));
+        assert_eq!(
+            event_out.get("line"),
+            Some(&json!(
+                "{\"line\":\"hello world\",\"other\":{\"nested\":\"remaining\"}}"
+            ))
+        );
+        assert!(event_out.get("meta").is_none()); // whole .message went to the line
+    }
+
+    #[test]
     fn encode_event_nothing_to_reshape() {
         // Since Log Analysis root-level properties don't contain `message`, there should
         // be nothing to reshape even if the env var is set.
@@ -676,6 +790,9 @@ mod tests {
                 r#"
                 api_key = "mylogtoken"
                 hostname = "vector"
+                app_template = "{{ .message.app }}"
+                file_template = "{{ .message.file }}"
+                env_template = "{{ .message.env }}"
                 default_env = "acceptance"
                 codec.except_fields = ["magic"]
             "#,
@@ -685,16 +802,16 @@ mod tests {
             let mut encoder = sink.build_encoder();
 
             let mut event1 = Event::Log(LogEvent::from("hello world"));
-            event1.as_mut_log().insert("app", "notvector");
+            event1.as_mut_log().insert(".message.app", "notvector");
             event1.as_mut_log().insert("magic", "vector");
 
             let mut event2 = Event::Log(LogEvent::from("hello world"));
-            event2.as_mut_log().insert("file", "log.txt");
+            event2.as_mut_log().insert(".message.file", "log.txt");
 
             let event3 = Event::Log(LogEvent::from("hello world"));
 
             let mut event4 = Event::Log(LogEvent::from("hello world"));
-            event4.as_mut_log().insert("env", "staging");
+            event4.as_mut_log().insert(".message.env", "staging");
 
             let event1_out = encoder.encode_event(event1).unwrap().into_parts().0;
             let event1_out = event1_out.as_object().unwrap();
@@ -713,6 +830,125 @@ mod tests {
         });
     }
 
+    #[test]
+    fn render_key_la_values() {
+        let (config, cx) = load_sink::<LogdnaConfig>(
+            r#"
+            api_key = "mylogtoken"
+            hostname = "vector"
+            mac_template = "{{ .metadata.query.mac }}"
+            ip_template = "{{ .metadata.query.ip }}"
+        "#,
+        )
+        .unwrap();
+        let sink = LogdnaSink { cx, cfg: config };
+        let encoder = sink.build_encoder();
+
+        let message_object = json!({
+        "message": "hello world",
+        "_file": "log.txt",
+        "env": "staging",
+        "_ts": "1682022085309",
+        "_meta": {
+            "first": "prop"
+        }
+        });
+        let metadata_object = json!({
+            "query": {
+                "app": "la_app",
+                "ip": "127.0.0.1",
+                "mac": "some-mac-addr"
+            }
+        });
+        let mut event = Event::Log(LogEvent::from("hello world"));
+        event.as_mut_log().insert(".message", message_object);
+        event.as_mut_log().insert(".metadata", metadata_object);
+
+        let key = encoder.render_key(&event).unwrap();
+
+        assert_eq!(key.hostname, "vector".to_string());
+        assert_eq!(key.ip, Some("127.0.0.1".to_string()));
+        assert_eq!(key.mac, Some("some-mac-addr".to_string()));
+        assert!(key.tags.is_none());
+    }
+
+    #[test]
+    fn encode_event_render_key_host_error() {
+        let (config, cx) = load_sink::<LogdnaConfig>(
+            r#"
+            api_key = "mylogtoken"
+            hostname = "{{ .metadata.query.host }}"
+            mac_template = "{{ .metadata.query.mac }}"
+            ip_template = "{{ .metadata.query.ip }}"
+            line_field = ".message.message"
+        "#,
+        )
+        .unwrap();
+        let sink = LogdnaSink { cx, cfg: config };
+        let mut encoder = sink.build_encoder();
+
+        let message_object = json!({
+        "message": "hello world",
+        "_file": "log.txt",
+        "env": "staging",
+        "_ts": "1682022085309",
+        "_meta": {
+            "first": "prop"
+        }
+        });
+        let metadata_object = json!({
+            "query": {
+                "app": "la_app"
+            }
+        });
+        let mut event = Event::Log(LogEvent::from("hello world"));
+        event.as_mut_log().insert(".message", message_object);
+        event.as_mut_log().insert(".metadata", metadata_object);
+
+        let event_out = encoder.encode_event(event);
+        assert!(event_out.is_none());
+    }
+
+    #[test]
+    fn encode_event_render_key_optional_error() {
+        let (config, cx) = load_sink::<LogdnaConfig>(
+            r#"
+            api_key = "mylogtoken"
+            hostname = "vector"
+            tags = ["{{ .metadata.query.tags }}"]
+            ip_template = "{{ .metadata.query.ip }}"
+            mac_template = "{{ .metadata.query.mac }}"
+            line_field = ".message.message"
+        "#,
+        )
+        .unwrap();
+        let sink = LogdnaSink { cx, cfg: config };
+        let mut encoder = sink.build_encoder();
+
+        let message_object = json!({
+        "message": "hello world",
+        "_file": "log.txt",
+        "env": "staging",
+        "_ts": "1682022085309",
+        "_meta": {
+            "first": "prop"
+        }
+        });
+        let metadata_object = json!({
+            "query": {
+                "app": "la_app"
+            }
+        });
+        let mut event = Event::Log(LogEvent::from("hello world"));
+        event.as_mut_log().insert(".message", message_object);
+        event.as_mut_log().insert(".metadata", metadata_object);
+
+        let event_out = encoder.encode_event(event).unwrap().into_parts().0;
+        let event_out = event_out.as_object().unwrap();
+        // Template errors on optional params don't stop encoding
+        assert_eq!(event_out.get("line"), Some(&json!("hello world")));
+    }
+
     async fn smoke_start(
         status_code: StatusCode,
         batch_status: BatchStatus,
@@ -724,8 +960,8 @@ mod tests {
         let (mut config, cx) = load_sink::<LogdnaConfig>(
             r#"
             api_key = "mylogtoken"
-            ip = "127.0.0.1"
-            mac = "some-mac-addr"
+            ip_template = "127.0.0.1"
+            mac_template = "some-mac-addr"
             hostname = "{{ hostname }}"
             tags = ["test","maybeanothertest"]
         "#,
