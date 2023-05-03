@@ -129,7 +129,7 @@ pub fn build_healthcheck(
                     mezmo_ctx.error(Value::from(format!("{error}")));
                     error
                 })?;
-                healthcheck_response(response, auth, not_found_error)
+                healthcheck_response(response, not_found_error)
             }
             None => {
                 let err = GcsError::InvalidAuth.into();
@@ -142,17 +142,10 @@ pub fn build_healthcheck(
     Ok(healthcheck.boxed())
 }
 
-// Use this to map a healthcheck response, as it handles setting up the renewal task.
 pub fn healthcheck_response(
     response: http::Response<hyper::Body>,
-    auth: GcpAuthenticator,
     not_found_error: crate::Error,
 ) -> crate::Result<()> {
-    // If there are credentials configured, the generated OAuth
-    // token needs to be periodically regenerated. Since the
-    // health check runs at startup, after a health check is a
-    // good place to create the regeneration task.
-    auth.spawn_regenerate_token();
     match response.status() {
         StatusCode::OK => Ok(()),
         StatusCode::FORBIDDEN => Err(GcpError::HealthcheckForbidden.into()),

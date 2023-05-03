@@ -45,7 +45,7 @@ impl SqsSource {
     pub async fn run(self, out: SourceSender, shutdown: ShutdownSignal) -> Result<(), ()> {
         let mut task_handles = vec![];
         let finalizer = self.acknowledgements.then(|| {
-            let (finalizer, mut ack_stream) = Finalizer::new(shutdown.clone());
+            let (finalizer, mut ack_stream) = Finalizer::new(Some(shutdown.clone()));
             let client = self.client.clone();
             let queue_url = self.queue_url.clone();
             tokio::spawn(
@@ -191,7 +191,11 @@ fn get_timestamp(
 ) -> Option<DateTime<Utc>> {
     attributes.as_ref().and_then(|attributes| {
         let sent_time_str = attributes.get(&MessageSystemAttributeName::SentTimestamp)?;
-        Some(Utc.timestamp_millis(i64::from_str(sent_time_str).ok()?))
+        Some(
+            Utc.timestamp_millis_opt(i64::from_str(sent_time_str).ok()?)
+                .single()
+                .expect("invalid timestamp"),
+        )
     })
 }
 
@@ -218,7 +222,6 @@ mod tests {
     use crate::codecs::DecodingConfig;
     use chrono::SecondsFormat;
     use lookup::path;
-    use vector_config::NamedComponent;
 
     use super::*;
     use crate::config::{log_schema, SourceConfig};
@@ -318,7 +321,10 @@ mod tests {
             events[0]
                 .clone()
                 .as_log()
-                .get(log_schema().timestamp_key())
+                .get((
+                    lookup::PathPrefix::Event,
+                    log_schema().timestamp_key().unwrap()
+                ))
                 .unwrap()
                 .to_string_lossy(),
             now.to_rfc3339_opts(SecondsFormat::AutoSi, true)
@@ -335,7 +341,11 @@ mod tests {
 
         assert_eq!(
             get_timestamp(&Some(attributes)),
-            Some(Utc.timestamp_millis(1636408546018))
+            Some(
+                Utc.timestamp_millis_opt(1636408546018)
+                    .single()
+                    .expect("invalid timestamp")
+            )
         );
     }
 }

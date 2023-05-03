@@ -43,6 +43,7 @@ const fn default_interval_ms() -> u64 {
 impl_generate_config_from_default!(AggregateConfig);
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "mezmo_aggregate")]
 impl TransformConfig for AggregateConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
         Aggregate::new_with_mezmo_ctx(self, context.mezmo_ctx.clone()).map(Transform::event_task)

@@ -21,6 +21,7 @@ use crate::{
         util::BatchConfig,
         VectorSink,
     },
+    template::Template,
     test_util::{
         components::{assert_sink_compliance, SINK_TAGS},
         random_message_object_events_with_stream, random_string, wait_for,
@@ -53,14 +54,14 @@ async fn kafka_mezmo_does_not_reshape_messages() {
     };
     let config = KafkaSinkConfig {
         bootstrap_servers: server.clone(),
-        topic: format!("{}-%Y%m%d", topic),
+        topic: Template::try_from(format!("{}-%Y%m%d", topic)).unwrap(),
         key_field: None,
         encoding: JsonSerializerConfig::new(MetricTagValues::Single).into(),
         batch: BatchConfig::default(),
         compression: KafkaCompression::None,
         auth: kafka_auth.clone(),
-        socket_timeout_ms: 60000,
-        message_timeout_ms: 300000,
+        socket_timeout_ms: Duration::from_millis(60000),
+        message_timeout_ms: Duration::from_millis(300000),
         librdkafka_options: HashMap::new(),
         headers_key: Some(headers_key.clone()),
         acknowledgements: Default::default(),
@@ -162,14 +163,14 @@ async fn kafka_mezmo_reshapes_messages() {
     };
     let config = KafkaSinkConfig {
         bootstrap_servers: server.clone(),
-        topic: format!("{}-%Y%m%d", topic),
+        topic: Template::try_from(format!("{}-%Y%m%d", topic)).unwrap(),
         key_field: None,
         encoding: JsonSerializerConfig::new(MetricTagValues::Single).into(),
         batch: BatchConfig::default(),
         compression: KafkaCompression::None,
         auth: kafka_auth.clone(),
-        socket_timeout_ms: 60000,
-        message_timeout_ms: 300000,
+        socket_timeout_ms: Duration::from_millis(60000),
+        message_timeout_ms: Duration::from_millis(300000),
         librdkafka_options: HashMap::new(),
         headers_key: Some(headers_key.clone()),
         acknowledgements: Default::default(),

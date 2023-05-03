@@ -1,4 +1,3 @@
-use crate::config::SinkDescription;
 use deadpool_postgres::PoolError;
 use snafu::Snafu;
 use tokio_postgres::error::Error as PostgreSQLError;
@@ -8,12 +7,6 @@ mod integration_tests;
 mod metric_utils;
 pub(crate) mod service;
 pub(crate) mod sink;
-
-use self::config::PostgreSQLSinkConfig;
-
-inventory::submit! {
-    SinkDescription::new::<PostgreSQLSinkConfig>("postgresql")
-}
 
 #[derive(Debug, Snafu)]
 pub enum PostgreSQLSinkError {

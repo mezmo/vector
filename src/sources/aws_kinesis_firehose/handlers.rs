@@ -1,5 +1,6 @@
 use std::io::Read;
 
+use base64::prelude::{Engine as _, BASE64_STANDARD};
 use bytes::Bytes;
 use chrono::Utc;
 use codecs::StreamDecodingError;
@@ -14,12 +15,12 @@ use vector_common::{
         ByteSize, BytesReceived, CountByteSize, InternalEventHandle as _, Registered,
     },
 };
-use vector_config::NamedComponent;
 use vector_core::{
     config::{LegacyKey, LogNamespace},
     event::BatchNotifier,
     EstimatedJsonEncodedSizeOf,
 };
+use vrl::SecretTarget;
 use warp::reject;
 
 use super::{
@@ -41,6 +42,7 @@ use crate::{
 #[derive(Clone)]
 pub(super) struct Context {
     pub(super) compression: Compression,
+    pub(super) store_access_key: bool,
     pub(super) decoder: Decoder,
     pub(super) acknowledgements: bool,
     pub(super) bytes_received: Registered<BytesReceived>,
@@ -91,7 +93,7 @@ pub(super) async fn firehose(
                         if let Event::Log(ref mut log) = event {
                             log_namespace.insert_vector_metadata(
                                 log,
-                                log_schema().source_type_key(),
+                                Some(log_schema().source_type_key()),
                                 path!("source_type"),
                                 Bytes::from_static(AwsKinesisFirehoseConfig::NAME.as_bytes()),
                             );
@@ -106,10 +108,12 @@ pub(super) async fn firehose(
                                     );
                                 }
                                 LogNamespace::Legacy => {
-                                    log.try_insert(
-                                        (PathPrefix::Event, log_schema().timestamp_key()),
-                                        request.timestamp,
-                                    );
+                                    if let Some(timestamp_key) = log_schema().timestamp_key() {
+                                        log.try_insert(
+                                            (PathPrefix::Event, timestamp_key),
+                                            request.timestamp,
+                                        );
+                                    }
                                 }
                             };
 
@@ -127,6 +131,15 @@ pub(super) async fn firehose(
                                 path!("source_arn"),
                                 source_arn.to_owned(),
                             );
+
+                            if context.store_access_key {
+                                if let Some(access_key) = &request.access_key {
+                                    log.metadata_mut().secrets_mut().insert_secret(
+                                        "aws_kinesis_firehose_access_key",
+                                        access_key,
+                                    );
+                                }
+                            }
                         }
                     }
 
@@ -195,7 +208,9 @@ fn decode_record(
     record: &EncodedFirehoseRecord,
     compression: Compression,
 ) -> Result<Bytes, RecordDecodeError> {
-    let buf = base64::decode(record.data.as_bytes()).context(Base64Snafu {})?;
+    let buf = BASE64_STANDARD
+        .decode(record.data.as_bytes())
+        .context(Base64Snafu {})?;
 
     if buf.is_empty() {
         return Ok(Bytes::default());

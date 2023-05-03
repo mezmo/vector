@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use vector_core::event::{BatchNotifier, BatchStatus, Event, LogEvent};
 
 // Shared integration testing structures (made `pub` by Mezmo devs)
-use super::integration_tests::{config, flush, gen_index, http_server};
+use super::integration_tests::{batch_settings, flush, gen_index, http_server};
 // Certain impls and structs at the top level
 use super::{BulkConfig, ElasticsearchCommon, ElasticsearchConfig};
 
@@ -27,14 +27,15 @@ async fn elasticsearch_mezmo_message_reshaping_happens() {
     let index = gen_index();
     let config = ElasticsearchConfig {
         endpoints: vec![http_server()],
-        bulk: Some(BulkConfig {
-            index: Some(index.clone()),
-            action: None,
-        }),
-        doc_type: Some("log_lines".into()),
+        bulk: BulkConfig {
+            index: index.clone(),
+            ..Default::default()
+        },
+        doc_type: "log_lines".into(),
         id_key: Some("my_id".into()),
         compression: Compression::None,
-        ..config()
+        batch: batch_settings(),
+        ..Default::default()
     };
     let common = ElasticsearchCommon::parse_single(&config)
         .await
@@ -112,14 +113,15 @@ async fn elasticsearch_mezmo_message_reshaping_does_not_happen() {
     let index = gen_index();
     let config = ElasticsearchConfig {
         endpoints: vec![http_server()],
-        bulk: Some(BulkConfig {
-            index: Some(index.clone()),
-            action: None,
-        }),
-        doc_type: Some("log_lines".into()),
+        bulk: BulkConfig {
+            index: index.clone(),
+            ..Default::default()
+        },
+        doc_type: "log_lines".into(),
         id_key: Some("my_id".into()),
         compression: Compression::None,
-        ..config()
+        batch: batch_settings(),
+        ..Default::default()
     };
     let common = ElasticsearchCommon::parse_single(&config)
         .await

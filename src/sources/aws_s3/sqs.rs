@@ -15,6 +15,7 @@ use codecs::{decoding::FramingError, BytesDeserializer, CharacterDelimitedDecode
 use futures::{FutureExt, Stream, StreamExt, TryFutureExt};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_with::serde_as;
 use snafu::{ResultExt, Snafu};
 use tokio::{pin, select, time::sleep};
 use tokio_util::codec::FramedRead;
@@ -22,7 +23,7 @@ use tracing::Instrument;
 use vector_common::internal_event::{
     ByteSize, BytesReceived, CountByteSize, InternalEventHandle as _, Protocol, Registered,
 };
-use vector_config::{configurable_component, NamedComponent};
+use vector_config::configurable_component;
 
 use crate::sources::util::backoff::LogBackoff;
 use crate::tls::TlsConfig;
@@ -51,21 +52,28 @@ static SUPPORTED_S3_EVENT_VERSION: Lazy<semver::VersionReq> =
 //
 // TODO: It seems awfully likely that we could re-use the existing configuration type for the `aws_sqs` source in some
 // way, given the near 100% overlap in configurable values.
+#[serde_as]
 #[configurable_component]
 #[derive(Clone, Debug, Derivative)]
 #[derivative(Default)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Config {
     /// The URL of the SQS queue to poll for bucket notifications.
+    #[configurable(metadata(
+        docs::examples = "https://sqs.us-east-2.amazonaws.com/123456789012/MyQueue"
+    ))]
+    #[configurable(validation(format = "uri"))]
     pub(super) queue_url: String,
 
     /// How long to wait while polling the queue for new messages, in seconds.
     ///
-    /// Generally should not be changed unless instructed to do so, as if messages are available, they will always be
-    /// consumed, regardless of the value of `poll_secs`.
-    // NOTE: We restrict this to u32 for safe conversion to i64 later.
+    /// Generally, this should not be changed unless instructed to do so, as if messages are available,
+    /// they are always consumed, regardless of the value of `poll_secs`.
+    // NOTE: We restrict this to u32 for safe conversion to i32 later.
+    // NOTE: This value isn't used as a `Duration` downstream, so we don't bother using `serde_with`
     #[serde(default = "default_poll_secs")]
     #[derivative(Default(value = "default_poll_secs()"))]
+    #[configurable(metadata(docs::type_unit = "seconds"))]
     pub(super) poll_secs: u32,
 
     /// The visibility timeout to use for messages, in seconds.
@@ -74,9 +82,11 @@ pub(super) struct Config {
     /// takes longer than `visibility_timeout_secs` to process and delete the message from the queue, it is made available again for another consumer.
     ///
     /// This can happen if there is an issue between consuming a message and deleting it.
-    // NOTE: We restrict this to u32 for safe conversion to i64 later.
+    // NOTE: We restrict this to u32 for safe conversion to i32 later.
+    // NOTE: This value isn't used as a `Duration` downstream, so we don't bother using `serde_with`
     #[serde(default = "default_visibility_timeout_secs")]
     #[derivative(Default(value = "default_visibility_timeout_secs()"))]
+    #[configurable(metadata(docs::type_unit = "seconds"))]
     pub(super) visibility_timeout_secs: u32,
 
     /// Whether to delete the message once it is processed.
@@ -90,10 +100,13 @@ pub(super) struct Config {
     ///
     /// Defaults to the number of available CPUs on the system.
     ///
-    /// Should not typically need to be changed, but it can sometimes be beneficial to raise this value when there is a
-    /// high rate of messages being pushed into the queue and the objects being fetched are small. In these cases,
-    /// System resources may not be fully utilized without fetching more messages per second, as the SQS message
-    /// consumption rate affects the S3 object retrieval rate.
+    /// Should not typically need to be changed, but it can sometimes be beneficial to raise this
+    /// value when there is a high rate of messages being pushed into the queue and the objects
+    /// being fetched are small. In these cases, system resources may not be fully utilized without
+    /// fetching more messages per second, as the SQS message consumption rate affects the S3 object
+    /// retrieval rate.
+    #[configurable(metadata(docs::type_unit = "tasks"))]
+    #[configurable(metadata(docs::examples = 5))]
     pub(super) client_concurrency: Option<NonZeroUsize>,
 
     #[configurable(derived)]
@@ -474,9 +487,11 @@ impl IngestorProcess {
 
         let metadata = object.metadata;
 
-        let timestamp = object
-            .last_modified
-            .map(|ts| Utc.timestamp(ts.secs(), ts.subsec_nanos()));
+        let timestamp = object.last_modified.map(|ts| {
+            Utc.timestamp_opt(ts.secs(), ts.subsec_nanos())
+                .single()
+                .expect("invalid timestamp")
+        });
 
         let (batch, receiver) = BatchNotifier::maybe_new_with_receiver(self.acknowledgements);
         let object_reader = super::s3_object_decoder(
@@ -572,7 +587,7 @@ impl IngestorProcess {
 
             log_namespace.insert_vector_metadata(
                 &mut log,
-                path!(log_schema().source_type_key()),
+                Some(log_schema().source_type_key()),
                 path!("source_type"),
                 Bytes::from_static(AwsS3Config::NAME.as_bytes()),
             );
@@ -589,10 +604,12 @@ impl IngestorProcess {
                     log.insert(metadata_path!("vector", "ingest_timestamp"), Utc::now());
                 }
                 LogNamespace::Legacy => {
-                    log.try_insert(
-                        (PathPrefix::Event, log_schema().timestamp_key()),
-                        timestamp.unwrap_or_else(Utc::now),
-                    );
+                    if let Some(timestamp_key) = log_schema().timestamp_key() {
+                        log.try_insert(
+                            (PathPrefix::Event, timestamp_key),
+                            timestamp.unwrap_or_else(Utc::now),
+                        );
+                    }
                 }
             };
 

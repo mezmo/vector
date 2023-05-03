@@ -48,7 +48,7 @@ fn get_metric_value<'a>(
 fn get_metric_property(metric: &Metric, key: &str) -> Option<Value> {
     match key {
         "timestamp" => metric.timestamp().map(Value::from),
-        "interval_ms" => metric.interval_ms().map(Value::from),
+        "interval_ms" => metric.interval_ms().map(|v| Value::Integer(v.get() as i64)),
         "name" => Some(Value::from(metric.name())),
         "namespace" => metric.namespace().map(Value::from),
         "kind" => Some(Value::from(metric.kind())),
@@ -87,7 +87,10 @@ mod tests {
     use vector_core::metric_tags;
 
     fn new_metric() -> Metric {
-        let ts = chrono::NaiveDate::from_ymd(2022, 10, 1).and_hms(13, 51, 30);
+        let ts = chrono::NaiveDate::from_ymd_opt(2022, 10, 1)
+            .unwrap()
+            .and_hms_opt(13, 51, 30)
+            .unwrap();
         let ts = chrono::DateTime::from_utc(ts, chrono::Utc);
 
         Metric::new(

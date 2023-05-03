@@ -27,7 +27,6 @@ use crate::sinks::{
 };
 use crate::{
     codecs::{Encoder, Transformer},
-    config::log_schema,
     http::{get_http_scheme_from_uri, HttpClient},
     internal_events::{
         LokiEventUnlabeled, LokiOutOfOrderEventDropped, LokiOutOfOrderEventRewritten,
@@ -164,7 +163,8 @@ pub(super) struct EventEncoder {
 
 impl EventEncoder {
     fn build_labels(&self, event: &Event) -> Vec<(String, String)> {
-        let mut vec: Vec<(String, String)> = Vec::new();
+        let mut static_vec: HashMap<String, String> = HashMap::new();
+        let mut dynamic_vec: HashMap<String, String> = HashMap::new();
 
         for (key_template, value_template) in self.labels.iter() {
             if let (Ok(key), Ok(value)) = (
@@ -177,19 +177,21 @@ impl EventEncoder {
 
                     if let Ok(output) = output {
                         // key_* -> key_one, key_two, key_three
+                        // * -> one, two, three
                         for (k, v) in output {
-                            vec.push((
+                            dynamic_vec.insert(
                                 slugify_text(format!("{}{}", opening_prefix, k)),
                                 Value::from(v).to_string_lossy().into_owned(),
-                            ))
+                            );
                         }
                     }
                 } else {
-                    vec.push((key, value));
+                    static_vec.insert(key, value);
                 }
             }
         }
-        vec
+        dynamic_vec.extend(static_vec);
+        Vec::from_iter(dynamic_vec)
     }
 
     fn remove_label_fields(&self, event: &mut Event) {
@@ -210,15 +212,13 @@ impl EventEncoder {
         let mut labels = self.build_labels(&event);
         self.remove_label_fields(&mut event);
 
-        let schema = log_schema();
-        let timestamp_key = schema.timestamp_key();
-        let timestamp = match event.as_log().get(timestamp_key) {
+        let timestamp = match event.as_log().get_timestamp() {
             Some(Value::Timestamp(ts)) => ts.timestamp_nanos(),
             _ => chrono::Utc::now().timestamp_nanos(),
         };
 
         if self.remove_timestamp {
-            event.as_mut_log().remove(timestamp_key);
+            event.as_mut_log().remove_timestamp();
         }
 
         self.transformer.transform(&mut event);
@@ -334,7 +334,7 @@ impl LokiSink {
     pub fn new(config: LokiConfig, client: HttpClient) -> crate::Result<Self> {
         let compression = config.compression;
 
-        // if Vector is configured to allow events with out of order timestamps, then then we can
+        // if Vector is configured to allow events with out of order timestamps, then we can
         // safely enable concurrency settings.
         //
         // For rewritten timestamps, we use a static concurrency of 1 to avoid out-of-order
@@ -491,9 +491,16 @@ mod tests {
         };
         let mut event = Event::Log(LogEvent::from("hello world"));
         let log = event.as_mut_log();
-        log.insert(log_schema().timestamp_key(), chrono::Utc::now());
+        log.insert(
+            (
+                lookup::PathPrefix::Event,
+                log_schema().timestamp_key().unwrap(),
+            ),
+            chrono::Utc::now(),
+        );
         let record = encoder.encode_event(event).unwrap();
-        assert!(String::from_utf8_lossy(&record.event.event).contains(log_schema().timestamp_key()));
+        assert!(String::from_utf8_lossy(&record.event.event)
+            .contains(log_schema().timestamp_key().unwrap().to_string().as_str()));
         assert_eq!(record.labels.len(), 1);
         assert_eq!(
             record.labels[0],
@@ -530,7 +537,13 @@ mod tests {
         };
         let mut event = Event::Log(LogEvent::from("hello world"));
         let log = event.as_mut_log();
-        log.insert(log_schema().timestamp_key(), chrono::Utc::now());
+        log.insert(
+            (
+                lookup::PathPrefix::Event,
+                log_schema().timestamp_key().unwrap(),
+            ),
+            chrono::Utc::now(),
+        );
         log.insert("name", "foo");
         log.insert("value", "bar");
 
@@ -540,7 +553,8 @@ mod tests {
         log.insert("dict", Value::from(test_dict));
 
         let record = encoder.encode_event(event).unwrap();
-        assert!(String::from_utf8_lossy(&record.event.event).contains(log_schema().timestamp_key()));
+        assert!(String::from_utf8_lossy(&record.event.event)
+            .contains(log_schema().timestamp_key().unwrap().to_string().as_str()));
         assert_eq!(record.labels.len(), 4);
 
         let labels: HashMap<String, String> = record.labels.into_iter().collect();
@@ -548,6 +562,60 @@ mod tests {
         assert_eq!(labels["foo"], "bar".to_string());
         assert_eq!(labels["test_key_one"], "foo".to_string());
         assert_eq!(labels["test_key_two"], "baz".to_string());
+    }
+
+    #[test]
+    fn encoder_with_dynamic_labels() -> Result<(), serde_json::Error> {
+        let mut labels = HashMap::default();
+        labels.insert(
+            Template::try_from("pod_labels_*").unwrap(),
+            Template::try_from("{{ kubernetes.pod_labels }}").unwrap(),
+        );
+        labels.insert(
+            Template::try_from("*").unwrap(),
+            Template::try_from("{{ metadata }}").unwrap(),
+        );
+        labels.insert(
+            Template::try_from("cluster_name").unwrap(),
+            Template::try_from("static_cluster_name").unwrap(),
+        );
+
+        let mut encoder = EventEncoder {
+            key_partitioner: KeyPartitioner::new(None),
+            transformer: Default::default(),
+            encoder: Encoder::<()>::new(JsonSerializerConfig::default().build().into()),
+            labels,
+            remove_label_fields: false,
+            remove_timestamp: false,
+        };
+
+        let message = r###"
+        {
+        	"kubernetes": {
+        		"pod_labels": {
+        			"app": "web-server",
+        			"name": "unicorn"
+        		}
+        	},
+        	"metadata": {
+        		"cluster_name": "operations",
+        		"cluster_environment": "development",
+        		"cluster_version": "1.2.3"
+        	}
+        }
+        "###;
+        let msg: BTreeMap<String, Value> = serde_json::from_str(message)?;
+        let event = Event::Log(LogEvent::from(msg));
+        let record = encoder.encode_event(event).unwrap();
+
+        assert_eq!(record.labels.len(), 5);
+        let labels: HashMap<String, String> = record.labels.into_iter().collect();
+        assert_eq!(labels["pod_labels_app"], "web-server".to_string());
+        assert_eq!(labels["pod_labels_name"], "unicorn".to_string());
+        assert_eq!(labels["cluster_name"], "static_cluster_name".to_string());
+        assert_eq!(labels["cluster_environment"], "development".to_string());
+        assert_eq!(labels["cluster_version"], "1.2.3".to_string());
+        Ok(())
     }
 
     #[test]
@@ -562,11 +630,16 @@ mod tests {
         };
         let mut event = Event::Log(LogEvent::from("hello world"));
         let log = event.as_mut_log();
-        log.insert(log_schema().timestamp_key(), chrono::Utc::now());
-        let record = encoder.encode_event(event).unwrap();
-        assert!(
-            !String::from_utf8_lossy(&record.event.event).contains(log_schema().timestamp_key())
+        log.insert(
+            (
+                lookup::PathPrefix::Event,
+                log_schema().timestamp_key().unwrap(),
+            ),
+            chrono::Utc::now(),
         );
+        let record = encoder.encode_event(event).unwrap();
+        assert!(!String::from_utf8_lossy(&record.event.event)
+            .contains(log_schema().timestamp_key().unwrap().to_string().as_str()));
     }
 
     #[test]
@@ -590,7 +663,13 @@ mod tests {
         };
         let mut event = Event::Log(LogEvent::from("hello world"));
         let log = event.as_mut_log();
-        log.insert(log_schema().timestamp_key(), chrono::Utc::now());
+        log.insert(
+            (
+                lookup::PathPrefix::Event,
+                log_schema().timestamp_key().unwrap(),
+            ),
+            chrono::Utc::now(),
+        );
         log.insert("name", "foo");
         log.insert("value", "bar");
         let record = encoder.encode_event(event).unwrap();
@@ -619,7 +698,13 @@ mod tests {
                 } else {
                     base + chrono::Duration::seconds(i as i64)
                 };
-                log.insert(log_schema().timestamp_key(), ts);
+                log.insert(
+                    (
+                        lookup::PathPrefix::Event,
+                        log_schema().timestamp_key().unwrap(),
+                    ),
+                    ts,
+                );
                 event
             })
             .collect::<Vec<_>>();

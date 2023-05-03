@@ -11,7 +11,7 @@ mod status;
 use std::net::SocketAddr;
 
 use futures::{future::join, FutureExt, TryFutureExt};
-use lookup::{owned_value_path, LookupBuf};
+use lookup::{owned_value_path, OwnedTargetPath};
 use opentelemetry_proto::convert::{
     ATTRIBUTES_KEY, DROPPED_ATTRIBUTES_COUNT_KEY, FLAGS_KEY, OBSERVED_TIMESTAMP_KEY, RESOURCE_KEY,
     SEVERITY_NUMBER_KEY, SEVERITY_TEXT_KEY, SPAN_ID_KEY, TRACE_ID_KEY,
@@ -20,7 +20,7 @@ use opentelemetry_proto::convert::{
 use opentelemetry_proto::proto::collector::logs::v1::logs_service_server::LogsServiceServer;
 use value::{kind::Collection, Kind};
 use vector_common::internal_event::{BytesReceived, EventsReceived, Protocol};
-use vector_config::{configurable_component, NamedComponent};
+use vector_config::configurable_component;
 use vector_core::{
     config::{log_schema, LegacyKey, LogNamespace},
     schema::Definition,
@@ -43,7 +43,7 @@ use crate::{
 pub const LOGS: &str = "logs";
 
 /// Configuration for the `opentelemetry` source.
-#[configurable_component(source("opentelemetry"))]
+#[configurable_component(source("opentelemetry", "Receive OTLP data through gRPC or HTTP."))]
 #[derive(Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct OpentelemetryConfig {
@@ -69,7 +69,7 @@ pub struct OpentelemetryConfig {
 #[derive(Clone, Debug)]
 #[serde(deny_unknown_fields)]
 struct GrpcConfig {
-    /// The address to listen for connections on.
+    /// The socket address to listen for connections on.
     ///
     /// It _must_ include a port.
     #[configurable(metadata(docs::examples = "0.0.0.0:4317", docs::examples = "localhost:4317"))]
@@ -93,7 +93,7 @@ fn example_grpc_config() -> GrpcConfig {
 #[derive(Clone, Debug)]
 #[serde(deny_unknown_fields)]
 struct HttpConfig {
-    /// The address to listen for connections on.
+    /// The socket address to listen for connections on.
     ///
     /// It _must_ include a port.
     #[configurable(metadata(docs::examples = "0.0.0.0:4318", docs::examples = "localhost:4318"))]
@@ -124,6 +124,7 @@ impl GenerateConfig for OpentelemetryConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "opentelemetry")]
 impl SourceConfig for OpentelemetryConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<Source> {
         let acknowledgements = cx.do_acknowledgements(self.acknowledgements);
@@ -246,9 +247,11 @@ impl SourceConfig for OpentelemetryConfig {
             .with_standard_vector_source_metadata();
 
         let schema_definition = match log_namespace {
-            LogNamespace::Vector => schema_definition.with_meaning(LookupBuf::root(), "message"),
+            LogNamespace::Vector => {
+                schema_definition.with_meaning(OwnedTargetPath::event_root(), "message")
+            }
             LogNamespace::Legacy => {
-                schema_definition.with_meaning(log_schema().message_key(), "message")
+                schema_definition.with_meaning(log_schema().owned_message_path(), "message")
             }
         };
 

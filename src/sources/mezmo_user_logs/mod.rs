@@ -1,7 +1,7 @@
 use chrono::Utc;
 use codecs::BytesDeserializerConfig;
 use futures::StreamExt;
-use vector_config::{configurable_component, NamedComponent};
+use vector_config::configurable_component;
 use vector_core::EstimatedJsonEncodedSizeOf;
 use vector_core::{config::LogNamespace, schema::Definition};
 
@@ -38,6 +38,7 @@ impl MezmoUserLogsConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "mezmo_user_logs")]
 impl SourceConfig for MezmoUserLogsConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<super::Source> {
         let subscription = UserLogSubscription::subscribe();

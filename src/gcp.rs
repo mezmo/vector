@@ -1,7 +1,11 @@
-use std::str::FromStr;
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+#![allow(missing_docs)]
+use std::{
+    str::FromStr,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
+use base64::prelude::{Engine as _, BASE64_URL_SAFE};
 pub use goauth::scopes::Scope;
 use goauth::{
     auth::{JwtClaims, Token, TokenErr},
@@ -18,12 +22,6 @@ use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
 
 use crate::http::HttpError;
-
-const URL_SAFE_ENGINE_PAD: base64::engine::fast_portable::FastPortable =
-    base64::engine::fast_portable::FastPortable::from(
-        &base64::alphabet::URL_SAFE,
-        base64::engine::fast_portable::PAD,
-    );
 
 pub const PUBSUB_URL: &str = "https://pubsub.googleapis.com";
 
@@ -66,7 +64,7 @@ pub enum GcpError {
 #[configurable_component]
 #[derive(Clone, Debug, Default)]
 pub struct GcpAuthConfig {
-    /// An API key. ([documentation](https://cloud.google.com/docs/authentication/api-keys))
+    /// An [API key][gcp_api_key].
     ///
     /// Either an API key or JSON credentials (as a string, or a file path) can be specified.
     ///
@@ -74,9 +72,11 @@ pub struct GcpAuthConfig {
     /// filename is named, an attempt is made to fetch an instance service account for the compute instance the program is
     /// running on. If this is not on a GCE instance, then you must define it with an API key or service account
     /// credentials JSON file.
+    ///
+    /// [gcp_api_key]: https://cloud.google.com/docs/authentication/api-keys
     pub api_key: Option<SensitiveString>,
 
-    /// Path to a service account credentials JSON file. ([documentation](https://cloud.google.com/docs/authentication/production#manually))
+    /// Path to a [service account][gcp_service_account_credentials] credentials JSON file.
     ///
     /// Either an API key or JSON credentials (as a string, or a file path) can be specified.
     ///
@@ -84,6 +84,8 @@ pub struct GcpAuthConfig {
     /// filename is named, an attempt is made to fetch an instance service account for the compute instance the program is
     /// running on. If this is not on a GCE instance, then you must define it with an API key or service account
     /// credentials JSON file.
+    ///
+    /// [gcp_service_account_credentials]: https://cloud.google.com/docs/authentication/production#manually
     pub credentials_path: Option<String>,
 
     /// JSON Credentials as a string. ([documentation](https://cloud.google.com/docs/authentication/production#manually))
@@ -98,6 +100,7 @@ pub struct GcpAuthConfig {
 
     /// Skip all authentication handling. For use with integration tests only.
     #[serde(default, skip_serializing)]
+    #[configurable(metadata(docs::hidden))]
     pub skip_authentication: bool,
 }
 
@@ -148,7 +151,9 @@ impl GcpAuthenticator {
     }
 
     fn from_api_key(api_key: &str) -> crate::Result<Self> {
-        base64::decode_engine(api_key, &URL_SAFE_ENGINE_PAD).context(InvalidApiKeySnafu)?;
+        BASE64_URL_SAFE
+            .decode(api_key)
+            .context(InvalidApiKeySnafu)?;
         Ok(Self::ApiKey(api_key.into()))
     }
 

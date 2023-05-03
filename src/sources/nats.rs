@@ -8,7 +8,7 @@ use value::Kind;
 use vector_common::internal_event::{
     ByteSize, BytesReceived, CountByteSize, EventsReceived, InternalEventHandle as _, Protocol,
 };
-use vector_config::{configurable_component, NamedComponent};
+use vector_config::configurable_component;
 use vector_core::{
     config::{LegacyKey, LogNamespace},
     EstimatedJsonEncodedSizeOf,
@@ -37,24 +37,40 @@ enum BuildError {
 }
 
 /// Configuration for the `nats` source.
-#[configurable_component(source("nats"))]
+#[configurable_component(source(
+    "nats",
+    "Read observability data from subjects on the NATS messaging system."
+))]
 #[derive(Clone, Debug, Derivative)]
 #[derivative(Default)]
 #[serde(deny_unknown_fields)]
 pub struct NatsSourceConfig {
     /// The NATS URL to connect to.
     ///
-    /// The URL must take the form of `nats://server:port`.
+    /// The URL takes the form of `nats://server:port`.
+    /// If the port is not specified it defaults to 4222.
+    #[configurable(metadata(docs::examples = "nats://demo.nats.io"))]
+    #[configurable(metadata(docs::examples = "nats://127.0.0.1:4242"))]
     url: String,
 
-    /// A name assigned to the NATS connection.
+    /// A [name][nats_connection_name] assigned to the NATS connection.
+    ///
+    /// [nats_connection_name]: https://docs.nats.io/using-nats/developer/connecting/name
     #[serde(alias = "name")]
+    #[configurable(metadata(docs::examples = "vector"))]
     connection_name: String,
 
-    /// The NATS subject to pull messages from.
+    /// The NATS [subject][nats_subject] to pull messages from.
+    ///
+    /// [nats_subject]: https://docs.nats.io/nats-concepts/subjects
+    #[configurable(metadata(docs::examples = "foo"))]
+    #[configurable(metadata(docs::examples = "time.us.east"))]
+    #[configurable(metadata(docs::examples = "time.*.east"))]
+    #[configurable(metadata(docs::examples = "time.>"))]
+    #[configurable(metadata(docs::examples = ">"))]
     subject: String,
 
-    /// NATS Queue Group to join.
+    /// The NATS queue group to join.
     queue: Option<String>,
 
     /// The namespace to use for logs. This overrides the global setting.
@@ -100,6 +116,7 @@ impl GenerateConfig for NatsSourceConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "nats")]
 impl SourceConfig for NatsSourceConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<super::Source> {
         let log_namespace = cx.log_namespace(self.log_namespace);
@@ -254,7 +271,7 @@ async fn create_subscription(
 mod tests {
     #![allow(clippy::print_stdout)] //tests
 
-    use lookup::{owned_value_path, LookupBuf};
+    use lookup::{owned_value_path, OwnedTargetPath};
     use value::{kind::Collection, Kind};
     use vector_core::schema::Definition;
 
@@ -280,13 +297,18 @@ mod tests {
 
         let expected_definition =
             Definition::new_with_default_metadata(Kind::bytes(), [LogNamespace::Vector])
-                .with_meaning(LookupBuf::root(), "message")
-                .with_metadata_field(&owned_value_path!("vector", "source_type"), Kind::bytes())
+                .with_meaning(OwnedTargetPath::event_root(), "message")
+                .with_metadata_field(
+                    &owned_value_path!("vector", "source_type"),
+                    Kind::bytes(),
+                    None,
+                )
                 .with_metadata_field(
                     &owned_value_path!("vector", "ingest_timestamp"),
                     Kind::timestamp(),
+                    None,
                 )
-                .with_metadata_field(&owned_value_path!("nats", "subject"), Kind::bytes());
+                .with_metadata_field(&owned_value_path!("nats", "subject"), Kind::bytes(), None);
 
         assert_eq!(definition, expected_definition);
     }

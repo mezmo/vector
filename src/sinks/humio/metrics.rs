@@ -3,11 +3,15 @@ use codecs::JsonSerializerConfig;
 use futures::StreamExt;
 use futures_util::stream::BoxStream;
 use indoc::indoc;
+use lookup::lookup_v2::OptionalValuePath;
 use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
 use vector_core::{sink::StreamSink, transform::Transform};
 
-use super::{host_key, logs::HumioLogsConfig};
+use super::{
+    host_key,
+    logs::{HumioLogsConfig, HOST},
+};
 use crate::{
     config::{
         AcknowledgementsConfig, GenerateConfig, Input, SinkConfig, SinkContext, TransformConfig,
@@ -40,11 +44,25 @@ pub struct HumioMetricsConfig {
     transform: MetricToLogConfig,
 
     /// The Humio ingestion token.
+    #[configurable(metadata(
+        docs::examples = "${HUMIO_TOKEN}",
+        docs::examples = "A94A8FE5CCB19BA61C4C08"
+    ))]
     token: SensitiveString,
 
     /// The base URL of the Humio instance.
+    ///
+    /// The scheme (`http` or `https`) must be specified. No path should be included since the paths defined
+    /// by the [`Splunk`][splunk] API are used.
+    ///
+    /// [splunk]: https://docs.splunk.com/Documentation/Splunk/8.0.0/Data/HECRESTendpoints
     #[serde(alias = "host")]
-    pub(super) endpoint: Option<String>,
+    #[serde(default = "default_endpoint")]
+    #[configurable(metadata(
+        docs::examples = "http://127.0.0.1",
+        docs::examples = "https://example.com",
+    ))]
+    pub(super) endpoint: String,
 
     /// The source of events sent to this sink.
     ///
@@ -53,10 +71,15 @@ pub struct HumioMetricsConfig {
 
     /// The type of events sent to this sink. Humio uses this as the name of the parser to use to ingest the data.
     ///
-    /// If unset, Humio will default it to none.
+    /// If unset, Humio defaults it to none.
+    #[configurable(metadata(
+        docs::examples = "json",
+        docs::examples = "none",
+        docs::examples = "{{ event_type }}"
+    ))]
     event_type: Option<Template>,
 
-    /// Overrides the name of the log field used to grab the hostname to send to Humio.
+    /// Overrides the name of the log field used to retrieve the hostname to send to Humio.
     ///
     /// By default, the [global `log_schema.host_key` option][global_host_key] is used.
     ///
@@ -84,6 +107,7 @@ pub struct HumioMetricsConfig {
     ///
     /// [humio_data_format]: https://docs.humio.com/integrations/data-shippers/hec/#format-of-data
     #[serde(default)]
+    #[configurable(metadata(docs::examples = "{{ host }}", docs::examples = "custom_index"))]
     index: Option<Template>,
 
     #[configurable(derived)]
@@ -108,6 +132,10 @@ pub struct HumioMetricsConfig {
         skip_serializing_if = "crate::serde::skip_serializing_if_default"
     )]
     acknowledgements: AcknowledgementsConfig,
+}
+
+fn default_endpoint() -> String {
+    HOST.to_string()
 }
 
 impl GenerateConfig for HumioMetricsConfig {
@@ -145,7 +173,9 @@ impl SinkConfig for HumioMetricsConfig {
             timestamp_nanos_key: None,
             acknowledgements: Default::default(),
             // hard coded as humio expects this format so no sense in making it configurable
-            timestamp_key: "timestamp".to_string(),
+            timestamp_key: OptionalValuePath {
+                path: Some(lookup::owned_value_path!("timestamp")),
+            },
         };
 
         let (sink, healthcheck) = sink.clone().build(cx).await?;
@@ -225,7 +255,7 @@ mod tests {
         "#})
         .unwrap();
 
-        assert_eq!(Some("https://localhost:9200/".to_string()), config.endpoint);
+        assert_eq!("https://localhost:9200/".to_string(), config.endpoint);
         let (config, _) = load_sink::<HumioMetricsConfig>(indoc! {r#"
             token = "atoken"
             batch.max_events = 1
@@ -233,7 +263,7 @@ mod tests {
         "#})
         .unwrap();
 
-        assert_eq!(Some("https://localhost:9200/".to_string()), config.endpoint);
+        assert_eq!("https://localhost:9200/".to_string(), config.endpoint);
     }
 
     #[tokio::test]
@@ -247,8 +277,7 @@ mod tests {
         let addr = test_util::next_addr();
         // Swap out the endpoint so we can force send it
         // to our local server
-        let endpoint = format!("http://{}", addr);
-        config.endpoint = Some(endpoint.clone());
+        config.endpoint = format!("http://{}", addr);
 
         let (sink, _) = config.build(cx).await.unwrap();
 
@@ -264,7 +293,11 @@ mod tests {
                     MetricValue::Counter { value: 42.0 },
                 )
                 .with_tags(Some(metric_tags!("os.host" => "somehost")))
-                .with_timestamp(Some(Utc.ymd(2020, 8, 18).and_hms(21, 0, 1))),
+                .with_timestamp(Some(
+                    Utc.with_ymd_and_hms(2020, 8, 18, 21, 0, 1)
+                        .single()
+                        .expect("invalid timestamp"),
+                )),
             ),
             Event::from(
                 Metric::new(
@@ -276,7 +309,11 @@ mod tests {
                     },
                 )
                 .with_tags(Some(metric_tags!("os.host" => "somehost")))
-                .with_timestamp(Some(Utc.ymd(2020, 8, 18).and_hms(21, 0, 2))),
+                .with_timestamp(Some(
+                    Utc.with_ymd_and_hms(2020, 8, 18, 21, 0, 2)
+                        .single()
+                        .expect("invalid timestamp"),
+                )),
             ),
         ];
 
@@ -306,8 +343,7 @@ mod tests {
         let addr = test_util::next_addr();
         // Swap out the endpoint so we can force send it
         // to our local server
-        let endpoint = format!("http://{}", addr);
-        config.endpoint = Some(endpoint.clone());
+        config.endpoint = format!("http://{}", addr);
 
         let (sink, _) = config.build(cx).await.unwrap();
 
@@ -325,7 +361,11 @@ mod tests {
                 "code" => "200",
                 "code" => "success"
             )))
-            .with_timestamp(Some(Utc.ymd(2020, 8, 18).and_hms(21, 0, 1))),
+            .with_timestamp(Some(
+                Utc.with_ymd_and_hms(2020, 8, 18, 21, 0, 1)
+                    .single()
+                    .expect("invalid timestamp"),
+            )),
         )];
 
         let len = metrics.len();

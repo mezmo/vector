@@ -6,9 +6,7 @@ use vector_config::configurable_component;
 use vector_core::config::LogNamespace;
 
 use crate::{
-    config::{
-        log_schema, DataType, GenerateConfig, Input, Output, TransformConfig, TransformContext,
-    },
+    config::{DataType, GenerateConfig, Input, Output, TransformConfig, TransformContext},
     event::{
         metric::{Metric, MetricKind, MetricTags, MetricValue, StatisticKind, TagValue},
         Event, Value,
@@ -22,7 +20,7 @@ use crate::{
 };
 
 /// Configuration for the `log_to_metric` transform.
-#[configurable_component(transform("log_to_metric"))]
+#[configurable_component(transform("log_to_metric", "Convert log events to metric events."))]
 #[derive(Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct LogToMetricConfig {
@@ -64,6 +62,7 @@ pub struct MetricConfig {
     pub namespace: Option<Template>,
 
     /// Tags to apply to the metric.
+    #[configurable(metadata(docs::additional_props_description = "A metric tag."))]
     pub tags: Option<IndexMap<String, TagConfig>>,
 
     #[configurable(derived)]
@@ -79,9 +78,10 @@ pub struct MetricConfig {
 #[serde(untagged)]
 pub enum TagConfig {
     /// A single tag value.
-    Plain(#[configurable(transparent)] Option<Template>),
+    Plain(Option<Template>),
+
     /// An array of values to give to the same tag name.
-    Multi(#[configurable(transparent)] Vec<Option<Template>>),
+    Multi(Vec<Option<Template>>),
 }
 
 /// Specification of the type of an individual metric, and any associated data.
@@ -91,7 +91,7 @@ pub enum TagConfig {
 #[configurable(metadata(docs::enum_tag_description = "The type of metric to create."))]
 pub enum MetricTypeConfig {
     /// A counter.
-    Counter(#[configurable(derived)] CounterConfig),
+    Counter(CounterConfig),
 
     /// A histogram.
     Histogram,
@@ -144,6 +144,7 @@ impl GenerateConfig for LogToMetricConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "log_to_metric")]
 impl TransformConfig for LogToMetricConfig {
     async fn build(&self, _context: &TransformContext) -> crate::Result<Transform> {
         Ok(Transform::function(LogToMetric::new(self.clone())))
@@ -242,7 +243,7 @@ fn to_metric(config: &MetricConfig, event: &Event) -> Result<Metric, TransformEr
     let log = event.as_log();
 
     let timestamp = log
-        .get(log_schema().timestamp_key())
+        .get_timestamp()
         .and_then(Value::as_timestamp)
         .cloned()
         .or_else(|| Some(Utc::now()));
@@ -393,7 +394,8 @@ impl FunctionTransform for LogToMetric {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{offset::TimeZone, DateTime, Utc};
+    use chrono::{offset::TimeZone, DateTime, Timelike, Utc};
+    use lookup::PathPrefix;
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
@@ -424,13 +426,19 @@ mod tests {
     }
 
     fn ts() -> DateTime<Utc> {
-        Utc.ymd(2018, 11, 14).and_hms_nano(8, 9, 10, 11)
+        Utc.with_ymd_and_hms(2018, 11, 14, 8, 9, 10)
+            .single()
+            .and_then(|t| t.with_nanosecond(11))
+            .expect("invalid timestamp")
     }
 
     fn create_event(key: &str, value: impl Into<Value> + std::fmt::Debug) -> Event {
         let mut log = Event::Log(LogEvent::from("i am a log"));
         log.as_mut_log().insert(key, value);
-        log.as_mut_log().insert(log_schema().timestamp_key(), ts());
+        log.as_mut_log().insert(
+            (PathPrefix::Event, log_schema().timestamp_key().unwrap()),
+            ts(),
+        );
         log
     }
 
@@ -784,9 +792,10 @@ mod tests {
         );
 
         let mut event = Event::Log(LogEvent::from("i am a log"));
-        event
-            .as_mut_log()
-            .insert(log_schema().timestamp_key(), ts());
+        event.as_mut_log().insert(
+            (PathPrefix::Event, log_schema().timestamp_key().unwrap()),
+            ts(),
+        );
         event.as_mut_log().insert("status", "42");
         event.as_mut_log().insert("backtrace", "message");
         let metadata = event.metadata().clone();
@@ -833,9 +842,10 @@ mod tests {
         );
 
         let mut event = Event::Log(LogEvent::from("i am a log"));
-        event
-            .as_mut_log()
-            .insert(log_schema().timestamp_key(), ts());
+        event.as_mut_log().insert(
+            (PathPrefix::Event, log_schema().timestamp_key().unwrap()),
+            ts(),
+        );
         event.as_mut_log().insert("status", "42");
         event.as_mut_log().insert("backtrace", "message");
         event.as_mut_log().insert("host", "local");

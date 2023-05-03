@@ -2,6 +2,7 @@
 // of the event to be based on the `message` property.
 #![cfg(all(test, feature = "azure-blob-integration-tests"))]
 
+use crate::template::Template;
 use crate::test_util::{random_message_object_events_with_stream, random_string};
 use assay::assay;
 use codecs::{JsonSerializerConfig, MetricTagValues, NewlineDelimitedEncoderConfig};
@@ -19,7 +20,7 @@ async fn azure_blob_mezmo_message_reshaping_does_not_happen() {
     let blob_prefix = format!("json/into/blob/{}", random_string(10));
     let config = AzureBlobSinkConfig::new_emulator().await;
     let config = AzureBlobSinkConfig {
-        blob_prefix: Some(blob_prefix.clone()),
+        blob_prefix: Template::try_from(blob_prefix.clone()).unwrap(),
         encoding: (
             Some(NewlineDelimitedEncoderConfig::new()),
             JsonSerializerConfig::new(MetricTagValues::Single),
@@ -56,7 +57,7 @@ async fn azure_blob_mezmo_message_reshaping_happens() {
     let blob_prefix = format!("json/into/blob/{}", random_string(10));
     let config = AzureBlobSinkConfig::new_emulator().await;
     let config = AzureBlobSinkConfig {
-        blob_prefix: Some(blob_prefix.clone()),
+        blob_prefix: Template::try_from(blob_prefix.clone()).unwrap(),
         encoding: (
             Some(NewlineDelimitedEncoderConfig::new()),
             JsonSerializerConfig::new(MetricTagValues::Single),

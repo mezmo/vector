@@ -8,11 +8,11 @@ use codecs::{
     NewlineDelimitedDecoderConfig,
 };
 
-use http::{Method, StatusCode, Uri};
+use http::{StatusCode, Uri};
 use lookup::{lookup_v2::OptionalValuePath, owned_value_path, path};
 use tokio_util::codec::Decoder as _;
 use value::{kind::Collection, Kind};
-use vector_config::{configurable_component, NamedComponent};
+use vector_config::configurable_component;
 use vector_core::{
     config::{DataType, LegacyKey, LogNamespace},
     schema::Definition,
@@ -21,14 +21,12 @@ use warp::http::{HeaderMap, HeaderValue};
 
 use crate::{
     codecs::{Decoder, DecodingConfig},
-    components::validation::{
-        self, ComponentConfiguration, ComponentType, ExternalResource, ResourceDirection,
-        ValidatableComponent,
-    },
+    components::validation::*,
     config::{
         GenerateConfig, Output, Resource, SourceAcknowledgementsConfig, SourceConfig, SourceContext,
     },
     event::{Event, Value},
+    register_validatable_component,
     serde::{bool_or_struct, default_decoding},
     sources::util::{
         http::{add_query_parameters, HttpMethod},
@@ -38,10 +36,10 @@ use crate::{
 };
 
 /// Configuration for the `http` source.
-#[configurable_component(source("http"))]
+#[configurable_component(source("http", "Host an HTTP endpoint to receive logs."))]
 #[configurable(metadata(deprecated))]
 #[derive(Clone, Debug)]
-pub struct HttpConfig(#[configurable(derived)] SimpleHttpConfig);
+pub struct HttpConfig(SimpleHttpConfig);
 
 impl GenerateConfig for HttpConfig {
     fn generate_config() -> toml::Value {
@@ -50,6 +48,7 @@ impl GenerateConfig for HttpConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "http")]
 impl SourceConfig for HttpConfig {
     async fn build(&self, cx: SourceContext) -> vector_common::Result<super::Source> {
         self.0.build(cx).await
@@ -69,28 +68,36 @@ impl SourceConfig for HttpConfig {
 }
 
 /// Configuration for the `http_server` source.
-#[configurable_component(source("http_server"))]
+#[configurable_component(source("http_server", "Host an HTTP endpoint to receive logs."))]
 #[derive(Clone, Debug)]
 pub struct SimpleHttpConfig {
-    /// The address to listen for connections on.
+    /// The socket address to listen for connections on.
+    ///
+    /// It _must_ include a port.
+    #[configurable(metadata(docs::examples = "0.0.0.0:80"))]
+    #[configurable(metadata(docs::examples = "localhost:80"))]
     address: SocketAddr,
 
     /// The expected encoding of received data.
     ///
-    /// Note that for `json` and `ndjson` encodings, the fields of the JSON objects are output as separate fields.
+    /// Note: For `json` and `ndjson` encodings, the fields of the JSON objects are output as separate fields.
     #[serde(default)]
     encoding: Option<Encoding>,
 
     /// A list of HTTP headers to include in the log event.
     ///
-    /// These will override any values included in the JSON payload with conflicting names.
+    /// These override any values included in the JSON payload with conflicting names.
     #[serde(default)]
+    #[configurable(metadata(docs::examples = "User-Agent"))]
+    #[configurable(metadata(docs::examples = "X-My-Custom-Header"))]
     headers: Vec<String>,
 
     /// A list of URL query parameters to include in the log event.
     ///
-    /// These will override any values included in the body with conflicting names.
+    /// These override any values included in the body with conflicting names.
     #[serde(default)]
+    #[configurable(metadata(docs::examples = "application"))]
+    #[configurable(metadata(docs::examples = "source"))]
     query_parameters: Vec<String>,
 
     #[configurable(derived)]
@@ -98,20 +105,23 @@ pub struct SimpleHttpConfig {
 
     /// Whether or not to treat the configured `path` as an absolute path.
     ///
-    /// If set to `true`, only requests using the exact URL path specified in `path` will be accepted. Otherwise,
-    /// requests sent to a URL path that starts with the value of `path` will be accepted.
+    /// If set to `true`, only requests using the exact URL path specified in `path` are accepted. Otherwise,
+    /// requests sent to a URL path that starts with the value of `path` are accepted.
     ///
-    /// With `strict_path` set to `false` and `path` set to `""`, the configured HTTP source will accept requests from
+    /// With `strict_path` set to `false` and `path` set to `""`, the configured HTTP source accepts requests from
     /// any URL path.
     #[serde(default = "crate::serde::default_true")]
     strict_path: bool,
 
-    /// The URL path on which log event POST requests shall be sent.
+    /// The URL path on which log event POST requests are sent.
     #[serde(default = "default_path")]
+    #[configurable(metadata(docs::examples = "/event/path"))]
+    #[configurable(metadata(docs::examples = "/logs"))]
     path: String,
 
-    /// The event key in which the requested URL path used to send the request will be stored.
+    /// The event key in which the requested URL path used to send the request is stored.
     #[serde(default = "default_path_key")]
+    #[configurable(metadata(docs::examples = "vector_http_path"))]
     path_key: OptionalValuePath,
 
     /// Specifies the action of the HTTP request.
@@ -243,45 +253,28 @@ impl Default for SimpleHttpConfig {
 impl_generate_config_from_default!(SimpleHttpConfig);
 
 impl ValidatableComponent for SimpleHttpConfig {
-    fn component_name(&self) -> &'static str {
-        Self::NAME
-    }
+    fn validation_configuration() -> ValidationConfiguration {
+        let config = Self {
+            decoding: Some(DeserializerConfig::Json),
+            ..Default::default()
+        };
 
-    fn component_type(&self) -> ComponentType {
-        ComponentType::Source
-    }
+        let listen_addr_http = format!("http://{}/", config.address);
+        let uri = Uri::try_from(&listen_addr_http).expect("should not fail to parse URI");
 
-    fn component_configuration(&self) -> ComponentConfiguration {
-        ComponentConfiguration::Source(self.clone().into())
-    }
-
-    fn external_resource(&self) -> Option<ExternalResource> {
-        let scheme = self
-            .tls
-            .as_ref()
-            .and_then(|tls| tls.enabled)
-            .map(|e| if e { "https" } else { "http" })
-            .unwrap_or("http");
-        let uri = Uri::builder()
-            .scheme(scheme)
-            .authority(self.address.to_string())
-            .path_and_query(self.path.clone())
-            .build()
-            .expect("should not fail to build request URI");
-        // TODO: Why do we use our own custom method enum that isn't just a newtype wrapper of
-        // `http::Method`? :thinkies:
-        let method = Some(Method::POST);
-        let decoding_config = self
-            .get_decoding_config()
-            .expect("should not fail to get decoding config");
-
-        Some(ExternalResource::new(
+        let external_resource = ExternalResource::new(
             ResourceDirection::Push,
-            validation::HttpConfig::from_parts(uri, method),
-            decoding_config,
-        ))
+            HttpResourceConfig::from_parts(uri, Some(config.method.into())),
+            config
+                .get_decoding_config()
+                .expect("should not fail to get decoding config"),
+        );
+
+        ValidationConfiguration::from_source(Self::NAME, config, Some(external_resource))
     }
 }
+
+register_validatable_component!(SimpleHttpConfig);
 
 const fn default_http_method() -> HttpMethod {
     HttpMethod::Post
@@ -317,6 +310,7 @@ fn remove_duplicates(mut list: Vec<String>, list_name: &str) -> Vec<String> {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "http_server")]
 impl SourceConfig for SimpleHttpConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<super::Source> {
         let decoder = self.get_decoding_config()?.build();
@@ -375,14 +369,14 @@ struct SimpleHttpSource {
     log_namespace: LogNamespace,
 }
 
-impl SimpleHttpSource {
+impl HttpSource for SimpleHttpSource {
     /// Enriches the passed in events with metadata for the `request_path` and for each of the headers.
     fn enrich_events(
         &self,
         events: &mut [Event],
         request_path: &str,
-        headers_config: HeaderMap,
-        query_parameters: HashMap<String, String>,
+        headers_config: &HeaderMap,
+        query_parameters: &HashMap<String, String>,
     ) {
         for event in events.iter_mut() {
             let log = event.as_mut_log();
@@ -429,15 +423,13 @@ impl SimpleHttpSource {
             );
         }
     }
-}
 
-impl HttpSource for SimpleHttpSource {
     fn build_events(
         &self,
         body: Bytes,
-        header_map: HeaderMap,
-        query_parameters: HashMap<String, String>,
-        request_path: &str,
+        _header_map: &HeaderMap,
+        _query_parameters: &HashMap<String, String>,
+        _request_path: &str,
     ) -> Result<Vec<Event>, ErrorMessage> {
         let mut decoder = self.decoder.clone();
         let mut events = Vec::new();
@@ -461,20 +453,17 @@ impl HttpSource for SimpleHttpSource {
             }
         }
 
-        self.enrich_events(&mut events, request_path, header_map, query_parameters);
-
         Ok(events)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use lookup::{event_path, owned_value_path, LookupBuf};
+    use lookup::{event_path, owned_value_path, OwnedTargetPath};
     use std::str::FromStr;
     use std::{collections::BTreeMap, io::Write, net::SocketAddr};
     use value::kind::Collection;
     use value::Kind;
-    use vector_config::NamedComponent;
     use vector_core::config::LogNamespace;
     use vector_core::event::LogEvent;
     use vector_core::schema::Definition;
@@ -665,7 +654,12 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log[log_schema().message_key()], "test body".into());
-            assert!(log.get(log_schema().timestamp_key()).is_some());
+            assert!(log
+                .get((
+                    lookup::PathPrefix::Event,
+                    log_schema().timestamp_key().unwrap()
+                ))
+                .is_some());
             assert_eq!(
                 log[log_schema().source_type_key()],
                 SimpleHttpConfig::NAME.into()
@@ -787,12 +781,18 @@ mod tests {
         assert!(events
             .remove(1)
             .as_log()
-            .get(log_schema().timestamp_key())
+            .get((
+                lookup::PathPrefix::Event,
+                log_schema().timestamp_key().unwrap()
+            ))
             .is_some());
         assert!(events
             .remove(0)
             .as_log()
-            .get(log_schema().timestamp_key())
+            .get((
+                lookup::PathPrefix::Event,
+                log_schema().timestamp_key().unwrap()
+            ))
             .is_some());
     }
 
@@ -951,7 +951,12 @@ mod tests {
     }
 
     async fn assert_event_metadata(log: &LogEvent) {
-        assert!(log.get(log_schema().timestamp_key()).is_some());
+        assert!(log
+            .get((
+                lookup::PathPrefix::Event,
+                log_schema().timestamp_key().unwrap()
+            ))
+            .is_some());
         assert_eq!(
             log[log_schema().source_type_key()],
             SimpleHttpConfig::NAME.into()
@@ -1118,7 +1123,12 @@ mod tests {
             let log = event.as_log();
             assert_eq!(log["key1"], "value1".into());
             assert_eq!(log["vector_http_path"], "/event/path".into());
-            assert!(log.get(log_schema().timestamp_key()).is_some());
+            assert!(log
+                .get((
+                    lookup::PathPrefix::Event,
+                    log_schema().timestamp_key().unwrap()
+                ))
+                .is_some());
             assert_eq!(
                 log[log_schema().source_type_key()],
                 SimpleHttpConfig::NAME.into()
@@ -1166,7 +1176,12 @@ mod tests {
             let log = event.as_log();
             assert_eq!(log["key1"], "value1".into());
             assert_eq!(log["vector_http_path"], "/event/path1".into());
-            assert!(log.get(log_schema().timestamp_key()).is_some());
+            assert!(log
+                .get((
+                    lookup::PathPrefix::Event,
+                    log_schema().timestamp_key().unwrap()
+                ))
+                .is_some());
             assert_eq!(
                 log[log_schema().source_type_key()],
                 SimpleHttpConfig::NAME.into()
@@ -1177,7 +1192,12 @@ mod tests {
             let log = event.as_log();
             assert_eq!(log["key2"], "value2".into());
             assert_eq!(log["vector_http_path"], "/event/path2".into());
-            assert!(log.get(log_schema().timestamp_key()).is_some());
+            assert!(log
+                .get((
+                    lookup::PathPrefix::Event,
+                    log_schema().timestamp_key().unwrap()
+                ))
+                .is_some());
             assert_eq!(
                 log[log_schema().source_type_key()],
                 SimpleHttpConfig::NAME.into()
@@ -1302,23 +1322,31 @@ mod tests {
 
         let expected_definition =
             Definition::new_with_default_metadata(Kind::bytes(), [LogNamespace::Vector])
-                .with_meaning(LookupBuf::root(), "message")
-                .with_metadata_field(&owned_value_path!("vector", "source_type"), Kind::bytes())
+                .with_meaning(OwnedTargetPath::event_root(), "message")
+                .with_metadata_field(
+                    &owned_value_path!("vector", "source_type"),
+                    Kind::bytes(),
+                    None,
+                )
                 .with_metadata_field(
                     &owned_value_path!(SimpleHttpConfig::NAME, "path"),
                     Kind::bytes(),
+                    None,
                 )
                 .with_metadata_field(
                     &owned_value_path!(SimpleHttpConfig::NAME, "headers"),
                     Kind::object(Collection::empty().with_unknown(Kind::bytes())).or_undefined(),
+                    None,
                 )
                 .with_metadata_field(
                     &owned_value_path!(SimpleHttpConfig::NAME, "query_parameters"),
                     Kind::object(Collection::empty().with_unknown(Kind::bytes())).or_undefined(),
+                    None,
                 )
                 .with_metadata_field(
                     &owned_value_path!("vector", "ingest_timestamp"),
                     Kind::timestamp(),
+                    None,
                 );
 
         assert_eq!(definition, expected_definition)

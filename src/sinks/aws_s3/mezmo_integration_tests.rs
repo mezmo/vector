@@ -41,7 +41,7 @@ async fn s3_message_objects_are_reshaped() {
     create_bucket(&bucket, false).await;
 
     let mut config = json_config(&bucket, 1000000);
-    config.key_prefix = Some("test-prefix".to_string());
+    config.key_prefix = "test-prefix".to_string();
     let prefix = config.key_prefix.clone();
     let service = config.create_service(&cx.globals.proxy).await.unwrap();
     let sink = config.build_processor(service, cx).unwrap();
@@ -51,7 +51,7 @@ async fn s3_message_objects_are_reshaped() {
     run_and_assert_sink_compliance(sink, stream, &AWS_SINK_TAGS).await;
     assert_eq!(receiver.await, BatchStatus::Delivered);
 
-    let keys = get_keys(&bucket, prefix.unwrap()).await;
+    let keys = get_keys(&bucket, prefix).await;
     assert_eq!(keys.len(), 1);
 
     let key = keys[0].clone();
@@ -95,7 +95,7 @@ async fn s3_message_objects_not_reshaped_because_of_env() {
     create_bucket(&bucket, false).await;
 
     let mut config = json_config(&bucket, 1000000);
-    config.key_prefix = Some("test-prefix".to_string());
+    config.key_prefix = "test-prefix".to_string();
     let prefix = config.key_prefix.clone();
     let service = config.create_service(&cx.globals.proxy).await.unwrap();
     let sink = config.build_processor(service, cx).unwrap();
@@ -105,7 +105,7 @@ async fn s3_message_objects_not_reshaped_because_of_env() {
     run_and_assert_sink_compliance(sink, stream, &AWS_SINK_TAGS).await;
     assert_eq!(receiver.await, BatchStatus::Delivered);
 
-    let keys = get_keys(&bucket, prefix.unwrap()).await;
+    let keys = get_keys(&bucket, prefix).await;
     assert_eq!(keys.len(), 1);
 
     let key = keys[0].clone();
@@ -140,9 +140,9 @@ fn json_config(bucket: &str, batch_size: usize) -> S3SinkConfig {
 
     S3SinkConfig {
         bucket: bucket.to_string(),
-        key_prefix: Some(random_string(10) + "/date=%F"),
-        filename_time_format: None,
-        filename_append_uuid: None,
+        key_prefix: random_string(10) + "/date=%F",
+        filename_time_format: "abcd".into(),
+        filename_append_uuid: false,
         filename_extension: None,
         options: S3Options::default(),
         region: RegionOrEndpoint::with_both("minio", s3_address()),

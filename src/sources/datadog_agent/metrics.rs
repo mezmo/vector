@@ -271,7 +271,11 @@ pub(crate) fn decode_ddseries_v2(
                                 value: dd_point.value,
                             },
                         )
-                        .with_timestamp(Some(Utc.timestamp(dd_point.timestamp, 0)))
+                        .with_timestamp(Some(
+                            Utc.timestamp_opt(dd_point.timestamp, 0)
+                                .single()
+                                .expect("invalid timestamp"),
+                        ))
                         .with_tags(Some(tags.clone()))
                         .with_namespace(namespace)
                     })
@@ -287,7 +291,11 @@ pub(crate) fn decode_ddseries_v2(
                                 value: dd_point.value,
                             },
                         )
-                        .with_timestamp(Some(Utc.timestamp(dd_point.timestamp, 0)))
+                        .with_timestamp(Some(
+                            Utc.timestamp_opt(dd_point.timestamp, 0)
+                                .single()
+                                .expect("invalid timestamp"),
+                        ))
                         .with_tags(Some(tags.clone()))
                         .with_namespace(namespace)
                     })
@@ -307,7 +315,11 @@ pub(crate) fn decode_ddseries_v2(
                                 value: dd_point.value * (i as f64),
                             },
                         )
-                        .with_timestamp(Some(Utc.timestamp(dd_point.timestamp, 0)))
+                        .with_timestamp(Some(
+                            Utc.timestamp_opt(dd_point.timestamp, 0)
+                                .single()
+                                .expect("invalid timestamp"),
+                        ))
                         // serie.interval is in seconds, convert to ms
                         .with_interval_ms(NonZeroU32::new(i * 1000))
                         .with_tags(Some(tags.clone()))
@@ -409,7 +421,11 @@ fn into_vector_metric(
                     MetricKind::Incremental,
                     MetricValue::Counter { value: dd_point.1 },
                 )
-                .with_timestamp(Some(Utc.timestamp(dd_point.0, 0)))
+                .with_timestamp(Some(
+                    Utc.timestamp_opt(dd_point.0, 0)
+                        .single()
+                        .expect("invalid timestamp"),
+                ))
                 .with_tags(Some(tags.clone()))
                 .with_namespace(namespace)
             })
@@ -423,7 +439,11 @@ fn into_vector_metric(
                     MetricKind::Absolute,
                     MetricValue::Gauge { value: dd_point.1 },
                 )
-                .with_timestamp(Some(Utc.timestamp(dd_point.0, 0)))
+                .with_timestamp(Some(
+                    Utc.timestamp_opt(dd_point.0, 0)
+                        .single()
+                        .expect("invalid timestamp"),
+                ))
                 .with_tags(Some(tags.clone()))
                 .with_namespace(namespace)
             })
@@ -442,7 +462,11 @@ fn into_vector_metric(
                         value: dd_point.1 * (i as f64),
                     },
                 )
-                .with_timestamp(Some(Utc.timestamp(dd_point.0, 0)))
+                .with_timestamp(Some(
+                    Utc.timestamp_opt(dd_point.0, 0)
+                        .single()
+                        .expect("invalid timestamp"),
+                ))
                 // dd_metric.interval is in seconds, convert to ms
                 .with_interval_ms(NonZeroU32::new(i * 1000))
                 .with_tags(Some(tags.clone()))
@@ -510,7 +534,11 @@ pub(crate) fn decode_ddsketch(
                 let (namespace, name) = namespace_name_from_dd_metric(&sketch_series.metric);
                 let mut metric = Metric::new(name.to_string(), MetricKind::Incremental, val)
                     .with_tags(Some(tags.clone()))
-                    .with_timestamp(Some(Utc.timestamp(sketch.ts, 0)))
+                    .with_timestamp(Some(
+                        Utc.timestamp_opt(sketch.ts, 0)
+                            .single()
+                            .expect("invalid timestamp"),
+                    ))
                     .with_namespace(namespace);
                 if let Some(k) = &api_key {
                     metric.metadata_mut().set_datadog_api_key(Arc::clone(k));

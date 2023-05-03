@@ -356,7 +356,7 @@ pub trait FrameHandler {
     fn socket_receive_buffer_size(&self) -> Option<usize>;
     fn socket_send_buffer_size(&self) -> Option<usize>;
     fn host_key(&self) -> &Option<OwnedValuePath>;
-    fn timestamp_key(&self) -> &str;
+    fn timestamp_key(&self) -> Option<&OwnedValuePath>;
     fn source_type_key(&self) -> &str;
 }
 
@@ -636,7 +636,7 @@ mod test {
         socket_send_buffer_size: Option<usize>,
         extra_task_handling_routine: F,
         host_key: Option<OwnedValuePath>,
-        timestamp_key: String,
+        timestamp_key: Option<OwnedValuePath>,
         source_type_key: String,
         log_namespace: LogNamespace,
     }
@@ -654,7 +654,7 @@ mod test {
                 socket_send_buffer_size: None,
                 extra_task_handling_routine: extra_routine,
                 host_key: Some(owned_value_path!("test_framestream")),
-                timestamp_key: "my_timestamp".to_string(),
+                timestamp_key: Some(owned_value_path!("my_timestamp")),
                 source_type_key: "source_type".to_string(),
                 log_namespace: LogNamespace::Legacy,
             }
@@ -714,8 +714,8 @@ mod test {
             &self.host_key
         }
 
-        fn timestamp_key(&self) -> &str {
-            self.timestamp_key.as_str()
+        fn timestamp_key(&self) -> Option<&OwnedValuePath> {
+            self.timestamp_key.as_ref()
         }
 
         fn source_type_key(&self) -> &str {
@@ -723,7 +723,7 @@ mod test {
         }
     }
 
-    fn init_framstream_unix(
+    fn init_framestream_unix(
         source_id: &str,
         frame_handler: impl FrameHandler + Send + Sync + Clone + 'static,
         pipeline: SourceSender,
@@ -828,7 +828,7 @@ mod test {
         let source_name = "test_source";
         let (tx, rx) = SourceSender::new_test();
         let (path, source_handle, mut shutdown) =
-            init_framstream_unix(source_name, create_frame_handler(false), tx);
+            init_framestream_unix(source_name, create_frame_handler(false), tx);
         let (mut sock_sink, mut sock_stream) = make_unix_stream(path).await.split();
 
         //1 - send READY frame (with content_type)
@@ -866,7 +866,7 @@ mod test {
             "world".into(),
         );
 
-        std::mem::drop(sock_stream); //explicitly drop the stream so we don't get warnings about not using it
+        drop(sock_stream); //explicitly drop the stream so we don't get warnings about not using it
 
         // Ensure source actually shut down successfully.
         signal_shutdown(source_name, &mut shutdown).await;
@@ -878,7 +878,7 @@ mod test {
         let source_name = "test_source";
         let (tx, rx) = SourceSender::new_test();
         let (path, source_handle, mut shutdown) =
-            init_framstream_unix(source_name, create_frame_handler(true), tx);
+            init_framestream_unix(source_name, create_frame_handler(true), tx);
         let (mut sock_sink, mut sock_stream) = make_unix_stream(path).await.split();
 
         //1 - send READY frame (with content_type)
@@ -914,7 +914,7 @@ mod test {
             .iter()
             .any(|e| e.as_log()[&log_schema().message_key()] == "world".into()));
 
-        std::mem::drop(sock_stream); //explicitly drop the stream so we don't get warnings about not using it
+        drop(sock_stream); //explicitly drop the stream so we don't get warnings about not using it
 
         // Ensure source actually shut down successfully.
         signal_shutdown(source_name, &mut shutdown).await;
@@ -926,7 +926,7 @@ mod test {
         let source_name = "test_source";
         let (tx, _) = SourceSender::new_test();
         let (path, source_handle, mut shutdown) =
-            init_framstream_unix(source_name, create_frame_handler(false), tx);
+            init_framestream_unix(source_name, create_frame_handler(false), tx);
         let (mut sock_sink, mut sock_stream) = make_unix_stream(path).await.split();
 
         //1 - send READY frame (with content_type)
@@ -944,7 +944,7 @@ mod test {
         assert_eq!(frame_vec[0].as_ref().unwrap().len(), 0);
         assert_accept_frame(frame_vec[1].as_mut().unwrap(), content_type);
 
-        std::mem::drop(sock_stream); //explicitly drop the stream so we don't get warnings about not using it
+        drop(sock_stream); //explicitly drop the stream so we don't get warnings about not using it
 
         // Ensure source actually shut down successfully.
         signal_shutdown(source_name, &mut shutdown).await;
@@ -956,7 +956,7 @@ mod test {
         let source_name = "test_source";
         let (tx, _) = SourceSender::new_test();
         let (path, source_handle, mut shutdown) =
-            init_framstream_unix(source_name, create_frame_handler(false), tx);
+            init_framestream_unix(source_name, create_frame_handler(false), tx);
         let (mut sock_sink, mut sock_stream) = make_unix_stream(path).await.split();
 
         //1 - send READY frame (with WRONG content_type)
@@ -979,7 +979,7 @@ mod test {
         assert_eq!(frame_vec[0].as_ref().unwrap().len(), 0);
         assert_accept_frame(frame_vec[1].as_mut().unwrap(), content_type);
 
-        std::mem::drop(sock_stream); //explicitly drop the stream so we don't get warnings about not using it
+        drop(sock_stream); //explicitly drop the stream so we don't get warnings about not using it
 
         // Ensure source actually shut down successfully.
         signal_shutdown(source_name, &mut shutdown).await;
@@ -991,7 +991,7 @@ mod test {
         let source_name = "test_source";
         let (tx, rx) = SourceSender::new_test();
         let (path, source_handle, mut shutdown) =
-            init_framstream_unix(source_name, create_frame_handler(false), tx);
+            init_framestream_unix(source_name, create_frame_handler(false), tx);
         let (mut sock_sink, mut sock_stream) = make_unix_stream(path).await.split();
 
         //1 - send data frame (too soon!)
@@ -1037,7 +1037,7 @@ mod test {
             "world".into(),
         );
 
-        std::mem::drop(sock_stream); //explicitly drop the stream so we don't get warnings about not using it
+        drop(sock_stream); //explicitly drop the stream so we don't get warnings about not using it
 
         // Ensure source actually shut down successfully.
         signal_shutdown(source_name, &mut shutdown).await;
@@ -1049,7 +1049,7 @@ mod test {
         let source_name = "test_source";
         let (tx, rx) = SourceSender::new_test();
         let (path, source_handle, mut shutdown) =
-            init_framstream_unix(source_name, create_frame_handler(false), tx);
+            init_framestream_unix(source_name, create_frame_handler(false), tx);
         let (mut sock_sink, _) = make_unix_stream(path).await.split();
 
         //1 - send START frame (with content_type)
@@ -1076,8 +1076,6 @@ mod test {
             events[1].as_log()[&log_schema().message_key()],
             "world".into(),
         );
-
-        // std::mem::drop(sock_stream); //explicitly drop the stream so we don't get warnings about not using it
 
         // Ensure source actually shut down successfully.
         signal_shutdown(source_name, &mut shutdown).await;

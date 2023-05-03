@@ -21,7 +21,7 @@ use tokio_util::codec::FramedRead;
 use vector_common::internal_event::{
     ByteSize, BytesReceived, CountByteSize, InternalEventHandle as _, Protocol,
 };
-use vector_config::{configurable_component, NamedComponent};
+use vector_config::configurable_component;
 use vector_core::{config::LogNamespace, EstimatedJsonEncodedSizeOf};
 
 use crate::{
@@ -295,6 +295,7 @@ async fn mezmo_demo_logs_source(
 impl_generate_config_from_default!(MezmoDemoLogsConfig);
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "mezmo_demo_logs")]
 impl SourceConfig for MezmoDemoLogsConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<super::Source> {
         let log_namespace = cx.log_namespace(self.log_namespace);
