@@ -237,7 +237,6 @@ async fn mezmo_demo_logs_source(
     log_namespace: LogNamespace,
 ) -> Result<(), ()> {
     let maybe_interval: Option<f64> = (interval != 0.0).then_some(interval);
-
     let mut interval = maybe_interval.map(|i| time::interval(Duration::from_secs_f64(i)));
 
     let bytes_received = register!(BytesReceived::from(Protocol::NONE));
@@ -303,6 +302,7 @@ impl SourceConfig for MezmoDemoLogsConfig {
         let decoder =
             DecodingConfig::new(self.framing.clone(), self.decoding.clone(), log_namespace).build();
         let financial_evt_state = OnceCell::new();
+        // let _acknowledgements = cx.do_acknowledgements(self.acknowledgements);
         Ok(Box::pin(mezmo_demo_logs_source(
             self.interval,
             self.count,
@@ -329,7 +329,18 @@ impl SourceConfig for MezmoDemoLogsConfig {
     }
 
     fn can_acknowledge(&self) -> bool {
-        false
+        // Supporting end to end acknowledgements for an event involves three parts:
+        //   1. Replacing the existing event finalizer with a new finalizer tied to a notification
+        //      channel (e.g. BatchNotifier).
+        //   2. Polling the recv side of the notification channel and perform source specific logic
+        //      that needs to happen when the event is processed (e.g. move read cursor forward).
+        //   3. Return true from this method for the topology builder so it can do some basic checks
+        //      on the resulting pipeline.
+        //
+        // For the demo logs to fake acknowledgement support, we just return true here to silence
+        // the topology checks. Since we wouldn't do anything on data finalization, the source doesn't
+        // bother wrapping the finalizers or listening on the notification channel.
+        true
     }
 }
 
