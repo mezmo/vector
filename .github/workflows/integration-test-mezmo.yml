@@ -65,6 +65,7 @@ jobs:
           # - test: 'pulsar'
           # - test: 'redis'
           # - test: 'shutdown'
+          # - test: 'sumo-logic'
           - test: 'postgres'
           - test: 'splunk'
             env:

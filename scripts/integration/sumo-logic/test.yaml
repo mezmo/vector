@@ -1,0 +1,11 @@
+features:
+- sumo-logic-integration-tests
+
+test_filter: '::sumo-logic::'
+
+runner:
+  env:
+    TEST_SUMO_LOGIC_ENDPOINT:
+
+matrix:
+  version: [latest]
