@@ -24,7 +24,7 @@ const TEST_COMMAND: &[&str] = &[
 ];
 // The upstream container we publish artifacts to on a successful master build.
 const UPSTREAM_IMAGE: &str =
-    "docker.io/timberio/vector-dev:sha-3eadc96742a33754a5859203b58249f6a806972a";
+    "docker.io/timberio/vector-dev:sha-549cf7300122639cffc7d31a916f32cf835c769f";
 
 pub static CONTAINER_TOOL: Lazy<OsString> =
     Lazy::new(|| env::var_os("CONTAINER_TOOL").unwrap_or_else(detect_container_tool));
@@ -185,6 +185,11 @@ pub trait ContainerTestRunner: TestRunner {
             dockerfile.to_str().unwrap(),
             "--build-arg",
             &format!("RUST_VERSION={}", self.get_rust_version()),
+            "--build-arg",
+            &format!(
+                "GITHUB_TOKEN={}",
+                env::var("GITHUB_TOKEN").unwrap_or_default()
+            ),
             ".",
         ]);
 
@@ -272,6 +277,7 @@ where
         }
 
         command.args(["--env", &format!("CARGO_BUILD_TARGET_DIR={TARGET_PATH}")]);
+        command.args(["--env", "CARGO_NET_GIT_FETCH_WITH_CLI=true"]);
         for (key, value) in outer_env {
             if let Some(value) = value {
                 command.env(key, value);

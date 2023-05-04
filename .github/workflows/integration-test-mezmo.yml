@@ -25,6 +25,8 @@ env:
   VERBOSE: true
   CI: true
   PROFILE: debug
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
   test-integration:
@@ -56,7 +58,6 @@ jobs:
           # - test: 'mongodb'
           # - test: 'nats'
           # - test: 'nginx'
-          # - test: 'postgres'
           # - test: 'prometheus'
           # - test: 'pulsar'
           # - test: 'redis'
@@ -69,6 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: make ci-sweep
+      - run: git config --global url."https://logdnabot:${GITHUB_TOKEN}@github.com".insteadOf ssh://git@github.com
       - run: make test-integration-${{ matrix.test }}
         env:
           SPLUNK_VERSION: ${{ matrix.env.SPLUNK_VERSION }}
