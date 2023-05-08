@@ -258,7 +258,10 @@ impl MezmoEventEncoder {
                 for tag in tags {
                     let t = tag.render_string(event);
                     match t {
-                        Ok(t) => vec.push(t),
+                        Ok(t) => {
+                            let tags = serde_json::from_str(&t).unwrap_or(vec![t]);
+                            vec.extend_from_slice(&tags);
+                        },
                         Err(error) => {
                             self.log_template_error("tag", error, false);
                         }
@@ -898,6 +901,7 @@ mod tests {
             hostname = "vector"
             mac_template = "{{ .metadata.query.mac }}"
             ip_template = "{{ .metadata.query.ip }}"
+            tags = ["{{ .metadata.query.tags }}", "tag_3"]
         "#,
         )
         .unwrap();
@@ -917,7 +921,8 @@ mod tests {
             "query": {
                 "app": "la_app",
                 "ip": "127.0.0.1",
-                "mac": "some-mac-addr"
+                "mac": "some-mac-addr",
+                "tags": ["tag_1", "tag_2"]
             }
         });
         let mut event = Event::Log(LogEvent::from("hello world"));
@@ -929,7 +934,7 @@ mod tests {
         assert_eq!(key.hostname, "vector".to_string());
         assert_eq!(key.ip, Some("127.0.0.1".to_string()));
         assert_eq!(key.mac, Some("some-mac-addr".to_string()));
-        assert!(key.tags.is_none());
+        assert_eq!(key.tags, Some(vec!["tag_1".to_string(), "tag_2".to_string(), "tag_3".to_string()]));
     }
 
     #[test]
@@ -1023,7 +1028,7 @@ mod tests {
             ip_template = "127.0.0.1"
             mac_template = "some-mac-addr"
             hostname = "{{ hostname }}"
-            tags = ["test","maybeanothertest"]
+            tags = ["{{ test }}", "maybeanothertest"]
         "#,
         )
         .unwrap();
@@ -1057,6 +1062,7 @@ mod tests {
             let mut event = LogEvent::from(line.as_str()).with_batch_notifier(&batch);
             let p = i % 2;
             event.insert("hostname", hosts[p]);
+            event.insert("test", "stuff");
 
             partitions[p].push(line.into());
             events.push(Event::Log(event));
@@ -1101,7 +1107,7 @@ mod tests {
 
                 assert!(query.contains("ip=127.0.0.1"));
                 assert!(query.contains("mac=some-mac-addr"));
-                assert!(query.contains("tags=test%2Cmaybeanothertest"));
+                assert!(query.contains("tags=stuff%2Cmaybeanothertest"));
 
                 let output = body
                     .as_object()
