@@ -14,7 +14,7 @@ RUN DEPS='gcc g++ make cmake xz-utils locales python libexpat1-dev gettext libz-
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc
 
-RUN git config --global url."https://logdnabot:${GITHUB_TOKEN}@github.com".insteadOf ssh://git@github.com
+RUN git config --global url."https://${GITHUB_TOKEN}@github.com".insteadOf ssh://git@github.com
 
 WORKDIR /build
 COPY . .
