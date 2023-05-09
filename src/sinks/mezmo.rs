@@ -26,6 +26,8 @@ use crate::{
 
 const PATH: &str = "/logs/ingest";
 const LINE_KEY: &str = "line";
+const META_KEY: &str = "meta";
+const TIMESTAMP_KEY: &str = "timestamp";
 const APP_KEY: &str = "app";
 const FILE_KEY: &str = "file";
 const ENV_KEY: &str = "env";
@@ -87,6 +89,9 @@ pub struct MezmoConfig {
 
     /// Optional line template, only one of `line_field` and `line_template` can be specified
     line_template: Option<Template>,
+
+    /// Optional meta field location
+    meta_field: Option<String>,
 
     /// Optional field selector for the log line's timestamp
     timestamp_field: Option<String>,
@@ -235,6 +240,7 @@ pub struct MezmoEventEncoder {
     cx: SinkContext,
     line_field: Option<String>,
     line_template: Option<Template>,
+    meta_field: Option<String>,
     timestamp_field: Option<String>,
     app_template: Option<Template>,
     file_template: Option<Template>,
@@ -258,7 +264,10 @@ impl MezmoEventEncoder {
                 for tag in tags {
                     let t = tag.render_string(event);
                     match t {
-                        Ok(t) => vec.push(t),
+                        Ok(t) => {
+                            let tags = serde_json::from_str(&t).unwrap_or_else(|_| vec![t]);
+                            vec.extend_from_slice(&tags);
+                        }
                         Err(error) => {
                             self.log_template_error("tag", error, false);
                         }
@@ -372,11 +381,19 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
             };
         }
 
+        // meta
+        if let Some(path) = &self.meta_field {
+            paths_to_remove.push(path.to_string());
+            if let Some(meta) = log.get(path.as_str()) {
+                map.insert(META_KEY.to_string(), json!(meta));
+            }
+        }
+
         // timestamp
         if let Some(path) = &self.timestamp_field {
             paths_to_remove.push(path.to_string());
             if let Some(ts) = log.get(path.as_str()) {
-                map.insert("timestamp".to_string(), json!(ts));
+                map.insert(TIMESTAMP_KEY.to_string(), json!(ts));
             }
         } else {
             let timestamp = match crate::config::log_schema().timestamp_key() {
@@ -387,7 +404,7 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
                 },
                 None => chrono::Utc::now().into(),
             };
-            map.insert("timestamp".to_string(), json!(timestamp));
+            map.insert(TIMESTAMP_KEY.to_string(), json!(timestamp));
         }
 
         // app
@@ -463,21 +480,22 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
         }
 
         // Handle the default whole message as line or remaining message as meta cases
-        //  after removing other used properties
-        if let Some(message) = log.remove(message_key) {
-            let key = if !map.contains_key(LINE_KEY) {
-                LINE_KEY
-            } else {
-                "meta"
-            };
-
+        //  after removing other used properties if either is unassigned
+        let catch_all_key = if !map.contains_key(LINE_KEY) {
+            Some(LINE_KEY)
+        } else if !map.contains_key(META_KEY) {
+            Some(META_KEY)
+        } else {
+            None
+        };
+        if let (Some(message), Some(catch_all_key)) = (log.remove(message_key), catch_all_key) {
             if message.is_object() {
                 let encoded = serde_json::to_string(&message)
                     .ok()
                     .unwrap_or_else(|| "".into());
-                map.insert(key.to_string(), json!(encoded));
+                map.insert(catch_all_key.to_string(), json!(encoded));
             } else {
-                map.insert(key.to_string(), json!(message));
+                map.insert(catch_all_key.to_string(), json!(message));
             }
         }
 
@@ -502,6 +520,7 @@ impl HttpSink for MezmoSink {
             cx: self.cx.clone(),
             line_field: self.cfg.line_field.clone(),
             line_template: self.cfg.line_template.clone(),
+            meta_field: self.cfg.meta_field.clone(),
             timestamp_field: self.cfg.timestamp_field.clone(),
             app_template: self.cfg.app_template.clone(),
             file_template: self.cfg.file_template.clone(),
@@ -643,6 +662,7 @@ mod tests {
         let (config, cx) = load_sink::<MezmoConfig>(
             r#"
             api_key = "mylogtoken"
+            meta_field = ".message._meta"
             hostname = "vector"
             app_template = "{{ .message.app }}"
             file_template = "{{ .message.file }}"
@@ -673,6 +693,9 @@ mod tests {
         "env": "staging",
         "first": "prop",
         "_ts": "1682022085309",
+        "_meta": {
+            "thing": "stuff"
+        }
         });
         let mut event2 = Event::Log(LogEvent::from("hello world"));
         event2.as_mut_log().insert(".message", message_object);
@@ -686,7 +709,7 @@ mod tests {
             event2_out.get("line"),
             Some(&json!("{\"first\":\"prop\",\"message\":\"hello world\"}"))
         );
-        assert!(event1_out.get("meta").is_none());
+        assert_eq!(event2_out.get("meta"), Some(&json!({"thing": "stuff"})));
     }
 
     #[test]
@@ -898,6 +921,7 @@ mod tests {
             hostname = "vector"
             mac_template = "{{ .metadata.query.mac }}"
             ip_template = "{{ .metadata.query.ip }}"
+            tags = ["{{ .metadata.query.tags }}", "tag_3"]
         "#,
         )
         .unwrap();
@@ -917,7 +941,8 @@ mod tests {
             "query": {
                 "app": "la_app",
                 "ip": "127.0.0.1",
-                "mac": "some-mac-addr"
+                "mac": "some-mac-addr",
+                "tags": ["tag_1", "tag_2"]
             }
         });
         let mut event = Event::Log(LogEvent::from("hello world"));
@@ -929,7 +954,14 @@ mod tests {
         assert_eq!(key.hostname, "vector".to_string());
         assert_eq!(key.ip, Some("127.0.0.1".to_string()));
         assert_eq!(key.mac, Some("some-mac-addr".to_string()));
-        assert!(key.tags.is_none());
+        assert_eq!(
+            key.tags,
+            Some(vec![
+                "tag_1".to_string(),
+                "tag_2".to_string(),
+                "tag_3".to_string()
+            ])
+        );
     }
 
     #[test]
@@ -1023,7 +1055,7 @@ mod tests {
             ip_template = "127.0.0.1"
             mac_template = "some-mac-addr"
             hostname = "{{ hostname }}"
-            tags = ["test","maybeanothertest"]
+            tags = ["{{ test }}", "maybeanothertest"]
         "#,
         )
         .unwrap();
@@ -1057,6 +1089,7 @@ mod tests {
             let mut event = LogEvent::from(line.as_str()).with_batch_notifier(&batch);
             let p = i % 2;
             event.insert("hostname", hosts[p]);
+            event.insert("test", "stuff");
 
             partitions[p].push(line.into());
             events.push(Event::Log(event));
@@ -1101,7 +1134,7 @@ mod tests {
 
                 assert!(query.contains("ip=127.0.0.1"));
                 assert!(query.contains("mac=some-mac-addr"));
-                assert!(query.contains("tags=test%2Cmaybeanothertest"));
+                assert!(query.contains("tags=stuff%2Cmaybeanothertest"));
 
                 let output = body
                     .as_object()
