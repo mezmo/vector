@@ -54,7 +54,7 @@ pub enum Mode {
     /// events to pass through the transform even when they contain new tags that exceed the
     /// configured limit. The rate at which this happens can be controlled by changing the value of
     /// `cache_size_per_tag`.
-    Probabilistic(#[configurable(derived)] BloomFilterConfig),
+    Probabilistic(BloomFilterConfig),
 }
 
 /// Bloom filter configuration in probabilistic mode.
@@ -112,6 +112,7 @@ impl GenerateConfig for TagCardinalityLimitConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "mezmo_tag_cardinality_limit")]
 impl TransformConfig for TagCardinalityLimitConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
         Ok(Transform::event_task(TagCardinalityLimit::new(

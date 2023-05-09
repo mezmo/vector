@@ -23,24 +23,24 @@ use crate::{
 };
 
 /// Configuration for the `metric_to_log` transform.
-#[configurable_component(transform("metric_to_log"))]
+#[configurable_component(transform("metric_to_log", "Convert metric events to log events."))]
 #[derive(Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct MetricToLogConfig {
     /// Name of the tag in the metric to use for the source host.
     ///
-    /// If present, the value of the tag is set on the generated log event in the "host" field,
-    /// where the field key will use the [global `host_key` option][global_log_schema_host_key].
+    /// If present, the value of the tag is set on the generated log event in the `host` field,
+    /// where the field key uses the [global `host_key` option][global_log_schema_host_key].
     ///
     /// [global_log_schema_host_key]: https://vector.dev/docs/reference/configuration//global-options#log_schema.host_key
     #[configurable(metadata(docs::examples = "host", docs::examples = "hostname"))]
     pub host_tag: Option<String>,
 
-    /// The name of the timezone to apply to timestamp conversions that do not contain an explicit
+    /// The name of the time zone to apply to timestamp conversions that do not contain an explicit
     /// time zone.
     ///
     /// This overrides the [global `timezone`][global_timezone] option. The time zone name may be
-    /// any name in the [TZ database][tz_database], or `local` to indicate system local time.
+    /// any name in the [TZ database][tz_database] or `local` to indicate system local time.
     ///
     /// [global_timezone]: https://vector.dev/docs/reference/configuration//global-options#timezone
     /// [tz_database]: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
@@ -53,9 +53,11 @@ pub struct MetricToLogConfig {
 
     /// Controls how metric tag values are encoded.
     ///
-    /// When set to `single`, only the last non-bare value of tags will be displayed with the
-    /// metric.  When set to `full`, all metric tags will be exposed as separate assignments as
+    /// When set to `single`, only the last non-bare value of tags are displayed with the
+    /// metric.  When set to `full`, all metric tags are exposed as separate assignments as
     /// described by [the `native_json` codec][vector_native_json].
+    ///
+    /// [vector_native_json]: https://github.com/vectordotdev/vector/blob/master/lib/codecs/tests/data/native_encoding/schema.cue
     #[serde(default)]
     pub metric_tag_values: MetricTagValues,
 }
@@ -73,6 +75,7 @@ impl GenerateConfig for MetricToLogConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "metric_to_log")]
 impl TransformConfig for MetricToLogConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
         Ok(Transform::function(MetricToLog::new(
@@ -203,14 +206,14 @@ impl TransformConfig for MetricToLogConfig {
                 schema_definition = schema_definition.with_metadata_field(
                     &owned_value_path!("vector"),
                     Kind::object(Collection::empty()),
+                    None,
                 );
             }
             LogNamespace::Legacy => {
-                schema_definition = schema_definition.with_event_field(
-                    &parse_value_path(log_schema().timestamp_key()).expect("valid timestamp key"),
-                    Kind::timestamp(),
-                    None,
-                );
+                if let Some(timestamp_key) = log_schema().timestamp_key() {
+                    schema_definition =
+                        schema_definition.with_event_field(timestamp_key, Kind::timestamp(), None);
+                }
 
                 schema_definition = schema_definition.with_event_field(
                     &parse_value_path(log_schema().host_key()).expect("valid host key"),
@@ -283,7 +286,10 @@ impl MetricToLog {
                             })
                             .unwrap_or_else(|| event::Value::Timestamp(Utc::now()));
 
-                        log.insert(log_schema().timestamp_key(), timestamp);
+                        if let Some(timestamp_key) = log_schema().timestamp_key() {
+                            log.insert((PathPrefix::Event, timestamp_key), timestamp);
+                        }
+
                         if let Some(host) = log.remove_prune(self.host_tag.as_str(), true) {
                             log.insert(log_schema().host_key(), host);
                         }
@@ -314,7 +320,7 @@ impl FunctionTransform for MetricToLog {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{offset::TimeZone, DateTime, Utc};
+    use chrono::{offset::TimeZone, DateTime, Timelike, Utc};
     use futures::executor::block_on;
     use proptest::prelude::*;
     use similar_asserts::assert_eq;
@@ -361,7 +367,10 @@ mod tests {
     }
 
     fn ts() -> DateTime<Utc> {
-        Utc.ymd(2018, 11, 14).and_hms_nano(8, 9, 10, 11)
+        Utc.with_ymd_and_hms(2018, 11, 14, 8, 9, 10)
+            .single()
+            .and_then(|t| t.with_nanosecond(11))
+            .expect("invalid timestamp")
     }
 
     fn tags() -> MetricTags {

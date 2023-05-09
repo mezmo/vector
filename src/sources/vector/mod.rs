@@ -1,3 +1,4 @@
+//! The `vector` source. See [VectorConfig].
 use std::net::SocketAddr;
 
 use chrono::Utc;
@@ -5,7 +6,7 @@ use codecs::NativeDeserializerConfig;
 use futures::TryFutureExt;
 use tonic::{Request, Response, Status};
 use vector_common::internal_event::{CountByteSize, InternalEventHandle as _};
-use vector_config::{configurable_component, NamedComponent};
+use vector_config::configurable_component;
 use vector_core::{
     config::LogNamespace,
     event::{BatchNotifier, BatchStatus, BatchStatusReceiver, Event},
@@ -35,7 +36,7 @@ enum VectorConfigVersion {
 }
 
 #[derive(Debug, Clone)]
-pub struct Service {
+struct Service {
     pipeline: SourceSender,
     acknowledgements: bool,
     log_namespace: LogNamespace,
@@ -113,14 +114,14 @@ async fn handle_batch_status(receiver: Option<BatchStatusReceiver>) -> Result<()
 }
 
 /// Configuration for the `vector` source.
-#[configurable_component(source("vector"))]
+#[configurable_component(source("vector", "Collect observability data from a Vector instance."))]
 #[derive(Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct VectorConfig {
     /// Version of the configuration.
     version: Option<VectorConfigVersion>,
 
-    /// The address to listen for connections on.
+    /// The socket address to listen for connections on.
     ///
     /// It _must_ include a port.
     pub address: SocketAddr,
@@ -168,6 +169,7 @@ impl GenerateConfig for VectorConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "vector")]
 impl SourceConfig for VectorConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<Source> {
         let tls_settings = MaybeTlsSettings::from_config(&self.tls, true)?;
@@ -234,10 +236,15 @@ mod test {
 
         let expected_definition =
             Definition::new_with_default_metadata(Kind::any(), [LogNamespace::Vector])
-                .with_metadata_field(&owned_value_path!("vector", "source_type"), Kind::bytes())
+                .with_metadata_field(
+                    &owned_value_path!("vector", "source_type"),
+                    Kind::bytes(),
+                    None,
+                )
                 .with_metadata_field(
                     &owned_value_path!("vector", "ingest_timestamp"),
                     Kind::timestamp(),
+                    None,
                 );
 
         assert_eq!(definition, expected_definition)

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
+use vrl_lib::prelude::NotNan;
 
 use crate::{
     config::log_schema,
@@ -216,6 +217,13 @@ fn get_u64(value_object: &BTreeMap<String, Value>, name: &str) -> Result<u64, Tr
     Ok(value as u64)
 }
 
+fn from_f64_or_zero(value: f64) -> Value {
+    NotNan::new(value).map_or_else(
+        |_| Value::Float(NotNan::new(0.0).expect("0.0 is not NaN")),
+        Value::Float,
+    )
+}
+
 fn get_property<'a>(
     root: &'a BTreeMap<String, Value>,
     property_name: &'a str,
@@ -235,11 +243,15 @@ fn get_property<'a>(
 ///
 /// Will return `Err` if any field transformations fail
 pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
-    let timestamp = log
-        .get(log_schema().timestamp_key())
-        .and_then(Value::as_timestamp)
-        .copied()
-        .or_else(|| Some(Utc::now()));
+    let timestamp = match log_schema().timestamp_key() {
+        Some(path) => log
+            .get((lookup::PathPrefix::Event, path))
+            .and_then(Value::as_timestamp)
+            .copied()
+            .or_else(|| Some(Utc::now())),
+        None => Some(Utc::now()),
+    };
+
     let metadata = log.metadata().clone();
 
     let root = log
@@ -329,7 +341,7 @@ fn from_buckets(buckets: &[Bucket]) -> Value {
         .iter()
         .map(|b| {
             BTreeMap::from([
-                ("upper_limit".to_owned(), b.upper_limit.into()),
+                ("upper_limit".to_owned(), from_f64_or_zero(b.upper_limit)),
                 ("count".to_owned(), b.count.into()),
             ])
             .into()
@@ -343,7 +355,7 @@ fn from_samples(samples: &[Sample]) -> Value {
         .iter()
         .map(|s| {
             BTreeMap::from([
-                ("value".to_owned(), s.value.into()),
+                ("value".to_owned(), from_f64_or_zero(s.value)),
                 ("rate".to_owned(), s.rate.into()),
             ])
             .into()
@@ -357,8 +369,8 @@ fn from_quantiles(quantiles: &[Quantile]) -> Value {
         .iter()
         .map(|q| {
             BTreeMap::from([
-                ("value".to_owned(), q.value.into()),
-                ("quantile".to_owned(), q.quantile.into()),
+                ("value".to_owned(), from_f64_or_zero(q.value)),
+                ("quantile".to_owned(), from_f64_or_zero(q.quantile)),
             ])
             .into()
         })
@@ -401,11 +413,11 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
         match metric.value() {
             MetricValue::Counter { value } => Value::Object(BTreeMap::from([
                 ("type".to_owned(), "counter".into()),
-                ("value".to_owned(), (*value).into()),
+                ("value".to_owned(), from_f64_or_zero(*value)),
             ])),
             MetricValue::Gauge { value } => Value::Object(BTreeMap::from([
                 ("type".to_owned(), "gauge".into()),
-                ("value".to_owned(), (*value).into()),
+                ("value".to_owned(), from_f64_or_zero(*value)),
             ])),
             MetricValue::Set { values } => Value::Object(BTreeMap::from([
                 ("type".to_owned(), "set".into()),
@@ -449,7 +461,7 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
                     BTreeMap::from([
                         ("quantiles".to_owned(), from_quantiles(quantiles)),
                         ("count".to_owned(), (*count).into()),
-                        ("sum".to_owned(), (*sum).into()),
+                        ("sum".to_owned(), from_f64_or_zero(*sum)),
                     ])
                     .into(),
                 ),
@@ -466,7 +478,7 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
                     Value::Object(BTreeMap::from([
                         ("buckets".to_owned(), from_buckets(buckets)),
                         ("count".to_owned(), (*count).into()),
-                        ("sum".to_owned(), (*sum).into()),
+                        ("sum".to_owned(), from_f64_or_zero(*sum)),
                     ])),
                 ),
             ])),

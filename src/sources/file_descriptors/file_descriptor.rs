@@ -4,7 +4,7 @@ use super::{outputs, FileDescriptorConfig};
 use codecs::decoding::{DeserializerConfig, FramingConfig};
 use indoc::indoc;
 use lookup::lookup_v2::OptionalValuePath;
-use vector_config::{configurable_component, NamedComponent};
+use vector_config::configurable_component;
 use vector_core::config::LogNamespace;
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
     serde::default_decoding,
 };
 /// Configuration for the `file_descriptor` source.
-#[configurable_component(source("file_descriptor"))]
+#[configurable_component(source("file_descriptor", "Collect logs from a file descriptor."))]
 #[derive(Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct FileDescriptorSourceConfig {
@@ -74,6 +74,7 @@ impl GenerateConfig for FileDescriptorSourceConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "file_descriptor")]
 impl SourceConfig for FileDescriptorSourceConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<crate::sources::Source> {
         let pipe = io::BufReader::new(unsafe { File::from_raw_fd(self.fd as i32) });

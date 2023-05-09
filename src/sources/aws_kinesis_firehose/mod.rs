@@ -6,7 +6,7 @@ use lookup::owned_value_path;
 use tracing::Span;
 use value::Kind;
 use vector_common::sensitive_string::SensitiveString;
-use vector_config::{configurable_component, NamedComponent};
+use vector_config::configurable_component;
 use vector_core::config::{LegacyKey, LogNamespace};
 use warp::Filter;
 
@@ -25,10 +25,13 @@ mod handlers;
 mod models;
 
 /// Configuration for the `aws_kinesis_firehose` source.
-#[configurable_component(source("aws_kinesis_firehose"))]
+#[configurable_component(source(
+    "aws_kinesis_firehose",
+    "Collect logs from AWS Kinesis Firehose."
+))]
 #[derive(Clone, Debug)]
 pub struct AwsKinesisFirehoseConfig {
-    /// The address to listen for connections on.
+    /// The socket address to listen for connections on.
     #[configurable(metadata(docs::examples = "0.0.0.0:443"))]
     #[configurable(metadata(docs::examples = "localhost:443"))]
     address: SocketAddr,
@@ -36,23 +39,28 @@ pub struct AwsKinesisFirehoseConfig {
     /// An optional access key to authenticate requests against.
     ///
     /// AWS Kinesis Firehose can be configured to pass along a user-configurable access key with each request. If
-    /// configured, `access_key` should be set to the same value. Otherwise, all requests will be allowed.
-    ///
-    /// This option has been deprecated, the `access_keys` option should be used instead.
-    #[configurable(deprecated)]
+    /// configured, `access_key` should be set to the same value. Otherwise, all requests are allowed.
+    #[configurable(deprecated = "This option has been deprecated, use `access_keys` instead.")]
     #[configurable(metadata(docs::examples = "A94A8FE5CCB19BA61C4C08"))]
     access_key: Option<SensitiveString>,
 
     /// An optional list of access keys to authenticate requests against.
     ///
     /// AWS Kinesis Firehose can be configured to pass along a user-configurable access key with each request. If
-    /// configured, `access_keys` should be set to the same value. Otherwise, all requests will be allowed.
+    /// configured, `access_keys` should be set to the same value. Otherwise, all requests are allowed.
     #[configurable(metadata(docs::examples = "access_keys_example()"))]
     access_keys: Option<Vec<SensitiveString>>,
 
+    /// Whether or not to store the AWS Firehose Access Key in event secrets.
+    ///
+    /// If set to `true`, when incoming requests contains an access key sent by AWS Firehose, it is kept in the
+    /// event secrets as "aws_kinesis_firehose_access_key".
+    #[configurable(derived)]
+    store_access_key: bool,
+
     /// The compression scheme to use for decompressing records within the Firehose message.
     ///
-    /// Some services, like AWS CloudWatch Logs, will [compress the events with gzip][events_with_gzip],
+    /// Some services, like AWS CloudWatch Logs, [compresses the events with gzip][events_with_gzip],
     /// before sending them AWS Kinesis Firehose. This option can be used to automatically decompress
     /// them before forwarding them to the next component.
     ///
@@ -68,10 +76,12 @@ pub struct AwsKinesisFirehoseConfig {
     tls: Option<TlsEnableableConfig>,
 
     #[configurable(derived)]
+    #[configurable(metadata(docs::advanced))]
     #[serde(default = "default_framing_message_based")]
     framing: FramingConfig,
 
     #[configurable(derived)]
+    #[configurable(metadata(docs::advanced))]
     #[serde(default = "default_decoding")]
     decoding: DeserializerConfig,
 
@@ -91,6 +101,7 @@ const fn access_keys_example() -> [&'static str; 2] {
 
 /// Compression scheme for records in a Firehose message.
 #[configurable_component]
+#[configurable(metadata(docs::advanced))]
 #[derive(Clone, Copy, Debug, Derivative, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[derivative(Default)]
@@ -107,8 +118,10 @@ pub enum Compression {
     /// [magic_bytes]: https://en.wikipedia.org/wiki/List_of_file_signatures
     #[derivative(Default)]
     Auto,
+
     /// Uncompressed.
     None,
+
     /// GZIP.
     Gzip,
 }
@@ -124,6 +137,7 @@ impl fmt::Display for Compression {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "aws_kinesis_firehose")]
 impl SourceConfig for AwsKinesisFirehoseConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<super::Source> {
         let log_namespace = cx.log_namespace(self.log_namespace);
@@ -145,6 +159,7 @@ impl SourceConfig for AwsKinesisFirehoseConfig {
 
         let svc = filters::firehose(
             access_keys.map(|key| key.inner().to_string()).collect(),
+            self.store_access_key,
             self.record_compression,
             decoder,
             acknowledgements,
@@ -206,6 +221,7 @@ impl GenerateConfig for AwsKinesisFirehoseConfig {
             address: "0.0.0.0:443".parse().unwrap(),
             access_key: None,
             access_keys: None,
+            store_access_key: false,
             tls: None,
             record_compression: Default::default(),
             framing: default_framing_message_based(),
@@ -226,6 +242,7 @@ mod tests {
         net::SocketAddr,
     };
 
+    use base64::prelude::{Engine as _, BASE64_STANDARD};
     use bytes::Bytes;
     use chrono::{DateTime, SubsecRound, Utc};
     use flate2::read::GzEncoder;
@@ -280,6 +297,7 @@ mod tests {
     async fn source(
         access_key: Option<SensitiveString>,
         access_keys: Option<Vec<SensitiveString>>,
+        store_access_key: bool,
         record_compression: Compression,
         delivered: bool,
         log_namespace: bool,
@@ -295,6 +313,7 @@ mod tests {
                 tls: None,
                 access_key,
                 access_keys,
+                store_access_key,
                 record_compression,
                 framing: default_framing_message_based(),
                 decoding: default_decoding(),
@@ -323,6 +342,7 @@ mod tests {
         record_compression: Compression,
     ) -> reqwest::Result<reqwest::Response> {
         let request = models::FirehoseRequest {
+            access_key: key.map(|s| s.to_string()),
             request_id: REQUEST_ID.to_string(),
             timestamp,
             records: records
@@ -396,12 +416,12 @@ mod tests {
             Compression::None => record.to_vec(),
         };
 
-        Ok(base64::encode(compressed))
+        Ok(BASE64_STANDARD.encode(compressed))
     }
 
     #[tokio::test]
     async fn aws_kinesis_firehose_forwards_events_legacy_namespace() {
-        let gziped_record = {
+        let gzipped_record = {
             let mut buf = Vec::new();
             let mut gz = GzEncoder::new(RECORD.as_bytes(), flate2::Compression::fast());
             gz.read_to_end(&mut buf).unwrap();
@@ -428,7 +448,7 @@ mod tests {
                 Compression::Gzip,
                 true,
                 RECORD.as_bytes(),
-                gziped_record,
+                gzipped_record,
             ),
             (
                 Compression::None,
@@ -459,7 +479,8 @@ mod tests {
                 Vec::new(),
             ),
         ] {
-            let (rx, addr) = source(None, None, source_record_compression, true, false).await;
+            let (rx, addr) =
+                source(None, None, false, source_record_compression, true, false).await;
 
             let timestamp: DateTime<Utc> = Utc::now();
 
@@ -501,7 +522,7 @@ mod tests {
 
     #[tokio::test]
     async fn aws_kinesis_firehose_forwards_events_vector_namespace() {
-        let gziped_record = {
+        let gzipped_record = {
             let mut buf = Vec::new();
             let mut gz = GzEncoder::new(RECORD.as_bytes(), flate2::Compression::fast());
             gz.read_to_end(&mut buf).unwrap();
@@ -528,7 +549,7 @@ mod tests {
                 Compression::Gzip,
                 true,
                 RECORD.as_bytes(),
-                gziped_record,
+                gzipped_record,
             ),
             (
                 Compression::None,
@@ -559,7 +580,7 @@ mod tests {
                 Vec::new(),
             ),
         ] {
-            let (rx, addr) = source(None, None, source_record_compression, true, true).await;
+            let (rx, addr) = source(None, None, false, source_record_compression, true, true).await;
 
             let timestamp: DateTime<Utc> = Utc::now();
 
@@ -630,7 +651,7 @@ mod tests {
     #[tokio::test]
     async fn aws_kinesis_firehose_forwards_events_gzip_request() {
         assert_source_compliance(&SOURCE_TAGS, async move {
-            let (rx, addr) = source(None, None, Default::default(), true, false).await;
+            let (rx, addr) = source(None, None, false, Default::default(), true, false).await;
 
             let timestamp: DateTime<Utc> = Utc::now();
 
@@ -671,6 +692,7 @@ mod tests {
             Some("an access key".to_string().into()),
             Some(vec!["an access key in list".to_string().into()]),
             Default::default(),
+            Default::default(),
             true,
             false,
         )
@@ -697,6 +719,7 @@ mod tests {
         let (_rx, addr) = source(
             None,
             Some(vec!["an access key in list".to_string().into()]),
+            Default::default(),
             Default::default(),
             true,
             false,
@@ -726,6 +749,7 @@ mod tests {
         let (_rx, addr) = source(
             Some(valid_access_key.clone()),
             Some(vec!["valid access key 2".to_string().into()]),
+            Default::default(),
             Default::default(),
             true,
             false,
@@ -760,6 +784,7 @@ mod tests {
                 "valid access key 2".to_string().into(),
             ]),
             Default::default(),
+            Default::default(),
             true,
             false,
         )
@@ -786,7 +811,7 @@ mod tests {
     async fn handles_acknowledgement_failure() {
         let expected = RECORD.as_bytes().to_owned();
 
-        let (rx, addr) = source(None, None, Compression::None, false, false).await;
+        let (rx, addr) = source(None, None, false, Compression::None, false, false).await;
 
         let timestamp: DateTime<Utc> = Utc::now();
 
@@ -818,5 +843,63 @@ mod tests {
 
         let response: models::FirehoseResponse = res.json().await.unwrap();
         assert_eq!(response.request_id, REQUEST_ID);
+    }
+
+    #[tokio::test]
+    async fn event_access_key_passthrough_enabled() {
+        let (rx, address) = source(
+            None,
+            Some(vec!["an access key".to_string().into()]),
+            true,
+            Default::default(),
+            true,
+            true,
+        )
+        .await;
+
+        let timestamp: DateTime<Utc> = Utc::now();
+
+        spawn_send(
+            address,
+            timestamp,
+            vec![RECORD.as_bytes()],
+            Some("an access key"),
+            false,
+            Compression::None,
+        )
+        .await;
+
+        let events = collect_ready(rx).await;
+        let access_key = events[0]
+            .metadata()
+            .secrets()
+            .get("aws_kinesis_firehose_access_key")
+            .unwrap();
+        assert_eq!(access_key.to_string(), "an access key".to_string());
+    }
+
+    #[tokio::test]
+    async fn no_authorization_access_key_passthrough_enabled() {
+        let (rx, address) = source(None, None, true, Default::default(), true, true).await;
+
+        let timestamp: DateTime<Utc> = Utc::now();
+
+        spawn_send(
+            address,
+            timestamp,
+            vec![RECORD.as_bytes()],
+            None,
+            false,
+            Compression::None,
+        )
+        .await;
+
+        let events = collect_ready(rx).await;
+
+        assert!(events[0]
+            .metadata()
+            .secrets()
+            .get("aws_kinesis_firehose_access_key")
+            .is_none());
     }
 }

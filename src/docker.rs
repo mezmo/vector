@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use std::{collections::HashMap, env, path::PathBuf};
 
 use bollard::{
@@ -23,7 +24,7 @@ pub enum Error {
 
 /// Configuration of TLS when connecting to the Docker daemon.
 ///
-/// Only relevant when connecting to Docker via an HTTPS URL.
+/// Only relevant when connecting to Docker with an HTTPS URL.
 ///
 /// If not configured, the environment variable `DOCKER_CERT_PATH` is used. If `DOCKER_CERT_PATH` is absent, then` DOCKER_CONFIG` is used. If both environment variables are absent, the certificates in `~/.docker/` are read.
 #[configurable_component]
@@ -197,6 +198,7 @@ impl Container {
 
         let options = Some(CreateContainerOptions {
             name: format!("vector_test_{}", uuid::Uuid::new_v4()),
+            platform: None,
         });
 
         let config = Config {

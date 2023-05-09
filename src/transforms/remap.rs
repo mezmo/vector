@@ -39,7 +39,10 @@ use crate::{
 const DROPPED: &str = "dropped";
 
 /// Configuration for the `remap` transform.
-#[configurable_component(transform("remap"))]
+#[configurable_component(transform(
+    "remap",
+    "Modify your observability data as it passes through your topology using Vector Remap Language (VRL)."
+))]
 #[derive(Clone, Debug, Derivative)]
 #[serde(deny_unknown_fields)]
 #[derivative(Default)]
@@ -62,14 +65,14 @@ pub struct RemapConfig {
     /// Required if `source` is missing.
     ///
     /// [vrl]: https://vector.dev/docs/reference/vrl
-    #[configurable(metadata(docs::examples = "./my/program.vrl",))]
+    #[configurable(metadata(docs::examples = "./my/program.vrl"))]
     pub file: Option<PathBuf>,
 
-    /// When set to `single`, metric tag values will be exposed as single strings, the
-    /// same as they were before this config option. Tags with multiple values will show the last assigned value, and null values
-    /// will be ignored.
+    /// When set to `single`, metric tag values are exposed as single strings, the
+    /// same as they were before this config option. Tags with multiple values show the last assigned value, and null values
+    /// are ignored.
     ///
-    /// When set to `full`, all metric tags will be exposed as arrays of either string or null
+    /// When set to `full`, all metric tags are exposed as arrays of either string or null
     /// values.
     #[serde(default)]
     pub metric_tag_values: MetricTagValues,
@@ -83,12 +86,13 @@ pub struct RemapConfig {
     /// [global_timezone]: https://vector.dev/docs/reference/configuration//global-options#timezone
     /// [tz_database]: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
     #[serde(default)]
+    #[configurable(metadata(docs::advanced))]
     pub timezone: Option<TimeZone>,
 
     /// Drops any event that encounters an error during processing.
     ///
     /// Normally, if a VRL program encounters an error when processing an event, the original,
-    /// unmodified event will be sent downstream. In some cases, you may not wish to send the event
+    /// unmodified event is sent downstream. In some cases, you may not want to send the event
     /// any further, such as if certain transformation or enrichment is strictly required. Setting
     /// `drop_on_error` to `true` allows you to ensure these events do not get processed any
     /// further.
@@ -100,8 +104,8 @@ pub struct RemapConfig {
 
     /// Drops any event that is manually aborted during processing.
     ///
-    /// Normally, if a VRL program is manually aborted (via [`abort`][vrl_docs_abort]) when
-    /// processing an event, the original, unmodified event will be sent downstream. In some cases,
+    /// Normally, if a VRL program is manually aborted (using [`abort`][vrl_docs_abort]) when
+    /// processing an event, the original, unmodified event is sent downstream. In some cases,
     /// you may not wish to send the event any further, such as if certain transformation or
     /// enrichment is strictly required. Setting `drop_on_abort` to `true` allows you to ensure
     /// these events do not get processed any further.
@@ -119,13 +123,13 @@ pub struct RemapConfig {
     /// further. In some cases, it may be desirable to keep the events around for further analysis,
     /// debugging, or retrying.
     ///
-    /// In these cases, `reroute_dropped` can be set to `true` which will forward the original event
-    /// to a specially-named output, `dropped`. The original event will be annotated with additional
+    /// In these cases, `reroute_dropped` can be set to `true` which forwards the original event
+    /// to a specially-named output, `dropped`. The original event is annotated with additional
     /// fields describing why the event was dropped.
     #[serde(default = "crate::serde::default_false")]
     pub reroute_dropped: bool,
 
-    #[configurable(derived)]
+    #[configurable(derived, metadata(docs::hidden))]
     #[serde(default)]
     pub runtime: VrlRuntime,
 }
@@ -159,7 +163,7 @@ impl RemapConfig {
 
         let mut functions = vrl_stdlib::all();
         functions.append(&mut enrichment::vrl_functions());
-        functions.append(&mut vector_vrl_functions::vrl_functions());
+        functions.append(&mut vector_vrl_functions::all());
         functions.append(&mut mezmo_vrl_functions::vrl_functions());
 
         let state = TypeState {
@@ -198,6 +202,7 @@ impl RemapConfig {
 impl_generate_config_from_default!(RemapConfig);
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "remap")]
 impl TransformConfig for RemapConfig {
     async fn build(&self, context: &TransformContext) -> Result<Transform> {
         let (transform, warnings) = match self.runtime {
@@ -209,7 +214,7 @@ impl TransformConfig for RemapConfig {
 
         // TODO: We could improve on this by adding support for non-fatal error
         // messages in the topology. This would make the topology responsible
-        // for printing warnings (including potentially emiting metrics),
+        // for printing warnings (including potentially emitting metrics),
         // instead of individual transforms.
         if !warnings.is_empty() {
             warn!(message = "VRL compilation warning.", %warnings);
@@ -271,11 +276,11 @@ impl TransformConfig for RemapConfig {
             dropped_definition = dropped_definition.merge(
                 input_definition
                     .clone()
-                    .with_metadata_field(&owned_value_path!("reason"), Kind::bytes())
-                    .with_metadata_field(&owned_value_path!("message"), Kind::bytes())
-                    .with_metadata_field(&owned_value_path!("component_id"), Kind::bytes())
-                    .with_metadata_field(&owned_value_path!("component_type"), Kind::bytes())
-                    .with_metadata_field(&owned_value_path!("component_kind"), Kind::bytes()),
+                    .with_metadata_field(&owned_value_path!("reason"), Kind::bytes(), None)
+                    .with_metadata_field(&owned_value_path!("message"), Kind::bytes(), None)
+                    .with_metadata_field(&owned_value_path!("component_id"), Kind::bytes(), None)
+                    .with_metadata_field(&owned_value_path!("component_type"), Kind::bytes(), None)
+                    .with_metadata_field(&owned_value_path!("component_kind"), Kind::bytes(), None),
             );
         }
 
@@ -598,7 +603,7 @@ mod tests {
     use std::collections::HashMap;
 
     use indoc::{formatdoc, indoc};
-    use vector_common::btreemap;
+    use value::btreemap;
     use vector_core::{config::GlobalOptions, event::EventMetadata, metric_tags};
 
     use super::*;

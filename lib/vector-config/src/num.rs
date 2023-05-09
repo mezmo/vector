@@ -4,10 +4,11 @@ use std::num::{
 };
 
 use num_traits::{Bounded, One, ToPrimitive, Zero};
-use schemars::schema::InstanceType;
 use serde::Serialize;
 use serde_json::Number;
 use vector_config_common::num::{NUMERIC_ENFORCED_LOWER_BOUND, NUMERIC_ENFORCED_UPPER_BOUND};
+
+use crate::schema::InstanceType;
 
 /// The class of a numeric type.
 #[derive(Clone, Copy, Serialize)]
@@ -43,7 +44,7 @@ pub trait ConfigurableNumber {
     /// The integral numeric type.
     ///
     /// We parameterize the "integral" numeric type in this way to allow generating the schema for wrapper types such as
-    /// `NonZeroU64`, where the overall type must be represented as `NonZeroU64` but the integeral numeric type that
+    /// `NonZeroU64`, where the overall type must be represented as `NonZeroU64` but the integral numeric type that
     /// we're constraining against is `u64`.
     type Numeric: Bounded + ToPrimitive + Zero + One;
 
@@ -112,7 +113,7 @@ pub trait ConfigurableNumber {
     }
 }
 
-macro_rules! impl_configuable_number {
+macro_rules! impl_configurable_number {
 	([$class:expr] $($ty:ty),+) => {
 		$(
 			impl ConfigurableNumber for $ty {
@@ -126,7 +127,7 @@ macro_rules! impl_configuable_number {
 	};
 }
 
-macro_rules! impl_configuable_number_nonzero {
+macro_rules! impl_configurable_number_nonzero {
 	([$class:expr] $($aty:ty => $ity:ty),+) => {
 		$(
 			impl ConfigurableNumber for $aty {
@@ -164,8 +165,8 @@ macro_rules! impl_configuable_number_nonzero {
 	};
 }
 
-impl_configuable_number!([NumberClass::Unsigned] u8, u16, u32, u64, usize);
-impl_configuable_number!([NumberClass::Signed] i8, i16, i32, i64, isize);
-impl_configuable_number!([NumberClass::FloatingPoint] f32, f64);
-impl_configuable_number_nonzero!([NumberClass::Unsigned] NonZeroU8 => u8, NonZeroU16 => u16, NonZeroU32 => u32, NonZeroU64 => u64, NonZeroUsize => usize);
-impl_configuable_number_nonzero!(with_exclusion, [NumberClass::Signed] NonZeroI8 => i8, NonZeroI16 => i16, NonZeroI32 => i32, NonZeroI64 => i64);
+impl_configurable_number!([NumberClass::Unsigned] u8, u16, u32, u64, usize);
+impl_configurable_number!([NumberClass::Signed] i8, i16, i32, i64, isize);
+impl_configurable_number!([NumberClass::FloatingPoint] f32, f64);
+impl_configurable_number_nonzero!([NumberClass::Unsigned] NonZeroU8 => u8, NonZeroU16 => u16, NonZeroU32 => u32, NonZeroU64 => u64, NonZeroUsize => usize);
+impl_configurable_number_nonzero!(with_exclusion, [NumberClass::Signed] NonZeroI8 => i8, NonZeroI16 => i16, NonZeroI32 => i32, NonZeroI64 => i64);

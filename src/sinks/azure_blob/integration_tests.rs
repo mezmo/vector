@@ -37,6 +37,7 @@ async fn azure_blob_healthcheck_passed() {
         config.connection_string.map(Into::into),
         None,
         config.container_name.clone(),
+        None,
     )
     .expect("Failed to create client");
 
@@ -60,6 +61,7 @@ async fn azure_blob_healthcheck_unknown_container() {
         config.connection_string.map(Into::into),
         config.storage_account.map(Into::into),
         config.container_name.clone(),
+        config.endpoint.clone(),
     )
     .expect("Failed to create client");
 
@@ -82,7 +84,7 @@ async fn azure_blob_insert_lines_into_blob() {
     let blob_prefix = format!("lines/into/blob/{}", random_string(10));
     let config = AzureBlobSinkConfig::new_emulator().await;
     let config = AzureBlobSinkConfig {
-        blob_prefix: Some(blob_prefix.clone()),
+        blob_prefix: blob_prefix.clone().try_into().unwrap(),
         ..config
     };
     let (lines, input) = random_lines_with_stream(100, 10, None);
@@ -102,7 +104,7 @@ async fn azure_blob_insert_json_into_blob() {
     let blob_prefix = format!("json/into/blob/{}", random_string(10));
     let config = AzureBlobSinkConfig::new_emulator().await;
     let config = AzureBlobSinkConfig {
-        blob_prefix: Some(blob_prefix.clone()),
+        blob_prefix: blob_prefix.clone().try_into().unwrap(),
         encoding: (
             Some(NewlineDelimitedEncoderConfig::new()),
             JsonSerializerConfig::default(),
@@ -133,7 +135,7 @@ async fn azure_blob_insert_lines_into_blob_gzip() {
     let blob_prefix = format!("lines-gzip/into/blob/{}", random_string(10));
     let config = AzureBlobSinkConfig::new_emulator().await;
     let config = AzureBlobSinkConfig {
-        blob_prefix: Some(blob_prefix.clone()),
+        blob_prefix: blob_prefix.clone().try_into().unwrap(),
         compression: Compression::gzip_default(),
         ..config
     };
@@ -160,7 +162,7 @@ async fn azure_blob_insert_json_into_blob_gzip() {
     let blob_prefix = format!("json-gzip/into/blob/{}", random_string(10));
     let config = AzureBlobSinkConfig::new_emulator().await;
     let config = AzureBlobSinkConfig {
-        blob_prefix: Some(blob_prefix.clone()),
+        blob_prefix: blob_prefix.clone().try_into().unwrap(),
         encoding: (
             Some(NewlineDelimitedEncoderConfig::new()),
             JsonSerializerConfig::default(),
@@ -199,7 +201,7 @@ async fn azure_blob_rotate_files_after_the_buffer_size_is_reached() {
     config.batch.max_bytes = Some(size_per_group);
 
     let config = AzureBlobSinkConfig {
-        blob_prefix: Some(blob_prefix.clone() + "{{key}}"),
+        blob_prefix: (blob_prefix.clone() + "{{key}}").try_into().unwrap(),
         blob_append_uuid: Some(false),
         batch: config.batch,
         ..config
@@ -229,7 +231,8 @@ impl AzureBlobSinkConfig {
                 connection_string: Some(format!("UseDevelopmentStorage=true;DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://{}:10000/devstoreaccount1;QueueEndpoint=http://{}:10001/devstoreaccount1;TableEndpoint=http://{}:10002/devstoreaccount1;", address, address, address).into()),
                 storage_account: None,
                 container_name: "logs".to_string(),
-                blob_prefix: None,
+                endpoint: None,
+                blob_prefix: Default::default(),
                 blob_time_format: None,
                 blob_append_uuid: None,
                 encoding: (None::<FramingConfig>, TextSerializerConfig::default()).into(),
@@ -249,6 +252,7 @@ impl AzureBlobSinkConfig {
             self.connection_string.clone().map(Into::into),
             self.storage_account.clone().map(Into::into),
             self.container_name.clone(),
+            self.endpoint.clone(),
         )
         .expect("Failed to create client");
 
@@ -268,6 +272,7 @@ impl AzureBlobSinkConfig {
             self.connection_string.clone().map(Into::into),
             self.storage_account.clone().map(Into::into),
             self.container_name.clone(),
+            self.endpoint.clone(),
         )
         .unwrap();
         let response = client
@@ -296,6 +301,7 @@ impl AzureBlobSinkConfig {
             self.connection_string.clone().map(Into::into),
             self.storage_account.clone().map(Into::into),
             self.container_name.clone(),
+            self.endpoint.clone(),
         )
         .unwrap();
         let response = client
@@ -332,6 +338,7 @@ impl AzureBlobSinkConfig {
             self.connection_string.clone().map(Into::into),
             self.storage_account.clone().map(Into::into),
             self.container_name.clone(),
+            self.endpoint.clone(),
         )
         .unwrap();
         let request = client

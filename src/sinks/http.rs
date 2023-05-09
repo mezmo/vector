@@ -15,9 +15,11 @@ use vector_config::configurable_component;
 
 use crate::{
     codecs::{Encoder, EncodingConfigWithFraming, SinkType, Transformer},
+    components::validation::*,
     config::{AcknowledgementsConfig, GenerateConfig, Input, SinkConfig, SinkContext},
     event::Event,
     http::{Auth, HttpClient, MaybeAuth},
+    register_validatable_component,
     sinks::util::{
         self,
         http::{BatchedHttpSink, HttpEventEncoder, RequestConfig},
@@ -35,16 +37,21 @@ pub struct HttpSinkConfig {
     /// The full URI to make HTTP requests to.
     ///
     /// This should include the protocol and host, but can also include the port, path, and any other valid part of a URI.
+    #[configurable(metadata(docs::examples = "https://10.22.212.22:9000/endpoint"))]
     pub uri: UriSerde,
 
     /// The HTTP method to use when making the request.
-    pub method: Option<HttpMethod>,
+    #[serde(default)]
+    pub method: HttpMethod,
 
     #[configurable(derived)]
     pub auth: Option<Auth>,
 
     /// A list of custom headers to add to each request.
     #[configurable(deprecated)]
+    #[configurable(metadata(
+        docs::additional_props_description = "An HTTP request header and it's value."
+    ))]
     pub headers: Option<IndexMap<String, String>>,
 
     #[configurable(derived)]
@@ -53,6 +60,24 @@ pub struct HttpSinkConfig {
 
     #[serde(flatten)]
     pub encoding: EncodingConfigWithFraming,
+
+    /// A string to prefix the payload with.
+    ///
+    /// This option is ignored if the encoding is not character delimited JSON.
+    ///
+    /// If specified, the `payload_suffix` must also be specified and together they must produce a valid JSON object.
+    #[configurable(metadata(docs::examples = "{\"data\":"))]
+    #[serde(default)]
+    pub payload_prefix: String,
+
+    /// A string to suffix the payload with.
+    ///
+    /// This option is ignored if the encoding is not character delimited JSON.
+    ///
+    /// If specified, the `payload_prefix` must also be specified and together they must produce a valid JSON object.
+    #[configurable(metadata(docs::examples = "}"))]
+    #[serde(default)]
+    pub payload_suffix: String,
 
     #[configurable(derived)]
     #[serde(default)]
@@ -85,15 +110,13 @@ pub struct HttpSinkConfig {
 #[derivative(Default)]
 pub enum HttpMethod {
     /// GET.
-    ///
-    /// This is the default.
-    #[derivative(Default)]
     Get,
 
     /// HEAD.
     Head,
 
     /// POST.
+    #[derivative(Default)]
     Post,
 
     /// PUT.
@@ -110,6 +133,21 @@ pub enum HttpMethod {
 
     /// PATCH.
     Patch,
+}
+
+impl From<HttpMethod> for Method {
+    fn from(http_method: HttpMethod) -> Self {
+        match http_method {
+            HttpMethod::Head => Self::HEAD,
+            HttpMethod::Get => Self::GET,
+            HttpMethod::Post => Self::POST,
+            HttpMethod::Put => Self::PUT,
+            HttpMethod::Patch => Self::PATCH,
+            HttpMethod::Delete => Self::DELETE,
+            HttpMethod::Options => Self::OPTIONS,
+            HttpMethod::Trace => Self::TRACE,
+        }
+    }
 }
 
 impl GenerateConfig for HttpSinkConfig {
@@ -131,8 +169,10 @@ impl HttpSinkConfig {
 
 struct HttpSink {
     pub uri: UriSerde,
-    pub method: Option<HttpMethod>,
+    pub method: HttpMethod,
     pub auth: Option<Auth>,
+    pub payload_prefix: String,
+    pub payload_suffix: String,
     pub compression: Compression,
     pub transformer: Transformer,
     pub encoder: Encoder<Framer>,
@@ -153,6 +193,8 @@ fn default_sink(encoding: EncodingConfigWithFraming) -> HttpSink {
         compression: Default::default(),
         transformer: Default::default(),
         encoder,
+        payload_prefix: Default::default(),
+        payload_suffix: Default::default(),
         batch: Default::default(),
         tower: Default::default(),
         headers: Default::default(),
@@ -181,6 +223,9 @@ impl SinkConfig for HttpSinkConfig {
         let (framer, serializer) = self.encoding.build(SinkType::MessageBased)?;
         let encoder = Encoder::<Framer>::new(framer, serializer);
 
+        let (payload_prefix, payload_suffix) =
+            validate_payload_wrapper(&self.payload_prefix, &self.payload_suffix, &encoder)?;
+
         let sink = HttpSink {
             uri: self.uri.with_default_parts(),
             method: self.method,
@@ -194,6 +239,8 @@ impl SinkConfig for HttpSinkConfig {
             batch: self.batch,
             tower: request.tower,
             headers,
+            payload_prefix,
+            payload_suffix,
         };
 
         let request = sink.tower.unwrap_with(&TowerRequestConfig::default());
@@ -222,6 +269,43 @@ impl SinkConfig for HttpSinkConfig {
         &self.acknowledgements
     }
 }
+
+impl ValidatableComponent for HttpSinkConfig {
+    fn validation_configuration() -> ValidationConfiguration {
+        use codecs::{JsonSerializerConfig, MetricTagValues};
+        use std::str::FromStr;
+
+        let config = Self {
+            uri: UriSerde::from_str("http://127.0.0.1:9000/endpoint")
+                .expect("should never fail to parse"),
+            method: HttpMethod::Post,
+            encoding: EncodingConfigWithFraming::new(
+                None,
+                JsonSerializerConfig::new(MetricTagValues::Full).into(),
+                Transformer::default(),
+            ),
+            auth: None,
+            headers: None,
+            compression: Compression::default(),
+            batch: BatchConfig::default(),
+            request: RequestConfig::default(),
+            tls: None,
+            acknowledgements: AcknowledgementsConfig::default(),
+            payload_prefix: String::new(),
+            payload_suffix: String::new(),
+        };
+
+        let external_resource = ExternalResource::new(
+            ResourceDirection::Push,
+            HttpResourceConfig::from_parts(config.uri.uri.clone(), Some(config.method.into())),
+            config.encoding.clone(),
+        );
+
+        ValidationConfiguration::from_sink(Self::NAME, config, Some(external_resource))
+    }
+}
+
+register_validatable_component!(HttpSinkConfig);
 
 pub struct HttpSinkEventEncoder {
     encoder: Encoder<Framer>,
@@ -253,16 +337,7 @@ impl util::http::HttpSink for HttpSink {
     }
 
     async fn build_request(&self, mut body: Self::Output) -> crate::Result<http::Request<Bytes>> {
-        let method = match &self.method.unwrap_or(HttpMethod::Post) {
-            HttpMethod::Get => Method::GET,
-            HttpMethod::Head => Method::HEAD,
-            HttpMethod::Post => Method::POST,
-            HttpMethod::Put => Method::PUT,
-            HttpMethod::Delete => Method::DELETE,
-            HttpMethod::Options => Method::OPTIONS,
-            HttpMethod::Trace => Method::TRACE,
-            HttpMethod::Patch => Method::PATCH,
-        };
+        let method: Method = self.method.into();
         let uri: Uri = self.uri.uri.clone();
 
         let content_type = {
@@ -283,6 +358,7 @@ impl util::http::HttpSink for HttpSink {
                     // Prepend before building a request body to eliminate the
                     // additional copy here.
                     let message = body.split();
+                    body.put(self.payload_prefix.as_bytes());
                     body.put_u8(b'[');
                     if !message.is_empty() {
                         body.unsplit(message);
@@ -290,7 +366,7 @@ impl util::http::HttpSink for HttpSink {
                         body.truncate(body.len() - 1);
                     }
                     body.put_u8(b']');
-
+                    body.put(self.payload_suffix.as_bytes());
                     Some("application/json")
                 }
                 _ => None,
@@ -371,6 +447,26 @@ fn validate_headers(
     }
 
     Ok(headers)
+}
+
+fn validate_payload_wrapper(
+    payload_prefix: &str,
+    payload_suffix: &str,
+    encoder: &Encoder<Framer>,
+) -> crate::Result<(String, String)> {
+    let payload = [payload_prefix, "{}", payload_suffix].join("");
+    match (
+        encoder.serializer(),
+        encoder.framer(),
+        serde_json::from_str::<serde_json::Value>(&payload),
+    ) {
+        (
+            Serializer::Json(_),
+            Framer::CharacterDelimited(CharacterDelimitedEncoder { delimiter: b',' }),
+            Err(_),
+        ) => Err("Payload prefix and suffix wrapper must produce a valid JSON object.".into()),
+        _ => Ok((payload_prefix.to_owned(), payload_suffix.to_owned())),
+    }
 }
 
 #[cfg(test)]
@@ -484,6 +580,44 @@ mod tests {
         );
     }
 
+    #[test]
+    fn http_validates_payload_prefix_and_suffix() {
+        let config = r#"
+        uri = "http://$IN_ADDR/"
+        encoding.codec = "json"
+        payload_prefix = '{"data":'
+        payload_suffix = "}"
+        "#;
+        let config: HttpSinkConfig = toml::from_str(config).unwrap();
+        let (framer, serializer) = config.encoding.build(SinkType::MessageBased).unwrap();
+        let encoder = Encoder::<Framer>::new(framer, serializer);
+        assert!(super::validate_payload_wrapper(
+            &config.payload_prefix,
+            &config.payload_suffix,
+            &encoder
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn http_validates_payload_prefix_and_suffix_fails_on_invalid_json() {
+        let config = r#"
+        uri = "http://$IN_ADDR/"
+        encoding.codec = "json"
+        payload_prefix = '{"data":'
+        payload_suffix = ""
+        "#;
+        let config: HttpSinkConfig = toml::from_str(config).unwrap();
+        let (framer, serializer) = config.encoding.build(SinkType::MessageBased).unwrap();
+        let encoder = Encoder::<Framer>::new(framer, serializer);
+        assert!(super::validate_payload_wrapper(
+            &config.payload_prefix,
+            &config.payload_suffix,
+            &encoder
+        )
+        .is_err());
+    }
+
     // TODO: Fix failure on GH Actions using macos-latest image.
     #[cfg(not(target_os = "macos"))]
     #[tokio::test]
@@ -532,7 +666,6 @@ mod tests {
         run_sink(
             r#"
         method = "put"
-
         [auth]
         strategy = "basic"
         user = "waldo"
@@ -695,6 +828,68 @@ mod tests {
         uri = "http://$IN_ADDR/frames"
         compression = "gzip"
         encoding.codec = "json"
+        method = "post"
+
+        [auth]
+        strategy = "basic"
+        user = "waldo"
+        password = "hunter2"
+    "#
+            .replace("$IN_ADDR", &in_addr.to_string());
+            let config: HttpSinkConfig = toml::from_str(&config).unwrap();
+
+            let cx = SinkContext::new_test();
+
+            let (sink, _) = config.build(cx).await.unwrap();
+            let (rx, trigger, server) = build_test_server(in_addr);
+
+            let (batch, mut receiver) = BatchNotifier::new_with_receiver();
+            let (input_lines, events) = random_lines_with_stream(100, num_lines, Some(batch));
+            let pump = sink.run(events);
+
+            tokio::spawn(server);
+
+            pump.await.unwrap();
+            drop(trigger);
+
+            assert_eq!(receiver.try_recv(), Ok(BatchStatus::Delivered));
+
+            let output_lines = rx
+                .flat_map(|(parts, body)| {
+                    assert_eq!(Method::POST, parts.method);
+                    assert_eq!("/frames", parts.uri.path());
+                    assert_eq!(
+                        Some(Authorization::basic("waldo", "hunter2")),
+                        parts.headers.typed_get()
+                    );
+                    let lines: Vec<serde_json::Value> =
+                        serde_json::from_reader(MultiGzDecoder::new(body.reader())).unwrap();
+                    stream::iter(lines)
+                })
+                .map(|line| line.get("message").unwrap().as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+                .await;
+
+            assert_eq!(num_lines, output_lines.len());
+            assert_eq!(input_lines, output_lines);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn json_compression_with_payload_wrapper() {
+        components::assert_sink_compliance(&HTTP_SINK_TAGS, async {
+            let num_lines = 1000;
+
+            let in_addr = next_addr();
+
+            let config = r#"
+        uri = "http://$IN_ADDR/frames"
+        compression = "gzip"
+        encoding.codec = "json"
+        payload_prefix = '{"data":'
+        payload_suffix = "}"
+        method = "post"
 
         [auth]
         strategy = "basic"
@@ -729,8 +924,10 @@ mod tests {
                         parts.headers.typed_get()
                     );
 
-                    let lines: Vec<serde_json::Value> =
+                    let message: serde_json::Value =
                         serde_json::from_reader(MultiGzDecoder::new(body.reader())).unwrap();
+                    let lines: Vec<serde_json::Value> =
+                        message["data"].as_array().unwrap().to_vec();
                     stream::iter(lines)
                 })
                 .map(|line| line.get("message").unwrap().as_str().unwrap().to_owned())
@@ -783,6 +980,7 @@ mod tests {
 
     async fn build_sink(extra_config: &str) -> (std::net::SocketAddr, crate::sinks::VectorSink) {
         let in_addr = next_addr();
+
         let config = format!(
             r#"
                 uri = "http://{addr}/frames"
@@ -792,7 +990,7 @@ mod tests {
                 {extras}
             "#,
             addr = in_addr,
-            extras = extra_config
+            extras = extra_config,
         );
         let config: HttpSinkConfig = toml::from_str(&config).unwrap();
 

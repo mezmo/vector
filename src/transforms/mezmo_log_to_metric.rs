@@ -33,6 +33,7 @@ impl GenerateConfig for LogToMetricConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "mezmo_log_to_metric")]
 impl TransformConfig for LogToMetricConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
         Ok(Transform::function(LogToMetric::new(
@@ -83,7 +84,7 @@ impl FunctionTransform for LogToMetric {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{offset::TimeZone, DateTime, Utc};
+    use chrono::{offset::TimeZone, DateTime, NaiveDateTime, Utc};
     use futures_util::{Stream, StreamExt};
     use serde_json;
     use serial_test::serial;
@@ -113,13 +114,24 @@ mod tests {
     }
 
     fn ts() -> DateTime<Utc> {
-        Utc.ymd(2018, 11, 14).and_hms_nano(8, 9, 10, 11)
+        let dt = NaiveDateTime::new(
+            chrono::NaiveDate::from_ymd_opt(2018, 11, 14).unwrap(),
+            chrono::NaiveTime::from_hms_nano_opt(8, 9, 10, 11).unwrap(),
+        );
+
+        Utc.from_utc_datetime(&dt)
     }
 
     fn create_event(key: &str, value: impl Into<Value> + std::fmt::Debug) -> Event {
         let mut log = Event::Log(LogEvent::from("i am a log"));
         log.as_mut_log().insert(key, value);
-        log.as_mut_log().insert(log_schema().timestamp_key(), ts());
+        log.as_mut_log().insert(
+            (
+                lookup::PathPrefix::Event,
+                log_schema().timestamp_key().unwrap(),
+            ),
+            ts(),
+        );
         log
     }
 

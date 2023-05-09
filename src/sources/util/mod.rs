@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 pub(crate) mod backoff;
 #[cfg(any(feature = "sources-http_server"))]
 mod body_decoding;

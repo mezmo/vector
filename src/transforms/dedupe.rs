@@ -19,7 +19,7 @@ use crate::{
 /// Options to control what fields to match against.
 ///
 /// When no field matching configuration is specified, events are matched using the `timestamp`,
-/// `host`, and `message` fields from an event. The specific field names used will be those set in
+/// `host`, and `message` fields from an event. The specific field names used are those set in
 /// the global [`log schema`][global_log_schema] configuration.
 ///
 /// [global_log_schema]: https://vector.dev/docs/reference/configuration/global-options/#log_schema
@@ -42,7 +42,6 @@ pub enum FieldMatchConfig {
             docs::examples = "field1",
             docs::examples = "parent.child_field"
         ))]
-        #[configurable(transparent)]
         Vec<String>,
     ),
 
@@ -55,7 +54,6 @@ pub enum FieldMatchConfig {
             docs::examples = "host",
             docs::examples = "hostname"
         ))]
-        #[configurable(transparent)]
         Vec<String>,
     ),
 }
@@ -70,7 +68,7 @@ pub struct CacheConfig {
 }
 
 /// Configuration for the `dedupe` transform.
-#[configurable_component(transform("dedupe"))]
+#[configurable_component(transform("dedupe", "Deduplicate logs passing through a topology."))]
 #[derive(Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct DedupeConfig {
@@ -104,11 +102,14 @@ fn default_cache_config() -> CacheConfig {
 //   structure can vary significantly. This should probably either become a required field
 //   in the future, or maybe the "semantic meaning" can be utilized here.
 fn default_match_fields() -> Vec<String> {
-    vec![
-        log_schema().timestamp_key().into(),
+    let mut fields = vec![
         log_schema().host_key().into(),
         log_schema().message_key().into(),
-    ]
+    ];
+    if let Some(timestamp_key) = log_schema().timestamp_key() {
+        fields.push(timestamp_key.to_string());
+    }
+    fields
 }
 
 impl DedupeConfig {
@@ -141,6 +142,7 @@ impl GenerateConfig for DedupeConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "dedupe")]
 impl TransformConfig for DedupeConfig {
     async fn build(&self, _context: &TransformContext) -> crate::Result<Transform> {
         Ok(Transform::event_task(Dedupe::new(self.clone())))

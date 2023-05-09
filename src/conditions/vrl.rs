@@ -20,7 +20,7 @@ pub struct VrlConfig {
     /// The VRL boolean expression.
     pub(crate) source: String,
 
-    #[configurable(derived)]
+    #[configurable(derived, metadata(docs::hidden))]
     #[serde(default)]
     pub(crate) runtime: VrlRuntime,
 }
@@ -46,7 +46,7 @@ impl ConditionalConfig for VrlConfig {
         let functions = vrl_stdlib::all()
             .into_iter()
             .chain(enrichment::vrl_functions().into_iter())
-            .chain(vector_vrl_functions::vrl_functions())
+            .chain(vector_vrl_functions::all())
             .chain(mezmo_vrl_functions::vrl_functions())
             .collect::<Vec<_>>();
 

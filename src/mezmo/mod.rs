@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use snafu::Snafu;
 use std::convert::Infallible;
 use std::str::FromStr;

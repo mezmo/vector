@@ -35,7 +35,9 @@ impl Log {
     }
 
     pub fn get_timestamp(&self) -> Option<&DateTime<Utc>> {
-        self.event.get(log_schema().timestamp_key())?.as_timestamp()
+        // Mezmo: this is wrong upstream, it should use the `log_schema` field, but it's
+        // not affecting anything since we've settled on the  default
+        self.event.get("timestamp")?.as_timestamp()
     }
 }
 

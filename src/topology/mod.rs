@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 //! Topology contains all topology based types.
 //!
 //! Topology is broken up into two main sections. The first
@@ -25,7 +26,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub use controller::{ReloadOutcome, TopologyController};
+pub use controller::{ReloadOutcome, SharedTopologyController, TopologyController};
 use futures::{Future, FutureExt};
 pub(super) use running::RunningTopology;
 use tokio::sync::{
@@ -67,7 +68,7 @@ pub struct TapResource {
     pub inputs: HashMap<ComponentKey, Inputs<OutputId>>,
     // Source component keys used to warn against invalid pattern matches
     pub source_keys: Vec<String>,
-    // Sink component keys used to warn against invalid pattern amtches
+    // Sink component keys used to warn against invalid pattern matches
     pub sink_keys: Vec<String>,
     // Components removed on a reload (used to drop TapSinks)
     pub removals: HashSet<ComponentKey>,

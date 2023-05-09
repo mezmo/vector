@@ -1,8 +1,8 @@
-mod config;
+pub mod config;
 mod io;
 mod telemetry;
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use tokio::{runtime::Builder, select, sync::mpsc};
 use vector_core::event::Event;
@@ -15,10 +15,10 @@ use crate::{
 
 use super::{
     sync::{Configuring, TaskCoordinator},
-    ComponentType, TestCaseExpectation, TestEvent, ValidatableComponent, Validator,
+    ComponentType, TestCaseExpectation, TestEvent, ValidationConfiguration, Validator,
 };
 
-use self::config::TopologyBuilder;
+pub use self::config::TopologyBuilder;
 
 /// Runner input mechanism.
 ///
@@ -134,15 +134,20 @@ impl RunnerResults {
     }
 }
 
-pub struct Runner<'comp, C: ?Sized> {
+pub struct Runner {
+    configuration: ValidationConfiguration,
+    test_case_data_path: PathBuf,
     validators: HashMap<String, Box<dyn Validator>>,
-    component: &'comp C,
 }
 
-impl<'comp, C: ValidatableComponent + ?Sized> Runner<'comp, C> {
-    pub fn from_component(component: &'comp C) -> Self {
+impl Runner {
+    pub fn from_configuration(
+        configuration: ValidationConfiguration,
+        test_case_data_path: PathBuf,
+    ) -> Self {
         Self {
-            component,
+            configuration,
+            test_case_data_path,
             validators: HashMap::new(),
         }
     }
@@ -176,7 +181,9 @@ impl<'comp, C: ValidatableComponent + ?Sized> Runner<'comp, C> {
 
         let mut test_case_results = Vec::new();
 
-        let test_cases = load_component_test_cases(self.component)?;
+        let component_type = self.configuration.component_type();
+
+        let test_cases = load_component_test_cases(self.test_case_data_path)?;
         for test_case in test_cases {
             // Create a task coordinator for each relevant phase of the test.
             //
@@ -186,6 +193,7 @@ impl<'comp, C: ValidatableComponent + ?Sized> Runner<'comp, C> {
             let input_task_coordinator = TaskCoordinator::new();
             let output_task_coordinator = TaskCoordinator::new();
             let topology_task_coordinator = TaskCoordinator::new();
+            let telemetry_task_coordinator = TaskCoordinator::new();
 
             // First, we get a topology builder for the given component being validated.
             //
@@ -197,9 +205,15 @@ impl<'comp, C: ValidatableComponent + ?Sized> Runner<'comp, C> {
             // We then finalize the topology builder to get our actual `ConfigBuilder`, as well as
             // any controlled edges (channel sender/receiver to the aforementioned filler
             // components) and a telemetry client for collecting internal telemetry.
-            let topology_builder = TopologyBuilder::from_component(self.component);
-            let (config_builder, controlled_edges, telemetry_collector) =
-                topology_builder.finalize(&input_task_coordinator, &output_task_coordinator);
+            let topology_builder = TopologyBuilder::from_configuration(&self.configuration);
+            let (config_builder, controlled_edges, telemetry_collector) = topology_builder
+                .finalize(
+                    &input_task_coordinator,
+                    &output_task_coordinator,
+                    &telemetry_task_coordinator,
+                )
+                .await;
+
             debug!("Component topology configuration built and telemetry collector spawned.");
 
             // After that, we'll build the external resource necessary for this component, if any.
@@ -213,7 +227,7 @@ impl<'comp, C: ValidatableComponent + ?Sized> Runner<'comp, C> {
             // controlled output edge, which means we then need a server task listening for the
             // events sent by that sink.
             let (runner_input, runner_output) = build_external_resource(
-                self.component,
+                &self.configuration,
                 &input_task_coordinator,
                 &output_task_coordinator,
             );
@@ -226,6 +240,9 @@ impl<'comp, C: ValidatableComponent + ?Sized> Runner<'comp, C> {
             // listening, etc.
             let input_task_coordinator = input_task_coordinator.started().await;
             debug!("All input task(s) started.");
+
+            let telemetry_task_coordinator = telemetry_task_coordinator.started().await;
+            debug!("All telemetry task(s) started.");
 
             let output_task_coordinator = output_task_coordinator.started().await;
             debug!("All output task(s) started.");
@@ -245,7 +262,7 @@ impl<'comp, C: ValidatableComponent + ?Sized> Runner<'comp, C> {
             // drive output collection to allow forward progress to be made, etc.)
 
             // We sleep for one second here because while we do wait for the component topology to
-            // mark itself as started, starting the topology does not necessaryily mean that all
+            // mark itself as started, starting the topology does not necessarily mean that all
             // component tasks are actually ready for input, etc.
             //
             // TODO: The above problem is bigger than just component validation, and affects a lot
@@ -290,6 +307,9 @@ impl<'comp, C: ValidatableComponent + ?Sized> Runner<'comp, C> {
             input_task_coordinator.shutdown().await;
             debug!("Input task(s) have been shutdown.");
 
+            telemetry_task_coordinator.shutdown().await;
+            debug!("Telemetry task(s) have been shutdown.");
+
             topology_task_coordinator.shutdown().await;
             debug!("Component topology task has been shutdown.");
 
@@ -302,7 +322,6 @@ impl<'comp, C: ValidatableComponent + ?Sized> Runner<'comp, C> {
 
             // Run the relevant data -- inputs, outputs, telemetry, etc -- through each validator to
             // get the validation results for this test.
-            let component_type = self.component.component_type();
             let TestCase {
                 name: test_name,
                 expectation,
@@ -312,9 +331,10 @@ impl<'comp, C: ValidatableComponent + ?Sized> Runner<'comp, C> {
 
             let validator_results = self
                 .validators
-                .iter()
-                .map(|(_, validator)| {
+                .values()
+                .map(|validator| {
                     validator.check_validation(
+                        self.configuration.clone(),
                         component_type,
                         expectation,
                         &input_events,
@@ -355,17 +375,8 @@ impl<'comp, C: ValidatableComponent + ?Sized> Runner<'comp, C> {
 /// during deserialization of the test case file, whether the error is I/O related in nature or due
 /// to invalid YAML, or not representing valid serialized test cases, then an error variant will be
 /// returned explaining the cause.
-fn load_component_test_cases<C: ValidatableComponent>(
-    component: C,
-) -> Result<Vec<TestCase>, String> {
-    let component_type = component.component_type().as_str();
-    let component_name = component.component_name();
-    let component_test_cases_path = format!(
-        "tests/validation/components/{}s/{}.yaml",
-        component_type, component_name
-    );
-
-    std::fs::File::open(&component_test_cases_path)
+fn load_component_test_cases(test_case_data_path: PathBuf) -> Result<Vec<TestCase>, String> {
+    std::fs::File::open(test_case_data_path)
         .map_err(|e| {
             format!(
                 "I/O error during open of component validation test cases file: {}",
@@ -382,13 +393,13 @@ fn load_component_test_cases<C: ValidatableComponent>(
         })
 }
 
-fn build_external_resource<C: ValidatableComponent>(
-    component: C,
+fn build_external_resource(
+    configuration: &ValidationConfiguration,
     input_task_coordinator: &TaskCoordinator<Configuring>,
     output_task_coordinator: &TaskCoordinator<Configuring>,
 ) -> (RunnerInput, RunnerOutput) {
-    let component_type = component.component_type();
-    let maybe_external_resource = component.external_resource();
+    let component_type = configuration.component_type();
+    let maybe_external_resource = configuration.external_resource();
     match component_type {
         ComponentType::Source => {
             // As an external resource for a source, we create a channel that the validation runner
@@ -444,7 +455,7 @@ fn spawn_component_topology(
         test_runtime.block_on(async move {
             debug!("Building component topology...");
 
-            let pieces = topology::build_or_log_errors(&config, &config_diff, HashMap::new())
+            let pieces = topology::build_or_log_errors(&config, &config_diff, None, HashMap::new())
                 .await
                 .unwrap();
             let (topology, (_, mut crash_rx)) =

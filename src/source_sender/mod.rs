@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use std::{collections::HashMap, fmt};
 
 use chrono::Utc;
@@ -19,6 +20,7 @@ use vector_core::{
 mod errors;
 
 pub use errors::{ClosedError, StreamSendError};
+use lookup::PathPrefix;
 
 pub(crate) const CHUNK_SIZE: usize = 1000;
 
@@ -47,19 +49,16 @@ impl Builder {
     }
 
     pub fn add_output(&mut self, output: Output) -> LimitedReceiver<EventArray> {
+        let lag_time = self.lag_time.clone();
         match output.port {
             None => {
-                let (inner, rx) = Inner::new_with_buffer(
-                    self.buf_size,
-                    DEFAULT_OUTPUT.to_owned(),
-                    self.lag_time.clone(),
-                );
+                let (inner, rx) =
+                    Inner::new_with_buffer(self.buf_size, DEFAULT_OUTPUT.to_owned(), lag_time);
                 self.inner = Some(inner);
                 rx
             }
             Some(name) => {
-                let (inner, rx) =
-                    Inner::new_with_buffer(self.buf_size, name.clone(), self.lag_time.clone());
+                let (inner, rx) = Inner::new_with_buffer(self.buf_size, name.clone(), lag_time);
                 self.named_inners.insert(name, inner);
                 rx
             }
@@ -317,15 +316,18 @@ impl Inner {
     fn emit_lag_time(&self, event: EventRef<'_>, reference: i64) {
         if let Some(lag_time_metric) = &self.lag_time {
             let timestamp = match event {
-                EventRef::Log(log) => log
-                    .get(log_schema().timestamp_key())
-                    .and_then(get_timestamp_millis),
+                EventRef::Log(log) => log_schema().timestamp_key().and_then(|timestamp_key| {
+                    log.get((PathPrefix::Event, timestamp_key))
+                        .and_then(get_timestamp_millis)
+                }),
                 EventRef::Metric(metric) => metric
                     .timestamp()
                     .map(|timestamp| timestamp.timestamp_millis()),
-                EventRef::Trace(trace) => trace
-                    .get(log_schema().timestamp_key())
-                    .and_then(get_timestamp_millis),
+                EventRef::Trace(trace) => log_schema().timestamp_key().and_then(|timestamp_key| {
+                    trace
+                        .get((PathPrefix::Event, timestamp_key))
+                        .and_then(get_timestamp_millis)
+                }),
             };
             if let Some(timestamp) = timestamp {
                 // This will truncate precision for values larger than 2**52, but at that point the user

@@ -3,6 +3,7 @@ use std::{convert::TryFrom, iter, num::NonZeroU8};
 use chrono::{TimeZone, Timelike, Utc};
 use codecs::{JsonSerializerConfig, TextSerializerConfig};
 use futures::{future::ready, stream};
+use lookup::lookup_v2::OptionalValuePath;
 use serde_json::Value as JsonValue;
 use tokio::time::{sleep, Duration};
 use vector_core::event::{BatchNotifier, BatchStatus, Event, LogEvent};
@@ -409,7 +410,7 @@ async fn splunk_auto_extracted_timestamp() {
     // The auto_extract_timestamp setting only works on version 8 and above of splunk.
     // If the splunk version is set to 7, we ignore this test.
     // This environment variable is set by the integration test docker-compose file.
-    if std::env::var("SPLUNK_VERSION")
+    if std::env::var("CONFIG_VERSION")
         .map(|version| !version.starts_with("7."))
         .unwrap_or(true)
     {
@@ -417,7 +418,9 @@ async fn splunk_auto_extracted_timestamp() {
 
         let config = HecLogsSinkConfig {
             auto_extract_timestamp: Some(true),
-            timestamp_key: "timestamp".to_string(),
+            timestamp_key: OptionalValuePath {
+                path: Some(lookup::owned_value_path!("timestamp")),
+            },
             ..config(JsonSerializerConfig::default().into(), vec![]).await
         };
 
@@ -433,7 +436,11 @@ async fn splunk_auto_extracted_timestamp() {
 
         event.insert(
             "timestamp",
-            Value::from(Utc.ymd(2020, 3, 5).and_hms(0, 0, 0)),
+            Value::from(
+                Utc.with_ymd_and_hms(2020, 3, 5, 0, 0, 0)
+                    .single()
+                    .expect("invalid timestamp"),
+            ),
         );
 
         run_and_assert_sink_compliance(sink, stream::once(ready(event)), &HTTP_SINK_TAGS).await;
@@ -456,7 +463,7 @@ async fn splunk_non_auto_extracted_timestamp() {
     // The auto_extract_timestamp setting only works on version 8 and above of splunk.
     // If the splunk version is set to 7, we ignore this test.
     // This environment variable is set by the integration test docker-compose file.
-    if std::env::var("SPLUNK_VERSION")
+    if std::env::var("CONFIG_VERSION")
         .map(|version| !version.starts_with("7."))
         .unwrap_or(true)
     {
@@ -464,7 +471,9 @@ async fn splunk_non_auto_extracted_timestamp() {
 
         let config = HecLogsSinkConfig {
             auto_extract_timestamp: Some(false),
-            timestamp_key: "timestamp".to_string(),
+            timestamp_key: OptionalValuePath {
+                path: Some(lookup::owned_value_path!("timestamp")),
+            },
             ..config(JsonSerializerConfig::default().into(), vec![]).await
         };
 
@@ -476,7 +485,11 @@ async fn splunk_non_auto_extracted_timestamp() {
         // With auto_extract_timestamp switched off the timestamp comes from the event timestamp.
         event.insert(
             "timestamp",
-            Value::from(Utc.ymd(2020, 3, 5).and_hms(0, 0, 0)),
+            Value::from(
+                Utc.with_ymd_and_hms(2020, 3, 5, 0, 0, 0)
+                    .single()
+                    .expect("invalid timestamp"),
+            ),
         );
 
         run_and_assert_sink_compliance(sink, stream::once(ready(event)), &HTTP_SINK_TAGS).await;

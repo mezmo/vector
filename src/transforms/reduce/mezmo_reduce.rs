@@ -4,8 +4,6 @@
 // to return date fields in the same format as originally received. For example, an epoch field
 // can be an integer or a string, and it will match the output type based on the incoming data.
 
-use lookup::parser;
-use lookup::Segment::Field;
 use std::collections::BTreeMap;
 use std::{
     collections::{hash_map, HashMap},
@@ -26,7 +24,7 @@ use async_stream::stream;
 use chrono::{TimeZone, Utc};
 use futures::{stream, Stream, StreamExt};
 use indexmap::IndexMap;
-use lookup::lookup_v2::parse_target_path;
+use lookup::lookup_v2::{parse_target_path, OwnedSegment};
 use lookup::{owned_value_path, PathPrefix};
 use serde_with::serde_as;
 use vector_config::configurable_component;
@@ -161,6 +159,7 @@ const REDUCE_BYTE_THRESHOLD_ALL_STATES_DEFAULT: usize = 1024 * 1024; // 1MB
 impl_generate_config_from_default!(MezmoReduceConfig);
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "mezmo_reduce")]
 impl TransformConfig for MezmoReduceConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
         MezmoReduce::new(self, context).map(Transform::event_task)
@@ -293,14 +292,15 @@ impl ReduceState {
         // Doing this at a higher level is a mess with lifetimes and the borrow checker that isn't worth it.
         let mut group_by_lookups = vec![];
         for key in group_by {
-            match parser::parse_lookup(key) {
+            match parse_target_path(key) {
                 Err(e) => {
                     warn!("Could not create group_by lookup for key {}: {}", key, e);
                 }
-                Ok(mut lookup) => {
+                Ok(target_path) => {
                     // We only care about root properties, so we can ignore any nested Fields. Take the first one.
-                    if let Some(Field(first_field)) = lookup.get(0) {
-                        group_by_lookups.push(first_field.name.to_string());
+                    if let Some(OwnedSegment::Field(first_field)) = target_path.path.segments.get(0)
+                    {
+                        group_by_lookups.push(first_field.to_string());
                     }
                 }
             };

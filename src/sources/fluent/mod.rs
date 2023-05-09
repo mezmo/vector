@@ -1,6 +1,8 @@
 use std::io::{self, Read};
 use std::net::SocketAddr;
+use std::time::Duration;
 
+use base64::prelude::{Engine as _, BASE64_STANDARD};
 use bytes::{Buf, Bytes, BytesMut};
 use chrono::Utc;
 use codecs::{BytesDeserializerConfig, StreamDecodingError};
@@ -13,7 +15,7 @@ use smallvec::{smallvec, SmallVec};
 use tokio_util::codec::Decoder;
 use value::kind::Collection;
 use value::{Kind, Value};
-use vector_config::{configurable_component, NamedComponent};
+use vector_config::configurable_component;
 use vector_core::config::{LegacyKey, LogNamespace};
 use vector_core::schema::Definition;
 
@@ -34,21 +36,24 @@ mod message;
 use self::message::{FluentEntry, FluentMessage, FluentRecord, FluentTag, FluentTimestamp};
 
 /// Configuration for the `fluent` source.
-#[configurable_component(source("fluent"))]
+#[configurable_component(source("fluent", "Collect logs from a Fluentd or Fluent Bit agent."))]
 #[derive(Clone, Debug)]
 pub struct FluentConfig {
-    /// The address to listen for connections on.
+    #[configurable(derived)]
     address: SocketListenAddr,
 
-    /// The maximum number of TCP connections that will be allowed at any given time.
+    /// The maximum number of TCP connections that are allowed at any given time.
+    #[configurable(metadata(docs::type_unit = "connections"))]
     connection_limit: Option<u32>,
 
     #[configurable(derived)]
     keepalive: Option<TcpKeepaliveConfig>,
 
-    /// The size, in bytes, of the receive buffer used for each connection.
+    /// The size of the receive buffer used for each connection.
     ///
-    /// This should not typically needed to be changed.
+    /// This generally should not need to be changed.
+    #[configurable(metadata(docs::type_unit = "bytes"))]
+    #[configurable(metadata(docs::examples = 65536))]
     receive_buffer_bytes: Option<usize>,
 
     #[configurable(derived)]
@@ -80,11 +85,12 @@ impl GenerateConfig for FluentConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "fluent")]
 impl SourceConfig for FluentConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<super::Source> {
         let log_namespace = cx.log_namespace(self.log_namespace);
         let source = FluentSource::new(log_namespace);
-        let shutdown_secs = 30;
+        let shutdown_secs = Duration::from_secs(30);
         let tls_config = self.tls.as_ref().map(|tls| tls.tls_config.clone());
         let tls_client_metadata_key = self
             .tls
@@ -99,6 +105,7 @@ impl SourceConfig for FluentConfig {
             tls,
             tls_client_metadata_key,
             self.receive_buffer_bytes,
+            None,
             cx,
             self.acknowledgements,
             self.connection_limit,
@@ -456,7 +463,7 @@ impl Decoder for FluentDecoder {
             src.advance(byte_size);
 
             let maybe_item = self.handle_message(res, byte_size).map_err(|error| {
-                let base64_encoded_message = base64::encode(&src);
+                let base64_encoded_message = BASE64_STANDARD.encode(&src);
                 emit!(FluentMessageDecodeError {
                     error: &error,
                     base64_encoded_message
@@ -576,7 +583,7 @@ impl From<FluentEvent<'_>> for LogEvent {
 
         log_namespace.insert_vector_metadata(
             &mut log,
-            log_schema().source_type_key(),
+            Some(log_schema().source_type_key()),
             path!("source_type"),
             Bytes::from_static(FluentConfig::NAME.as_bytes()),
         );
@@ -587,7 +594,9 @@ impl From<FluentEvent<'_>> for LogEvent {
                 log.insert(metadata_path!("vector", "ingest_timestamp"), Utc::now());
             }
             LogNamespace::Legacy => {
-                log.insert((PathPrefix::Event, log_schema().timestamp_key()), timestamp);
+                if let Some(timestamp_key) = log_schema().timestamp_key() {
+                    log.insert((PathPrefix::Event, timestamp_key), timestamp);
+                }
             }
         }
 
@@ -617,7 +626,7 @@ impl From<FluentEvent<'_>> for LogEvent {
 mod tests {
     use bytes::BytesMut;
     use chrono::{DateTime, Utc};
-    use lookup::LookupBuf;
+    use lookup::OwnedTargetPath;
     use rmp_serde::Serializer;
     use serde::Serialize;
     use std::collections::BTreeMap;
@@ -924,7 +933,7 @@ mod tests {
         for (tag, value) in fields {
             record.insert((*tag).into(), rmpv::Value::String((*value).into()).into());
         }
-        let chunk = with_chunk.then(|| base64::encode(uuid::Uuid::new_v4().as_bytes()));
+        let chunk = with_chunk.then(|| BASE64_STANDARD.encode(uuid::Uuid::new_v4().as_bytes()));
         let req = FluentMessage::MessageWithOptions(
             tag.into(),
             FluentTimestamp::Unix(Utc::now()),
@@ -958,22 +967,37 @@ mod tests {
 
         let expected_definition =
             Definition::new_with_default_metadata(Kind::bytes(), [LogNamespace::Vector])
-                .with_meaning(LookupBuf::root(), "message")
-                .with_metadata_field(&owned_value_path!("vector", "source_type"), Kind::bytes())
-                .with_metadata_field(&owned_value_path!("fluent", "tag"), Kind::bytes())
-                .with_metadata_field(&owned_value_path!("fluent", "timestamp"), Kind::timestamp())
+                .with_meaning(OwnedTargetPath::event_root(), "message")
+                .with_metadata_field(
+                    &owned_value_path!("vector", "source_type"),
+                    Kind::bytes(),
+                    None,
+                )
+                .with_metadata_field(&owned_value_path!("fluent", "tag"), Kind::bytes(), None)
+                .with_metadata_field(
+                    &owned_value_path!("fluent", "timestamp"),
+                    Kind::timestamp(),
+                    Some("timestamp"),
+                )
                 .with_metadata_field(
                     &owned_value_path!("fluent", "record"),
                     Kind::object(Collection::empty().with_unknown(Kind::bytes())).or_undefined(),
+                    None,
                 )
                 .with_metadata_field(
                     &owned_value_path!("vector", "ingest_timestamp"),
                     Kind::timestamp(),
+                    None,
                 )
-                .with_metadata_field(&owned_value_path!("fluent", "host"), Kind::bytes())
+                .with_metadata_field(
+                    &owned_value_path!("fluent", "host"),
+                    Kind::bytes(),
+                    Some("host"),
+                )
                 .with_metadata_field(
                     &owned_value_path!("fluent", "tls_client_metadata"),
                     Kind::object(Collection::empty().with_unknown(Kind::bytes())).or_undefined(),
+                    None,
                 );
 
         assert_eq!(definition, expected_definition)
