@@ -112,8 +112,6 @@ BUILD_TAG ?=
 CONTAINER_ID = vector-environment-$(shell echo $(BUILD_TAG) | sed -E 's/[^a-zA-Z0-9_.-]/-/g')$(shell date +%s)-$(shell echo $$PPID)
 
 # We use a volume here as non-Linux hosts are extremely slow to share disks, and Linux hosts tend to get permissions clobbered.
-# TODO(mdeltito): cache volumes have been removed for now until we are building on 1.66.1
-# to avoid incompatibilties between toolchain versions.
 define ENVIRONMENT_EXEC
 	${ENVIRONMENT_PREPARE}
 	@echo "Entering environment..."
@@ -125,10 +123,14 @@ define ENVIRONMENT_EXEC
 			--init \
 			--interactive \
 			--env INSIDE_ENVIRONMENT=true \
+			--env GITHUB_TOKEN=$(GITHUB_TOKEN) \
 			--network host \
 			--mount type=bind,source=${CURRENT_DIR},target=/git/vectordotdev/vector \
+			--mount type=bind,source=${CURRENT_DIR}/scripts/environment/entrypoint.sh,target=/entrypoint.sh \
 			$(if $(findstring docker,$(CONTAINER_TOOL)),--mount type=bind$(COMMA)source=/var/run/docker.sock$(COMMA)target=/var/run/docker.sock,) \
 			--mount type=volume,source=vector-target,target=/git/vectordotdev/vector/target \
+			--mount type=volume,source=vector-cargo-cache,target=/root/.cargo \
+			--mount type=volume,source=vector-rustup-cache,target=/root/.rustup \
 			$(ENVIRONMENT_UPSTREAM)
 endef
 

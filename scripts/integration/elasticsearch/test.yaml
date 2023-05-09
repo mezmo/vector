@@ -1,7 +1,7 @@
 features:
 - es-integration-tests
 
-test_filter: '::elasticsearch::integration_tests::,::elasticsearch::mezmo_integration_tests::'
+test_filter: '::elasticsearch::integration_tests'
 
 env:
   AWS_ACCESS_KEY_ID: dummy

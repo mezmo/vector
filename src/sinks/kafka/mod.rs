@@ -1,5 +1,5 @@
 pub(crate) mod config;
-mod mezmo_integration_tests;
+mod integration_tests_mezmo;
 pub(crate) mod request_builder;
 pub(crate) mod service;
 pub(crate) mod sink;
