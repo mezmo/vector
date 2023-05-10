@@ -60,8 +60,12 @@ fn get_processed_event_timestamp(
     event.as_mut_log().insert("event_source", "test_source");
     event.as_mut_log().insert("event_index", "test_index");
     event.as_mut_log().insert("host_key", "test_host");
-    event.as_mut_log().insert("event_field1", "test_value1");
-    event.as_mut_log().insert("event_field2", "test_value2");
+    event
+        .as_mut_log()
+        .insert("metadata.fields.event_field1", "test_value1");
+    event
+        .as_mut_log()
+        .insert("metadata.fields.event_field2", "test_value2");
     event.as_mut_log().insert("key", "value");
     event.as_mut_log().insert("int_val", 123);
 
@@ -80,7 +84,6 @@ fn get_processed_event_timestamp(
     let sourcetype = Template::try_from("{{ event_sourcetype }}".to_string()).ok();
     let source = Template::try_from("{{ event_source }}".to_string()).ok();
     let index = Template::try_from("{{ event_index }}".to_string()).ok();
-    let indexed_fields = vec!["event_field1".to_string(), "event_field2".to_string()];
     let timestamp_nanos_key = Some(String::from("ts_nanos_key"));
 
     process_log(
@@ -90,7 +93,7 @@ fn get_processed_event_timestamp(
             source: source.as_ref(),
             index: index.as_ref(),
             host_key: "host_key",
-            indexed_fields: indexed_fields.as_slice(),
+            indexed_fields: Vec::new().as_slice(),
             timestamp_nanos_key: timestamp_nanos_key.as_ref(),
             timestamp_key,
             endpoint_target: EndpointTarget::Event,

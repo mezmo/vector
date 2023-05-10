@@ -6,7 +6,7 @@ use serde::Serialize;
 use tower::Service;
 use vector_buffers::EventCount;
 use vector_core::{
-    event::{Event, LogEvent, Value},
+    event::{Event, EventMetadata, LogEvent, Value},
     partition::Partitioner,
     sink::StreamSink,
     stream::{BatcherSettings, DriverResponse},
@@ -270,11 +270,10 @@ pub fn process_log(event: Event, data: &HecLogData) -> HecProcessedEvent {
         }
     });
 
-    let fields = data
-        .indexed_fields
-        .iter()
-        .filter_map(|field| log.get(field.as_str()).map(|value| (field, value.clone())))
-        .collect::<LogEvent>();
+    let fields = match log.get("metadata.fields") {
+        Some(fields) => LogEvent::from_parts(fields.clone(), EventMetadata::default()),
+        None => LogEvent::default(),
+    };
 
     let metadata = HecLogsProcessedEventMetadata {
         event_byte_size,
