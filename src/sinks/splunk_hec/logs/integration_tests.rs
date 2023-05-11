@@ -265,13 +265,13 @@ async fn splunk_custom_fields() {
 
     let message = random_string(100);
     let mut event = LogEvent::from(message.clone());
-    event.insert("asdf", "hello");
+    event.insert("metadata.fields.asdf", "hello");
     run_and_assert_sink_compliance(sink, stream::once(ready(event)), &HTTP_SINK_TAGS).await;
 
     let entry = find_entry(message.as_str()).await;
 
     assert_eq!(message, entry["message"].as_str().unwrap());
-    let asdf = entry["asdf"].as_array().unwrap()[0].as_str().unwrap();
+    let asdf = entry["asdf"].as_str().unwrap();
     assert_eq!("hello", asdf);
 }
 
@@ -285,14 +285,14 @@ async fn splunk_hostname() {
 
     let message = random_string(100);
     let mut event = LogEvent::from(message.clone());
-    event.insert("asdf", "hello");
+    event.insert("metadata.fields.asdf", "hello");
     event.insert("host", "example.com:1234");
     run_and_assert_sink_compliance(sink, stream::once(ready(event)), &HTTP_SINK_TAGS).await;
 
     let entry = find_entry(message.as_str()).await;
 
     assert_eq!(message, entry["message"].as_str().unwrap());
-    let asdf = entry["asdf"].as_array().unwrap()[0].as_str().unwrap();
+    let asdf = entry["asdf"].as_str().unwrap();
     assert_eq!("hello", asdf);
     let host = entry["host"].as_array().unwrap()[0].as_str().unwrap();
     assert_eq!("example.com:1234", host);
@@ -310,7 +310,7 @@ async fn splunk_sourcetype() {
 
     let message = random_string(100);
     let mut event = LogEvent::from(message.clone());
-    event.insert("asdf", "hello");
+    event.insert("metadata.fields.asdf", "hello");
     run_and_assert_sink_compliance(sink, stream::once(ready(event)), &HTTP_SINK_TAGS).await;
 
     let entry = find_entry(message.as_str()).await;
@@ -328,18 +328,14 @@ async fn splunk_configure_hostname() {
 
     let config = HecLogsSinkConfig {
         host_key: "roast".into(),
-        ..config(
-            JsonSerializerConfig::default().into(),
-            vec!["asdf".to_string()],
-        )
-        .await
+        ..config(JsonSerializerConfig::default().into(), Vec::new()).await
     };
 
     let (sink, _) = config.build(cx).await.unwrap();
 
     let message = random_string(100);
     let mut event = LogEvent::from(message.clone());
-    event.insert("asdf", "hello");
+    event.insert("metadata.fields.asdf", "hello");
     event.insert("host", "example.com:1234");
     event.insert("roast", "beef.example.com:1234");
     run_and_assert_sink_compliance(sink, stream::once(ready(event)), &HTTP_SINK_TAGS).await;
@@ -347,9 +343,9 @@ async fn splunk_configure_hostname() {
     let entry = find_entry(message.as_str()).await;
 
     assert_eq!(message, entry["message"].as_str().unwrap());
-    let asdf = entry["asdf"].as_array().unwrap()[0].as_str().unwrap();
+    let asdf = entry["asdf"].as_str().unwrap();
     assert_eq!("hello", asdf);
-    let host = entry["host"].as_array().unwrap()[0].as_str().unwrap();
+    let host = entry["host"].as_str().unwrap();
     assert_eq!("beef.example.com:1234", host);
 }
 
