@@ -4,6 +4,7 @@ use futures_util::future::BoxFuture;
 use futures_util::{future::ready, Stream, StreamExt};
 use once_cell::sync::OnceCell;
 use std::future::Future;
+use std::ops::Deref;
 use std::task::{Context, Poll};
 use tokio::sync::broadcast::{self, Receiver, Sender};
 use tokio_stream::wrappers::BroadcastStream;
@@ -13,6 +14,7 @@ use value::Value;
 use vector_core::event::metric::mezmo::TransformError;
 use vector_core::{event::LogEvent, ByteSizeOf};
 
+use crate::http::HttpError;
 use crate::sinks::util::http::HttpBatchService;
 
 static USER_LOG_SENDER: OnceCell<Sender<LogEvent>> = OnceCell::new();
@@ -198,10 +200,15 @@ where
                         ctx.error(msg);
                     }
                 }
-                Err(err) => {
-                    let msg = Value::from(format!("{err:?}"));
-                    ctx.error(msg);
-                }
+                Err(err) => match err.deref().downcast_ref::<HttpError>() {
+                    Some(err) => {
+                        ctx.error(Value::from(format!("{err}")));
+                    }
+                    None => {
+                        warn!(message = "Unable to format service error for user logs", %err);
+                        ctx.error(Value::from("Request failed".to_string()));
+                    }
+                },
             }
             res
         })
