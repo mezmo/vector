@@ -316,7 +316,7 @@ async fn splunk_sourcetype() {
     let entry = find_entry(message.as_str()).await;
 
     assert_eq!(message, entry["message"].as_str().unwrap());
-    let asdf = entry["asdf"].as_array().unwrap()[0].as_str().unwrap();
+    let asdf = entry["asdf"].as_str().unwrap();
     assert_eq!("hello", asdf);
     let sourcetype = entry["sourcetype"].as_str().unwrap();
     assert_eq!("_json", sourcetype);
@@ -345,7 +345,7 @@ async fn splunk_configure_hostname() {
     assert_eq!(message, entry["message"].as_str().unwrap());
     let asdf = entry["asdf"].as_str().unwrap();
     assert_eq!("hello", asdf);
-    let host = entry["host"].as_str().unwrap();
+    let host = entry["host"].as_array().unwrap()[0].as_str().unwrap();
     assert_eq!("beef.example.com:1234", host);
 }
 
