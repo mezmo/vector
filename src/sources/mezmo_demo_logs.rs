@@ -5,6 +5,7 @@ use codecs::{
 };
 use fakedata::mezmo::access_log::json_access_log_line;
 use fakedata::mezmo::error_log::apache_error_log_line;
+use fakedata::mezmo::metrics;
 use fakedata::mezmo::{
     access_log::{apache_common_log_line, nginx_access_log_line},
     financial::EventGenerator,
@@ -136,14 +137,38 @@ pub enum MezmoOutputFormat {
     /// Randomly generated HTTP server logs in [JSON](\(urls.json)) format.
     #[derivative(Default)]
     Json,
+
+    /// HTTP-based metrics in the Mezmo metrics format
+    HttpMetrics,
+
+    /// Generic metrics in the Mezmo metrics format
+    GenericMetrics,
+}
+
+struct State {
+    financial_evt_state: OnceCell<EventGenerator>,
+    metrics_evt_state: OnceCell<metrics::Generator>,
+}
+
+impl State {
+    fn new() -> State {
+        State {
+            financial_evt_state: OnceCell::new(),
+            metrics_evt_state: OnceCell::new(),
+        }
+    }
+
+    #[cfg(any(test, feature = "test"))]
+    fn new_with(financial_evt_state: OnceCell<EventGenerator>) -> State {
+        State {
+            financial_evt_state,
+            metrics_evt_state: OnceCell::new(),
+        }
+    }
 }
 
 impl MezmoOutputFormat {
-    fn generate_line(
-        &self,
-        n: usize,
-        financial_evt_state: &mut OnceCell<EventGenerator>,
-    ) -> String {
+    fn generate_line(&self, n: usize, state: &mut State) -> String {
         emit!(DemoLogsEventProcessed);
 
         match self {
@@ -159,10 +184,11 @@ impl MezmoOutputFormat {
                 serde_json::to_string(&log).expect("sensor data should always be json encodable")
             }
             Self::Financial { devices } => {
-                if !financial_evt_state.initialized() {
-                    let _ = financial_evt_state.set(EventGenerator::new(*devices));
+                if !state.financial_evt_state.initialized() {
+                    let _ = state.financial_evt_state.set(EventGenerator::new(*devices));
                 }
-                let gen = financial_evt_state
+                let gen = state
+                    .financial_evt_state
                     .get_mut()
                     .expect("financial event state should be set");
                 let log = gen.gen_event();
@@ -173,6 +199,30 @@ impl MezmoOutputFormat {
             Self::Json => {
                 let log = json_access_log_line();
                 serde_json::to_string(&log).expect("json log event should be json encodable")
+            }
+            Self::HttpMetrics => {
+                if !state.metrics_evt_state.initialized() {
+                    let _ = state
+                        .metrics_evt_state
+                        .set(metrics::GeneratorBuilder::build_http());
+                }
+                state
+                    .metrics_evt_state
+                    .get_mut()
+                    .expect("http metric event state should be set")
+                    .generate_next()
+            }
+            Self::GenericMetrics => {
+                if !state.metrics_evt_state.initialized() {
+                    let _ = state
+                        .metrics_evt_state
+                        .set(metrics::GeneratorBuilder::build_generic());
+                }
+                state
+                    .metrics_evt_state
+                    .get_mut()
+                    .expect("generic metric event state should be set")
+                    .generate_next()
             }
         }
     }
@@ -231,7 +281,7 @@ async fn mezmo_demo_logs_source(
     count: usize,
     format: MezmoOutputFormat,
     decoder: Decoder,
-    mut financial_evt_state: OnceCell<EventGenerator>,
+    mut state: State,
     mut shutdown: ShutdownSignal,
     mut out: SourceSender,
     log_namespace: LogNamespace,
@@ -252,7 +302,7 @@ async fn mezmo_demo_logs_source(
         }
         bytes_received.emit(ByteSize(0));
 
-        let line = format.generate_line(n, &mut financial_evt_state);
+        let line = format.generate_line(n, &mut state);
 
         let mut stream = FramedRead::new(line.as_bytes(), decoder.clone());
         while let Some(next) = stream.next().await {
@@ -302,14 +352,14 @@ impl SourceConfig for MezmoDemoLogsConfig {
         self.format.validate()?;
         let decoder =
             DecodingConfig::new(self.framing.clone(), self.decoding.clone(), log_namespace).build();
-        let financial_evt_state = OnceCell::new();
+        let state = State::new();
         // let _acknowledgements = cx.do_acknowledgements(self.acknowledgements);
         Ok(Box::pin(mezmo_demo_logs_source(
             self.interval,
             self.count,
             self.format.clone(),
             decoder,
-            financial_evt_state,
+            state,
             cx.shutdown,
             cx.out,
             log_namespace,
@@ -376,13 +426,13 @@ mod tests {
             )
             .build();
 
-            let financial_evt_state = OnceCell::new_with(Some(EventGenerator::new(1)));
+            let state = State::new_with(OnceCell::new_with(Some(EventGenerator::new(1))));
             mezmo_demo_logs_source(
                 config.interval,
                 config.count,
                 config.format,
                 decoder,
-                financial_evt_state,
+                state,
                 ShutdownSignal::noop(),
                 tx,
                 LogNamespace::Legacy,
@@ -571,6 +621,34 @@ mod tests {
     async fn syslog_3164_format_generates_output() {
         let mut rx = runit(
             r#"format = "bsd_syslog"
+            count = 5"#,
+        )
+        .await;
+
+        for _ in 0..5 {
+            assert!(poll!(rx.next()).is_ready());
+        }
+        assert_eq!(poll!(rx.next()), Poll::Ready(None));
+    }
+
+    #[tokio::test]
+    async fn http_metrics_format_generates_output() {
+        let mut rx = runit(
+            r#"format = "http_metrics"
+            count = 5"#,
+        )
+        .await;
+
+        for _ in 0..5 {
+            assert!(poll!(rx.next()).is_ready());
+        }
+        assert_eq!(poll!(rx.next()), Poll::Ready(None));
+    }
+
+    #[tokio::test]
+    async fn generic_metrics_format_generates_output() {
+        let mut rx = runit(
+            r#"format = "generic_metrics"
             count = 5"#,
         )
         .await;
