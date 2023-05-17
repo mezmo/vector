@@ -32,6 +32,11 @@ pub struct TagCardinalityLimitConfig {
     /// Tags names to limit cardinality. If not provided then all tag names are considered.
     #[serde(default)]
     pub tags: Option<HashSet<String>>,
+
+    /// Tags names to exclude from cardinality limiting. If not provided then no tags are
+    /// explicitly excluded.
+    #[serde(default)]
+    pub exclude_tags: Option<HashSet<String>>,
 }
 
 /// Controls the approach taken for tracking tag cardinality.
@@ -106,6 +111,7 @@ impl GenerateConfig for TagCardinalityLimitConfig {
             limit_exceeded_action: default_limit_exceeded_action(),
             max_tag_size: default_max_tag_size(),
             tags: None,
+            exclude_tags: None,
         })
         .unwrap()
     }

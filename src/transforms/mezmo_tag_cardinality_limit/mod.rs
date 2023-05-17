@@ -81,6 +81,16 @@ impl TagCardinalityLimit {
         }
     }
 
+    /// Checks if a given tag is in scope for this configuration
+    fn tag_in_scope(&self, key: &str) -> bool {
+        match (self.config.tags.as_ref(), self.config.exclude_tags.as_ref()) {
+            (Some(tags), None) => tags.contains(key),
+            (None, Some(exclude_tags)) => !exclude_tags.contains(key),
+            (Some(tags), Some(exclude_tags)) => tags.contains(key) && !exclude_tags.contains(key),
+            (None, None) => true,
+        }
+    }
+
     /// Checks if recording a key and value corresponding to a tag on an incoming Metric would
     /// exceed the cardinality limit.
     fn tag_limit_exceeded(&self, key: &str, value: &Bytes) -> bool {
@@ -112,13 +122,7 @@ impl TagCardinalityLimit {
                             // doesn't change the behavior of the check.
                             for (key, value) in tags_map.iter() {
                                 let value = truncate(value, self.config.max_tag_size);
-                                if self
-                                    .config
-                                    .tags
-                                    .as_ref()
-                                    .map_or(true, |tags| tags.contains(key))
-                                    && self.tag_limit_exceeded(key, &value)
-                                {
+                                if self.tag_in_scope(key) && self.tag_limit_exceeded(key, &value) {
                                     emit!(MezmoTagCardinalityLimitRejectingEvent {
                                         tag_key: key,
                                         tag_value: &String::from_utf8_lossy(value.as_ref()),
@@ -127,12 +131,7 @@ impl TagCardinalityLimit {
                                 }
                             }
                             for (key, value) in tags_map.iter() {
-                                if self
-                                    .config
-                                    .tags
-                                    .as_ref()
-                                    .map_or(true, |tags| tags.contains(key))
-                                {
+                                if self.tag_in_scope(key) {
                                     let value = truncate(value, self.config.max_tag_size);
                                     self.record_tag_value(key, &value);
                                 }
@@ -141,12 +140,7 @@ impl TagCardinalityLimit {
                         LimitExceededAction::DropTag => {
                             tags_map.retain(|key, value| {
                                 let value = truncate(value, self.config.max_tag_size);
-                                if self
-                                    .config
-                                    .tags
-                                    .as_ref()
-                                    .map_or(true, |tags| tags.contains(key))
-                                {
+                                if self.tag_in_scope(key) {
                                     if self.try_accept_tag(key, &value) {
                                         true
                                     } else {

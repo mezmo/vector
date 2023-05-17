@@ -46,6 +46,7 @@ const fn make_transform_hashset(
         mode: Mode::Exact,
         max_tag_size: default_max_tag_size(),
         tags: None,
+        exclude_tags: None,
     }
 }
 
@@ -61,6 +62,7 @@ const fn make_transform_bloom(
         }),
         max_tag_size: default_max_tag_size(),
         tags: None,
+        exclude_tags: None,
     }
 }
 
@@ -248,6 +250,70 @@ fn drop_event_checks_all_tags(make_tags: impl Fn(&str, &str) -> BTreeMap<String,
     assert_eq!(new_event4, Some(event4));
 }
 
+/// Tests exclude_tags with all tags and with specific tags
+#[test]
+fn exclude_from_all_tags() {
+    let config: TagCardinalityLimitConfig = TagCardinalityLimitConfig {
+        value_limit: 2,
+        limit_exceeded_action: LimitExceededAction::DropEvent,
+        mode: Mode::Exact,
+        max_tag_size: default_max_tag_size(),
+        tags: None,
+        exclude_tags: Some(HashSet::from(["tag3".into(), "tag4".into()])),
+    };
+    exclude_tags_not_considered(config);
+}
+
+#[test]
+fn exclude_from_specific_tags() {
+    let config: TagCardinalityLimitConfig = TagCardinalityLimitConfig {
+        value_limit: 2,
+        limit_exceeded_action: LimitExceededAction::DropEvent,
+        mode: Mode::Exact,
+        max_tag_size: default_max_tag_size(),
+        tags: Some(HashSet::from([
+            "tag1".into(),
+            "tag2".into(),
+            "tag3".into(),
+            "tag4".into(),
+        ])),
+        exclude_tags: Some(HashSet::from(["tag3".into(), "tag4".into()])),
+    };
+    exclude_tags_not_considered(config);
+}
+
+fn exclude_tags_not_considered(config: TagCardinalityLimitConfig) {
+    let mut transform: TagCardinalityLimit = TagCardinalityLimit::new(config, None);
+
+    let event1 = make_event(tags!("tag1" => "val1", "tag2" => "val1"));
+    let event2 = make_event(tags!("tag1" => "val2", "tag2" => "val1"));
+    // Next the limit is exceeded for the first tag.
+    let event3 = make_event(tags!("tag1" => "val3", "tag2" => "val2"));
+    // And then check if the new value for the second tag was not recorded by the above event.
+    let event4 = make_event(tags!("tag1" => "val1", "tag2" => "val3"));
+
+    // These events are ignored because the config excludes them
+    let event5 = make_event(tags!("tag3" => "val1", "tag4" => "val1"));
+    let event6 = make_event(tags!("tag3" => "val2", "tag4" => "val2"));
+    let event7 = make_event(tags!("tag3" => "val3", "tag4" => "val3"));
+
+    let new_event1 = transform.transform_one(event1.clone());
+    let new_event2 = transform.transform_one(event2.clone());
+    let new_event3 = transform.transform_one(event3);
+    let new_event4 = transform.transform_one(event4.clone());
+    let new_event5 = transform.transform_one(event5.clone());
+    let new_event6 = transform.transform_one(event6.clone());
+    let new_event7 = transform.transform_one(event7.clone());
+
+    assert_eq!(new_event1, Some(event1));
+    assert_eq!(new_event2, Some(event2));
+    assert_eq!(new_event3, None);
+    assert_eq!(new_event4, Some(event4));
+    assert_eq!(new_event5, Some(event5));
+    assert_eq!(new_event6, Some(event6));
+    assert_eq!(new_event7, Some(event7));
+}
+
 #[test]
 fn drop_event_specific_tags_exact() {
     let config = TagCardinalityLimitConfig {
@@ -256,6 +322,7 @@ fn drop_event_specific_tags_exact() {
         mode: Mode::Exact,
         max_tag_size: default_max_tag_size(),
         tags: Some(HashSet::from(["tag1".into(), "tag2".into()])),
+        exclude_tags: None,
     };
     drop_event_specific_tags(config);
 }
@@ -270,6 +337,7 @@ fn drop_event_specific_tags_prob() {
         }),
         max_tag_size: default_max_tag_size(),
         tags: Some(HashSet::from(["tag1".into(), "tag2".into()])),
+        exclude_tags: None,
     };
     drop_event_specific_tags(config);
 }
@@ -314,6 +382,7 @@ fn drop_specific_tags_exact() {
         mode: Mode::Exact,
         max_tag_size: default_max_tag_size(),
         tags: Some(HashSet::from(["tag1".into(), "tag2".into()])),
+        exclude_tags: None,
     };
     drop_specific_tags(config);
 }
@@ -328,6 +397,7 @@ fn drop_specific_tags_prob() {
         }),
         max_tag_size: default_max_tag_size(),
         tags: Some(HashSet::from(["tag1".into(), "tag2".into()])),
+        exclude_tags: None,
     };
     drop_specific_tags(config);
 }
@@ -374,6 +444,7 @@ fn drop_event_with_max_tag_size_exact() {
         mode: Mode::Exact,
         max_tag_size: 4,
         tags: None,
+        exclude_tags: None,
     };
     drop_event_with_max_tag_size(config);
 }
@@ -388,6 +459,7 @@ fn drop_event_with_max_tag_size_prob() {
         }),
         max_tag_size: 4,
         tags: None,
+        exclude_tags: None,
     };
     drop_event_with_max_tag_size(config);
 }
@@ -423,6 +495,7 @@ fn drop_tag_with_max_tag_size_exact() {
         mode: Mode::Exact,
         max_tag_size: 4,
         tags: None,
+        exclude_tags: None,
     };
     drop_tag_with_max_tag_size(config);
 }
@@ -437,6 +510,7 @@ fn drop_tag_with_max_tag_size_prob() {
         }),
         max_tag_size: 4,
         tags: None,
+        exclude_tags: None,
     };
     drop_tag_with_max_tag_size(config);
 }
