@@ -4,6 +4,7 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use futures_util::{future::ready, Stream, StreamExt};
 use once_cell::sync::OnceCell;
+use serde::ser::StdError;
 use std::future::Future;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
@@ -377,6 +378,10 @@ pub fn handle_transform_error(ctx: &Option<MezmoContext>, err: TransformError) {
             );
         }
     };
+}
+
+pub fn handle_deserializer_error(ctx: &Option<MezmoContext>, err: Box<dyn StdError>) {
+    user_log_error!(ctx, format!("Protobuf validation failed: {}", err));
 }
 
 #[cfg(test)]

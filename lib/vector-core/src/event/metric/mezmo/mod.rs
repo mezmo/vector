@@ -1,7 +1,9 @@
 mod vector;
 
+use opentelemetry_rs::opentelemetry::common::AnyValueOneOfvalue as OpenTelemetryMetricAnyValue;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::ops::Deref;
 
 use crate::event::{
     metric::{MetricKind, TagValue},
@@ -114,6 +116,26 @@ impl<'a> IntoTagValue for &'a str {
     }
 }
 
+impl IntoTagValue for OpenTelemetryMetricAnyValue<'_> {
+    fn to_tag_value(&self) -> TagValue {
+        match self.clone() {
+            OpenTelemetryMetricAnyValue::string_value(val) => val.into(),
+            OpenTelemetryMetricAnyValue::bool_value(val) => u32::from(val).to_string().into(),
+            OpenTelemetryMetricAnyValue::int_value(val) => val.to_string().into(),
+            OpenTelemetryMetricAnyValue::double_value(val) => val.to_string().into(),
+            OpenTelemetryMetricAnyValue::bytes_value(val) => {
+                String::from_utf8_lossy(&val[..]).into()
+            }
+
+            // NOTE Tag is supposed to be a scalar type, array and struct cannot be converted
+            // We may need to serialize them if exists
+            // OpenTelemetryMetricAnyValue::array_value(val_list) => ...
+            // OpenTelemetryMetricAnyValue::kvlist_value(kv_list) => ...
+            _ => TagValue::Bare,
+        }
+    }
+}
+
 impl<'a, T> IntoValue for MetricTags<'a, T>
 where
     T: Iterator<Item = (&'a dyn ToString, &'a dyn IntoTagValue)> + Clone + 'a,
@@ -181,6 +203,50 @@ impl IntoValue for f64 {
 impl IntoValue for u64 {
     fn to_value(&self) -> Value {
         Value::from(*self)
+    }
+}
+
+impl IntoValue for u32 {
+    fn to_value(&self) -> Value {
+        Value::from(*self)
+    }
+}
+
+impl IntoValue for i32 {
+    fn to_value(&self) -> Value {
+        Value::from(*self)
+    }
+}
+
+impl IntoValue for bool {
+    fn to_value(&self) -> Value {
+        Value::Boolean(*self)
+    }
+}
+
+impl<'a> IntoValue for Cow<'a, [u64]> {
+    fn to_value(&self) -> Value {
+        Value::Array(
+            self.clone()
+                .as_ref()
+                .deref()
+                .iter()
+                .map(|val| Value::from(*val))
+                .collect::<Vec<Value>>(),
+        )
+    }
+}
+
+impl<'a> IntoValue for Cow<'a, [f64]> {
+    fn to_value(&self) -> Value {
+        Value::Array(
+            self.clone()
+                .as_ref()
+                .deref()
+                .iter()
+                .map(|val| from_f64_or_zero(*val))
+                .collect::<Vec<Value>>(),
+        )
     }
 }
 

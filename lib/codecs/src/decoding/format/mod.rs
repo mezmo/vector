@@ -17,7 +17,10 @@ use ::bytes::Bytes;
 use dyn_clone::DynClone;
 pub use gelf::{GelfDeserializer, GelfDeserializerConfig};
 pub use json::{JsonDeserializer, JsonDeserializerConfig};
-pub use mezmo::MezmoDeserializer;
+pub use mezmo::{
+    open_telemetry::{DeserializerError, OpenTelemetryMetricDeserializer},
+    MezmoDeserializer,
+};
 pub use native::{NativeDeserializer, NativeDeserializerConfig};
 pub use native_json::{NativeJsonDeserializer, NativeJsonDeserializerConfig};
 use smallvec::SmallVec;
