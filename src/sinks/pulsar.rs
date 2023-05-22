@@ -12,6 +12,7 @@ use crate::{
     mezmo::{user_trace::MezmoUserLog, MezmoContext},
     schema,
     sinks::util::metadata::RequestMetadataBuilder,
+    user_log_error,
 };
 use bytes::BytesMut;
 use codecs::{encoding::SerializerConfig, TextSerializerConfig};
@@ -241,7 +242,7 @@ impl SinkConfig for PulsarSinkConfig {
             .create_pulsar_producer(false)
             .await
             .map_err(|error| {
-                mezmo_ctx.error(Value::from(format!("{error}")));
+                user_log_error!(mezmo_ctx, Value::from(format!("{error}")));
                 error
             })
             .context(CreatePulsarSinkSnafu)?;
@@ -361,7 +362,7 @@ async fn healthcheck(
     mezmo_ctx: Option<MezmoContext>,
 ) -> crate::Result<()> {
     let _ = producer.check_connection().await.map_err(|error| {
-        mezmo_ctx.error(Value::from(format!("{error}")));
+        user_log_error!(mezmo_ctx, Value::from(format!("{error}")));
         error
     });
     Ok(())
@@ -496,7 +497,7 @@ impl Sink<Event> for PulsarSink {
                         .emit(ByteSize(metadata.request_encoded_size()));
                 }
                 Some((Err(error), metadata, finalizers)) => {
-                    this.mezmo_ctx.error(Value::from(format!("{error}")));
+                    user_log_error!(this.mezmo_ctx, Value::from(format!("{error}")));
 
                     finalizers.update_status(EventStatus::Errored);
                     emit!(PulsarSendingError {

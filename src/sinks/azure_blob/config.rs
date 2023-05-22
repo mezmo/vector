@@ -23,7 +23,7 @@ use crate::{
         Healthcheck, VectorSink,
     },
     template::Template,
-    Result,
+    user_log_error, Result,
 };
 
 /// Configuration for the `azure_blob` sink.
@@ -177,7 +177,7 @@ impl SinkConfig for AzureBlobSinkConfig {
             self.endpoint.clone(),
         )
         .map_err(|err| {
-            cx.mezmo_ctx.error(Value::from(format!("{err}")));
+            user_log_error!(cx.mezmo_ctx, Value::from(format!("{err}")));
         })
         .ok();
 

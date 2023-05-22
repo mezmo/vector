@@ -8,6 +8,7 @@ use crate::{
     mezmo::user_trace::MezmoUserLog,
     sinks::{util::retries::RetryLogic, Healthcheck},
     tls::TlsConfig,
+    user_log_error,
 };
 use aws_sdk_s3::{
     error::PutObjectError,
@@ -351,7 +352,7 @@ pub fn build_healthcheck(
                         "Error returned from destination with status code: {}",
                         status
                     ));
-                    cx.mezmo_ctx.error(msg);
+                    user_log_error!(cx.mezmo_ctx, msg);
 
                     match status {
                         StatusCode::FORBIDDEN => HealthcheckError::InvalidCredentials.into(),
@@ -360,7 +361,7 @@ pub fn build_healthcheck(
                     }
                 }
                 error => {
-                    cx.mezmo_ctx.error(Value::from(format!("{error}")));
+                    user_log_error!(cx.mezmo_ctx, Value::from(format!("{error}")));
                     error.into()
                 }
             }),

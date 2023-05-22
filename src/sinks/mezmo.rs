@@ -10,6 +10,7 @@ use value::Value;
 use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
 
+use crate::user_log_error;
 use crate::{
     codecs::Transformer,
     config::{AcknowledgementsConfig, GenerateConfig, Input, SinkConfig, SinkContext},
@@ -354,9 +355,10 @@ impl MezmoEventEncoder {
             field: Some(field),
             drop_event,
         });
-        self.cx
-            .mezmo_ctx
-            .error(Value::from(format!("{field} template error - {error}")));
+        user_log_error!(
+            self.cx.mezmo_ctx,
+            Value::from(format!("{field} template error - {error}"))
+        );
     }
 }
 

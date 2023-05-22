@@ -8,7 +8,9 @@ use value::Value;
 use vector_core::config::log_schema;
 use vector_core::event::LogEvent;
 
+pub mod callsite;
 pub mod config;
+pub mod macros;
 #[allow(dead_code)]
 pub mod user_trace;
 pub mod vrl;
@@ -68,6 +70,7 @@ impl From<&ComponentKind> for Value {
 /// used when we generate pipeline components.
 #[derive(Debug, Clone)]
 pub struct MezmoContext {
+    id: String,
     account_id: ContextIdentifier,
     pipeline_id: ContextIdentifier,
     component_id: String,
@@ -109,6 +112,7 @@ impl TryFrom<String> for MezmoContext {
         };
 
         Ok(Self {
+            id,
             account_id,
             pipeline_id,
             component_id,

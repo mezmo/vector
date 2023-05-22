@@ -14,6 +14,7 @@ use crate::{
         util::retries::{RetryAction, RetryLogic},
         Healthcheck, HealthcheckError,
     },
+    user_log_error,
 };
 
 pub const BASE_URL: &str = "https://storage.googleapis.com/";
@@ -126,14 +127,14 @@ pub fn build_healthcheck(
                 let not_found_error = GcsError::BucketNotFound { bucket }.into();
 
                 let response = client.send(request).await.map_err(|error| {
-                    mezmo_ctx.error(Value::from(format!("{error}")));
+                    user_log_error!(mezmo_ctx, Value::from(format!("{error}")));
                     error
                 })?;
                 healthcheck_response(response, not_found_error)
             }
             None => {
                 let err = GcsError::InvalidAuth.into();
-                mezmo_ctx.error(Value::from(format!("{err}")));
+                user_log_error!(mezmo_ctx, Value::from(format!("{err}")));
                 Err(err)
             }
         }

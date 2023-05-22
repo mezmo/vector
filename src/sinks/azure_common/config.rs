@@ -17,6 +17,7 @@ use crate::{
     event::{EventFinalizers, EventStatus, Finalizable},
     mezmo::user_trace::MezmoUserLog,
     sinks::{util::retries::RetryLogic, Healthcheck},
+    user_log_error,
 };
 
 #[derive(Debug, Clone)]
@@ -116,30 +117,30 @@ pub fn build_healthcheck(
                         Some(err) => match StatusCode::from_u16(err.status().into()) {
                             Ok(StatusCode::FORBIDDEN) => {
                                 let res = Box::new(HealthcheckError::InvalidCredentials);
-                                cx.mezmo_ctx.error(Value::from(format!("{res}")));
+                                user_log_error!(cx.mezmo_ctx, Value::from(format!("{res}")));
                                 res
                             }
                             Ok(StatusCode::NOT_FOUND) => {
                                 let res = Box::new(HealthcheckError::UnknownContainer {
                                     container: container_name,
                                 });
-                                cx.mezmo_ctx.error(Value::from(format!("{res}")));
+                                user_log_error!(cx.mezmo_ctx, Value::from(format!("{res}")));
                                 res
                             }
                             Ok(status) => {
                                 let res = Box::new(HealthcheckError::Unknown { status });
-                                cx.mezmo_ctx.error(Value::from(format!("{res}")));
+                                user_log_error!(cx.mezmo_ctx, Value::from(format!("{res}")));
                                 res
                             }
                             Err(_) => {
                                 let msg = "unknown status code";
-                                cx.mezmo_ctx.error(Value::from(msg));
+                                user_log_error!(cx.mezmo_ctx, Value::from(msg));
                                 msg.into()
                             }
                         },
                         _ => {
                             let msg = reason.to_string();
-                            cx.mezmo_ctx.error(Value::from(msg));
+                            user_log_error!(cx.mezmo_ctx, Value::from(msg));
                             reason.into()
                         }
                     }),

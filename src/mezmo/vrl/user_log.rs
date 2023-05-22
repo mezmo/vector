@@ -1,4 +1,7 @@
-use crate::mezmo::{user_trace::MezmoUserLog, MezmoContext};
+use crate::{
+    mezmo::{user_trace::MezmoUserLog, MezmoContext},
+    user_log,
+};
 use ::value::Value;
 use bytes::Bytes;
 use vrl::{
@@ -27,6 +30,11 @@ impl Function for UserLog {
             Parameter {
                 keyword: "level",
                 kind: kind::BYTES,
+                required: false,
+            },
+            Parameter {
+                keyword: "rate_limit_secs",
+                kind: kind::INTEGER,
                 required: false,
             },
         ]
@@ -61,11 +69,15 @@ impl Function for UserLog {
             .unwrap_or_else(|| "info".into())
             .try_bytes()
             .expect("log level not bytes");
+        let rate_limit_secs = arguments.optional("rate_limit_secs");
+        let vrl_position = ctx.span().start();
 
         Ok(UserLogFn {
             mezmo_ctx,
             value,
             level,
+            rate_limit_secs,
+            vrl_position,
         }
         .as_expr())
     }
@@ -76,16 +88,32 @@ struct UserLogFn {
     mezmo_ctx: Option<MezmoContext>,
     value: Box<dyn Expression>,
     level: Bytes,
+    rate_limit_secs: Option<Box<dyn Expression>>,
+    vrl_position: usize,
 }
 
 impl FunctionExpression for UserLogFn {
     fn resolve(&self, ctx: &mut Context) -> Resolved {
+        let mezmo_ctx = &self.mezmo_ctx;
         let value = self.value.resolve(ctx)?;
+        let rate_limit_secs = match &self.rate_limit_secs {
+            Some(expr) => u64::try_from(expr.resolve(ctx)?.try_integer()?).ok(),
+            None => None,
+        };
+        let vrl_position = Some(self.vrl_position);
         match self.level.as_ref() {
-            b"debug" => self.mezmo_ctx.debug(value),
-            b"warn" => self.mezmo_ctx.warn(value),
-            b"error" => self.mezmo_ctx.error(value),
-            _ => self.mezmo_ctx.info(value),
+            b"debug" => {
+                user_log!("debug", mezmo_ctx, value, rate_limit_secs, vrl_position);
+            }
+            b"warn" => {
+                user_log!("warn", mezmo_ctx, value, rate_limit_secs, vrl_position);
+            }
+            b"error" => {
+                user_log!("error", mezmo_ctx, value, rate_limit_secs, vrl_position);
+            }
+            _ => {
+                user_log!("info", mezmo_ctx, value, rate_limit_secs, vrl_position);
+            }
         }
         Ok(Value::Null)
     }

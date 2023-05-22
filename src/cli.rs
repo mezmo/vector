@@ -159,6 +159,10 @@ pub struct RootOpts {
     )]
     pub internal_log_rate_limit: u64,
 
+    /// Set the user log rate limit
+    #[arg(short, long, env = "VECTOR_USER_LOG_RATE_LIMIT", default_value = "10")]
+    pub user_log_rate_limit: u64,
+
     /// Set runtime allocation tracing
     #[cfg(feature = "allocation-tracing")]
     #[arg(long, env = "ALLOCATION_TRACING", default_value = "false")]

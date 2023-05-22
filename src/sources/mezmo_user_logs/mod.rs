@@ -126,10 +126,10 @@ mod tests {
             let id = "v1:kafka:internal_source:component_abc:pipeline_123:account_123".to_owned();
             let ctx = MezmoContext::try_from(id).ok();
 
-            ctx.debug("debug msg");
-            ctx.info("info msg");
-            ctx.warn("warn msg");
-            ctx.error("error msg");
+            crate::user_log_debug!(ctx, "debug msg");
+            crate::user_log_info!(ctx, "info msg");
+            crate::user_log_warn!(ctx, "warn msg");
+            crate::user_log_error!(ctx, "error msg");
 
             let expected = vec![
                 ("DEBUG", "debug msg"),

@@ -1,3 +1,4 @@
+use super::callsite::CallsiteIdentity;
 use super::MezmoContext;
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
@@ -5,7 +6,9 @@ use futures_util::{future::ready, Stream, StreamExt};
 use once_cell::sync::OnceCell;
 use std::future::Future;
 use std::ops::Deref;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use std::time::Instant;
 use tokio::sync::broadcast::{self, Receiver, Sender};
 use tokio_stream::wrappers::BroadcastStream;
 use tower::Service;
@@ -16,18 +19,128 @@ use vector_core::{event::LogEvent, ByteSizeOf};
 
 use crate::http::HttpError;
 use crate::sinks::util::http::HttpBatchService;
+use crate::user_log_error;
 
-static USER_LOG_SENDER: OnceCell<Sender<LogEvent>> = OnceCell::new();
+static USER_LOG: OnceCell<UserLog> = OnceCell::new();
 
-fn get_user_log_sender() -> &'static broadcast::Sender<LogEvent> {
-    USER_LOG_SENDER.get_or_init(|| broadcast::channel(1000).0)
+const DEFAULT_RATE_LIMIT_UNINITIALIZED: u64 = 10; // 10 seconds
+const LOG_CACHE_RATE_LIMIT_MAX_CAPACITY: u64 = 5_000;
+
+pub fn init(rate_limit: u64) {
+    USER_LOG
+        .set(UserLog::new(rate_limit))
+        .expect("user log was already initialized");
 }
 
-fn try_send_user_log(log: LogEvent) {
-    if let Some(sender) = USER_LOG_SENDER.get() {
-        match sender.send(log) {
-            Ok(_) => {}
-            Err(_) => debug!("failed to send user log; likely no source consuming data"),
+#[derive(Eq, PartialEq, Hash, Clone, Debug)]
+struct LogIdentifier {
+    component_id: String,
+    identity: CallsiteIdentity,
+}
+
+#[derive(Debug)]
+struct State {
+    start: Instant,
+    count: u64,
+    limit: u64,
+    log: LogEvent,
+}
+
+impl State {
+    fn new(log: LogEvent, limit: u64) -> Self {
+        Self {
+            start: Instant::now(),
+            count: 0,
+            limit,
+            log,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.start = Instant::now();
+        self.count = 1;
+    }
+
+    fn increment_count(&mut self) -> u64 {
+        let prev = self.count;
+        self.count += 1;
+        prev
+    }
+
+    fn should_limit(&self) -> bool {
+        self.start.elapsed().as_secs() < self.limit
+    }
+}
+
+#[derive(Debug)]
+struct UserLog {
+    sender: Sender<LogEvent>,
+    log_rate_limit_cache: moka::sync::Cache<LogIdentifier, Arc<Mutex<State>>>,
+    rate_limit: u64,
+}
+
+impl UserLog {
+    fn new(rate_limit: u64) -> Self {
+        UserLog {
+            sender: broadcast::channel(1000).0,
+            log_rate_limit_cache: moka::sync::Cache::new(LOG_CACHE_RATE_LIMIT_MAX_CAPACITY),
+            rate_limit,
+        }
+    }
+}
+
+fn get_user_log_sender() -> &'static broadcast::Sender<LogEvent> {
+    &USER_LOG
+        .get_or_init(|| UserLog::new(DEFAULT_RATE_LIMIT_UNINITIALIZED))
+        .sender
+}
+
+fn try_send_user_log(log: LogEvent, rate_limit: Option<u64>, id: LogIdentifier) {
+    if let Some(user_log) = USER_LOG.get() {
+        let entry = user_log.log_rate_limit_cache.entry(id).or_insert_with(|| {
+            Arc::new(Mutex::new(State::new(
+                log.clone(),
+                rate_limit.unwrap_or(user_log.rate_limit),
+            )))
+        });
+
+        if let Ok(state) = Arc::<Mutex<State>>::clone(entry.value()).lock().as_mut() {
+            let previous_count = state.increment_count();
+            if state.should_limit() {
+                match previous_count {
+                    0 => match user_log.sender.send(log) {
+                        Ok(_) => {}
+                        Err(_) => {
+                            debug!("failed to send user log; likely no source consuming data")
+                        }
+                    },
+                    1 => {
+                        debug!("user log is [{:?}] is being rate limited", state.log);
+                    }
+                    _ => {}
+                }
+            } else {
+                // If we saw this event 3 or more times total, emit an event that indicates the total number of times we
+                // rate limited the event in the limit period.
+                if previous_count > 1 {
+                    debug!(
+                        "user log [{:?}] has been rate limited {} times.",
+                        state.log,
+                        previous_count - 1
+                    );
+                }
+
+                // We're not rate limiting anymore, so we also emit the current event as normal.. but we update our rate
+                // limiting state since this is effectively equivalent to seeing the event again for the first time.
+                match user_log.sender.send(log) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        debug!("failed to send user log; likely no source consuming data")
+                    }
+                }
+
+                state.reset();
+            }
         }
     }
 }
@@ -55,27 +168,27 @@ impl UserLogSubscription {
 /// Defines a set of methods that can be used to generate log messages that are intended for
 /// the end user of the pipeline to see.
 pub trait MezmoUserLog {
-    fn log(&self, level: Level, msg: Value);
+    fn log(&self, level: Level, msg: Value, rate_limit: Option<u64>, identity: CallsiteIdentity);
 
-    fn debug(&self, msg: impl Into<Value>) {
-        self.log(Level::Debug, msg.into());
+    fn debug(&self, msg: impl Into<Value>, rate_limit: Option<u64>, identity: CallsiteIdentity) {
+        self.log(Level::Debug, msg.into(), rate_limit, identity);
     }
 
-    fn info(&self, msg: impl Into<Value>) {
-        self.log(Level::Info, msg.into());
+    fn info(&self, msg: impl Into<Value>, rate_limit: Option<u64>, identity: CallsiteIdentity) {
+        self.log(Level::Info, msg.into(), rate_limit, identity);
     }
 
-    fn warn(&self, msg: impl Into<Value>) {
-        self.log(Level::Warn, msg.into());
+    fn warn(&self, msg: impl Into<Value>, rate_limit: Option<u64>, identity: CallsiteIdentity) {
+        self.log(Level::Warn, msg.into(), rate_limit, identity);
     }
 
-    fn error(&self, msg: impl Into<Value>) {
-        self.log(Level::Error, msg.into());
+    fn error(&self, msg: impl Into<Value>, rate_limit: Option<u64>, identity: CallsiteIdentity) {
+        self.log(Level::Error, msg.into(), rate_limit, identity);
     }
 }
 
 impl MezmoUserLog for Option<MezmoContext> {
-    fn log(&self, level: Level, msg: Value) {
+    fn log(&self, level: Level, msg: Value, rate_limit: Option<u64>, identity: CallsiteIdentity) {
         if let Some(ctx) = self {
             let mut event = LogEvent::default();
             event.insert("meta.mezmo.level", Value::from(level.to_string()));
@@ -91,7 +204,14 @@ impl MezmoUserLog for Option<MezmoContext> {
             );
             event.insert("meta.mezmo.internal", Value::from(ctx.internal));
             event.insert("message", msg);
-            try_send_user_log(event);
+            try_send_user_log(
+                event,
+                rate_limit,
+                LogIdentifier {
+                    component_id: ctx.id.to_owned(),
+                    identity,
+                },
+            );
         }
     }
 }
@@ -145,12 +265,12 @@ where
             match &res {
                 Ok(response) => {
                     if let Some(msg) = response.log_msg() {
-                        ctx.error(msg);
+                        user_log_error!(ctx, msg);
                     }
                 }
                 Err(err) => {
                     if let Some(msg) = err.log_msg() {
-                        ctx.error(msg);
+                        user_log_error!(ctx, msg);
                     }
                 }
             }
@@ -197,16 +317,16 @@ where
                             "Error returned from destination with status code: {}",
                             response.status()
                         ));
-                        ctx.error(msg);
+                        user_log_error!(ctx, msg);
                     }
                 }
                 Err(err) => match err.deref().downcast_ref::<HttpError>() {
                     Some(err) => {
-                        ctx.error(Value::from(format!("{err}")));
+                        user_log_error!(ctx, Value::from(format!("{err}")));
                     }
                     None => {
                         warn!(message = "Unable to format service error for user logs", %err);
-                        ctx.error(Value::from("Request failed".to_string()));
+                        user_log_error!(ctx, Value::from("Request failed".to_string()));
                     }
                 },
             }
@@ -227,34 +347,42 @@ impl<F, B> Clone for MezmoHttpBatchLoggingService<F, B> {
 pub fn handle_transform_error(ctx: &Option<MezmoContext>, err: TransformError) {
     match err {
         TransformError::FieldNull { field } => {
-            ctx.error(format!("Required field '{}' is null", field));
+            user_log_error!(ctx, format!("Required field '{}' is null", field));
         }
         TransformError::FieldNotFound { field } => {
-            ctx.error(format!(
-                "Required field '{}' not found in the log event",
-                field
-            ));
+            user_log_error!(
+                ctx,
+                format!("Required field '{}' not found in the log event", field)
+            );
         }
         TransformError::FieldInvalidType { field } => {
-            ctx.error(format!("Field '{}' type is not valid", field));
+            user_log_error!(ctx, format!("Field '{}' type is not valid", field));
         }
         TransformError::InvalidMetricType { type_name } => {
-            ctx.error(format!("Metric type '{}' is not supported", type_name));
+            user_log_error!(ctx, format!("Metric type '{}' is not supported", type_name));
         }
         TransformError::ParseIntOverflow { field } => {
-            ctx.error(format!(
-                "Field '{}' could not be parsed as an unsigned integer",
-                field
-            ));
+            user_log_error!(
+                ctx,
+                format!(
+                    "Field '{}' could not be parsed as an unsigned integer",
+                    field
+                )
+            );
         }
         TransformError::NumberTruncation { field } => {
-            ctx.error(format!("Field '{}' was truncated during parsing", field));
+            user_log_error!(
+                ctx,
+                format!("Field '{}' was truncated during parsing", field)
+            );
         }
     };
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::{user_log_debug, user_log_info, user_log_warn};
+
     use super::*;
     use serial_test::serial;
     use snafu::Snafu;
@@ -275,10 +403,10 @@ mod tests {
         let ctx = MezmoContext::try_from(id).ok();
         let log_stream = UserLogSubscription::subscribe().into_stream();
 
-        ctx.debug("debug msg");
-        ctx.info("info msg");
-        ctx.warn("warn msg");
-        ctx.error("error msg");
+        user_log_debug!(ctx, "debug msg");
+        user_log_info!(ctx, "info msg");
+        user_log_warn!(ctx, "warn msg");
+        user_log_error!(ctx, "error msg");
 
         // Note: the log channel/stream is global state and not reset between test
         // cases or runs. To avoid hanging awaits, tests should always take the
@@ -356,10 +484,10 @@ mod tests {
 
         let mut log_stream = UserLogSubscription::subscribe().into_stream();
 
-        ctx.debug("debug msg");
-        ctx.info("info msg");
-        ctx.warn("warn msg");
-        ctx.error("error msg");
+        user_log_debug!(ctx, "debug msg");
+        user_log_info!(ctx, "info msg");
+        user_log_warn!(ctx, "warn msg");
+        user_log_error!(ctx, "error msg");
 
         let timeout = select! {
             _ = log_stream.next() => false,
@@ -370,6 +498,27 @@ mod tests {
             timeout,
             "expected empty log_stream for nonstandard context values"
         );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_rate_limiting() {
+        let id = "v1:kafka:internal_source:component_abc:pipeline_123:account_123".to_owned();
+        let ctx = MezmoContext::try_from(id).ok();
+        let mut log_stream = UserLogSubscription::subscribe().into_stream();
+
+        for _ in 0..10 {
+            user_log_error!(ctx, "error msg", rate_limit_secs: 2);
+        }
+
+        assert!(log_stream.next().await.is_some(), "expected an error log");
+
+        let timeout = select! {
+            _ = log_stream.next() => false,
+            _ = sleep(Duration::from_millis(100)) => true,
+        };
+
+        assert!(timeout, "expected a timeout because of rate limiting");
     }
 
     #[derive(Debug, Snafu)]

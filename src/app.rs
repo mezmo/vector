@@ -33,6 +33,7 @@ use crate::{
     internal_events::mezmo_config::{
         MezmoConfigCompile, MezmoConfigReload, MezmoConfigReloadSignalReceive,
     },
+    mezmo,
     signal::{SignalHandler, SignalPair, SignalRx, SignalTo},
     topology::{
         self, ReloadOutcome, RunningTopology, SharedTopologyController, TopologyController,
@@ -188,6 +189,7 @@ impl Application {
             opts.log_level(),
             opts.root.internal_log_rate_limit,
         );
+        mezmo::user_trace::init(opts.root.user_log_rate_limit);
 
         let runtime = build_runtime(opts.root.threads, "vector-worker")?;
 
