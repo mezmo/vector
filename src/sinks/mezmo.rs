@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::time::SystemTime;
 
 use bytes::Bytes;
@@ -70,6 +71,8 @@ impl SinkConfig for LogdnaConfig {
 #[configurable_component(sink("mezmo"))]
 #[derive(Clone, Debug)]
 pub struct MezmoConfig {
+    /// Connection config
+
     /// The Ingestion API key.
     #[configurable(metadata(docs::examples = "${LOGDNA_API_KEY}"))]
     #[configurable(metadata(docs::examples = "ef8d5de700e7989468166c40fc8a0ccd"))]
@@ -83,6 +86,11 @@ pub struct MezmoConfig {
     #[configurable(metadata(docs::examples = "http://127.0.0.1"))]
     #[configurable(metadata(docs::examples = "http://example.com"))]
     endpoint: UriSerde,
+
+    /// Line object config options
+    /// Whether or not to use the entire message object as the line,
+    /// mutually exclusive with below line options
+    use_message_as_line: Option<bool>,
 
     /// Optional line field selector, only one of `line_field` and `line_template` can be specified
     line_field: Option<String>,
@@ -104,6 +112,8 @@ pub struct MezmoConfig {
 
     /// Optional template for the environment the log line came from
     env_template: Option<Template>,
+
+    /// Query config options
 
     /// The hostname that will be attached to each batch of events.
     #[configurable(metadata(docs::examples = "${HOSTNAME}"))]
@@ -188,6 +198,20 @@ impl SinkConfig for MezmoConfig {
         &self,
         cx: SinkContext,
     ) -> crate::Result<(super::VectorSink, super::Healthcheck)> {
+        if self.use_message_as_line.unwrap_or(false)
+            && (self.line_field.is_some()
+                || self.line_template.is_some()
+                || self.meta_field.is_some()
+                || self.timestamp_field.is_some()
+                || self.app_template.is_some()
+                || self.file_template.is_some()
+                || self.env_template.is_some())
+        {
+            return Err(
+                "`use_message_as_line` may not be specified with other line config options".into(),
+            );
+        }
+
         if self.line_field.is_some() && self.line_template.is_some() {
             return Err("only one of `line_field` and `line_template` can be provided".into());
         }
@@ -238,6 +262,7 @@ pub struct PartitionKey {
 
 pub struct MezmoEventEncoder {
     cx: SinkContext,
+    use_message_as_line: Option<bool>,
     line_field: Option<String>,
     line_template: Option<Template>,
     meta_field: Option<String>,
@@ -341,163 +366,158 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
         mut event: Event,
     ) -> Option<PartitionInnerBuffer<serde_json::Value, PartitionKey>> {
         let key = self.render_key(&event)?;
-
-        let message_key: &str = crate::config::log_schema().message_key();
+        let message_key = crate::config::log_schema().message_key();
 
         self.transformer.transform(&mut event);
         let mut log = event.into_log();
-        let mut paths_to_remove = Vec::new();
-
         let mut map = serde_json::map::Map::new();
 
-        // line
-        if let Some(line_template) = &self.line_template {
-            match line_template.render_string(&log) {
-                Ok(line) => {
-                    // Remove the template parts later so we don't put them in the meta
-                    let parts = line_template.get_fields().unwrap_or_default();
-                    for path in &parts {
-                        paths_to_remove.push(path.to_owned());
+        if self.use_message_as_line.unwrap_or(false) {
+            log.remove(message_key)
+                .unwrap_or(value::Value::Object(BTreeMap::new()))
+                .as_object()
+                .unwrap_or(&BTreeMap::new())
+                .iter()
+                .for_each(|(key, value)| {
+                    map.insert(key.to_string(), json!(value));
+                });
+        } else {
+            let mut paths_to_remove = Vec::new();
+            // line
+            if let Some(line_template) = &self.line_template {
+                match line_template.render_string(&log) {
+                    Ok(line) => {
+                        // Remove the template parts later so we don't put them in the meta
+                        let parts = line_template.get_fields().unwrap_or_default();
+                        for path in &parts {
+                            paths_to_remove.push(path.to_owned());
+                        }
+                        map.insert(LINE_KEY.to_string(), json!(line));
                     }
-
-                    map.insert(LINE_KEY.to_string(), json!(line));
+                    Err(error) => {
+                        self.log_template_error("line", error, true);
+                    }
+                };
+            } else if let Some(path) = &self.line_field {
+                paths_to_remove.push(path.to_string());
+                let line = log.get(path.as_str()).unwrap_or(&DEFAULT_VALUE);
+                match line.is_object() {
+                    false => map.insert(LINE_KEY.to_string(), json!(line)),
+                    true => {
+                        let encoded = serde_json::to_string(&line)
+                            .ok()
+                            .unwrap_or_else(|| "".into());
+                        map.insert(LINE_KEY.to_string(), json!(encoded))
+                    }
+                };
+            }
+            // meta
+            if let Some(path) = &self.meta_field {
+                paths_to_remove.push(path.to_string());
+                if let Some(meta) = log.get(path.as_str()) {
+                    map.insert(META_KEY.to_string(), json!(meta));
                 }
-                Err(error) => {
-                    self.log_template_error("line", error, true);
+            }
+            // timestamp
+            if let Some(path) = &self.timestamp_field {
+                paths_to_remove.push(path.to_string());
+                if let Some(ts) = log.get(path.as_str()) {
+                    map.insert(TIMESTAMP_KEY.to_string(), json!(ts));
                 }
+            } else {
+                let timestamp = match crate::config::log_schema().timestamp_key() {
+                    Some(timestamp_key) => {
+                        match log.remove((lookup::PathPrefix::Event, timestamp_key)) {
+                            Some(timestamp) => timestamp,
+                            None => chrono::Utc::now().into(),
+                        }
+                    }
+                    None => chrono::Utc::now().into(),
+                };
+                map.insert(TIMESTAMP_KEY.to_string(), json!(timestamp));
+            }
+            // app
+            if let Some(app_template) = &self.app_template {
+                match app_template.render_string(&log) {
+                    Ok(app) => {
+                        // Remove the template parts so we don't put them in the meta
+                        let parts = app_template.get_fields().unwrap_or_default();
+                        for path in &parts {
+                            paths_to_remove.push(path.to_owned());
+                        }
+                        map.insert(APP_KEY.to_string(), json!(app));
+                    }
+                    Err(error) => {
+                        self.log_template_error("app", error, false);
+                    }
+                };
+            }
+            // file
+            if let Some(file_template) = &self.file_template {
+                match file_template.render_string(&log) {
+                    Ok(file) => {
+                        // Remove the template parts so we don't put them in the meta
+                        let parts = file_template.get_fields().unwrap_or_default();
+                        for path in &parts {
+                            paths_to_remove.push(path.to_owned());
+                        }
+                        map.insert(FILE_KEY.to_string(), json!(file));
+                    }
+                    Err(error) => {
+                        self.log_template_error("file", error, false);
+                    }
+                };
+            }
+            // app fallback
+            if !map.contains_key(APP_KEY) && !map.contains_key(FILE_KEY) {
+                map.insert(APP_KEY.to_string(), json!(self.default_app));
+            }
+            // env
+            if let Some(env_template) = &self.env_template {
+                match env_template.render_string(&log) {
+                    Ok(env) => {
+                        // Remove the template parts so we don't put them in the meta
+                        let parts = env_template.get_fields().unwrap_or_default();
+                        for path in &parts {
+                            paths_to_remove.push(path.to_owned());
+                        }
+                        map.insert(ENV_KEY.to_string(), json!(env));
+                    }
+                    Err(error) => {
+                        self.log_template_error("env", error, false);
+                    }
+                };
+            }
+            if !map.contains_key(ENV_KEY) {
+                map.insert(ENV_KEY.to_string(), json!(self.default_env));
+            }
+            //
+            // Handle catch-all cases
+            //
+            // Remove used properties
+            for path in paths_to_remove {
+                log.remove(path.as_str());
+            }
+            // Handle the default whole message as line or remaining message as meta cases
+            //  after removing other used properties if either is unassigned
+            let catch_all_key = if !map.contains_key(LINE_KEY) {
+                Some(LINE_KEY)
+            } else if !map.contains_key(META_KEY) {
+                Some(META_KEY)
+            } else {
+                None
             };
-        } else if let Some(path) = &self.line_field {
-            paths_to_remove.push(path.to_string());
-            let line = log.get(path.as_str()).unwrap_or(&DEFAULT_VALUE);
-
-            match line.is_object() {
-                false => map.insert(LINE_KEY.to_string(), json!(line)),
-                true => {
-                    let encoded = serde_json::to_string(&line)
+            if let (Some(message), Some(catch_all_key)) = (log.remove(message_key), catch_all_key) {
+                if message.is_object() {
+                    let encoded = serde_json::to_string(&message)
                         .ok()
                         .unwrap_or_else(|| "".into());
-                    map.insert(LINE_KEY.to_string(), json!(encoded))
+                    map.insert(catch_all_key.to_string(), json!(encoded));
+                } else {
+                    map.insert(catch_all_key.to_string(), json!(message));
                 }
-            };
-        }
-
-        // meta
-        if let Some(path) = &self.meta_field {
-            paths_to_remove.push(path.to_string());
-            if let Some(meta) = log.get(path.as_str()) {
-                map.insert(META_KEY.to_string(), json!(meta));
             }
-        }
-
-        // timestamp
-        if let Some(path) = &self.timestamp_field {
-            paths_to_remove.push(path.to_string());
-            if let Some(ts) = log.get(path.as_str()) {
-                map.insert(TIMESTAMP_KEY.to_string(), json!(ts));
-            }
-        } else {
-            let timestamp = match crate::config::log_schema().timestamp_key() {
-                Some(timestamp_key) => match log.remove((lookup::PathPrefix::Event, timestamp_key))
-                {
-                    Some(timestamp) => timestamp,
-                    None => chrono::Utc::now().into(),
-                },
-                None => chrono::Utc::now().into(),
-            };
-            map.insert(TIMESTAMP_KEY.to_string(), json!(timestamp));
-        }
-
-        // app
-        if let Some(app_template) = &self.app_template {
-            match app_template.render_string(&log) {
-                Ok(app) => {
-                    // Remove the template parts so we don't put them in the meta
-                    let parts = app_template.get_fields().unwrap_or_default();
-                    for path in &parts {
-                        paths_to_remove.push(path.to_owned());
-                    }
-
-                    map.insert(APP_KEY.to_string(), json!(app));
-                }
-                Err(error) => {
-                    self.log_template_error("app", error, false);
-                }
-            };
-        }
-
-        // file
-        if let Some(file_template) = &self.file_template {
-            match file_template.render_string(&log) {
-                Ok(file) => {
-                    // Remove the template parts so we don't put them in the meta
-                    let parts = file_template.get_fields().unwrap_or_default();
-                    for path in &parts {
-                        paths_to_remove.push(path.to_owned());
-                    }
-
-                    map.insert(FILE_KEY.to_string(), json!(file));
-                }
-                Err(error) => {
-                    self.log_template_error("file", error, false);
-                }
-            };
-        }
-
-        // app fallback
-        if !map.contains_key(APP_KEY) && !map.contains_key(FILE_KEY) {
-            map.insert(APP_KEY.to_string(), json!(self.default_app));
-        }
-
-        // env
-        if let Some(env_template) = &self.env_template {
-            match env_template.render_string(&log) {
-                Ok(env) => {
-                    // Remove the template parts so we don't put them in the meta
-                    let parts = env_template.get_fields().unwrap_or_default();
-                    for path in &parts {
-                        paths_to_remove.push(path.to_owned());
-                    }
-
-                    map.insert(ENV_KEY.to_string(), json!(env));
-                }
-                Err(error) => {
-                    self.log_template_error("env", error, false);
-                }
-            };
-        }
-
-        if !map.contains_key(ENV_KEY) {
-            map.insert(ENV_KEY.to_string(), json!(self.default_env));
-        }
-
-        //
-        // Handle catch-all cases
-        //
-
-        // Remove used properties
-        for path in paths_to_remove {
-            log.remove(path.as_str());
-        }
-
-        // Handle the default whole message as line or remaining message as meta cases
-        //  after removing other used properties if either is unassigned
-        let catch_all_key = if !map.contains_key(LINE_KEY) {
-            Some(LINE_KEY)
-        } else if !map.contains_key(META_KEY) {
-            Some(META_KEY)
-        } else {
-            None
         };
-        if let (Some(message), Some(catch_all_key)) = (log.remove(message_key), catch_all_key) {
-            if message.is_object() {
-                let encoded = serde_json::to_string(&message)
-                    .ok()
-                    .unwrap_or_else(|| "".into());
-                map.insert(catch_all_key.to_string(), json!(encoded));
-            } else {
-                map.insert(catch_all_key.to_string(), json!(message));
-            }
-        }
 
         Some(PartitionInnerBuffer::new(map.into(), key))
     }
@@ -518,6 +538,7 @@ impl HttpSink for MezmoSink {
     fn build_encoder(&self) -> Self::Encoder {
         MezmoEventEncoder {
             cx: self.cx.clone(),
+            use_message_as_line: self.cfg.use_message_as_line,
             line_field: self.cfg.line_field.clone(),
             line_template: self.cfg.line_template.clone(),
             meta_field: self.cfg.meta_field.clone(),
@@ -640,7 +661,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_config() {
+    async fn build_config_both_line_options() {
         let (config, cx) = load_sink::<MezmoConfig>(
             r#"
             api_key = "mylogtoken"
@@ -655,6 +676,68 @@ mod tests {
 
         let built = config.build(cx).await;
         assert!(built.is_err());
+    }
+
+    #[tokio::test]
+    async fn build_config_whole_message_line_field() {
+        let (config, cx) = load_sink::<MezmoConfig>(
+            r#"
+            api_key = "mylogtoken"
+            hostname = "vector"
+            default_env = "acceptance"
+            codec.except_fields = ["magic"]
+            line_field = ".message.line"
+            use_message_as_line = true
+        "#,
+        )
+        .unwrap();
+
+        let built = config.build(cx).await;
+        assert!(built.is_err());
+    }
+
+    #[test]
+    fn encode_event_message_as_line() {
+        let (config, cx) = load_sink::<MezmoConfig>(
+            r#"
+            api_key = "mylogtoken"
+            hostname = "vector"
+            codec.except_fields = ["magic"]
+            use_message_as_line = true
+        "#,
+        )
+        .unwrap();
+        let sink = MezmoSink { cx, cfg: config };
+        let mut encoder = sink.build_encoder();
+
+        let payload = json!({
+        "code": 200,
+        "success": true,
+        "payload": {
+            "features": [
+                "serde",
+                "json"
+            ]
+        }});
+        let mut event = Event::Log(LogEvent::try_from(payload).unwrap());
+
+        let message = json!({
+            "line": "hello world",
+            "app": "awesome_app",
+            "other": "stuff",
+            "meta": {
+                "thing": "things"
+            }
+        });
+        event.as_mut_log().insert("message", message);
+
+        let event_out = encoder.encode_event(event).unwrap().into_parts().0;
+        let event_out = event_out.as_object().unwrap();
+
+        assert_eq!(event_out.get("line"), Some(&json!("hello world")));
+        assert_eq!(event_out.get("app"), Some(&json!("awesome_app")));
+        assert_eq!(event_out.get("meta"), Some(&json!({"thing": "things"})));
+        assert_eq!(event_out.get("other"), Some(&json!("stuff")));
     }
 
     #[test]
