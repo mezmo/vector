@@ -20,7 +20,7 @@ use tokio::sync::OnceCell;
 use tokio::time::{self, Duration};
 use tokio_util::codec::FramedRead;
 use vector_common::internal_event::{
-    ByteSize, BytesReceived, CountByteSize, InternalEventHandle as _, Protocol,
+    ByteSize, BytesReceived, CountByteSize, InternalEvent, InternalEventHandle as _, Protocol,
 };
 use vector_config::configurable_component;
 use vector_core::{config::LogNamespace, EstimatedJsonEncodedSizeOf};
@@ -28,11 +28,20 @@ use vector_core::{config::LogNamespace, EstimatedJsonEncodedSizeOf};
 use crate::{
     codecs::{Decoder, DecodingConfig},
     config::{Output, SourceConfig, SourceContext},
-    internal_events::{DemoLogsEventProcessed, EventsReceived, StreamClosedError},
+    internal_events::{EventsReceived, StreamClosedError},
     serde::{default_decoding, default_framing_message_based},
     shutdown::ShutdownSignal,
     SourceSender,
 };
+
+#[derive(Debug)]
+pub struct MezmoDemoLogsEventProcessed;
+
+impl InternalEvent for MezmoDemoLogsEventProcessed {
+    fn emit(self) {
+        trace!(message = "Received one event.");
+    }
+}
 
 /// Configuration for the `mezmo_demo_logs` source.
 #[configurable_component(source("mezmo_demo_logs"))]
@@ -169,7 +178,7 @@ impl State {
 
 impl MezmoOutputFormat {
     fn generate_line(&self, n: usize, state: &mut State) -> String {
-        emit!(DemoLogsEventProcessed);
+        emit!(MezmoDemoLogsEventProcessed);
 
         match self {
             Self::Shuffle {

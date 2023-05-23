@@ -236,7 +236,7 @@ mod tests {
         let config_source = format!(
             r#"
             [sources.in]
-            type = "demo_logs"
+            type = "mezmo_demo_logs"
             format = "${{{}}}"
 
             [sinks.out]

@@ -84,9 +84,10 @@ mod loki;
 mod lua;
 #[cfg(feature = "transforms-metric_to_log")]
 mod metric_to_log;
+#[cfg(feature = "transforms-mezmo_aggregate")]
 mod mezmo_aggregate;
 pub mod mezmo_config;
-#[cfg(feature = "transforms-tag_cardinality_limit")]
+#[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 mod mezmo_tag_cardinality_limit;
 #[cfg(feature = "sources-mongodb_metrics")]
 mod mongodb_metrics;
@@ -229,9 +230,9 @@ pub(crate) use self::loki::*;
 pub(crate) use self::lua::*;
 #[cfg(feature = "transforms-metric_to_log")]
 pub(crate) use self::metric_to_log::*;
-#[cfg(feature = "transforms-aggregate")]
+#[cfg(feature = "transforms-mezmo_aggregate")]
 pub(crate) use self::mezmo_aggregate::*;
-#[cfg(feature = "transforms-tag_cardinality_limit")]
+#[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 pub(crate) use self::mezmo_tag_cardinality_limit::*;
 #[cfg(feature = "sinks-nats")]
 pub(crate) use self::nats::*;
