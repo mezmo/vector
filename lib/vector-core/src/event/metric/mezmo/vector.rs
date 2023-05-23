@@ -6,12 +6,13 @@ use vrl_lib::prelude::NotNan;
 use crate::{
     config::log_schema,
     event::{
-        metric::{Bucket, Metric, MetricKind, MetricTags, MetricValue, Quantile, Sample},
+        metric::{
+            Bucket, Metric, MetricData, MetricKind, MetricName, MetricSeries, MetricTags,
+            MetricTime, MetricValue, Quantile, Sample,
+        },
         LogEvent, StatisticKind, Value,
     },
 };
-
-use super::{MetricData, MetricName, MetricSeries, MetricTime};
 
 #[derive(Debug)]
 pub enum TransformError {
