@@ -17,10 +17,11 @@ pub mod log_to_metric;
 pub mod lua;
 #[cfg(feature = "transforms-metric_to_log")]
 pub mod metric_to_log;
-#[cfg(feature = "transforms-aggregate")]
+#[cfg(feature = "transforms-mezmo_aggregate")]
 pub mod mezmo_aggregate;
+#[cfg(feature = "transforms-mezmo_log_to_metric")]
 pub mod mezmo_log_to_metric;
-#[cfg(feature = "transforms-tag_cardinality_limit")]
+#[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 pub mod mezmo_tag_cardinality_limit;
 #[cfg(feature = "transforms-reduce")]
 pub mod reduce;

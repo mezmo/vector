@@ -463,8 +463,11 @@ gcp = ["dep:base64", "dep:goauth", "dep:smpl_jwt"]
 enrichment-tables = ["enrichment-tables-geoip"]
 enrichment-tables-geoip = ["dep:maxminddb"]
 
-# Sources
-sources = ["sources-logs", "sources-metrics"]
+# Sources (Upstream)
+# sources = ["sources-logs", "sources-metrics"]
+
+# Sources (Mezmo)
+sources = ["sources-logs-mezmo", "sources-metrics-mezmo"]
 sources-logs = [
   "sources-amqp",
   "sources-aws_kinesis_firehose",
@@ -472,7 +475,6 @@ sources-logs = [
   "sources-aws_sqs",
   "sources-datadog_agent",
   "sources-demo_logs",
-  "sources-mezmo_demo_logs",
   "sources-docker_logs",
   "sources-exec",
   "sources-file",
@@ -482,7 +484,6 @@ sources-logs = [
   "sources-http_server",
   "sources-http_client",
   "sources-internal_logs",
-  "sources-mezmo_user_logs",
   "sources-journald",
   "sources-kafka",
   "sources-kubernetes_logs",
@@ -497,6 +498,16 @@ sources-logs = [
   "sources-syslog",
   "sources-vector",
 ]
+sources-logs-mezmo = [
+  "sources-aws_s3",
+  "sources-mezmo_demo_logs",
+  "sources-exec",
+  "sources-http_server",
+  "sources-http_client",
+  "sources-mezmo_user_logs",
+  "sources-kafka",
+  "sources-stdin",
+]
 sources-metrics = [
   "sources-apache_metrics",
   "sources-aws_ecs_metrics",
@@ -509,6 +520,9 @@ sources-metrics = [
   "sources-prometheus",
   "sources-statsd",
   "sources-vector",
+]
+sources-metrics-mezmo = [
+  "sources-internal_metrics",
 ]
 
 sources-amqp = ["lapin"]
@@ -565,8 +579,11 @@ sources-utils-net-unix = []
 
 sources-vector = ["dep:tonic", "protobuf-build"]
 
-# Transforms
-transforms = ["transforms-logs", "transforms-metrics"]
+# Transforms (Upstream)
+# transforms = ["transforms-logs", "transforms-metrics"]
+
+# Transforms (Mezmo)
+transforms = ["transforms-logs-mezmo", "transforms-metrics-mezmo"]
 transforms-logs = [
   "transforms-aws_ec2_metadata",
   "transforms-dedupe",
@@ -575,6 +592,14 @@ transforms-logs = [
   "transforms-metric_to_log",
   "transforms-pipelines",
   "transforms-reduce",
+  "transforms-remap",
+  "transforms-route",
+  "transforms-sample",
+  "transforms-throttle",
+]
+transforms-logs-mezmo = [
+  "transforms-dedupe",
+  "transforms-filter",
   "transforms-mezmo_reduce",
   "transforms-remap",
   "transforms-route",
@@ -591,6 +616,15 @@ transforms-metrics = [
   "transforms-tag_cardinality_limit",
   "transforms-throttle",
 ]
+transforms-metrics-mezmo = [
+  "transforms-filter",
+  "transforms-remap",
+  "transforms-throttle",
+  "transforms-aggregate",
+  "transforms-mezmo_aggregate",
+  "transforms-mezmo_tag_cardinality_limit",
+  "transforms-mezmo_log_to_metric"
+]
 
 transforms-aggregate = []
 transforms-aws_ec2_metadata = ["dep:arc-swap"]
@@ -600,15 +634,21 @@ transforms-lua = ["dep:mlua", "vector-core/lua"]
 transforms-metric_to_log = []
 transforms-pipelines = ["transforms-filter", "transforms-route"]
 transforms-reduce = []
-transforms-mezmo_reduce = []
+transforms-mezmo_reduce = ["transforms-reduce"] # depends on the upstream version for merge_strategies
+transforms-mezmo_aggregate = []
+transforms-mezmo_log_to_metric = []
+transforms-mezmo_tag_cardinality_limit = ["dep:bloom", "dep:hashbrown"]
 transforms-remap = []
 transforms-route = []
 transforms-sample = []
 transforms-tag_cardinality_limit = ["dep:bloom", "dep:hashbrown"]
 transforms-throttle = ["dep:governor"]
 
-# Sinks
-sinks = ["sinks-logs", "sinks-metrics"]
+# Sinks (Upstream)
+# sinks = ["sinks-logs", "sinks-metrics"]
+
+# Sinks (Mezmo)
+sinks = ["sinks-logs-mezmo", "sinks-metrics-mezmo"]
 sinks-logs = [
   "sinks-amqp",
   "sinks-appsignal",
@@ -651,6 +691,29 @@ sinks-logs = [
   "sinks-vector",
   "sinks-webhdfs",
   "sinks-websocket",
+]
+sinks-logs-mezmo = [
+  "sinks-aws_cloudwatch_logs",
+  "sinks-aws_kinesis_firehose",
+  "sinks-aws_kinesis_streams",
+  "sinks-aws_s3",
+  "sinks-aws_sqs",
+  "sinks-azure_blob",
+  "sinks-blackhole",
+  "sinks-console",
+  "sinks-datadog_logs",
+  "sinks-elasticsearch",
+  "sinks-file",
+  "sinks-gcp",
+  "sinks-http",
+  "sinks-kafka",
+  "sinks-mezmo",
+  "sinks-loki",
+  "sinks-new_relic_logs",
+  "sinks-new_relic",
+  "sinks-pulsar",
+  "sinks-redis",
+  "sinks-vector",
   "sinks-postgresql",
 ]
 sinks-metrics = [
@@ -666,6 +729,16 @@ sinks-metrics = [
   "sinks-sematext",
   "sinks-statsd",
   "sinks-vector",
+  "sinks-splunk_hec",
+  "sinks-postgresql"
+]
+sinks-metrics-mezmo = [
+  "sinks-aws_cloudwatch_metrics",
+  "sinks-blackhole",
+  "sinks-console",
+  "sinks-datadog_metrics",
+  "sinks-kafka",
+  "sinks-prometheus",
   "sinks-splunk_hec",
   "sinks-postgresql"
 ]
@@ -705,6 +778,7 @@ sinks-nats = ["dep:nats", "dep:nkeys"]
 sinks-new_relic_logs = ["sinks-http"]
 sinks-new_relic = []
 sinks-papertrail = ["dep:syslog"]
+sinks-postgresql = ["dep:tokio-postgres"]
 sinks-prometheus = ["aws-core", "dep:base64", "dep:prometheus-parser", "dep:snap"]
 sinks-pulsar = ["dep:apache-avro", "dep:pulsar"]
 sinks-redis = ["dep:redis"]
@@ -715,20 +789,21 @@ sinks-statsd = ["sinks-utils-udp", "tokio-util/net"]
 sinks-utils-udp = []
 sinks-vector = ["sinks-utils-udp", "dep:tonic", "protobuf-build"]
 sinks-websocket = ["dep:tokio-tungstenite"]
-sinks-postgresql = []
 sinks-webhdfs = ["dep:opendal"]
 
 # Datadog integration
 enterprise = [
   "dep:hex",
   "dep:sha2",
-  "sinks-datadog_logs",
-  "sinks-datadog_metrics",
   "sources-host_metrics",
-  "sources-internal_logs",
-  "sources-internal_metrics",
-  "transforms-remap",
-  "transforms-filter",
+  # Mezmo: disabled in favor of *-mezmo feature lists
+  # This feature with the above dependencies is kept for convience of future upstream merges
+  # "sinks-datadog_logs",
+  # "sinks-datadog_metrics",
+  # "sources-internal_logs",
+  # "sources-internal_metrics",
+  # "transforms-remap",
+  # "transforms-filter",
 ]
 
 # Identifies that the build is a nightly build

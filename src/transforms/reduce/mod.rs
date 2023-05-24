@@ -24,6 +24,7 @@ use crate::{
 };
 
 mod merge_strategy;
+#[cfg(feature = "transforms-mezmo_reduce")]
 pub mod mezmo_reduce;
 
 use crate::event::Value;
