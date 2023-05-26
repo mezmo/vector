@@ -381,7 +381,14 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
                 .unwrap_or(&BTreeMap::new())
                 .iter()
                 .for_each(|(key, value)| {
-                    map.insert(key.to_string(), json!(value));
+                    let map_key = key.to_string();
+                    // Ensure the line property is a string
+                    // Note: Value stores strings as bytes
+                    if map_key == *LINE_KEY && !value.is_bytes() {
+                        map.insert(map_key, json!(value.to_string()));
+                    } else {
+                        map.insert(map_key, json!(value));
+                    }
                 });
         } else {
             let mut paths_to_remove = Vec::new();
@@ -415,15 +422,15 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
             }
             // meta
             if let Some(path) = &self.meta_field {
-                paths_to_remove.push(path.to_string());
                 if let Some(meta) = log.get(path.as_str()) {
+                    paths_to_remove.push(path.to_string());
                     map.insert(META_KEY.to_string(), json!(meta));
                 }
             }
             // timestamp
             if let Some(path) = &self.timestamp_field {
-                paths_to_remove.push(path.to_string());
                 if let Some(ts) = log.get(path.as_str()) {
+                    paths_to_remove.push(path.to_string());
                     map.insert(TIMESTAMP_KEY.to_string(), json!(ts));
                 }
             } else {
@@ -699,7 +706,7 @@ mod tests {
     }
 
     #[test]
-    fn encode_event_message_as_line() {
+    fn encode_event_message_as_line_string_line() {
         let (config, cx) = load_sink::<MezmoConfig>(
             r#"
             api_key = "mylogtoken"
@@ -712,15 +719,7 @@ mod tests {
         let sink = MezmoSink { cx, cfg: config };
         let mut encoder = sink.build_encoder();
 
-        let payload = json!({
-        "code": 200,
-        "success": true,
-        "payload": {
-            "features": [
-                "serde",
-                "json"
-            ]
-        }});
+        let payload = json!({"code": 200});
         let mut event = Event::Log(LogEvent::try_from(payload).unwrap());
 
         let message = json!({
@@ -737,6 +736,50 @@ mod tests {
         let event_out = event_out.as_object().unwrap();
 
         assert_eq!(event_out.get("line"), Some(&json!("hello world")));
+        assert_eq!(event_out.get("app"), Some(&json!("awesome_app")));
+        assert_eq!(event_out.get("meta"), Some(&json!({"thing": "things"})));
+        assert_eq!(event_out.get("other"), Some(&json!("stuff")));
+    }
+
+    #[test]
+    fn encode_event_message_as_line_object_line() {
+        let (config, cx) = load_sink::<MezmoConfig>(
+            r#"
+            api_key = "mylogtoken"
+            hostname = "vector"
+            codec.except_fields = ["magic"]
+            use_message_as_line = true
+        "#,
+        )
+        .unwrap();
+        let sink = MezmoSink { cx, cfg: config };
+        let mut encoder = sink.build_encoder();
+
+        let payload = json!({"code": 200});
+        let mut event = Event::Log(LogEvent::try_from(payload).unwrap());
+
+        let message = json!({
+            "line": {
+              "log": "hello world",
+              "stream": "stdout"
+            },
+            "app": "awesome_app",
+            "other": "stuff",
+            "meta": {
+                "thing": "things"
+            }
+        });
+        event.as_mut_log().insert("message", message);
+
+        let event_out = encoder.encode_event(event).unwrap().into_parts().0;
+        let event_out = event_out.as_object().unwrap();
+
+        assert_eq!(
+            event_out.get("line"),
+            Some(&json!(
+                "{ \"log\": \"hello world\", \"stream\": \"stdout\" }"
+            ))
+        );
         assert_eq!(event_out.get("app"), Some(&json!("awesome_app")));
         assert_eq!(event_out.get("meta"), Some(&json!({"thing": "things"})));
         assert_eq!(event_out.get("other"), Some(&json!("stuff")));
