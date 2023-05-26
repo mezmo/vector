@@ -1,0 +1,278 @@
+---
+apiVersion: "deploy.razee.io/v1alpha2"
+kind: MustacheTemplate
+metadata:
+  name: vector-gen0
+  namespace: pipeline
+  labels:
+    app: vector-gen0
+    razee/watch-resource: "lite"
+    deploy.razee.io/Reconcile: 'false'
+  annotations:
+    razee.io/git-repo: "${GIT_URL}"
+    razee.io/commit-sha: "${GIT_SHA1}"
+    razee.io/build-url: "${BUILD_URL}"
+    razee.io/branch: "${GIT_BRANCH}"
+spec:
+  env:
+
+    - name: requests_cpu
+      optional: true
+      default: 1
+      valueFrom:
+        configMapKeyRef:
+          namespace: default
+          name: resources
+          key: vector-gen0_requests-cpu
+          type: number
+
+    - name: requests_memory
+      optional: true
+      default: 2Gi
+      valueFrom:
+        configMapKeyRef:
+          namespace: default
+          name: resources
+          key: vector-gen0_requests-memory
+
+    - name: limits_cpu
+      optional: true
+      default: 8
+      valueFrom:
+        configMapKeyRef:
+          namespace: default
+          name: resources
+          key: vector-gen0_limits-cpu
+          type: number
+
+    - name: limits_memory
+      optional: true
+      default: 16Gi
+      valueFrom:
+        configMapKeyRef:
+          namespace: default
+          name: resources
+          key: vector-gen0_limits-memory
+
+    - name: min_replicas
+      optional: true
+      default: 2
+      valueFrom:
+        configMapKeyRef:
+          namespace: default
+          name: resources
+          key: vector-gen0_min-replicas
+
+    - name: max_replicas
+      optional: true
+      default: 8
+      valueFrom:
+        configMapKeyRef:
+          namespace: default
+          name: resources
+          key: vector-gen0_max-replicas
+
+    - name: mezmo_reshape_message
+      optional: true
+      default: '0'
+      valueFrom:
+        configMapKeyRef:
+          name: pipeline-env-config
+          namespace: pipeline
+          key: reshape-message-in-vector
+
+  strTemplates:
+  - |
+
+    apiVersion: v1
+    kind: List
+    items:
+    - apiVersion: v1
+      kind: Service
+      metadata:
+        name: vector-gen0
+        namespace: pipeline
+        labels:
+          deploy.razee.io/Reconcile: 'false'
+          deploy.razee.io/mode: 'StrategicMergePatch'
+          app: vector
+          partition: gen0
+          version: "${APP_VERSION}"
+      spec:
+        clusterIP: None
+        selector:
+          app: vector
+          partition: gen0
+        ports:
+          - name: vector-graphql-api
+            protocol: TCP
+            port: 8686
+            targetPort: 8686
+
+    - apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: vector-gen0
+        namespace: pipeline
+        labels:
+          app: vector
+          partition: gen0
+          version: "${APP_VERSION}"
+      spec:
+        serviceName: vector-gen0
+        podManagementPolicy: "OrderedReady"
+        selector:
+          matchLabels:
+            app: vector
+            partition: gen0
+        template:
+          metadata:
+            annotations:
+              prometheus.io/scrape: "true"
+              prometheus.io/path: "/metrics"
+              prometheus.io/port: "9598"
+            labels:
+              app: vector
+              partition: gen0
+          spec:
+            containers:
+              - name: vector
+                image: "us.gcr.io/logdna-k8s/vector:${APP_VERSION}"
+                imagePullPolicy: IfNotPresent
+                env:
+                - name: PARTITION_NAME
+                  value: gen0
+
+                - name: VECTOR_LOG
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vector
+                      key: loglevel
+                      optional: true
+
+                - name: _RJEM_MALLOC_CONF
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vector
+                      key: malloc-conf
+                      optional: true
+
+                - name: ALLOCATION_TRACING
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vector
+                      key: allocation-tracing
+                      optional: true
+
+                - name: ALLOCATION_TRACING_REPORTING_INTERVAL_MS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: vector
+                      key: allocation-tracing-reporting-interval-ms
+                      optional: true
+
+                - name: PIPELINE_SERVICE_CONTROL_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: pipeline
+                      key: vector-control-token
+
+                - name: MEZMO_METRICS_DB_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: pipeline-pguser-metrics
+                      key: uri
+
+                - name: POD_NAME # This is what vector uses as the pod name
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
+
+                - name: MEZMO_RESHAPE_MESSAGE
+                  value: "{{{mezmo_reshape_message}}}"
+
+                args:
+                  - --config-dir
+                  - /etc/vector/
+                resources:
+                  requests:
+                    memory: "{{{requests_memory}}}"
+                    cpu: "{{{requests_cpu}}}"
+                  limits:
+                    memory: "{{{limits_memory}}}"
+                    cpu: "{{{limits_cpu}}}"
+                volumeMounts:
+                  - name: data
+                    mountPath: "/vector-data-dir"
+                  - name: config
+                    mountPath: "/etc/vector/"
+                    readOnly: true
+            terminationGracePeriodSeconds: 60
+            volumes:
+              - name: data
+                emptyDir: {}
+              - name: config
+                projected:
+                  sources:
+                    - configMap:
+                        name: vector
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: workload-pipeline
+                      operator: In
+                      values:
+                      - enabled
+              podAntiAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 1
+                  podAffinityTerm:
+                    topologyKey: "kubernetes.io/hostname"
+                    labelSelector:
+                      matchExpressions:
+                      - key: partition
+                        operator: In
+                        values:
+                        - gen0
+            tolerations:
+            - effect: NoSchedule
+              key: workload-pipeline
+              operator: Equal
+              value: enabled
+
+    - apiVersion: autoscaling/v2beta2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: vector-gen0
+        namespace: pipeline
+      spec:
+        minReplicas: {{{min_replicas}}}
+        maxReplicas: {{{max_replicas}}}
+        scaleTargetRef:
+          apiVersion: apps/v1
+          kind: StatefulSet
+          name: vector-gen0
+        metrics:
+        - type: Resource
+          resource:
+            name: cpu
+            target:
+              type: Utilization
+              averageUtilization: 600 # Goes from 100 to 800 (CPU 1 to 8)
+        behavior:
+          # Every 3 minutes, it can scale up 1 pod at a time if CPU stays above 600 for 1 minute
+          scaleUp:
+            stabilizationWindowSeconds: 180
+            policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+          # Every 10 minutes, it can scale down 1 pod at a time if CPU stays below 600 for 1 minute
+          scaleDown:
+            stabilizationWindowSeconds: 600
+            policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 60

@@ -1,0 +1,9 @@
+[
+  {
+    "mtp_dir": "output",
+    "out_dir": "tmp/rendered",
+    "envs_dirs": [
+      "test/data"
+    ]
+  }
+]

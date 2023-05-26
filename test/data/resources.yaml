@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: resources
+  namespace: default
+data:
+  vector-gen0_requests-cpu: 2
+  vector-gen0_requests-memory: 4Gi
+  vector-gen0_limits-cpu: 16
+  vector-gen0_limits-memory: 32Gi
+  vector-gen0_min-replicas: 3
+  vector-gen0_max-replicas: 10

@@ -63,6 +63,11 @@ pipeline {
     }
   }
   stages {
+    stage('Setup') {
+      steps {
+        sh 'make release-tool'
+      }
+    }
     stage('Check'){
       parallel {
         stage('Check'){
@@ -83,6 +88,12 @@ pipeline {
     }
     stage('Lint and Test'){
       parallel {
+        stage('Lint and test release'){
+          steps {
+            sh './release-tool lint'
+            sh './release-tool test'
+          }
+        }
         stage('Lint'){
           steps {
             sh """
@@ -126,11 +137,10 @@ pipeline {
         }
       }
     }
-    stage('Build image and publish') {
+    stage('Build and publish image') {
       when {
         branch pattern: "(v\\d+\\.\\d+.\\d+.\\d+(-[a-z_\\-0-9]+)?)|(feature\\/LOG-\\d+)", comparator: "REGEXP"
       }
-
       steps {
         script {
           def tag = CURRENT_BRANCH
@@ -145,6 +155,19 @@ pipeline {
           )
         }
       }
+    }
+    stage('Build release') {
+      steps {
+          sh './release-tool build'
+      }
+    }
+    stage('Publish release') {
+        when {
+            branch DEFAULT_BRANCH
+        }
+        steps {
+            sh './release-tool publish'
+        }
     }
   }
 }

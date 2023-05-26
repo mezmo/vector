@@ -1,6 +1,28 @@
 # .PHONY: $(MAKECMDGOALS) all
 .DEFAULT_GOAL := help
 
+RELEASE_TOOL_VERSION := $(shell if [ -e deployment/pipeline/release-tool.version ]; then head -1 deployment/pipeline/release-tool.version; else echo latest; fi)
+
+URL_START = https://api.github.com/repos/answerbook/release-tool/releases
+ifeq ($(RELEASE_TOOL_VERSION), latest)
+    RELEASE_TOOL_URL = $(URL_START)/latest
+else
+    RELEASE_TOOL_URL = $(URL_START)/tags/v$(RELEASE_TOOL_VERSION)
+endif
+
+.PHONY: clean-release-tool
+clean-release-tool:
+	-rm release-tool
+
+.SILENT: release-tool
+release-tool:
+	echo downloading release-tool version $(RELEASE_TOOL_VERSION)...
+	curl -sLu :${GITHUB_TOKEN} $(RELEASE_TOOL_URL) | jq .assets[0].url \
+	| xargs curl -sLo release-tool -u :${GITHUB_TOKEN} -H "Accept:application/octet-stream"
+	chmod +x release-tool
+
+reinstall-release-tool: clean-release-tool release-tool
+
 mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 mkfile_dir := $(dir $(mkfile_path))
 

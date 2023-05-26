@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pipeline-env-config
+  namespace: pipeline
+data:
+  reshape-message-in-vector: '1'
