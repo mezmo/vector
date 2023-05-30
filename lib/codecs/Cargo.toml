@@ -16,12 +16,14 @@ lookup = { package = "vector-lookup", path = "../vector-lookup", default-feature
 memchr = { version = "2", default-features = false }
 once_cell = { version = "1.17", default-features = false }
 ordered-float = { version = "3.6.0", default-features = false }
+prometheus-remote-write = { version = "1", branch = "1.x.x" , git = "ssh://git@github.com/answerbook/prometheus-remote-write-rs.git" }
 prost = { version = "0.11.8", default-features = false, features = ["std"] }
 regex = { version = "1.7.3", default-features = false, features = ["std", "perf"] }
 serde = { version = "1", default-features = false, features = ["derive"] }
 serde_json = { version = "1", default-features = false }
 smallvec = { version = "1", default-features = false, features = ["union"] }
 snafu = { version = "0.7.4", default-features = false, features = ["futures"] }
+snap = "1"
 syslog_loose = { version = "0.18", default-features = false, optional = true }
 tokio-util = { version = "0.7", default-features = false, features = ["codec"] }
 tracing = { version = "0.1", default-features = false }
@@ -31,6 +33,7 @@ vector-config = { path = "../vector-config", default-features = false }
 vector-config-common = { path = "../vector-config-common", default-features = false }
 vector-config-macros = { path = "../vector-config-macros", default-features = false }
 vector-core = { path = "../vector-core", default-features = false }
+
 
 [dev-dependencies]
 futures = { version = "0.3", default-features = false }
