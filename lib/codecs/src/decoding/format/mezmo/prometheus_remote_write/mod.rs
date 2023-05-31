@@ -1,7 +1,7 @@
-use bytes::Bytes;
+mod metric_sample_types;
+mod parser;
 
-use prometheus_remote_write::prometheus::WriteRequest;
-use prometheus_remote_write::validation::StaticValidate;
+use bytes::Bytes;
 
 use smallvec::SmallVec;
 use snap::raw::Decoder;
@@ -57,15 +57,14 @@ impl Deserializer for PrometheusRemoteWriteDeserializer {
     ) -> vector_common::Result<SmallVec<[Event; 1]>> {
         // stub
         let bytes = Decoder::new().decompress_vec(&bytes[..])?;
-        let write_req = WriteRequest::try_from(&bytes[..]);
-
-        write_req?.validate()?;
 
         // Convert Prometheus write request metrics into vector_core::event::LogEvent
         // according to our format
         // See lib/vector-core/src/event/metric/mezmo.rs from_metric for an
         // example of converting the internal vector metric format
 
-        unimplemented!()
+        let write_req = parser::parse_write_req(&bytes[..], _log_namespace);
+
+        write_req
     }
 }

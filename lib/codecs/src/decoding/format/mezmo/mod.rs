@@ -6,7 +6,7 @@ use vector_core::{
 
 use crate::decoding::FramingConfig;
 
-mod prom_remote_write;
+mod prometheus_remote_write;
 
 /// Mezmo Deserializers
 #[configurable_component]
@@ -25,7 +25,7 @@ impl MezmoDeserializer {
         use MezmoDeserializer::*;
         match self {
             PrometheusRemoteWrite => {
-                Box::<prom_remote_write::PrometheusRemoteWriteDeserializer>::default()
+                Box::<prometheus_remote_write::PrometheusRemoteWriteDeserializer>::default()
             }
         }
     }
@@ -35,7 +35,7 @@ impl MezmoDeserializer {
         use MezmoDeserializer::*;
         match self {
             PrometheusRemoteWrite => {
-                prom_remote_write::PrometheusRemoteWriteDeserializer::output_type()
+                prometheus_remote_write::PrometheusRemoteWriteDeserializer::output_type()
             }
         }
     }
@@ -45,7 +45,7 @@ impl MezmoDeserializer {
         use MezmoDeserializer::*;
         match self {
             PrometheusRemoteWrite => {
-                prom_remote_write::PrometheusRemoteWriteDeserializer::schema_definition(
+                prometheus_remote_write::PrometheusRemoteWriteDeserializer::schema_definition(
                     log_namespace,
                 )
             }
@@ -57,7 +57,7 @@ impl MezmoDeserializer {
         use MezmoDeserializer::*;
         match self {
             PrometheusRemoteWrite => {
-                prom_remote_write::PrometheusRemoteWriteDeserializer::default_stream_framing()
+                prometheus_remote_write::PrometheusRemoteWriteDeserializer::default_stream_framing()
             }
         }
     }
@@ -67,7 +67,7 @@ impl MezmoDeserializer {
         use MezmoDeserializer::*;
         match self {
             PrometheusRemoteWrite => {
-                prom_remote_write::PrometheusRemoteWriteDeserializer::content_type(framer)
+                prometheus_remote_write::PrometheusRemoteWriteDeserializer::content_type(framer)
             }
         }
     }
