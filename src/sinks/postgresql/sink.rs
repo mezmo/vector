@@ -72,6 +72,16 @@ fn pool_config(connect_url: &str, max_pool_size: usize) -> crate::Result<Config>
         }
     }
 
+    let max_pool_size = if max_pool_size == 0 {
+        warn!(
+            "Configuration attempted to set max_pool_size to 0. Using the default of {}",
+            super::config::default_max_pool_size()
+        );
+        super::config::default_max_pool_size()
+    } else {
+        max_pool_size
+    };
+
     conf.pool = Some(PoolConfig::new(max_pool_size));
 
     Ok(conf)

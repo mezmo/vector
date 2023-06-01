@@ -124,7 +124,7 @@ impl Default for PostgreSQLSinkConfig {
     }
 }
 
-const fn default_max_pool_size() -> usize {
+pub(crate) const fn default_max_pool_size() -> usize {
     4
 }
 
