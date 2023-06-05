@@ -717,6 +717,7 @@ sinks-logs-mezmo = [
   "sinks-redis",
   "sinks-vector",
   "sinks-postgresql",
+  "sinks-sumo_logic"
 ]
 sinks-metrics = [
   "sinks-appsignal",
@@ -732,7 +733,7 @@ sinks-metrics = [
   "sinks-statsd",
   "sinks-vector",
   "sinks-splunk_hec",
-  "sinks-postgresql"
+  "sinks-postgresql",
 ]
 sinks-metrics-mezmo = [
   "sinks-aws_cloudwatch_metrics",
@@ -791,6 +792,7 @@ sinks-statsd = ["sinks-utils-udp", "tokio-util/net"]
 sinks-utils-udp = []
 sinks-vector = ["sinks-utils-udp", "dep:tonic", "protobuf-build"]
 sinks-websocket = ["dep:tokio-tungstenite"]
+sinks-sumo_logic = []
 sinks-webhdfs = ["dep:opendal"]
 
 # Datadog integration
@@ -847,6 +849,7 @@ all-integration-tests = [
   "pulsar-integration-tests",
   "redis-integration-tests",
   "splunk-integration-tests",
+  "sumo-logic-integration-tests",
   "dnstap-integration-tests",
   "webhdfs-integration-tests",
 ]
@@ -909,6 +912,7 @@ prometheus-integration-tests = ["sinks-prometheus", "sources-prometheus", "sinks
 pulsar-integration-tests = ["sinks-pulsar"]
 redis-integration-tests = ["sinks-redis", "sources-redis"]
 splunk-integration-tests = ["sinks-splunk_hec"]
+sumo-logic-integration-tests = ["sinks-sumo_logic"]
 dnstap-integration-tests = ["sources-dnstap", "dep:bollard"]
 webhdfs-integration-tests = ["sinks-webhdfs"]
 disable-resolv-conf = []

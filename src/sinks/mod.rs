@@ -98,6 +98,8 @@ pub mod socket;
 pub mod splunk_hec;
 #[cfg(feature = "sinks-statsd")]
 pub mod statsd;
+#[cfg(feature = "sinks-sumo_logic")]
+pub mod sumo_logic;
 #[cfg(feature = "sinks-vector")]
 pub mod vector;
 #[cfg(feature = "sinks-webhdfs")]
@@ -396,6 +398,11 @@ pub enum Sinks {
     #[configurable(metadata(docs::label = "Statsd"))]
     Statsd(statsd::StatsdSinkConfig),
 
+    /// Sumo Logic
+    #[cfg(feature = "sinks-sumo_logic")]
+    #[configurable(metadata(docs::label = "Sumo Logic Logs"))]
+    SumoLogic(sumo_logic::config::SumoLogicSinkConfig),
+
     /// Test (adaptive concurrency).
     #[cfg(all(test, feature = "sources-demo_logs"))]
     #[configurable(metadata(docs::label = ""))]
@@ -550,6 +557,8 @@ impl NamedComponent for Sinks {
             Self::SplunkHecMetrics(config) => config.get_component_name(),
             #[cfg(feature = "sinks-statsd")]
             Self::Statsd(config) => config.get_component_name(),
+            #[cfg(feature = "sinks-sumo_logic")]
+            Self::SumoLogic(config) => config.get_component_name(),
             #[cfg(all(test, feature = "sources-demo_logs"))]
             Self::TestArc(config) => config.get_component_name(),
             #[cfg(test)]
