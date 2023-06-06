@@ -1,0 +1,45 @@
+{
+  "name": "vector",
+  "version": "1.0.0",
+  "description": "Vector is a high-performance, end-to-end (agent & aggregator) observability data pipeline",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/answerbook/vector.git"
+  },
+  "scripts": {
+    "release": "semantic-release",
+    "release:dry": "semantic-release --no-ci --dry-run --branches=${BRANCH_NAME:-master}"
+  },
+  "release": {
+    "branches": [
+      "master"
+    ],
+    "extends": [
+      "@answerbook/release-config-logdna"
+    ],
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      [
+        "@semantic-release/changelog",
+        {
+          "changelogFile": "MEZMO_CHANGELOG.md"
+        }
+      ],
+      [
+        "@semantic-release/git",
+        {
+          "assets": [
+            "package.json",
+            "MEZMO_CHANGELOG.md",
+            "!**/node_modules/**"
+          ]
+        }
+      ]
+    ]
+  },
+  "devDependencies": {
+    "@answerbook/release-config-logdna": "^2.0.0",
+    "semantic-release": "^19.0.5"
+  }
+}

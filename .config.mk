@@ -1,3 +1,2 @@
 APP_NAME=vector
-APP_VERSION=v0.29.0.8
-ALWAYS_TIMESTAMP_VERSION=true
+APP_VERSION:=$(shell jq -r .version package.json | tr -d v)

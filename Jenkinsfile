@@ -16,7 +16,14 @@ def CREDS = [
   string(
     credentialsId: 'github-api-token',
     variable: 'GITHUB_TOKEN'
-  )
+  ),
+  aws(credentialsId: 'aws',
+    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'),
+]
+
+def NPMRC = [
+    configFile(fileId: 'npmrc', variable: 'NPM_CONFIG_USERCONFIG')
 ]
 
 pipeline {
@@ -89,7 +96,22 @@ pipeline {
     stage('Lint and Test'){
       parallel {
         stage('Lint and test release'){
+          tools {
+            nodejs 'NodeJS 16'
+          }
+          environment {
+            GIT_BRANCH = "${CURRENT_BRANCH}"
+            // This is not populated on PR builds and is needed for the release dry runs
+            BRANCH_NAME = "${CURRENT_BRANCH}"
+            CHANGE_ID = ""
+          }
           steps {
+            script {
+              configFileProvider(NPMRC) {
+                sh 'npm ci'
+                sh 'npm run release:dry'
+              }
+            }
             sh './release-tool lint'
             sh './release-tool test'
           }
@@ -137,16 +159,13 @@ pipeline {
         }
       }
     }
-    stage('Build and publish image') {
+    stage('Feature build and publish') {
       when {
-        branch pattern: "(v\\d+\\.\\d+.\\d+.\\d+(-[a-z_\\-0-9]+)?)|(feature\\/LOG-\\d+)", comparator: "REGEXP"
+        branch pattern: "(feature\\/LOG-\\d+)", comparator: "REGEXP"
       }
       steps {
         script {
-          def tag = CURRENT_BRANCH
-          if (CURRENT_BRANCH ==~ /feature\/LOG-\d+/) {
-            tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
-          }
+          def tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
           buildx.build(
             project: PROJECT_NAME
           , push: true
@@ -154,20 +173,37 @@ pipeline {
           , dockerfile: "distribution/docker/mezmo/Dockerfile"
           )
         }
+        sh './release-tool clean'
+        sh './release-tool build'
+        sh './release-tool publish'
       }
     }
-    stage('Build release') {
+    stage('Release and publish') {
+      when {
+        branch DEFAULT_BRANCH
+      }
+      tools {
+        nodejs 'NodeJS 16'
+      }
       steps {
-          sh './release-tool build'
+        script {
+          configFileProvider(NPMRC) {
+            sh 'npm ci'
+            sh 'npm run release'
+          }
+
+          def tag = CURRENT_BRANCH
+          buildx.build(
+            project: PROJECT_NAME
+          , push: true
+          , tags: [tag]
+          , dockerfile: "distribution/docker/mezmo/Dockerfile"
+          )
+        }
+        sh './release-tool clean'
+        sh './release-tool build'
+        sh './release-tool publish'
       }
-    }
-    stage('Publish release') {
-        when {
-            branch DEFAULT_BRANCH
-        }
-        steps {
-            sh './release-tool publish'
-        }
     }
   }
 }
