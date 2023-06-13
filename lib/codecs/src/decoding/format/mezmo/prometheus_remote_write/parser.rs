@@ -584,7 +584,7 @@ mod test {
 
         let out = out_writer.into_inner();
 
-        let ret = parse_write_req(&out, LogNamespace::Legacy).expect("Failed to parse");
+        let ret = parse_write_req(&out[1..], LogNamespace::Legacy).expect("Failed to parse");
         assert_eq!(ret.len(), 1);
     }
 }

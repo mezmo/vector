@@ -1332,7 +1332,7 @@ mod integration_test {
             let producer: FutureProducer = client_config(None);
 
             // valid protobuf
-            let expected_encoded = b"L\n1\n\x13\n\x08__name__\x12\x07unknown\n\x18\n\ntest_label\x12\ntest_value\x12\0\x1a\x17\x08\x01\x12\x07unknown\"\x04help*\x04unit";
+            let expected_encoded = b"\n1\n\x13\n\x08__name__\x12\x07unknown\n\x18\n\ntest_label\x12\ntest_value\x12\0\x1a\x17\x08\x01\x12\x07unknown\"\x04help*\x04unit";
             let expected_compressed = snap::raw::Encoder::new()
                 .compress_vec(expected_encoded)
                 .expect("failed to compress");

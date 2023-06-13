@@ -16,7 +16,7 @@ lookup = { package = "vector-lookup", path = "../vector-lookup", default-feature
 memchr = { version = "2", default-features = false }
 once_cell = { version = "1.17", default-features = false }
 ordered-float = { version = "3.6.0", default-features = false }
-prometheus-remote-write = { version = "1.1", tag =  "v1.1.1", git = "ssh://git@github.com/answerbook/prometheus-remote-write-rs.git" }
+prometheus-remote-write = { version = "1.1", tag =  "v1.1.2", git = "ssh://git@github.com/answerbook/prometheus-remote-write-rs.git" }
 prost = { version = "0.11.8", default-features = false, features = ["std"] }
 regex = { version = "1.7.3", default-features = false, features = ["std", "perf"] }
 serde = { version = "1", default-features = false, features = ["derive"] }

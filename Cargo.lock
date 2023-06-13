@@ -6590,8 +6590,8 @@ dependencies = [
 
 [[package]]
 name = "prometheus-remote-write"
-version = "1.1.1"
-source = "git+ssh://git@github.com/answerbook/prometheus-remote-write-rs.git?tag=v1.1.1#dc6e117a31e1fe65fd2052e194457b3b3200209b"
+version = "1.1.2"
+source = "git+ssh://git@github.com/answerbook/prometheus-remote-write-rs.git?tag=v1.1.2#1ad7d85e8790499a8413d8a903acdd69f1cb943b"
 dependencies = [
  "bytes 1.4.0",
  "combine 4.6.6",
