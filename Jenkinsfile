@@ -192,7 +192,11 @@ pipeline {
             sh 'npm run release'
           }
 
-          def tag = CURRENT_BRANCH
+          def tag = sh (
+            script: "./release-tool debug-RELEASE_VERSION",
+            returnStdout: true
+          ).split(' = ')[1].trim()
+
           buildx.build(
             project: PROJECT_NAME
           , push: true
