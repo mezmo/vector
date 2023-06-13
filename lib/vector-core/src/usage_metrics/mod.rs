@@ -460,7 +460,7 @@ fn start_publishing_metrics_with_flusher(
                         break;
                     },
                     Some(message) = rx.recv() => {
-                        let mut value = aggregated.entry(message.key).or_default();
+                        let value = aggregated.entry(message.key).or_default();
                         value.total_count += message.events;
                         value.total_size += message.total_size;
                         event_count += message.events;
