@@ -2045,6 +2045,7 @@ dependencies = [
  "indoc",
  "memchr",
  "once_cell",
+ "opentelemetry-rs",
  "ordered-float 3.6.0",
  "prometheus-remote-write",
  "prost",
@@ -2184,7 +2185,7 @@ dependencies = [
  "crossbeam-utils",
  "futures 0.3.28",
  "hdrhistogram",
- "humantime",
+ "humantime 2.1.0",
  "prost-types",
  "serde",
  "serde_json",
@@ -3085,6 +3086,19 @@ checksum = "62a61b2faff777e62dbccd7f82541d873f96264d050c5dd7e95194f79fc4de29"
 
 [[package]]
 name = "env_logger"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44533bbbb3bb3c1fa17d9f2e4e38bbbaf8396ba82193c4cb1b6445d711445d36"
+dependencies = [
+ "atty",
+ "humantime 1.3.0",
+ "log",
+ "regex",
+ "termcolor",
+]
+
+[[package]]
+name = "env_logger"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a19187fea3ac7e84da7dacf48de0c45d63c6a76f9490dae389aead16c243fce3"
@@ -3099,7 +3113,7 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85cdab6a89accf66733ad5a1693a4dcced6aeff64602b634530dd73c1f3ee9f0"
 dependencies = [
- "humantime",
+ "humantime 2.1.0",
  "is-terminal",
  "log",
  "regex",
@@ -4050,6 +4064,15 @@ name = "httpdate"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
+
+[[package]]
+name = "humantime"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df004cfca50ef23c36850aaaa59ad52cc70d0e90243c3c7737a4dd32dc7a3c4f"
+dependencies = [
+ "quick-error 1.2.3",
+]
 
 [[package]]
 name = "humantime"
@@ -5918,6 +5941,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry-rs"
+version = "1.1.0"
+source = "git+ssh://git@github.com/answerbook/opentelemetry-rs.git?branch=main#c5e9a3ee13680893643c85e0bf65c656f8c5352f"
+dependencies = [
+ "bytes 1.4.0",
+ "combine 4.6.6",
+ "pb-rs",
+ "quick-protobuf",
+ "thiserror",
+ "url",
+ "walkdir",
+]
+
+[[package]]
 name = "ordered-float"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6051,6 +6088,8 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "354a34df9c65b596152598001c0fe3393379ec2db03ae30b9985659422e2607e"
 dependencies = [
+ "clap 2.34.0",
+ "env_logger 0.7.1",
  "log",
  "nom",
 ]
@@ -6590,8 +6629,8 @@ dependencies = [
 
 [[package]]
 name = "prometheus-remote-write"
-version = "1.1.2"
-source = "git+ssh://git@github.com/answerbook/prometheus-remote-write-rs.git?tag=v1.1.2#1ad7d85e8790499a8413d8a903acdd69f1cb943b"
+version = "1.1.3"
+source = "git+ssh://git@github.com/answerbook/prometheus-remote-write-rs.git?tag=v1.1.3#7d6759ab303cc91aaee66d97901dad78ed2f3572"
 dependencies = [
  "bytes 1.4.0",
  "combine 4.6.6",
@@ -10045,6 +10084,7 @@ dependencies = [
  "noisy_float",
  "once_cell",
  "openssl",
+ "opentelemetry-rs",
  "ordered-float 3.6.0",
  "parking_lot",
  "pin-project",

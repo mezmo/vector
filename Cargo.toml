@@ -617,6 +617,7 @@ transforms-metrics = [
   "transforms-remap",
   "transforms-tag_cardinality_limit",
   "transforms-throttle",
+  "transforms-protobuf_to_metric",
 ]
 transforms-metrics-mezmo = [
   "transforms-filter",
@@ -645,6 +646,7 @@ transforms-route = []
 transforms-sample = []
 transforms-tag_cardinality_limit = ["dep:bloom", "dep:hashbrown"]
 transforms-throttle = ["dep:governor"]
+transforms-protobuf_to_metric = []
 
 # Sinks (Upstream)
 # sinks = ["sinks-logs", "sinks-metrics"]

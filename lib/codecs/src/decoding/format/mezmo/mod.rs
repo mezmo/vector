@@ -6,17 +6,20 @@ use vector_core::{
 
 use crate::decoding::FramingConfig;
 
+pub mod open_telemetry;
 mod prometheus_remote_write;
 
 /// Mezmo Deserializers
 #[configurable_component]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 #[serde(tag = "encoding", rename_all = "snake_case")]
 #[configurable(metadata(docs::enum_tag_description = "Mezmo Deserializer variants"))]
 pub enum MezmoDeserializer {
     /// Prometheus Remote Write config
-    #[default]
     PrometheusRemoteWrite,
+
+    /// Open Telemetry Metrics config
+    OpenTelemetryMetrics,
 }
 
 impl MezmoDeserializer {
@@ -26,6 +29,9 @@ impl MezmoDeserializer {
         match self {
             PrometheusRemoteWrite => {
                 Box::<prometheus_remote_write::PrometheusRemoteWriteDeserializer>::default()
+            }
+            OpenTelemetryMetrics => {
+                Box::<open_telemetry::OpenTelemetryMetricDeserializer>::default()
             }
         }
     }
@@ -37,6 +43,7 @@ impl MezmoDeserializer {
             PrometheusRemoteWrite => {
                 prometheus_remote_write::PrometheusRemoteWriteDeserializer::output_type()
             }
+            OpenTelemetryMetrics => open_telemetry::OpenTelemetryMetricDeserializer::output_type(),
         }
     }
 
@@ -49,6 +56,9 @@ impl MezmoDeserializer {
                     log_namespace,
                 )
             }
+            OpenTelemetryMetrics => {
+                open_telemetry::OpenTelemetryMetricDeserializer::schema_definition(log_namespace)
+            }
         }
     }
 
@@ -59,6 +69,9 @@ impl MezmoDeserializer {
             PrometheusRemoteWrite => {
                 prometheus_remote_write::PrometheusRemoteWriteDeserializer::default_stream_framing()
             }
+            OpenTelemetryMetrics => {
+                open_telemetry::OpenTelemetryMetricDeserializer::default_stream_framing()
+            }
         }
     }
 
@@ -68,6 +81,9 @@ impl MezmoDeserializer {
         match self {
             PrometheusRemoteWrite => {
                 prometheus_remote_write::PrometheusRemoteWriteDeserializer::content_type(framer)
+            }
+            OpenTelemetryMetrics => {
+                open_telemetry::OpenTelemetryMetricDeserializer::content_type(framer)
             }
         }
     }

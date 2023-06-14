@@ -33,7 +33,7 @@ vector-config = { path = "../vector-config", default-features = false }
 vector-config-common = { path = "../vector-config-common", default-features = false }
 vector-config-macros = { path = "../vector-config-macros", default-features = false }
 vector-core = { path = "../vector-core", default-features = false }
-
+opentelemetry-rs = { version = "1", branch = "main" , git = "ssh://git@github.com/answerbook/opentelemetry-rs.git" }
 
 [dev-dependencies]
 futures = { version = "0.3", default-features = false }
