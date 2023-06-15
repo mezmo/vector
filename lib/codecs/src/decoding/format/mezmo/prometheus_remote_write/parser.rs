@@ -25,9 +25,6 @@ use super::metric_sample_types::{
     BasicMetricValue, Counter, Gauge, HistogramBucketValue, HistogramMetricValue,
     SummaryMetricValue, SummaryQuantileValue, Untyped,
 };
-pub const METRIC_NAME_LABEL: &str = "__name__";
-pub const LE_LABEL: &str = "le";
-pub const QUANTILE_LABEL: &str = "quantile";
 
 #[derive(Debug, snafu::Snafu)]
 pub enum ParseError {
@@ -73,6 +70,44 @@ fn try_f64_to_u64(f: f64) -> Result<u64, ParseError> {
     }
 }
 
+#[derive(Debug, Eq, Ord, PartialOrd, PartialEq, Hash)]
+enum GroupingStrategy<'a> {
+    HistogramBucket(Cow<'a, str>),
+    HistogramSum,
+    HistogramCount,
+    SummaryQuantile(Cow<'a, str>),
+    SummarySum,
+    SummaryCount,
+    Counter,
+    Gauge,
+    Untyped,
+}
+
+impl<'a> GroupingStrategy<'a> {
+    fn from_basic_type(mt: &MetricType) -> Self {
+        match mt {
+            MetricType::COUNTER => Self::Counter,
+            MetricType::GAUGE => Self::Gauge,
+            _ => Self::Untyped,
+        }
+    }
+
+    fn new_group_map(&self) -> TypedSampleGroupMap<'a> {
+        use GroupingStrategy::*;
+        match self {
+            HistogramBucket(_) | HistogramSum | HistogramCount => {
+                TypedSampleGroupMap::new(GroupedSampleType::Histogram)
+            }
+            SummaryQuantile(_) | SummarySum | SummaryCount => {
+                TypedSampleGroupMap::new(GroupedSampleType::Summary)
+            }
+            Counter => TypedSampleGroupMap::new(GroupedSampleType::Counter),
+            Gauge => TypedSampleGroupMap::new(GroupedSampleType::Gauge),
+            Untyped => TypedSampleGroupMap::new(GroupedSampleType::Untyped),
+        }
+    }
+}
+
 #[derive(Ord, PartialOrd, Eq, PartialEq, Hash)]
 struct SampleGrouping<'a> {
     name: Cow<'a, str>,
@@ -88,7 +123,7 @@ enum GroupedSampleType {
 }
 
 #[derive(Ord, PartialOrd, Debug, Eq, Hash, PartialEq)]
-pub struct SampleGroupKey<'a> {
+struct SampleGroupKey<'a> {
     pub timestamp: Option<i64>,
     pub labels: &'a [Label<'a>],
 }
@@ -347,52 +382,14 @@ fn process_samples<'a, 's>(
     Ok(())
 }
 
-#[derive(Debug, Eq, Ord, PartialOrd, PartialEq, Hash)]
-enum GroupingStrategy<'a> {
-    HistogramBucket(Cow<'a, str>),
-    HistogramSum,
-    HistogramCount,
-    SummaryQuantile(Cow<'a, str>),
-    SummarySum,
-    SummaryCount,
-    Counter,
-    Gauge,
-    Untyped,
-}
-
-impl<'a> GroupingStrategy<'a> {
-    fn from_basic_type(mt: &MetricType) -> Self {
-        match mt {
-            MetricType::COUNTER => Self::Counter,
-            MetricType::GAUGE => Self::Gauge,
-            _ => Self::Untyped,
-        }
-    }
-
-    fn new_group_map(&self) -> TypedSampleGroupMap<'a> {
-        use GroupingStrategy::*;
-        match self {
-            HistogramBucket(_) | HistogramSum | HistogramCount => {
-                TypedSampleGroupMap::new(GroupedSampleType::Histogram)
-            }
-            SummaryQuantile(_) | SummarySum | SummaryCount => {
-                TypedSampleGroupMap::new(GroupedSampleType::Summary)
-            }
-            Counter => TypedSampleGroupMap::new(GroupedSampleType::Counter),
-            Gauge => TypedSampleGroupMap::new(GroupedSampleType::Gauge),
-            Untyped => TypedSampleGroupMap::new(GroupedSampleType::Untyped),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct MetricMetadataGroups<'a>(BTreeMap<Cow<'a, str>, MetricType>);
+#[derive(Debug, Default)]
+pub(crate) struct MetricMetadataGroups<'a>(BTreeMap<Cow<'a, str>, MetricType>);
 
 // and we'll implement FromIterator
 impl<'a> std::iter::FromIterator<&'a MetricMetadata<'a>> for MetricMetadataGroups<'a> {
     fn from_iter<I: IntoIterator<Item = &'a MetricMetadata<'a>>>(iter: I) -> Self {
         iter.into_iter().fold(
-            MetricMetadataGroups::new(),
+            MetricMetadataGroups::default(),
             |mut acc,
              MetricMetadata {
                  type_pb,
@@ -437,6 +434,9 @@ impl<'a> MetricMetadataGroups<'a> {
         name: String,
     ) -> Result<(Cow<'a, str>, GroupingStrategy<'a>), ParseError> {
         use MetricType::*;
+        const LE_LABEL: &str = "le";
+        const QUANTILE_LABEL: &str = "quantile";
+
         let mut name = Cow::from(name);
         let grouping_strategy = if name.ends_with("_bucket") {
             match self.find_and_prep_name(&mut name, 7) {
