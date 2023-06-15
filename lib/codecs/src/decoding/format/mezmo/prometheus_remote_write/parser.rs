@@ -1,8 +1,5 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
-use prometheus_remote_write::prometheus::{
-    Label, MetricMetadata, MetricType, Sample, TimeSeries, WriteRequest,
-};
-use prometheus_remote_write::validation::StaticValidate;
+use prometheus_remote_write::prometheus::{Label, MetricMetadata, MetricType, Sample, TimeSeries};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
@@ -18,8 +15,6 @@ use vector_core::{
         Event, MetricKind,
     },
 };
-
-use vector_core::config::LogNamespace;
 
 use super::metric_sample_types::{
     BasicMetricValue, Counter, Gauge, HistogramBucketValue, HistogramMetricValue,
@@ -56,10 +51,6 @@ pub enum ParseError {
     DuplicateSummarySumSample,
     #[snafu(display("Duplicate Summary Count sample"))]
     DuplicateSummaryCountSample,
-    ProtobufError {
-        #[snafu(source)]
-        source: prometheus_remote_write::Error,
-    },
 }
 
 fn try_f64_to_u64(f: f64) -> Result<u64, ParseError> {
@@ -383,44 +374,46 @@ fn process_samples<'a, 's>(
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct MetricMetadataGroups<'a>(BTreeMap<Cow<'a, str>, MetricType>);
+pub(crate) struct MetricMetadataGroups(BTreeMap<String, MetricType>);
 
 // and we'll implement FromIterator
-impl<'a> std::iter::FromIterator<&'a MetricMetadata<'a>> for MetricMetadataGroups<'a> {
+impl<'a> std::iter::FromIterator<&'a MetricMetadata<'a>> for MetricMetadataGroups {
     fn from_iter<I: IntoIterator<Item = &'a MetricMetadata<'a>>>(iter: I) -> Self {
-        iter.into_iter().fold(
-            MetricMetadataGroups::default(),
-            |mut acc,
-             MetricMetadata {
-                 type_pb,
-                 metric_family_name,
-                 ..
-             }| {
-                acc.insert(metric_family_name.clone(), *type_pb);
-                acc
-            },
-        )
+        let iter = iter.into_iter();
+        let mut ret = MetricMetadataGroups::default();
+        ret.update_from_iter(iter);
+        ret
     }
 }
 
-impl<'a> MetricMetadataGroups<'a> {
-    fn new() -> Self {
-        Self(BTreeMap::new())
+impl<'a> MetricMetadataGroups {
+    fn insert(&mut self, metric_family_name: Cow<'a, str>, type_pb: MetricType) {
+        self.0.insert(metric_family_name.into(), type_pb);
     }
 
-    fn insert(&mut self, metric_family_name: Cow<'a, str>, type_pb: MetricType) {
-        self.0.insert(metric_family_name.clone(), type_pb);
+    pub fn update_from_iter<I>(&mut self, iter: I)
+    where
+        I: Iterator<Item = &'a MetricMetadata<'a>>,
+    {
+        for MetricMetadata {
+            type_pb,
+            metric_family_name,
+            ..
+        } in iter
+        {
+            self.insert(metric_family_name.clone(), *type_pb);
+        }
     }
 
     fn find_and_prep_name(
-        &self,
+        &'a self,
         name: &mut Cow<'a, str>,
         suffix_len: usize,
     ) -> Option<&MetricType> {
         let len = name.len();
         let prefix = &name[..len - suffix_len];
         if let Some((k, v)) = self.0.get_key_value(prefix) {
-            *name = k.clone();
+            *name = k.into();
             Some(v)
         } else {
             name.to_mut().truncate(len - suffix_len);
@@ -429,7 +422,7 @@ impl<'a> MetricMetadataGroups<'a> {
     }
 
     fn get_grouping_strategy(
-        &self,
+        &'a self,
         labels: &mut Vec<Label<'a>>,
         name: String,
     ) -> Result<(Cow<'a, str>, GroupingStrategy<'a>), ParseError> {
@@ -486,24 +479,11 @@ fn extract_label<'a>(label: &str, labels: &mut Vec<Label<'a>>) -> Option<Label<'
         .map(|name_index| labels.remove(name_index))
 }
 
-pub fn parse_write_req(
-    bytes: &[u8],
-    _log_namespace: LogNamespace,
-) -> vector_common::Result<SmallVec<[Event; 1]>> {
-    let mut write_req = WriteRequest::try_from(bytes)?;
-
-    write_req
-        .validate()
-        .map_err(|e| ParseError::ProtobufError { source: e })?;
-
-    let WriteRequest {
-        ref metadata,
-        ref mut timeseries,
-    } = write_req;
-
-    // Parse the metadata for groups.
-    let metric_types_lookup: MetricMetadataGroups = metadata.iter().collect();
-
+pub(crate) fn parse_write_req<'a>(
+    timeseries: &mut [TimeSeries<'a>],
+    metric_types_lookup: &'a MetricMetadataGroups,
+) -> Result<SmallVec<[Event; 1]>, ParseError> {
+    const METRIC_NAME_LABEL: &str = "__name__";
     // Group the samples
     let grouped_samples = timeseries.iter_mut().try_fold(
         BTreeMap::new(),
@@ -531,60 +511,4 @@ pub fn parse_write_req(
         metric_group.to_events(metric_group_name, &mut res);
     }
     Ok(res)
-}
-
-#[cfg(test)]
-mod test {
-
-    use super::parse_write_req;
-    use quick_protobuf::Writer;
-    use vector_core::config::LogNamespace;
-
-    use prometheus_remote_write::prometheus::{
-        Label, MetricMetadata, MetricType, Sample, TimeSeries, WriteRequest,
-    };
-
-    use bytes::{BufMut, BytesMut};
-    use std::borrow::Cow;
-
-    #[test]
-    fn test_count() {
-        let out = BytesMut::new();
-        let mut out_writer = out.writer();
-
-        let test_label = Label {
-            name: Cow::Borrowed("__name__"),
-            value: Cow::Borrowed("unknown"),
-        };
-
-        let message = WriteRequest {
-            timeseries: vec![TimeSeries {
-                exemplars: vec![],
-                histograms: vec![],
-                labels: vec![
-                    test_label.clone(),
-                    Label {
-                        name: Cow::Borrowed("test_label"),
-                        value: Cow::Borrowed("test_value"),
-                    },
-                ],
-                samples: vec![Sample::default()],
-            }],
-            metadata: vec![MetricMetadata {
-                help: Cow::from("help"),
-                metric_family_name: Cow::from("unknown"),
-                type_pb: MetricType::COUNTER,
-                unit: Cow::from("unit"),
-            }],
-        };
-        {
-            let mut writer = Writer::new(&mut out_writer);
-            writer.write_message(&message).expect("failed to write");
-        }
-
-        let out = out_writer.into_inner();
-
-        let ret = parse_write_req(&out[1..], LogNamespace::Legacy).expect("Failed to parse");
-        assert_eq!(ret.len(), 1);
-    }
 }
