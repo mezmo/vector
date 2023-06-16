@@ -2640,7 +2640,7 @@ checksum = "8d7439c3735f405729d52c3fbbe4de140eaf938a1fe47d227c27f8254d4302a5"
 [[package]]
 name = "datadog-filter"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "datadog-search-syntax",
  "dyn-clone",
@@ -2650,7 +2650,7 @@ dependencies = [
 [[package]]
 name = "datadog-grok"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "bytes 1.4.0",
  "chrono",
@@ -2674,7 +2674,7 @@ dependencies = [
 [[package]]
 name = "datadog-search-syntax"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "itertools",
  "once_cell",
@@ -4896,7 +4896,7 @@ dependencies = [
 [[package]]
 name = "lookup"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "inherent",
  "lalrpop",
@@ -9629,7 +9629,7 @@ checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
 [[package]]
 name = "value"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "async-graphql",
  "bytes 1.4.0",
@@ -10219,7 +10219,7 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 [[package]]
 name = "vrl"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "bytes 1.4.0",
  "indoc",
@@ -10235,7 +10235,7 @@ dependencies = [
 [[package]]
 name = "vrl-cli"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "clap 4.1.14",
  "exitcode",
@@ -10257,7 +10257,7 @@ dependencies = [
 [[package]]
 name = "vrl-compiler"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "anymap",
  "bytes 1.4.0",
@@ -10280,7 +10280,7 @@ dependencies = [
 [[package]]
 name = "vrl-core"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "bytes 1.4.0",
  "chrono",
@@ -10300,7 +10300,7 @@ dependencies = [
 [[package]]
 name = "vrl-diagnostic"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "codespan-reporting",
  "termcolor",
@@ -10309,7 +10309,7 @@ dependencies = [
 [[package]]
 name = "vrl-parser"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "lalrpop",
  "lalrpop-util",
@@ -10323,7 +10323,7 @@ dependencies = [
 [[package]]
 name = "vrl-stdlib"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "aes",
  "base16",
@@ -10373,6 +10373,7 @@ dependencies = [
  "uuid",
  "value",
  "vrl",
+ "vrl-compiler",
  "vrl-core",
  "vrl-diagnostic",
  "woothee",
@@ -10382,7 +10383,7 @@ dependencies = [
 [[package]]
 name = "vrl-tests"
 version = "0.1.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.3#0b5c7d08de5f023bee452490683abf7540c18072"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.2.0.4#6f6e17ec6fec9aa77eafd3699cd12167556f8197"
 dependencies = [
  "ansi_term",
  "chrono",

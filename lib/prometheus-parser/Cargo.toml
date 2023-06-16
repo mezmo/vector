@@ -16,7 +16,7 @@ prost = "0.11"
 prost-types = "0.11"
 snafu = { version = "0.7" }
 vector-common = { path = "../vector-common", features = ["btreemap"] }
-value = { package = "value", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.2.0.3" }
+value = { package = "value", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.2.0.4" }
 
 [build-dependencies]
 prost-build = "0.11"
