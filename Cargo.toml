@@ -718,9 +718,9 @@ sinks-logs-mezmo = [
   "sinks-new_relic",
   "sinks-pulsar",
   "sinks-redis",
+  "sinks-sumo_logic",
   "sinks-vector",
   "sinks-postgresql",
-  "sinks-sumo_logic"
 ]
 sinks-metrics = [
   "sinks-appsignal",

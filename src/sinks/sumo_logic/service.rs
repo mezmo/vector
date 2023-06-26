@@ -69,10 +69,6 @@ impl DriverResponse for SumoLogicApiResponse {
 
 impl UserLoggingResponse for SumoLogicApiResponse {}
 
-pub fn mezmo_default_category() -> String {
-    String::from("mezmo-pipeline")
-}
-
 #[derive(Clone, Debug)]
 pub struct SumoLogicService {
     pub client: HttpClient,

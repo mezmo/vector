@@ -22,7 +22,7 @@ use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
 use vector_core::tls::{TlsConfig, TlsSettings};
 
-use super::service::{mezmo_default_category, SumoLogicApiResponse};
+use super::service::SumoLogicApiResponse;
 use super::sink::SumoLogicSinkError;
 use super::{encoding::SumoLogicEncoder, service::SumoLogicService, sink::SumoLogicSink};
 
@@ -50,6 +50,19 @@ impl SinkBatchSettings for SumoLogicDefaultBatchSettings {
     const MAX_EVENTS: Option<usize> = Some(DEFAULT_MAX_EVENTS);
     const MAX_BYTES: Option<usize> = Some(DEFAULT_MAX_BYTES);
     const TIMEOUT_SECS: f64 = 1.0;
+}
+
+#[configurable_component]
+#[derive(Clone, Debug, Derivative)]
+#[serde(rename_all = "snake_case")]
+#[derivative(Default)]
+/// The model type to send to Sumo Logic
+pub enum SumoLogicModelType {
+    /// Send logs type
+    #[derivative(Default)]
+    Logs,
+    /// Send metrics type
+    Metrics,
 }
 
 #[configurable_component]
@@ -84,7 +97,7 @@ impl From<&SumoLogicSinkConfig> for SumoLogicCredentials {
     }
 }
 
-/// Configuration for the `sumo_logic` sink.
+/// Configuration for the `sumo_logic_logs` sink.
 #[configurable_component(sink("sumo_logic"))]
 #[derive(Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -96,6 +109,10 @@ pub struct SumoLogicSinkConfig {
     #[configurable(derived)]
     #[serde(default = "mezmo_default_category")]
     pub category: String,
+
+    #[configurable(derived)]
+    #[serde(default)]
+    pub model: SumoLogicModelType,
 
     #[configurable(derived)]
     #[serde(default)]
@@ -147,7 +164,8 @@ impl GenerateConfig for SumoLogicSinkConfig {
         toml::from_str(
             r#"endpoint = "http://localhost:3100"
             compression = "none"
-            category = "mezmo-pipeline""#,
+            category = "mezmo-pipeline"
+            model = "logs""#,
         )
         .unwrap()
     }
@@ -174,12 +192,14 @@ impl SinkConfig for SumoLogicSinkConfig {
             ));
         let credentials = Arc::from(SumoLogicCredentials::from(self));
         let compression = self.compression;
+        let model = self.model.clone();
         let sink = SumoLogicSink {
             service,
             transformer: self.encoding.clone(),
             encoder: SumoLogicEncoder,
             credentials,
             category: self.category.clone(),
+            model,
             compression,
             batcher_settings,
         };
@@ -193,4 +213,8 @@ impl SinkConfig for SumoLogicSinkConfig {
     fn acknowledgements(&self) -> &AcknowledgementsConfig {
         &self.acknowledgements
     }
+}
+
+pub fn mezmo_default_category() -> String {
+    String::from("mezmo-pipeline")
 }
