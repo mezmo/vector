@@ -7,11 +7,13 @@
 use std::collections::BTreeMap;
 use std::{
     collections::{hash_map, HashMap},
+    mem,
     pin::Pin,
     sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
 
+pub use super::merge_strategy::*;
 use crate::{
     conditions::{AnyCondition, Condition},
     config::{DataType, Input, Output, TransformConfig, TransformContext},
@@ -28,8 +30,6 @@ use lookup::lookup_v2::{parse_target_path, OwnedSegment};
 use lookup::{owned_value_path, PathPrefix};
 use serde_with::serde_as;
 use vector_config::configurable_component;
-
-pub use super::merge_strategy::*;
 
 use crate::event::Value;
 use value::kind::Collection;
@@ -342,7 +342,7 @@ impl ReduceState {
             started_at: Instant::now(),
             fields,
             message_fields,
-            metadata,
+            metadata, // Contains finalizers from `event`, not `message_event`
             mezmo_metadata,
             size_estimate,
         }
@@ -487,8 +487,11 @@ impl ReduceState {
         }
     }
 
+    /// Assembles a new event containing the results of this state, including the
+    /// accumulated metadata (ie finalizers). The resulting event will end up in `output` via `flush_into()`
     fn flush(mut self) -> LogEvent {
-        let mut event = LogEvent::new_with_metadata(self.metadata.clone());
+        let metadata_and_finalizers = mem::take(&mut self.metadata);
+        let mut event = LogEvent::new_with_metadata(metadata_and_finalizers);
 
         for (k, v) in self.fields.drain() {
             if let Err(error) = v.insert_into(k, &mut event) {
@@ -569,6 +572,7 @@ impl MezmoReduce {
         })
     }
 
+    /// Add any expired or completed reductions to the output array. Called mostly via an Interval timer.
     fn flush_into(&mut self, output: &mut Vec<Event>) {
         let mut total_states_size_estimate = 0;
         let mut flush_discriminants: BTreeMap<Instant, Discriminant> = BTreeMap::new();
@@ -594,7 +598,7 @@ impl MezmoReduce {
         }
 
         // Flush any stale states, sorted by started_at.
-        // This also emits an event, whereas flush_all_into does not (because they're not "stale")
+        // This also emits a "stale event flushed" event, whereas flush_all_into does not (because they're not "stale")
         for (_, discriminant) in flush_discriminants {
             if let Some(state) = self.reduce_merge_states.remove(&discriminant) {
                 emit!(ReduceStaleEventFlushed);
@@ -612,6 +616,7 @@ impl MezmoReduce {
         }
     }
 
+    /// Adds all accumulated states to the output, regardless of expiry times or start/end conditions.
     fn flush_all_into(&mut self, output: &mut Vec<Event>) {
         // Make sure to sort by `started_at` so that line order is preserved as closely as possible
         let mut sorted_states: Vec<(Discriminant, ReduceState)> =
@@ -679,7 +684,8 @@ impl MezmoReduce {
 
     // Mezmo-specific method. Incoming events from Mezmo will have all customer fields inside
     // the `.message` property. Create a new Event with all those properties at the root level
-    // before sending through reduce.
+    // before sending through reduce. The metadata and finalizers will remain in `event` as `message_event`
+    // is only used for value analysis.
     fn extract_message_event(&mut self, event: &mut LogEvent) -> Event {
         Event::from(
             if let Some(Value::Object(message_object)) = event.remove("message") {
@@ -796,11 +802,15 @@ mod test {
     use crate::transforms::test::create_topology;
     use assay::assay;
     use chrono::{Duration, Utc};
+    use futures_util::FutureExt;
     use serde_json::json;
     use tokio::sync::mpsc;
     use tokio::time::sleep;
     use tokio_stream::wrappers::ReceiverStream;
     use vector_common::btreemap;
+    use vector_common::finalization::{
+        BatchNotifier, BatchStatus, EventFinalizer, EventFinalizers,
+    };
     use vector_core::config::log_schema;
 
     #[test]
@@ -2083,5 +2093,56 @@ mod test {
             }),
             "group_by worked using a nested structure and field paths"
         );
+    }
+
+    #[tokio::test]
+    async fn mezmo_reduce_finalizers_are_handled_correctly() {
+        let reduce = toml::from_str::<MezmoReduceConfig>("")
+            .unwrap()
+            .build(&TransformContext::default())
+            .await
+            .unwrap();
+        let reduce = reduce.into_task();
+
+        let mut e_1 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "num" => 1,
+                "method" => "GET",
+            },
+        });
+
+        // Add a finalizer to be carried through to `flush()`. We'll use the receiver to make sure
+        // this particular finalizer was carried through the reduce process.
+        let (batch, receiver) = BatchNotifier::new_with_receiver();
+        let finalizers = EventFinalizers::new(EventFinalizer::new(batch));
+        e_1.metadata_mut().merge_finalizers(finalizers);
+        let inputs: Vec<Event> = vec![e_1.into()];
+
+        let in_stream = Box::pin(stream::iter(inputs));
+        let out_stream = reduce.transform_events(in_stream);
+
+        // Since ownership changes too many times, we cannot test that the finalizers are "the same" using memory addresses.
+        // Instead, we'll poll the receiver for status updates which should be fired by dropping `res`
+        let res: Vec<_> = out_stream
+            .take_until(sleep(tokio::time::Duration::from_millis(2_000)))
+            .collect()
+            .await;
+
+        assert_eq!(res.len(), 1, "Result count is correct");
+        drop(res);
+
+        // Turn the receiving channel into a stream and take elements from it for 500 ms, collecting into vec
+        let res: Vec<_> = receiver
+            .into_stream()
+            .take_until(sleep(tokio::time::Duration::from_millis(500)))
+            .collect()
+            .await;
+
+        assert_eq!(
+            res.len(),
+            1,
+            "Finalizer sent a message through the receiver"
+        );
+        assert_eq!(res[0], BatchStatus::Delivered, "Batch status is delivered");
     }
 }
