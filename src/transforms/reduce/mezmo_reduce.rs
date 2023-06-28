@@ -740,8 +740,6 @@ impl MezmoReduce {
         } else {
             self.push_or_new_reduce_state(event, message_event, discriminant)
         }
-
-        self.flush_into(output);
     }
 }
 
@@ -792,16 +790,16 @@ impl TaskTransform<Event> for MezmoReduce {
 
 #[cfg(test)]
 mod test {
-    use assay::assay;
-    use serde_json::json;
-    use tokio::sync::mpsc;
-    use tokio_stream::wrappers::ReceiverStream;
-
     use super::*;
     use crate::event::{LogEvent, Value};
     use crate::test_util::components::assert_transform_compliance;
     use crate::transforms::test::create_topology;
+    use assay::assay;
     use chrono::{Duration, Utc};
+    use serde_json::json;
+    use tokio::sync::mpsc;
+    use tokio::time::sleep;
+    use tokio_stream::wrappers::ReceiverStream;
     use vector_common::btreemap;
     use vector_core::config::log_schema;
 
@@ -1563,78 +1561,90 @@ mod test {
         ]
       )]
     async fn mezmo_reduce_state_exceeds_threshold() {
-        let reduce = toml::from_str::<MezmoReduceConfig>(
+        // Since `flush_into()` creates the output event, and it's ONLY called via a tokio interval in `transform()`,
+        // we must test that code path using `assert_transform_compliance`.
+        // Set `flush_period_ms` to fire `flush_into()` regularly, and use `expire_after_ms` to end the test.
+        let reduce_config = toml::from_str::<MezmoReduceConfig>(
             r#"
+                flush_period_ms = 50
+                expire_after_ms = 2000
+
                 [merge_strategies]
                 "key1" = "array"
             "#,
         )
-        .unwrap()
-        .build(&TransformContext::default())
-        .await
         .unwrap();
-        let reduce = reduce.into_task();
 
-        let mut e_1 = LogEvent::default();
-        e_1.insert(
-            log_schema().message_key(),
-            btreemap! {
-                "key1" => "first one",
-                "key2" => "first"
-            },
-        );
-        let mut e_2 = LogEvent::default();
-        e_2.insert(
-            log_schema().message_key(),
-            btreemap! {
-                "key1" => "second one",
-                "key2" => "NOPE"
-            },
-        );
-        let mut e_3 = LogEvent::default();
-        e_3.insert(
-            // This will cause the threshold to be exceeded
-            log_schema().message_key(),
-            btreemap! {
-                "key1" => "and now you're too big!",
-                "key2" => "NEIGH"
-            },
-        );
-        let mut e_4 = LogEvent::default();
-        e_4.insert(
-            // This will be a new event
-            log_schema().message_key(),
-            btreemap! {
-                "key1" => "a new reduce event",
-                "key2" => "yep"
-            },
-        );
+        assert_transform_compliance(async move {
+            let (tx, rx) = mpsc::channel(1);
 
-        let inputs = vec![e_1.into(), e_2.into(), e_3.into(), e_4.into()];
-        let in_stream = Box::pin(stream::iter(inputs));
-        let mut out_stream = reduce.transform_events(in_stream);
+            let (_topology, mut out_stream) =
+                create_topology(ReceiverStream::new(rx), reduce_config).await;
 
-        let output_1 = out_stream.next().await.unwrap().into_log();
-        assert_eq!(
-            output_1,
-            LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
-                    "key1" => json!(["first one", "second one", "and now you're too big!"]),
-                    "key2" => "first",
-                }
-            })
-        );
+            let mut e_1 = LogEvent::default();
+            e_1.insert(
+                log_schema().message_key(),
+                btreemap! {
+                    "key1" => "first one",
+                    "key2" => "first"
+                },
+            );
+            let mut e_2 = LogEvent::default();
+            e_2.insert(
+                log_schema().message_key(),
+                btreemap! {
+                    "key1" => "second one",
+                    "key2" => "NOPE"
+                },
+            );
+            let mut e_3 = LogEvent::default();
+            e_3.insert(
+                // This will cause the threshold to be exceeded
+                log_schema().message_key(),
+                btreemap! {
+                    "key1" => "and now you're too big!",
+                    "key2" => "NEIGH"
+                },
+            );
+            let mut e_4 = LogEvent::default();
+            e_4.insert(
+                // This will be a new event
+                log_schema().message_key(),
+                btreemap! {
+                    "key1" => "a new reduce event",
+                    "key2" => "yep"
+                },
+            );
 
-        let output_2 = out_stream.next().await.unwrap().into_log();
-        assert_eq!(
-            output_2,
-            LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
-                    "key1" => json!(["a new reduce event"]),
-                    "key2" => "yep",
-                }
-            })
-        );
+            for event in vec![e_1.into(), e_2.into(), e_3.into(), e_4.into()] {
+                tx.send(event).await.unwrap();
+                // Space out the events so that the internal timer can call `flush_into` which does the size checking.
+                sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+
+            let output_1 = out_stream.recv().await.unwrap().into_log();
+            assert_eq!(
+                output_1,
+                LogEvent::from(btreemap! {
+                    log_schema().message_key() => btreemap! {
+                        "key1" => json!(["first one", "second one", "and now you're too big!"]),
+                        "key2" => "first",
+                    }
+                })
+            );
+
+            let output_2 = out_stream.recv().await.unwrap().into_log();
+            assert_eq!(
+                output_2,
+                LogEvent::from(btreemap! {
+                    log_schema().message_key() => btreemap! {
+                        "key1" => json!(["a new reduce event"]),
+                        "key2" => "yep",
+                    }
+                })
+            );
+        })
+        .await;
     }
 
     #[assay(
