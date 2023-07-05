@@ -7,6 +7,6 @@ publish = false
 license = "MPL-2.0"
 
 [dependencies]
-lookup = { package = "lookup", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.2.0.6" }
-vrl = { package = "vrl", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.2.0.6" }
-value = { package = "value", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.2.0.6", default-features = false, features = [] }
+lookup = { package = "lookup", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.3.2" }
+vrl = { package = "vrl", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.3.2" }
+value = { package = "value", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.3.2", default-features = false, features = [] }
