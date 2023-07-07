@@ -9808,6 +9808,7 @@ dependencies = [
  "nkeys",
  "nom",
  "notify",
+ "num",
  "num-format",
  "number_prefix",
  "once_cell",
