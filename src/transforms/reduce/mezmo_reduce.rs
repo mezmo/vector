@@ -30,6 +30,7 @@ use lookup::lookup_v2::{parse_target_path, OwnedSegment};
 use lookup::{owned_value_path, PathPrefix};
 use serde_with::serde_as;
 use vector_config::configurable_component;
+use vector_core::config::log_schema;
 
 use crate::event::Value;
 use value::kind::Collection;
@@ -289,21 +290,13 @@ impl ReduceState {
         let mut size_estimate: usize = 0;
 
         // Create a list of root property names after their field path notations are parsed (."my-thing" === "my-thing")
-        // Doing this at a higher level is a mess with lifetimes and the borrow checker that isn't worth it.
+        // This is used only to disallow using merge_strategies on group_by fields below.
         let mut group_by_lookups = vec![];
+        let name = "group_by_lookup";
         for key in group_by {
-            match parse_target_path(key) {
-                Err(e) => {
-                    warn!("Could not create group_by lookup for key {}: {}", key, e);
-                }
-                Ok(target_path) => {
-                    // We only care about root properties, so we can ignore any nested Fields. Take the first one.
-                    if let Some(OwnedSegment::Field(first_field)) = target_path.path.segments.get(0)
-                    {
-                        group_by_lookups.push(first_field.to_string());
-                    }
-                }
-            };
+            if let Some(root_key) = get_root_property_name_from_path(key, name, false) {
+                group_by_lookups.push(root_key);
+            }
         }
 
         let message_fields = if let Value::Object(fields) = value {
@@ -353,6 +346,7 @@ impl ReduceState {
         event: LogEvent,
         message_event: LogEvent,
         strategies: &IndexMap<String, MergeStrategy>,
+        byte_threshold_per_state: usize,
     ) {
         let (value, metadata) = event.into_parts();
         self.metadata.merge(metadata);
@@ -412,8 +406,31 @@ impl ReduceState {
                     entry.get_mut().add(v.clone()).map_or_else(
                         |error| warn!(message = "Failed to merge value.", %error),
                         |_| {
-                            let delta = entry.get().size_estimate() - original_size;
-                            self.size_estimate += delta;
+                            // Watch for negative values which can happen for strategies such as "retain" which can
+                            // have size values decrease (for values like Object)
+                            let i128_estimate: i128 = num::cast(entry.get().size_estimate())
+                                .unwrap_or_else(|| {
+                                    error!("Cannot cast reduced size estimate. Will prompt a flush.");
+                                    i128::MAX
+                                });
+                                let i128_original_size: i128 = num::cast(original_size).unwrap_or_else(|| {
+                                    error!("Cannot cast reduced original size estimate. Will prompt a flush.");
+                                    i128::MAX
+                                });
+                                if i128_estimate == i128::MAX || i128_original_size == i128::MAX {
+                                    // arithmetic boundaries reached, so forcefully flush
+                                    self.size_estimate = byte_threshold_per_state;
+                                    return;
+                                }
+
+                            let delta = i128_estimate - i128_original_size;
+                            if delta > 0 {
+                                let (add_result, not_ok) = self.size_estimate.overflowing_add(delta as usize);
+                                self.size_estimate = if not_ok { byte_threshold_per_state } else {add_result};
+                            } else {
+                                let (sub_result, not_ok) = self.size_estimate.overflowing_sub(delta.unsigned_abs() as usize);
+                                self.size_estimate = if not_ok { byte_threshold_per_state } else {sub_result};
+                            }
                         },
                     );
                 }
@@ -558,15 +575,34 @@ impl MezmoReduce {
             _ => REDUCE_BYTE_THRESHOLD_ALL_STATES_DEFAULT,
         };
 
+        // Strip path notation from merge_strategy fields
+        let mut merge_strategies: IndexMap<String, MergeStrategy> = IndexMap::new();
+        let name = "merge_strategy";
+        for (merge_strategy_key, strategy) in &config.merge_strategies {
+            if let Some(root_key) = get_root_property_name_from_path(merge_strategy_key, name, true)
+            {
+                merge_strategies.insert(root_key, strategy.clone());
+            }
+        }
+
+        // Strip path notation from date_formats
+        let mut date_formats: HashMap<String, String> = HashMap::new();
+        let name = "date_format";
+        for (date_key, format) in &config.date_formats {
+            if let Some(root_key) = get_root_property_name_from_path(date_key, name, true) {
+                date_formats.insert(root_key, format.clone());
+            }
+        }
+
         Ok(MezmoReduce {
             expire_after: config.expire_after_ms,
             flush_period: config.flush_period_ms,
             group_by,
-            merge_strategies: config.merge_strategies.clone(),
+            merge_strategies,
             reduce_merge_states: HashMap::new(),
             ends_when,
             starts_when,
-            mezmo_metadata: MezmoMetadata::new(config.date_formats.clone()),
+            mezmo_metadata: MezmoMetadata::new(date_formats),
             byte_threshold_per_state,
             byte_threshold_all_states,
         })
@@ -646,9 +682,12 @@ impl MezmoReduce {
                 ));
             }
             hash_map::Entry::Occupied(mut entry) => {
-                entry
-                    .get_mut()
-                    .add_event(event, message_event, &self.merge_strategies);
+                entry.get_mut().add_event(
+                    event,
+                    message_event,
+                    &self.merge_strategies,
+                    self.byte_threshold_per_state,
+                );
             }
         }
     }
@@ -730,7 +769,12 @@ impl MezmoReduce {
         } else if ends_here {
             output.push(match self.reduce_merge_states.remove(&discriminant) {
                 Some(mut state) => {
-                    state.add_event(event, message_event, &self.merge_strategies);
+                    state.add_event(
+                        event,
+                        message_event,
+                        &self.merge_strategies,
+                        self.byte_threshold_per_state,
+                    );
                     state.flush().into()
                 }
                 None => ReduceState::new(
@@ -792,6 +836,66 @@ impl TaskTransform<Event> for MezmoReduce {
             .flatten(),
         )
     }
+}
+
+pub fn get_root_property_name_from_path(
+    path_key: &String,
+    name: &str,
+    error_when_nested: bool,
+) -> Option<String> {
+    parse_target_path(path_key).map_or_else(
+        |e| {
+            warn!(
+                "Could not extract root property from {} path {}: {}",
+                name, path_key, e
+            );
+            if path_key.is_empty() {
+                None
+            } else {
+                Some(path_key.to_owned())
+            }
+        },
+        |target_path| {
+            let mut field_count = target_path.path.segments.len();
+            if field_count == 0 {
+                None
+            } else {
+                let mut segments = target_path.path.segments;
+                // Ignore schema prefixes, which are valid VRL but not relevant to reduce
+                if let Some(OwnedSegment::Field(first_element)) = segments.get(0) {
+                    if first_element == log_schema().message_key() {
+                        segments.remove(0);
+                        field_count = segments.len();
+                    }
+                }
+                match segments.get(0) {
+                    Some(OwnedSegment::Field(root_field)) => {
+                        if field_count == 1 {
+                            // Normal result - only a root-level path lookup was provided
+                            Some(root_field.to_owned())
+                        } else if error_when_nested {
+                            // Told to reject nested path properties
+                            error!("Nested path provided for {} path {} when only root-level paths are accepted", name, path_key);
+                            None
+                        } else {
+                            // Nesting found, but told not to error, so return just the root-level field
+                            Some(root_field.to_owned())
+                        }
+                    },
+                    Some(not_supported) => {
+                        warn!("OwnedSegment type not supported {:?} for {}", not_supported, name);
+                        None
+                    },
+                    None => {
+                        // This should only happen if the array index for `get` is out of bounds.
+                        // This can happen iff the key is "message", leaving no other array elements
+                        warn!("Cannot get the zeroith target path element. Out of bounds? {:?}", segments);
+                        None
+                    },
+                }
+            }
+        }
+    )
 }
 
 #[cfg(test)]
@@ -1445,7 +1549,7 @@ mod test {
         let reduce = toml::from_str::<MezmoReduceConfig>(
             r#"
         [date_formats]
-          ".ts" = "%Y-%m-%d %H:%M:%S"
+          '."ts"' = "%Y-%m-%d %H:%M:%S"
           ".epoch" = "%s"
           ".epoch_str" = "%s"
 
@@ -1990,7 +2094,7 @@ mod test {
     async fn mezmo_reduce_group_by_with_nested_object() {
         let reduce = toml::from_str::<MezmoReduceConfig>(
             r#"
-        group_by = ['."user.data".user_ids[0]']
+        group_by = ['."user.data"."user_ids"[0]']
 
         [merge_strategies]
             "method" = "array"
@@ -2144,5 +2248,178 @@ mod test {
             "Finalizer sent a message through the receiver"
         );
         assert_eq!(res[0], BatchStatus::Delivered, "Batch status is delivered");
+    }
+
+    #[tokio::test]
+    async fn mezmo_reduce_merge_strategies_with_path_notation() {
+        let reduce = toml::from_str::<MezmoReduceConfig>(
+            r#"
+            [merge_strategies]
+                ".method" = "array"
+                '."user.data"' = "retain"
+                ".user.data.IGNORED[0]" = "retain"
+            "#,
+        )
+        .unwrap()
+        .build(&TransformContext::default())
+        .await
+        .unwrap();
+        let reduce = reduce.into_task();
+
+        let e_1 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "user.data" => btreemap! {
+                    "some_key" => "first",
+                    "my_int" => 55
+                },
+                "method" => "GET",
+            },
+        });
+
+        let e_2 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "user.data" => btreemap! {
+                    "some_key" => "second",
+                    "my_int" => 1
+                },
+                "method" => "POST",
+            },
+        });
+
+        let e_3 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "user.data" => btreemap! {
+                    "some_key" => "third",
+                    "my_int" => 2
+                },
+                "method" => "POST",
+            },
+        });
+
+        let inputs = vec![e_1.into(), e_2.into(), e_3.into()];
+        let in_stream = Box::pin(stream::iter(inputs));
+        let mut out_stream = reduce.transform_events(in_stream);
+
+        let output_1 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_1,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "user.data" => btreemap! {
+                        "some_key" => "third",
+                        "my_int" => 2
+                    },
+                    "method" => json!(["GET", "POST", "POST"])
+                }
+            }),
+            "merge_strategies works with field paths"
+        );
+    }
+
+    #[test]
+    fn mezmo_reduce_test_get_root_property_name_from_path() {
+        let test_cases = [
+            ("".to_string(), None, false, "empty string"),
+            (".".to_string(), None, false, "dot"),
+            (
+                "does-not-parse".to_string(),
+                Some("does-not-parse".to_string()),
+                false,
+                "invalid characters",
+            ),
+            (
+                "nope!".to_string(),
+                Some("nope!".to_string()),
+                false,
+                "invalid characters",
+            ),
+            (
+                "yep".to_string(),
+                Some("yep".to_string()),
+                false,
+                "root-level property given without dot-notation",
+            ),
+            (
+                ".yep".to_string(),
+                Some("yep".to_string()),
+                false,
+                "dot-notated parent",
+            ),
+            (
+                ".yep.nested".to_string(),
+                Some("yep".to_string()),
+                false,
+                "returns parent when nested errors is false",
+            ),
+            (
+                ".yep.nested".to_string(),
+                None,
+                true,
+                "nested errors true returns none",
+            ),
+            (
+                ".\"special-chars\".nested".to_string(),
+                Some("special-chars".to_string()),
+                false,
+                "quoting special chars returns parent when error_when_nested is false",
+            ),
+            (
+                ".\"special-chars\".nested".to_string(),
+                None,
+                true,
+                "quoting special chars returns None when error_when_nested",
+            ),
+            (
+                "thing[1].nested".to_string(),
+                Some("thing".to_string()),
+                false,
+                "array path returns root when error_when_nested is false",
+            ),
+            (
+                "thing[1].nested".to_string(),
+                None,
+                true,
+                "array path returns None when error_when_nested is true",
+            ),
+            (
+                "message.not_nested".to_string(),
+                Some("not_nested".to_string()),
+                true,
+                "message schema prefix is ignored and root-level property returned",
+            ),
+            (
+                "message.thing.nested".to_string(),
+                None,
+                true,
+                "message schema prefix is ignored and deeply-nested detected",
+            ),
+            (
+                "message.thing.nested".to_string(),
+                Some("thing".to_string()),
+                false,
+                "message schema prefix is ignored and root-level property returned",
+            ),
+            (
+                "message".to_string(),
+                None,
+                true,
+                "message schema without a root-level property returns None",
+            ),
+            (
+                "(root | message).field_name".to_string(),
+                None,
+                true,
+                "Coalescing VRL is not supported",
+            ),
+        ];
+
+        for (input, expected, error_when_nested, desc) in test_cases {
+            let result = get_root_property_name_from_path(&input, desc, error_when_nested);
+            assert_eq!(
+                result, expected,
+                "Failed item: {}, expected: {:?}",
+                desc, expected
+            );
+        }
     }
 }
