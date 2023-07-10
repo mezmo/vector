@@ -14,6 +14,9 @@ use crate::{
     transforms::{FunctionTransform, OutputBuffer, Transform},
 };
 
+use lookup::PathPrefix;
+use vector_core::config::log_schema;
+
 /// The Enum to choose a protobuf vendor.
 #[configurable_component]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -109,10 +112,22 @@ impl FunctionTransform for ProtobufToMetric {
         // Metric generation was successful, publish it
         if let Some(mut events) = buffer {
             while let Some(event) = events.pop() {
-                let log_event = LogEvent::from_parts(
-                    event.into_log().get_message().unwrap().clone(),
-                    log.metadata().clone(),
-                );
+                let event = event.into_log();
+                let mut log_event = LogEvent::new_with_metadata(log.metadata().clone());
+
+                if let Some(event_message) = event.get_message() {
+                    log_event.insert(
+                        (PathPrefix::Event, log_schema().message_key()),
+                        event_message.to_owned(),
+                    );
+                }
+
+                if let Some(timestamp_key) = log_schema().timestamp_key() {
+                    log_event.insert(
+                        (PathPrefix::Event, timestamp_key),
+                        event.get_timestamp().unwrap().clone(),
+                    );
+                }
 
                 output.push(log_event.into());
             }
