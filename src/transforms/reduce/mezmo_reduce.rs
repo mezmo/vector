@@ -117,6 +117,14 @@ struct MezmoMetadata {
 
 impl MezmoMetadata {
     fn new(date_formats: HashMap<String, String>) -> Self {
+        let date_formats = date_formats
+            .into_iter()
+            .map(|(k, v)| match k.strip_prefix(log_schema().message_key()) {
+                Some(stripped) => (stripped.to_string(), v),
+                None => (k, v),
+            })
+            .collect();
+
         Self {
             date_formats,
             date_kinds: Arc::new(RwLock::new(HashMap::new())),
@@ -560,7 +568,15 @@ impl MezmoReduce {
             .as_ref()
             .map(|c| c.build(&cx.enrichment_tables, cx.mezmo_ctx.clone()))
             .transpose()?;
-        let group_by = config.group_by.clone().into_iter().collect();
+        let group_by = config
+            .group_by
+            .clone()
+            .into_iter()
+            .map(|path| match path.strip_prefix(log_schema().message_key()) {
+                Some(stripped) => stripped.to_string(),
+                None => path,
+            })
+            .collect();
 
         let byte_threshold_per_state = match std::env::var("REDUCE_BYTE_THRESHOLD_PER_STATE") {
             Ok(env_var) => env_var
@@ -2313,6 +2329,97 @@ mod test {
                 }
             }),
             "merge_strategies works with field paths"
+        );
+    }
+
+    #[tokio::test]
+    async fn mezmo_reduce_can_handle_message_schema_prefix() {
+        let reduce = toml::from_str::<MezmoReduceConfig>(
+            r#"
+            group_by = ['message."user.data".id']
+
+            [date_formats]
+                "message.epoch" = "%s"
+
+            [merge_strategies]
+                "message.str" = "array"
+            "#,
+        )
+        .unwrap()
+        .build(&TransformContext::default())
+        .await
+        .unwrap();
+        let reduce = reduce.into_task();
+
+        let e_1 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "user.data" => btreemap! {
+                    "id" => 1
+                },
+                "epoch" => "1689077395229",
+                "num" => 5,
+                "str" => "one",
+            },
+        });
+
+        let e_2 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "user.data" => btreemap! {
+                    "id" => 2
+                },
+                "epoch" => "1689077418279",
+                "num" => 10,
+                "str" => "two",
+            },
+        });
+
+        let e_3 = LogEvent::from(btreemap! {
+            log_schema().message_key() => btreemap! {
+                "user.data" => btreemap! {
+                    "id" => 1
+                },
+                "epoch" => "1689077430135",
+                "num" => 15,
+                "str" => "three",
+            },
+        });
+
+        let inputs = vec![e_1.into(), e_2.into(), e_3.into()];
+        let in_stream = Box::pin(stream::iter(inputs));
+        let mut out_stream = reduce.transform_events(in_stream);
+
+        let output_1 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_1,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "user.data" => btreemap! {
+                        "id" => 1
+                    },
+                    "epoch" => "1689077395229",
+                    "epoch_end" => "1689077430135",
+                    "num" => 20,
+                    "str" => vec!["one", "three"],
+                }
+            }),
+            "group_by the first id"
+        );
+
+        let output_2 = out_stream.next().await.unwrap().into_log();
+        assert_eq!(
+            output_2,
+            LogEvent::from(btreemap! {
+                log_schema().message_key() => btreemap! {
+                    "user.data" => btreemap! {
+                        "id" => 2
+                    },
+                    "epoch" => "1689077418279",
+                    "epoch_end" => "1689077418279",
+                    "num" => 10,
+                    "str" => vec!["two"],
+                }
+            }),
+            "group_by the second id"
         );
     }
 
