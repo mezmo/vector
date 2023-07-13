@@ -400,7 +400,7 @@ pub enum Sinks {
 
     /// Sumo Logic
     #[cfg(feature = "sinks-sumo_logic")]
-    #[configurable(metadata(docs::label = "Sumo Logic Logs"))]
+    #[configurable(metadata(docs::label = "Sumo Logic"))]
     SumoLogic(sumo_logic::config::SumoLogicSinkConfig),
 
     /// Test (adaptive concurrency).

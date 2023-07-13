@@ -6,7 +6,7 @@ use vector_core::event::{Event, LogEvent};
 
 use super::{
     config::{SumoLogicCredentials, SumoLogicSinkConfig},
-    sink::LogsModel,
+    models::SumoLogsModel,
 };
 
 #[test]
@@ -24,7 +24,7 @@ fn test_sink_log_event() {
     let event = Event::Log(LogEvent::from(map));
     assert_eq!(event.event_count(), 1);
 
-    let model = LogsModel::try_from(vec![event]).expect("Failed mapping logs into model");
+    let model = SumoLogsModel::try_from(vec![event]).expect("Failed mapping logs into model");
     let logs = model.0[0].get("logs").expect("Logs data store not present");
 
     assert!(logs[0].get("message_0").is_some());

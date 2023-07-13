@@ -2,22 +2,23 @@ use std::io;
 
 use serde::Serialize;
 
-use crate::sinks::sumo_logic::sink::SumoLogicApiModel;
 use crate::sinks::util::encoding::{as_tracked_write, Encoder};
 
+use super::models::SumoLogicModel;
 use super::sink::SumoLogicSinkError;
 
 #[derive(Clone, Debug)]
 pub struct SumoLogicEncoder;
 
-impl Encoder<Result<SumoLogicApiModel, SumoLogicSinkError>> for SumoLogicEncoder {
+impl Encoder<Result<SumoLogicModel, SumoLogicSinkError>> for SumoLogicEncoder {
     fn encode_input(
         &self,
-        input: Result<SumoLogicApiModel, SumoLogicSinkError>,
+        input: Result<SumoLogicModel, SumoLogicSinkError>,
         writer: &mut dyn io::Write,
     ) -> io::Result<usize> {
         let json = match input? {
-            SumoLogicApiModel::Logs(log_api_model) => to_json(&log_api_model)?,
+            SumoLogicModel::Logs(log_model) => to_json(&log_model)?,
+            SumoLogicModel::Metrics(metric_model) => to_json(&metric_model)?,
         };
         let size = as_tracked_write::<_, _, io::Error>(writer, &json, |writer, json| {
             writer.write_all(json)?;

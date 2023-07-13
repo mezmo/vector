@@ -1,7 +1,10 @@
-use std::{collections::HashMap, fmt::Debug, num::NonZeroUsize, sync::Arc};
+use std::{fmt::Debug, num::NonZeroUsize, sync::Arc};
 
 use super::{
-    config::SumoLogicCredentials, encoding::SumoLogicEncoder, service::SumoLogicApiRequest,
+    config::{SumoLogicCredentials, SumoLogicModelType},
+    encoding::SumoLogicEncoder,
+    models::{SumoLogicModel, SumoLogsModel, SumoMetricsModel},
+    service::SumoLogicApiRequest,
 };
 use crate::{
     codecs::Transformer,
@@ -17,7 +20,6 @@ use crate::{
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::{BoxStream, StreamExt};
-use serde::{Deserialize, Serialize};
 use tower::Service;
 use vector_common::{
     finalization::{EventFinalizers, Finalizable},
@@ -78,53 +80,6 @@ impl UserLoggingError for SumoLogicSinkError {
     }
 }
 
-pub enum SumoLogicApiModel {
-    Logs(LogsModel),
-}
-
-type KeyValData = HashMap<String, Value>;
-type DataStore = HashMap<String, Vec<KeyValData>>;
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct LogsModel(pub Vec<DataStore>);
-
-impl LogsModel {
-    pub fn new(logs_array: Vec<KeyValData>) -> Self {
-        let mut logs_store = DataStore::new();
-        logs_store.insert("logs".to_owned(), logs_array);
-        Self(vec![logs_store])
-    }
-}
-
-impl TryFrom<Vec<Event>> for LogsModel {
-    type Error = SumoLogicSinkError;
-
-    fn try_from(buf_events: Vec<Event>) -> Result<Self, Self::Error> {
-        let mut logs_array = vec![];
-        for buf_event in buf_events {
-            if let Event::Log(log) = buf_event {
-                let mut log_model = KeyValData::new();
-                for (k, v) in log.convert_to_fields() {
-                    log_model.insert(k, v.clone());
-                }
-                if log.get("message").is_none() {
-                    log_model.insert(
-                        "message".to_owned(),
-                        Value::from("log from mezmo".to_owned()),
-                    );
-                }
-                logs_array.push(log_model);
-            }
-        }
-
-        if !logs_array.is_empty() {
-            Ok(Self::new(logs_array))
-        } else {
-            Err(SumoLogicSinkError::new("No valid logs to generate"))
-        }
-    }
-}
-
 #[derive(Clone)]
 struct SumoLogicRequestBuilder {
     transformer: Transformer,
@@ -132,11 +87,12 @@ struct SumoLogicRequestBuilder {
     compression: Compression,
     credentials: Arc<SumoLogicCredentials>,
     category: String,
+    model: SumoLogicModelType,
 }
 
 impl RequestBuilder<Vec<Event>> for SumoLogicRequestBuilder {
     type Metadata = EventFinalizers;
-    type Events = Result<SumoLogicApiModel, Self::Error>;
+    type Events = Result<SumoLogicModel, Self::Error>;
     type Encoder = SumoLogicEncoder;
     type Payload = Bytes;
     type Request = SumoLogicApiRequest;
@@ -161,11 +117,16 @@ impl RequestBuilder<Vec<Event>> for SumoLogicRequestBuilder {
         let builder = RequestMetadataBuilder::from_events(&input);
 
         let finalizers = input.take_finalizers();
-        let api_model = Ok(SumoLogicApiModel::Logs(
-            LogsModel::try_from(input).expect("error with log events input"),
-        ));
+        let model: Result<SumoLogicModel, SumoLogicSinkError> = match self.model {
+            SumoLogicModelType::Logs => Ok(SumoLogicModel::Logs(
+                SumoLogsModel::try_from(input).expect("error with log events input"),
+            )),
+            SumoLogicModelType::Metrics => Ok(SumoLogicModel::Metrics(
+                SumoMetricsModel::try_from(input).expect("error with metrics input"),
+            )),
+        };
 
-        (finalizers, builder, api_model)
+        (finalizers, builder, model)
     }
 
     fn build_request(
@@ -192,6 +153,7 @@ pub struct SumoLogicSink<S> {
     pub credentials: Arc<SumoLogicCredentials>,
     pub compression: Compression,
     pub category: String,
+    pub model: SumoLogicModelType,
     pub batcher_settings: BatcherSettings,
 }
 
@@ -210,6 +172,7 @@ where
             compression: self.compression,
             category: self.category,
             credentials: Arc::clone(&self.credentials),
+            model: self.model,
         };
         let protocol = get_http_scheme_from_uri(
             &self
