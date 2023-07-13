@@ -98,6 +98,15 @@ pub struct KafkaSourceConfig {
     /// Leave unset for dynamic membership and broker assignment.
     group_instance_id: Option<String>,
 
+    /// Used in conjunction with `group_instance_id` (and `group_id`). This sets
+    /// the group instance ID to a uniformly distributed, but desterministic
+    /// value. This randomization avoids assigning parititions to only a small
+    /// group of consumers when using the default ("range") or "roundrobin"
+    /// assignment strategies. This is because these strategies
+    /// lexicographically sort the consumers (members) by group instance ID
+    /// (then member ID) before distributing them to the consumers.
+    use_hashed_group_instance_id: Option<bool>,
+
     /// If offsets for consumer group do not exist, set them using this strategy.
     ///
     /// See the [librdkafka documentation](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md) for the `auto.offset.reset` option for further clarification.
@@ -706,7 +715,24 @@ fn create_consumer(config: &KafkaSourceConfig) -> crate::Result<StreamConsumer<C
     }
 
     if let Some(group_instance_id) = &config.group_instance_id {
-        client_config.set("group.instance.id", group_instance_id);
+        if config.use_hashed_group_instance_id.unwrap_or(false) {
+            use sha2::{Digest, Sha224};
+            let mut hasher = Sha224::new();
+            hasher.update(&config.group_id);
+            hasher.update(group_instance_id);
+            // Includes group and group instance IDs for debugging
+            client_config.set(
+                "group.instance.id",
+                format!(
+                    "{:x}-{}-{}",
+                    hasher.finalize(),
+                    config.group_id,
+                    group_instance_id
+                ),
+            );
+        } else {
+            client_config.set("group.instance.id", group_instance_id);
+        }
     }
 
     let consumer = client_config
