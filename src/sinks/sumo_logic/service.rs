@@ -20,7 +20,10 @@ use vector_common::{
 };
 use vector_core::{event::EventFinalizers, stream::DriverResponse};
 
-use super::{config::SumoLogicCredentials, sink::SumoLogicSinkError};
+use super::{
+    config::{SumoLogicCredentials, SumoLogicModelType},
+    sink::SumoLogicSinkError,
+};
 
 #[derive(Clone, Debug)]
 pub struct SumoLogicApiRequest {
@@ -28,6 +31,7 @@ pub struct SumoLogicApiRequest {
     pub category: String,
     pub credentials: Arc<SumoLogicCredentials>,
     pub compression: Compression,
+    pub model: SumoLogicModelType,
     pub metadata: RequestMetadata,
     pub finalizers: EventFinalizers,
 }
@@ -92,7 +96,16 @@ impl Service<SumoLogicApiRequest> for SumoLogicService {
 
         let metadata = request.get_metadata();
 
-        let http_request = Request::post(&uri).header(CONTENT_TYPE, "application/json");
+        let http_request = Request::post(&uri);
+
+        let http_request = match request.model {
+            SumoLogicModelType::Metrics => {
+                // The Sumo Logic API only excepts a few different types of metrics
+                // formats. For now, we are only sending Prometheus metrics.
+                http_request.header(CONTENT_TYPE, "application/vnd.sumologic.prometheus")
+            }
+            _ => http_request.header(CONTENT_TYPE, "application/json"),
+        };
 
         let http_request = if let Some(ca) = request.compression.content_encoding() {
             http_request.header(CONTENT_ENCODING, ca)

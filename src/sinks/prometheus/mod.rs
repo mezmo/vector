@@ -2,7 +2,7 @@ use vector_common::sensitive_string::SensitiveString;
 #[cfg(test)]
 use vector_core::event::Metric;
 
-mod collector;
+pub(crate) mod collector;
 pub(crate) mod exporter;
 pub(crate) mod remote_write;
 

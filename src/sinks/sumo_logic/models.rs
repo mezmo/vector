@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use vector_core::event::{Event, Value};
 
+use crate::sinks::prometheus::collector::{MetricCollector, StringCollector};
+
 use super::sink::SumoLogicSinkError;
 
 type KeyValData = HashMap<String, Value>;
@@ -47,27 +49,51 @@ impl TryFrom<Vec<Event>> for SumoLogsModel {
         if !logs_array.is_empty() {
             Ok(Self::new(logs_array))
         } else {
-            Err(SumoLogicSinkError::new("No valid logs to generate"))
+            Err(SumoLogicSinkError::new("No valid logs to process"))
         }
     }
 }
 
-// The metrics model is not yet implemented but is
-// stubbed out for future development.
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SumoMetricsModel(pub Vec<DataStore>);
+/// The SumoMetricsModel is a vector of structs meant
+/// to conform to the Prometheus metrics format.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct SumoMetricsModel(pub Vec<String>);
 
-#[allow(dead_code)]
 impl SumoMetricsModel {
-    pub fn new(_metrics_array: Vec<KeyValData>) -> Self {
-        unimplemented!()
+    pub fn new(metrics_array: Vec<String>) -> Self {
+        let mut metrics_data_array = vec![];
+        for m in metrics_array {
+            metrics_data_array.push(m)
+        }
+
+        Self(metrics_data_array)
     }
 }
 
 impl TryFrom<Vec<Event>> for SumoMetricsModel {
     type Error = SumoLogicSinkError;
 
-    fn try_from(_buf_events: Vec<Event>) -> Result<Self, Self::Error> {
-        unimplemented!() // will panic if called
+    /// Takes in a Vec<Event> and uses the Prometheus StringCollector type to
+    /// encode a vector of string to initialize the SumoMetricsModel
+    fn try_from(buf_events: Vec<Event>) -> Result<Self, Self::Error> {
+        let mut metrics_array = vec![];
+        for buf_event in buf_events {
+            if let Event::Metric(metric) = buf_event {
+                let mut string_metrics = StringCollector::new();
+
+                // TODO: This currently sets bucktes and quantiles to &[] because when the MetricValue is
+                // MetricValue::AggrogatedHistoram or MetricValue::AggrogatedSummary those values are provided.
+                // In order for this to work for a MetricValue::Distribution we'd need to add a default value for
+                // those fields.
+                string_metrics.encode_metric(metric.namespace(), &[], &[], &metric);
+                metrics_array.push(string_metrics.finish());
+            }
+        }
+
+        if !metrics_array.is_empty() {
+            Ok(SumoMetricsModel::new(metrics_array))
+        } else {
+            Err(SumoLogicSinkError::new("No valid metrics to process"))
+        }
     }
 }
