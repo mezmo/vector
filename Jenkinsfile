@@ -34,7 +34,7 @@ pipeline {
     }
   }
   parameters {
-    string(name: 'SANITY_BUILD', defaultValue: '', description: 'Is this a scheduled sanity build that skips releasing?')
+    string(name: 'SANITY_BUILD', defaultValue: '', description: 'This a scheduled sanity build that skips releasing.')
   }
   triggers {
     parameterizedCron(
@@ -181,6 +181,9 @@ pipeline {
     stage('Release and publish') {
       when {
         branch DEFAULT_BRANCH
+        not {
+          environment name: 'SANITY_BUILD', value: 'true'
+        }
       }
       tools {
         nodejs 'NodeJS 16'
