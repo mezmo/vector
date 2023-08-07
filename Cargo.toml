@@ -510,6 +510,8 @@ sources-logs-mezmo = [
   "sources-mezmo_user_logs",
   "sources-kafka",
   "sources-stdin",
+  "sources-syslog",
+  "sources-splunk_hec",
 ]
 sources-metrics = [
   "sources-apache_metrics",
