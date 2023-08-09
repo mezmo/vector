@@ -271,6 +271,17 @@ impl StartedApplication {
             metrics_tx,
         } = self;
 
+        // LOG-17772: Set a maximum amount of time to wait for configuration reloading before
+        // triggering corrective action. By default, this will wait for 150 seconds / 2.5 minutes.
+        let config_reload_max_sec = std::env::var("CONFIG_RELOAD_MAX_SEC").unwrap_or_else(|_| {
+            warn!("couldn't read value for CONFIG_RELOAD_MAX_SEC env var, default will be used");
+            "150".to_owned()
+        });
+        let config_reload_max_sec = config_reload_max_sec.parse::<usize>().unwrap_or_else(|_| {
+            warn!("failed to parse CONFIG_RELOAD_MAX_SEC value {config_reload_max_sec}, default will be used");
+            150
+        });
+
         let mut graceful_crash = UnboundedReceiverStream::new(graceful_crash_receiver);
 
         let mut signal_handler = signals.handler;
@@ -293,19 +304,30 @@ impl StartedApplication {
                             let mut reload_outcome = ReloadOutcome::NoConfig;
                             let reload_future = topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone()));
                             tokio::pin!(reload_future);
-                            for i in 1.. {
+
+                            let mut reload_future_done = false;
+                            for i in 1..=config_reload_max_sec {
                                 tokio::select! {
                                     _ = tokio::time::sleep(Duration::from_secs(1)) => {
                                         info!("Waiting for topology to be reloaded after {i} secs")
                                     },
                                     outcome = &mut reload_future => {
                                         reload_outcome = outcome;
+                                        reload_future_done = true;
                                         break;
                                     }
                                 }
                             }
 
                             let elapsed = Instant::now() - start;
+
+                            // LOG-17772: If the config reload future doesn't resolve in the allotted
+                            // time, then crash the vector process and allow k8s to respawn the process
+                            // in order to get config reloading to work again.
+                            if !reload_future_done {
+                                emit!(MezmoConfigReload{ elapsed, success: false });
+                                panic!("New topology reload future failed to resolved within the limit.");
+                            }
 
                             match reload_outcome {
                                 ReloadOutcome::NoConfig => {
