@@ -3,7 +3,7 @@ use chrono::Utc;
 use fakedata_generator::gen_ipv4;
 use rand::{thread_rng, Rng};
 
-const APACHE_ERROR_TIME_FORMAT: &str = "%a %b %d %T %Y";
+const APACHE_ERROR_TIME_FORMAT: &str = "%d/%b/%Y:%T %z";
 
 const LOG_LEVELS: [(&str, f32); 3] = [("INFO", 8.0), ("WARN", 0.5), ("ERROR", 1.5)];
 
@@ -42,6 +42,8 @@ const ERROR_MESSAGES: [&str; 8] = [
     "mod_jk child workerEnv in error state 7",
 ];
 
+const MODULE_TYPES: [&str; 4] = ["core", "user", "video", "settings"];
+
 fn error_message(level: impl AsRef<str>) -> &'static str {
     match level.as_ref() {
         "ERROR" => choose(&ERROR_MESSAGES),
@@ -56,8 +58,9 @@ pub fn apache_error_log_line() -> String {
     let tid = thread_rng().gen_range(1000..64000);
     let ip = gen_ipv4();
     let port = thread_rng().gen_range(6000..7999);
+    let module = choose(&MODULE_TYPES);
     format!(
-        "[{}] [{level}] [pid {pid}:tid {tid}] [client {ip}:{port}] {}",
+        "[{}] [{module}:{level}] [pid {pid}:tid {tid}] [client {ip}:{port}] {}",
         Utc::now().format(APACHE_ERROR_TIME_FORMAT),
         error_message(level),
     )
