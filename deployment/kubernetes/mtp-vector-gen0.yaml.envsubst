@@ -81,6 +81,15 @@ spec:
           namespace: pipeline
           key: reshape-message-in-vector
 
+    - name: config_reload_max_sec
+      optional: true
+      default: '150'
+      valueFrom:
+        configMapKeyRef:
+          name: vector
+          namespace: pipeline
+          key: config-reload-max-sec
+
   strTemplates:
   - |
 
@@ -190,6 +199,9 @@ spec:
 
                 - name: MEZMO_RESHAPE_MESSAGE
                   value: "{{{mezmo_reshape_message}}}"
+
+                - name: CONFIG_RELOAD_MAX_SEC
+                  value: "{{{config_reload_max_sec}}}"
 
                 args:
                   - --config-dir
