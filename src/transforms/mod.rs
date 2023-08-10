@@ -25,6 +25,8 @@ pub mod mezmo_log_clustering;
 pub mod mezmo_log_to_metric;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 pub mod mezmo_tag_cardinality_limit;
+#[cfg(feature = "transforms-protobuf_to_log")]
+pub mod protobuf_to_log;
 #[cfg(feature = "transforms-protobuf_to_metric")]
 pub mod protobuf_to_metric;
 #[cfg(feature = "transforms-reduce")]

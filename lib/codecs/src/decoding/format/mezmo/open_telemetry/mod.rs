@@ -1,3 +1,4 @@
+mod log_parser;
 mod metric_parser;
 
 use bytes::Bytes;
@@ -81,5 +82,52 @@ impl Deserializer for OpenTelemetryMetricDeserializer {
         // example of converting the internal vector metric format
 
         metric_parser::parse_metrics_request(&bytes[..])
+    }
+}
+
+/// The OpenTelemetry logs deserializer
+#[derive(Clone, Debug, Default)]
+pub struct OpenTelemetryLogDeserializer;
+
+impl OpenTelemetryLogDeserializer {
+    /// Output type of the Deserializer
+    ///
+    /// OpenTelemetryLogDeserializer returns vector Log types encoding
+    /// Logs in the standard Mezmo format
+    pub fn output_type() -> DataType {
+        DataType::Log
+    }
+
+    /// Schema definition for the Deserializer
+    pub fn schema_definition(log_namespace: LogNamespace) -> schema::Definition {
+        schema::Definition::new_with_default_metadata(
+            value::Kind::object(value::kind::Collection::empty()),
+            [log_namespace],
+        )
+    }
+
+    /// Default Stream Framing for the Deserializer
+    pub fn default_stream_framing() -> FramingConfig {
+        FramingConfig::NewlineDelimited {
+            newline_delimited: Default::default(),
+        }
+    }
+
+    /// Content Type expected by Deserializer
+    pub const fn content_type(_framer: &FramingConfig) -> &'static str {
+        "text/plain"
+    }
+}
+
+// import prometheus remote write types
+impl Deserializer for OpenTelemetryLogDeserializer {
+    fn parse(
+        &self,
+        bytes: Bytes,
+        _log_namespace: LogNamespace,
+    ) -> vector_common::Result<SmallVec<[Event; 1]>> {
+        // Convert Open Telemetry write request logs into vector_core::event::LogEvent
+
+        log_parser::parse_logs_request(&bytes[..])
     }
 }

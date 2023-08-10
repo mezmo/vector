@@ -20,6 +20,9 @@ pub enum MezmoDeserializer {
 
     /// Open Telemetry Metrics config
     OpenTelemetryMetrics,
+
+    /// Open Telemetry Logs config
+    OpenTelemetryLogs,
 }
 
 impl MezmoDeserializer {
@@ -33,6 +36,7 @@ impl MezmoDeserializer {
             OpenTelemetryMetrics => {
                 Box::<open_telemetry::OpenTelemetryMetricDeserializer>::default()
             }
+            OpenTelemetryLogs => Box::<open_telemetry::OpenTelemetryLogDeserializer>::default(),
         }
     }
 
@@ -44,6 +48,7 @@ impl MezmoDeserializer {
                 prometheus_remote_write::PrometheusRemoteWriteDeserializer::output_type()
             }
             OpenTelemetryMetrics => open_telemetry::OpenTelemetryMetricDeserializer::output_type(),
+            OpenTelemetryLogs => open_telemetry::OpenTelemetryLogDeserializer::output_type(),
         }
     }
 
@@ -59,6 +64,9 @@ impl MezmoDeserializer {
             OpenTelemetryMetrics => {
                 open_telemetry::OpenTelemetryMetricDeserializer::schema_definition(log_namespace)
             }
+            OpenTelemetryLogs => {
+                open_telemetry::OpenTelemetryLogDeserializer::schema_definition(log_namespace)
+            }
         }
     }
 
@@ -71,6 +79,9 @@ impl MezmoDeserializer {
             }
             OpenTelemetryMetrics => {
                 open_telemetry::OpenTelemetryMetricDeserializer::default_stream_framing()
+            }
+            OpenTelemetryLogs => {
+                open_telemetry::OpenTelemetryLogDeserializer::default_stream_framing()
             }
         }
     }
@@ -85,6 +96,7 @@ impl MezmoDeserializer {
             OpenTelemetryMetrics => {
                 open_telemetry::OpenTelemetryMetricDeserializer::content_type(framer)
             }
+            OpenTelemetryLogs => open_telemetry::OpenTelemetryLogDeserializer::content_type(framer),
         }
     }
 }
