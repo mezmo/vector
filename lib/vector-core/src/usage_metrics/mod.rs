@@ -11,6 +11,7 @@ use crate::{
     config::log_schema,
     event::EventArray,
     event::{array::EventContainer, MetricValue},
+    usage_metrics::flusher::HttpFlusher,
 };
 use flusher::{DbFlusher, MetricsFlusher, StdErrFlusher};
 
@@ -39,6 +40,7 @@ pub enum ParseError {
 pub enum MetricsPublishingError {
     FlusherError,
     DbEndpointUrlNotSet,
+    AuthNotSetError,
 }
 
 #[derive(PartialEq, Eq, Debug, Hash, Clone, Serialize)]
@@ -402,26 +404,46 @@ pub async fn start_publishing_metrics(
         Duration::from_secs(DEFAULT_FLUSH_INTERVAL_SECS)
     };
 
-    let flusher = get_flusher().await?;
+    let flusher = get_flusher(agg_window).await?;
     start_publishing_metrics_with_flusher(rx, agg_window, flusher);
     Ok(())
 }
 
-async fn get_flusher() -> Result<Arc<dyn MetricsFlusher + Send>, MetricsPublishingError> {
-    let endpoint_url = env::var("MEZMO_METRICS_DB_URL").ok();
+async fn get_flusher(
+    agg_window: Duration,
+) -> Result<Arc<dyn MetricsFlusher + Send>, MetricsPublishingError> {
+    let db_url = env::var("MEZMO_METRICS_DB_URL").ok();
+    let endpoint_url = env::var("MEZMO_METRICS_ENDPOINT_URL").ok();
     let pod_name = env::var("POD_NAME").unwrap_or_else(|_| "not-set".to_string());
 
-    if let Some(endpoint_url) = endpoint_url {
+    if let Some(db_url) = db_url {
         // Allow to be black-box tested
-        if endpoint_url == "log://stderr" {
+        if db_url == "log://stderr" {
             return Ok(Arc::new(StdErrFlusher {}));
         }
 
         return Ok(Arc::new(
-            DbFlusher::new(endpoint_url, &pod_name)
+            DbFlusher::new(db_url, &pod_name)
                 .await
                 .map_err(|_| MetricsPublishingError::FlusherError)?,
         ));
+    }
+
+    if let Some(endpoint_url) = endpoint_url {
+        // Http endpoint used by Pulse
+        let auth_token = env::var("MEZMO_LOCAL_DEPLOY_AUTH_TOKEN").ok();
+        let headers = if let Some(token) = auth_token {
+            HashMap::from([("Authorization".to_string(), format!("Token {token}"))])
+        } else {
+            return Err(MetricsPublishingError::AuthNotSetError);
+        };
+
+        return Ok(Arc::new(HttpFlusher::new(
+            &pod_name,
+            endpoint_url,
+            headers,
+            agg_window,
+        )));
     }
 
     if cfg!(debug_assertions) {

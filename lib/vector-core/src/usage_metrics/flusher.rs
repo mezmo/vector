@@ -2,11 +2,18 @@ use async_trait::async_trait;
 use chrono::Utc;
 use deadpool_postgres::{Config, Pool, PoolConfig, Runtime};
 use futures::future::join_all;
-use std::cmp;
+use http::{header, HeaderName, HeaderValue};
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
+use std::fmt;
+use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
+use std::{cmp, time::Duration};
 use tokio::sync::Mutex;
+use tokio::time::sleep;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::NoTls;
 use url::Url;
@@ -186,6 +193,166 @@ impl MetricsFlusher for DbFlusher {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct HttpFlusher {
+    processor_name: String,
+    client: Client,
+    url: String,
+    headers: HashMap<String, String>,
+    base_delay: Duration,
+    max_delay: Duration,
+}
+
+impl HttpFlusher {
+    pub(crate) fn new(
+        pod_name: &str,
+        url: String,
+        headers: HashMap<String, String>,
+        max_delay: Duration,
+    ) -> Self {
+        let processor_name = format!("app=vector,pod={pod_name},version={VECTOR_VERSION}");
+
+        HttpFlusher {
+            client: Client::new(),
+            processor_name,
+            url,
+            headers,
+            base_delay: Duration::from_millis(200),
+            max_delay,
+        }
+    }
+
+    async fn save_metrics_with_retries(
+        &self,
+        metrics_map: HashMap<UsageMetricsKey, UsageMetricsValue>,
+    ) {
+        let event_ts = Utc::now().timestamp_millis();
+        let metrics: Vec<_> = metrics_map
+            .into_iter()
+            .map(|(k, v)| HttpFlusherRequestBodyItem {
+                event_ts,
+                pipeline_id: k.pipeline_id,
+                component_id: k.component_id,
+                processor: self.processor_name.clone(),
+                total_count: v.total_count,
+                total_size: v.total_size,
+            })
+            .collect();
+
+        let mut attempt = 0;
+        let start = Instant::now();
+        while start.elapsed() < self.max_delay {
+            attempt += 1;
+            match self.http_request(&metrics).await {
+                Ok(_) => {
+                    return;
+                }
+                Err(e) => {
+                    if let &HttpError::Client = &e {
+                        error!("Usage metrics could not be stored due to a client error");
+                        break;
+                    }
+                    if attempt == 1 {
+                        warn!(message = format!(
+                            "Usage metrics could not be stored due to a {:?} on the first attempt, retrying",
+                            e
+                        ));
+                    }
+                    if attempt % 10 == 0 {
+                        error!(
+                            message = format!(
+                                "Usage metrics could not be stored due to a {:?} after {} attempts, retrying",
+                                e,
+                                attempt
+                            )
+                        );
+                    }
+                }
+            }
+            sleep(self.base_delay).await;
+        }
+
+        error!("Usage metrics failed to be stored");
+    }
+
+    async fn http_request(&self, body: &Vec<HttpFlusherRequestBodyItem>) -> Result<(), HttpError> {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(header::USER_AGENT, HeaderValue::from_static("Mezmo Pulse"));
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+
+        for (k, v) in &self.headers {
+            headers.insert(
+                HeaderName::from_str(k).unwrap(),
+                HeaderValue::from_str(v).unwrap(),
+            );
+        }
+
+        // Make the request
+        let resp = self
+            .client
+            .post(&self.url)
+            .headers(headers)
+            .json(body)
+            .send()
+            .await
+            .map_err(|_| HttpError::Connection)?;
+
+        if !resp.status().is_success() {
+            if resp.status().is_client_error() {
+                return Err(HttpError::Client);
+            }
+            if resp.status().is_server_error() {
+                return Err(HttpError::Server);
+            }
+            return Err(HttpError::Connection);
+        }
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl MetricsFlusher for HttpFlusher {
+    async fn save_metrics(&self, metrics_map: HashMap<UsageMetricsKey, UsageMetricsValue>) {
+        let flusher = self.clone();
+        tokio::spawn(async move {
+            // Store metrics in the background to avoid having the caller
+            // await for long periods of time that can cause excessive buffering
+            // of the usage metrics
+            flusher.save_metrics_with_retries(metrics_map).await;
+        });
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct HttpFlusherRequestBodyItem {
+    event_ts: i64,
+    pipeline_id: String,
+    component_id: String,
+    processor: String,
+    total_count: usize,
+    total_size: usize,
+}
+
+enum HttpError {
+    Connection,
+    Client,
+    Server,
+}
+
+impl fmt::Debug for HttpError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HttpError::Connection => write!(f, "Connection error"),
+            HttpError::Client => write!(f, "Client error"),
+            HttpError::Server => write!(f, "Server error"),
+        }
+    }
+}
+
 pub(crate) struct NoopFlusher {}
 
 #[async_trait]
@@ -211,7 +378,17 @@ impl MetricsFlusher for StdErrFlusher {
 
 #[cfg(test)]
 mod tests {
+    use crate::usage_metrics::ComponentKind;
+
     use super::*;
+    use httptest::{
+        matchers::{all_of, json_decoded, request},
+        responders::{cycle, status_code},
+        Expectation, Server,
+    };
+
+    static HTTP_FLUSHER_PATH: &str = "/v1/http-flusher-test";
+    static HTTP_FLUSHER_MAX_DELAY: Duration = Duration::from_millis(400);
 
     #[test]
     fn get_config_test() {
@@ -239,5 +416,83 @@ mod tests {
         assert_eq!(config.user, Some("metrics".to_string()));
         assert_eq!(config.password, Some("A_>BX/WN><ZZ;Bg".to_string()));
         assert_eq!(config.dbname, Some("metrics".to_string()));
+    }
+
+    #[tokio::test]
+    async fn http_flusher_should_not_retry_client_errors() {
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(request::method_path("POST", HTTP_FLUSHER_PATH))
+                .times(1)
+                .respond_with(status_code(403)),
+        );
+
+        let flusher = HttpFlusher {
+            client: Client::new(),
+            processor_name: "test processor".to_string(),
+            url: format!("http://{}{HTTP_FLUSHER_PATH}", server.addr()),
+            headers: HashMap::new(),
+            base_delay: Duration::from_millis(20),
+            max_delay: HTTP_FLUSHER_MAX_DELAY,
+        };
+
+        flusher.save_metrics(HashMap::new()).await;
+        sleep(HTTP_FLUSHER_MAX_DELAY).await;
+        // httptest takes care of assertions
+    }
+
+    #[tokio::test]
+    async fn http_flusher_should_retry_server_errors() {
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(all_of![
+                request::method("POST"),
+                request::path(HTTP_FLUSHER_PATH),
+                request::body(json_decoded(match_values)),
+            ])
+            .times(3)
+            .respond_with(cycle![
+                status_code(500),
+                status_code(501),
+                status_code(200),
+            ]),
+        );
+
+        let flusher = HttpFlusher {
+            client: Client::new(),
+            processor_name: "test processor".to_string(),
+            url: format!("http://{}{HTTP_FLUSHER_PATH}", server.addr()),
+            headers: HashMap::new(),
+            base_delay: Duration::from_millis(20),
+            max_delay: HTTP_FLUSHER_MAX_DELAY,
+        };
+
+        let key = UsageMetricsKey {
+            account_id: "account1".to_string(),
+            pipeline_id: "pipeline1".to_string(),
+            component_id: "component1".to_string(),
+            component_type: "type1".to_string(),
+            component_kind: ComponentKind::Sink,
+        };
+        let value = UsageMetricsValue {
+            total_count: 101,
+            total_size: 12345,
+        };
+        flusher.save_metrics(HashMap::from([(key, value)])).await;
+        sleep(HTTP_FLUSHER_MAX_DELAY).await;
+    }
+
+    fn match_values(v: &Vec<HttpFlusherRequestBodyItem>) -> bool {
+        if v.len() != 1 {
+            return false;
+        }
+
+        let item = &v[0];
+
+        item.pipeline_id == "pipeline1"
+            && item.component_id == "component1"
+            && item.event_ts > 0
+            && item.total_count == 101
+            && item.total_size == 12345
     }
 }

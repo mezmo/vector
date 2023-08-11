@@ -40,6 +40,7 @@ prost-types = { version = "0.11", default-features = false }
 prost = { version = "0.11", default-features = false, features = ["std"] }
 quanta = { version = "0.11.0", default-features = false }
 regex = { version = "1.7.3", default-features = false, features = ["std", "perf"] }
+reqwest = { version = "0.11", features = ["json"] }
 ryu = { version = "1", default-features = false }
 serde = { version = "1.0.159", default-features = false, features = ["derive", "rc"] }
 serde_json = { version = "1.0.95", default-features = false }
@@ -88,6 +89,7 @@ base64 = "0.21.0"
 chrono-tz = { version = "0.8.1", default-features = false }
 criterion = { version = "0.4.0", features = ["html_reports"] }
 env-test-util = "1.0.1"
+httptest = "0.15.4"
 quickcheck = "1"
 quickcheck_macros = "1"
 proptest = "1.1"
