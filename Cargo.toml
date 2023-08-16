@@ -611,6 +611,7 @@ transforms-logs-mezmo = [
   "transforms-route",
   "transforms-sample",
   "transforms-throttle",
+  "transforms-mezmo_log_clustering",
 ]
 transforms-metrics = [
   "transforms-aggregate",
@@ -644,6 +645,7 @@ transforms-reduce = []
 transforms-mezmo_reduce = ["transforms-reduce"] # depends on the upstream version for merge_strategies
 transforms-mezmo_aggregate = []
 transforms-mezmo_log_to_metric = []
+transforms-mezmo_log_clustering = ["dep:lru"]
 transforms-mezmo_tag_cardinality_limit = ["dep:bloom", "dep:hashbrown"]
 transforms-remap = []
 transforms-route = []
