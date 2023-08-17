@@ -207,7 +207,10 @@ impl SinkConfig for SumoLogicSinkConfig {
     }
 
     fn input(&self) -> Input {
-        Input::new(DataType::Log)
+        match &self.model {
+            SumoLogicModelType::Metrics => Input::new(DataType::Metric),
+            SumoLogicModelType::Logs => Input::new(DataType::Log),
+        }
     }
 
     fn acknowledgements(&self) -> &AcknowledgementsConfig {

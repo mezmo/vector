@@ -10,7 +10,7 @@ use crate::{
     sinks::util::{encode_namespace, statistic::DistributionStatistic},
 };
 
-pub(super) trait MetricCollector {
+pub(crate) trait MetricCollector {
     type Output;
 
     fn new() -> Self;
@@ -218,7 +218,7 @@ pub(super) trait MetricCollector {
     }
 }
 
-pub(super) struct StringCollector {
+pub(crate) struct StringCollector {
     // BTreeMap ensures we get sorted output, which whilst not required is preferable
     processed: BTreeMap<String, String>,
 }

@@ -140,6 +140,7 @@ impl RequestBuilder<Vec<Event>> for SumoLogicRequestBuilder {
             compression: self.compression,
             category: self.category.clone(),
             payload: payload.into_payload(),
+            model: self.model.clone(),
             metadata,
             finalizers,
         }
