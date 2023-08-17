@@ -213,6 +213,11 @@ impl MezmoUserLog for Option<MezmoContext> {
                     identity,
                 },
             );
+        } else if cfg!(debug_assertions) {
+            // Components that lack a valid component ID (and thus, a valid MezmoContext) will
+            // not emit any user_logs, which is unexpected during testing and difficult to
+            // track down without reading this code. Warn the developer, save their sanity.
+            warn!("A user_log was emitted without a valid component_id or `MezmoContext`")
         }
     }
 }
