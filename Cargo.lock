@@ -9801,6 +9801,7 @@ dependencies = [
  "hostname",
  "http",
  "http-body",
+ "httptest",
  "hyper",
  "hyper-openssl",
  "hyper-proxy",

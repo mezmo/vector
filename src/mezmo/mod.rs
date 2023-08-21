@@ -11,6 +11,8 @@ use vector_core::event::LogEvent;
 pub mod callsite;
 pub mod config;
 pub mod macros;
+#[cfg(feature = "api-client")]
+pub mod remote_task_execution;
 #[allow(dead_code)]
 pub mod user_trace;
 pub mod vrl;

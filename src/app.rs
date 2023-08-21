@@ -205,6 +205,9 @@ impl Application {
             &mut signals.handler,
         ))?;
 
+        #[cfg(feature = "api-client")]
+        start_remote_task_execution(&runtime, &config)?;
+
         Ok((
             runtime,
             Self {
@@ -247,6 +250,49 @@ impl Application {
             metrics_tx: config.metrics_tx,
         })
     }
+}
+
+#[cfg(feature = "api-client")]
+fn start_remote_task_execution(
+    runtime: &Runtime,
+    _config: &ApplicationConfig,
+) -> Result<(), ExitCode> {
+    use std::env;
+
+    #[cfg(feature = "api")]
+    let api_config = _config.api;
+    #[cfg(not(feature = "api"))]
+    let api_config: config::api::Options = Default::default();
+
+    let auth_token = env::var("MEZMO_LOCAL_DEPLOY_AUTH_TOKEN").ok();
+    if let Some(auth_token) = auth_token {
+        let get_endpoint_url = env::var("MEZMO_TASKS_FETCH_ENDPOINT_URL").ok();
+        let post_endpoint_url = env::var("MEZMO_TASKS_POST_ENDPOINT_URL").ok();
+        match (get_endpoint_url, post_endpoint_url) {
+            (Some(get_endpoint_url), Some(post_endpoint_url)) => {
+                if !api_config.enabled {
+                    error!("API is disabled");
+                    return Err(exitcode::USAGE);
+                }
+
+                runtime.spawn(async move {
+                    mezmo::remote_task_execution::start_polling_for_tasks(
+                        api_config,
+                        auth_token,
+                        get_endpoint_url,
+                        post_endpoint_url,
+                    )
+                    .await;
+                });
+            }
+            (_, _) => {
+                error!("Mezmo tasks endpoints not set");
+                return Err(exitcode::USAGE);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub struct StartedApplication {
