@@ -168,6 +168,7 @@ pub async fn build_pieces(
         tx
     } else {
         // Create a dummy transmitter to simplify implementation (avoid adapting all test code)
+        warn!("Building pieces with unbounded channel. This may result in an OOM error for long running processes.");
         let (tx, _) = mpsc::unbounded_channel::<UsageMetrics>();
         tx
     };
