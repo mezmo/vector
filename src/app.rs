@@ -323,10 +323,13 @@ impl StartedApplication {
 
                             // LOG-17772: If the config reload future doesn't resolve in the allotted
                             // time, then crash the vector process and allow k8s to respawn the process
-                            // in order to get config reloading to work again.
+                            // in order to get config reloading to work again. Note that panic! doesn't
+                            // work to terminate the process since the higher level code traps the panic
+                            // and prevents termination.
                             if !reload_future_done {
                                 emit!(MezmoConfigReload{ elapsed, success: false });
-                                panic!("New topology reload future failed to resolved within the limit.");
+                                error!("New topology reload future failed to resolved within the limit.");
+                                std::process::abort();
                             }
 
                             match reload_outcome {
