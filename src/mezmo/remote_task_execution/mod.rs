@@ -1,9 +1,11 @@
 #![cfg(feature = "api-client")]
 
+use chrono::Utc;
 use futures_util::StreamExt;
 use http::{header, HeaderValue};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{
     collections::HashMap,
     str::FromStr,
@@ -124,7 +126,7 @@ struct Task {
 struct TaskParameters {
     limit: Option<isize>,
     timeout_ms: Option<u64>,
-    component_id: String,
+    component_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -201,9 +203,14 @@ async fn post_task_results(
         .replace(":task_id", &task.task_id)
         .replace(":pipeline_id", &task.pipeline_id);
 
+    let body = json!({
+        "data": {
+            "events": results,
+        }
+    });
     let resp = client
         .post(&endpoint_url)
-        .json(results)
+        .json(&body)
         .headers(get_headers(auth_token))
         .send()
         .await
@@ -233,7 +240,12 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
     // In the future, we should query the K8s API to get the deployment pods
     let url = Url::parse(&format!("ws://{}/graphql", addr)).expect("Couldn't parse API URL.");
 
-    let component_id = &task.task_parameters.component_id;
+    let component_id = task
+        .task_parameters
+        .component_id
+        .as_ref()
+        .ok_or_else(|| "component_id not set in parameters".to_string())?;
+
     let limit = task
         .task_parameters
         .limit
@@ -279,26 +291,21 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
                             match tap_event {
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::Log(ev) => {
                                     result.push(HashMap::from([
-                                        ("component_id".to_string(), ev.component_id.clone()),
-                                        ("component_kind".to_string(), ev.component_kind.clone()),
-                                        ("component_type".to_string(), ev.component_type.clone()),
-                                        ("event".to_string(), ev.string.clone()),
+                                        ("type".to_string(), "Log".to_string()),
+                                        ("timestamp".to_string(), ev.timestamp.clone().unwrap_or(Utc::now()).to_string()),
+                                        ("message".to_string(), ev.mezmo_message.clone().unwrap_or("".to_string())),
                                     ]));
                                 },
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::Metric(ev) => {
                                     result.push(HashMap::from([
-                                        ("component_id".to_string(), ev.component_id.clone()),
-                                        ("component_kind".to_string(), ev.component_kind.clone()),
-                                        ("component_type".to_string(), ev.component_type.clone()),
-                                        ("event".to_string(), ev.string.clone()),
+                                        ("type".to_string(), "Metric".to_string()),
+                                        ("message".to_string(), ev.string.clone()),
                                     ]));
                                 },
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::Trace(ev) => {
                                     result.push(HashMap::from([
-                                        ("component_id".to_string(), ev.component_id.clone()),
-                                        ("component_kind".to_string(), ev.component_kind.clone()),
-                                        ("component_type".to_string(), ev.component_type.clone()),
-                                        ("event".to_string(), ev.string.clone()),
+                                        ("type".to_string(), "Trace".to_string()),
+                                        ("message".to_string(), ev.string.clone()),
                                     ]));
                                 },
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::EventNotification(ev) => {
@@ -353,9 +360,15 @@ mod tests {
                 request::method("POST"),
                 request::path("/fake/post/task1/url"),
                 request::query(url_decoded(contains(("pipeline_id", "pip1")))),
-                request::body(json_decoded(|v: &Vec<HashMap<String, String>>| -> bool {
-                    // API is not enabled in the test so the graphQL query should fail
-                    v.len() == 1 && v[0].get("error").is_some()
+                request::body(json_decoded(|v: &serde_json::Value| -> bool {
+                    if let Some(data) = v["data"].as_object() {
+                        if let Some(events) = data["events"].as_array() {
+                            // API is not enabled in the test so the graphQL query should fail
+                            // with a single entry containing the error
+                            return events.len() == 1 && events[0]["error"].is_string();
+                        }
+                    }
+                    false
                 })),
             ])
             .times(1)

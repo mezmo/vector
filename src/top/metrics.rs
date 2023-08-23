@@ -326,36 +326,32 @@ pub async fn init_components(client: &Client) -> Result<state::State, ()> {
         .components
         .edges
         .into_iter()
-        .flat_map(|d| {
-            d.into_iter().filter_map(|edge| {
-                let d = edge?.node;
-                let key = ComponentKey::from(d.component_id);
-                Some((
-                    key.clone(),
-                    state::ComponentRow {
-                        key,
-                        kind: d.on.to_string(),
-                        component_type: d.component_type,
-                        outputs: d
-                            .on
-                            .outputs()
-                            .into_iter()
-                            .map(|(id, sent_events_total)| {
-                                (id, OutputMetrics::from(sent_events_total))
-                            })
-                            .collect(),
-                        received_events_total: d.on.received_events_total(),
-                        received_events_throughput_sec: 0,
-                        sent_events_total: d.on.sent_events_total(),
-                        sent_events_throughput_sec: 0,
-                        processed_bytes_total: d.on.processed_bytes_total(),
-                        processed_bytes_throughput_sec: 0,
-                        #[cfg(feature = "allocation-tracing")]
-                        allocated_bytes: 0,
-                        errors: 0,
-                    },
-                ))
-            })
+        .flat_map(|edge| {
+            let d = edge.node;
+            let key = ComponentKey::from(d.component_id);
+            Some((
+                key.clone(),
+                state::ComponentRow {
+                    key,
+                    kind: d.on.to_string(),
+                    component_type: d.component_type,
+                    outputs: d
+                        .on
+                        .outputs()
+                        .into_iter()
+                        .map(|(id, sent_events_total)| (id, OutputMetrics::from(sent_events_total)))
+                        .collect(),
+                    received_events_total: d.on.received_events_total(),
+                    received_events_throughput_sec: 0,
+                    sent_events_total: d.on.sent_events_total(),
+                    sent_events_throughput_sec: 0,
+                    processed_bytes_total: d.on.processed_bytes_total(),
+                    processed_bytes_throughput_sec: 0,
+                    #[cfg(feature = "allocation-tracing")]
+                    allocated_bytes: 0,
+                    errors: 0,
+                },
+            ))
         })
         .collect::<BTreeMap<_, _>>();
 
