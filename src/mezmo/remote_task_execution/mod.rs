@@ -25,7 +25,7 @@ const TASK_INITIAL_POLL_DELAY: Duration = Duration::from_secs(5);
 const TASK_POLL_STEP_DELAY: Duration = Duration::from_millis(500);
 const TASK_MAX_AGE_SECS: isize = 120;
 const DEFAULT_TAP_TIMEOUT: Duration = Duration::from_secs(5);
-const DEFAULT_TAP_LIMIT_PER_INTERVAL: i64 = 10;
+const DEFAULT_TAP_LIMIT_PER_INTERVAL: isize = 10;
 
 /// Fetches and executes tasks for local deployments, mainly used for remote tapping.
 pub(crate) async fn start_polling_for_tasks(
@@ -116,8 +116,15 @@ struct Task {
     task_id: String,
     task_type: String,
     pipeline_id: String,
-    task_parameters: HashMap<String, String>,
+    task_parameters: TaskParameters,
     age_secs: isize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TaskParameters {
+    limit: Option<isize>,
+    timeout_ms: Option<u64>,
+    component_id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -226,21 +233,10 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
     // In the future, we should query the K8s API to get the deployment pods
     let url = Url::parse(&format!("ws://{}/graphql", addr)).expect("Couldn't parse API URL.");
 
-    let component_id = task
-        .task_parameters
-        .get("component_id")
-        .ok_or_else(|| "component_id not set in parameters".to_string())?;
+    let component_id = &task.task_parameters.component_id;
     let limit = task
         .task_parameters
-        .get("limit")
-        .and_then(|s| {
-            if let Ok(n) = s.parse() {
-                Some(n)
-            } else {
-                warn!("tap timeout could not be parsed as an integer");
-                None
-            }
-        })
+        .limit
         .unwrap_or(DEFAULT_TAP_LIMIT_PER_INTERVAL);
 
     let subscription_client = connect_subscription_client(url)
@@ -252,23 +248,17 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
             vec![component_id.to_string()],
             vec![],
             TapEncodingFormat::Json,
-            limit,
+            limit as i64,
             500, // Default interval, see src/tap/mod.rs
         );
     };
 
     let tap_timeout = task
         .task_parameters
-        .get("timeout_ms")
-        .and_then(|s| {
-            if let Ok(n) = s.parse() {
-                Some(Duration::from_millis(n))
-            } else {
-                warn!("tap timeout could not be parsed as an integer");
-                None
-            }
-        })
-        .unwrap_or(DEFAULT_TAP_TIMEOUT);
+        .timeout_ms
+        .map_or(DEFAULT_TAP_TIMEOUT, |timeout_ms| {
+            Duration::from_millis(timeout_ms)
+        });
 
     let mut result = Vec::new();
     let sleep_future = sleep(tap_timeout);
@@ -353,7 +343,7 @@ mod tests {
                         "task_type": "tap",
                         "pipeline_id": "pip1",
                         "age_secs": 1,
-                        "task_parameters": {"component_id": "comp1"}
+                        "task_parameters": {"component_id": "comp1", "limit": 1, "timeout_ms": 1000},
                     }]
                 }))),
         );
