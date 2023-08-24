@@ -7,6 +7,7 @@ subscription OutputEventsByComponentIdPatternsSubscription(
             componentType
             componentKind
             message
+            mezmo_message: json(field: ".message")
             timestamp
             string(encoding: $encoding)
         }

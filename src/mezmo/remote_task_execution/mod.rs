@@ -1,9 +1,11 @@
 #![cfg(feature = "api-client")]
 
+use chrono::Utc;
 use futures_util::StreamExt;
 use http::{header, HeaderValue};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     str::FromStr,
@@ -25,7 +27,7 @@ const TASK_INITIAL_POLL_DELAY: Duration = Duration::from_secs(5);
 const TASK_POLL_STEP_DELAY: Duration = Duration::from_millis(500);
 const TASK_MAX_AGE_SECS: isize = 120;
 const DEFAULT_TAP_TIMEOUT: Duration = Duration::from_secs(5);
-const DEFAULT_TAP_LIMIT_PER_INTERVAL: i64 = 10;
+const DEFAULT_TAP_LIMIT_PER_INTERVAL: isize = 10;
 
 /// Fetches and executes tasks for local deployments, mainly used for remote tapping.
 pub(crate) async fn start_polling_for_tasks(
@@ -84,29 +86,13 @@ async fn run_task_step(
             continue;
         }
 
-        match execute_task(&t, config).await {
-            Ok(results) => {
-                if let Err(e) =
-                    post_task_results(client, auth_token, post_endpoint_url, &t, &results).await
-                {
-                    warn!(
-                        "There was an error when posting task results for {}: {}",
-                        t.task_id, e
-                    );
-                }
-            }
-            Err(e) => {
-                error!("Executing task {} failed: {}", t.task_id, &e);
-                let results = vec![HashMap::from([("error".to_string(), e)])];
-                if let Err(e) =
-                    post_task_results(client, auth_token, post_endpoint_url, &t, &results).await
-                {
-                    warn!(
-                        "There was an error when posting error message for task {}: {}",
-                        t.task_id, e
-                    );
-                }
-            }
+        let results = execute_task(&t, config).await;
+        if let Err(e) = post_task_results(client, auth_token, post_endpoint_url, &t, &results).await
+        {
+            warn!(
+                "There was an error when posting task results for {}: {}",
+                t.task_id, e
+            );
         }
     }
 }
@@ -116,8 +102,15 @@ struct Task {
     task_id: String,
     task_type: String,
     pipeline_id: String,
-    task_parameters: HashMap<String, String>,
+    task_parameters: TaskParameters,
     age_secs: isize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TaskParameters {
+    limit: Option<isize>,
+    timeout_ms: Option<u64>,
+    component_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -125,9 +118,27 @@ struct TaskFetchResponse {
     data: Vec<Task>,
 }
 
+type Err = String;
 type TaskResult = Vec<HashMap<String, String>>;
 
-type Err = String;
+trait TaskPostRequest {
+    fn to_json(&self) -> Value;
+}
+
+impl TaskPostRequest for Result<TaskResult, Err> {
+    fn to_json(&self) -> Value {
+        match self {
+            Ok(results) => json!({
+                "data": {
+                    "events": results,
+                }
+            }),
+            Err(e) => {
+                json!({ "errors": [e] })
+            }
+        }
+    }
+}
 
 enum TaskType {
     Tap,
@@ -188,7 +199,7 @@ async fn post_task_results(
     auth_token: &str,
     endpoint_url: &str,
     task: &Task,
-    results: &TaskResult,
+    results: &Result<TaskResult, Err>,
 ) -> Result<(), Err> {
     let endpoint_url = endpoint_url
         .replace(":task_id", &task.task_id)
@@ -196,7 +207,7 @@ async fn post_task_results(
 
     let resp = client
         .post(&endpoint_url)
-        .json(results)
+        .json(&results.to_json())
         .headers(get_headers(auth_token))
         .send()
         .await
@@ -228,19 +239,13 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
 
     let component_id = task
         .task_parameters
-        .get("component_id")
+        .component_id
+        .as_ref()
         .ok_or_else(|| "component_id not set in parameters".to_string())?;
+
     let limit = task
         .task_parameters
-        .get("limit")
-        .and_then(|s| {
-            if let Ok(n) = s.parse() {
-                Some(n)
-            } else {
-                warn!("tap timeout could not be parsed as an integer");
-                None
-            }
-        })
+        .limit
         .unwrap_or(DEFAULT_TAP_LIMIT_PER_INTERVAL);
 
     let subscription_client = connect_subscription_client(url)
@@ -252,23 +257,17 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
             vec![component_id.to_string()],
             vec![],
             TapEncodingFormat::Json,
-            limit,
+            limit as i64,
             500, // Default interval, see src/tap/mod.rs
         );
     };
 
     let tap_timeout = task
         .task_parameters
-        .get("timeout_ms")
-        .and_then(|s| {
-            if let Ok(n) = s.parse() {
-                Some(Duration::from_millis(n))
-            } else {
-                warn!("tap timeout could not be parsed as an integer");
-                None
-            }
-        })
-        .unwrap_or(DEFAULT_TAP_TIMEOUT);
+        .timeout_ms
+        .map_or(DEFAULT_TAP_TIMEOUT, |timeout_ms| {
+            Duration::from_millis(timeout_ms)
+        });
 
     let mut result = Vec::new();
     let sleep_future = sleep(tap_timeout);
@@ -289,26 +288,21 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
                             match tap_event {
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::Log(ev) => {
                                     result.push(HashMap::from([
-                                        ("component_id".to_string(), ev.component_id.clone()),
-                                        ("component_kind".to_string(), ev.component_kind.clone()),
-                                        ("component_type".to_string(), ev.component_type.clone()),
-                                        ("event".to_string(), ev.string.clone()),
+                                        ("type".to_string(), "Log".to_string()),
+                                        ("timestamp".to_string(), ev.timestamp.unwrap_or_else(Utc::now).to_string()),
+                                        ("message".to_string(), ev.mezmo_message.clone().unwrap_or_default()),
                                     ]));
                                 },
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::Metric(ev) => {
                                     result.push(HashMap::from([
-                                        ("component_id".to_string(), ev.component_id.clone()),
-                                        ("component_kind".to_string(), ev.component_kind.clone()),
-                                        ("component_type".to_string(), ev.component_type.clone()),
-                                        ("event".to_string(), ev.string.clone()),
+                                        ("type".to_string(), "Metric".to_string()),
+                                        ("message".to_string(), ev.string.clone()),
                                     ]));
                                 },
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::Trace(ev) => {
                                     result.push(HashMap::from([
-                                        ("component_id".to_string(), ev.component_id.clone()),
-                                        ("component_kind".to_string(), ev.component_kind.clone()),
-                                        ("component_type".to_string(), ev.component_type.clone()),
-                                        ("event".to_string(), ev.string.clone()),
+                                        ("type".to_string(), "Trace".to_string()),
+                                        ("message".to_string(), ev.string.clone()),
                                     ]));
                                 },
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::EventNotification(ev) => {
@@ -353,7 +347,7 @@ mod tests {
                         "task_type": "tap",
                         "pipeline_id": "pip1",
                         "age_secs": 1,
-                        "task_parameters": {"component_id": "comp1"}
+                        "task_parameters": {"component_id": "comp1", "limit": 1, "timeout_ms": 1000},
                     }]
                 }))),
         );
@@ -363,9 +357,13 @@ mod tests {
                 request::method("POST"),
                 request::path("/fake/post/task1/url"),
                 request::query(url_decoded(contains(("pipeline_id", "pip1")))),
-                request::body(json_decoded(|v: &Vec<HashMap<String, String>>| -> bool {
-                    // API is not enabled in the test so the graphQL query should fail
-                    v.len() == 1 && v[0].get("error").is_some()
+                request::body(json_decoded(|v: &serde_json::Value| -> bool {
+                    if let Some(errors) = v["errors"].as_array() {
+                        // API is not enabled in the test so the graphQL query should fail
+                        // with a single entry containing the error
+                        return errors.len() == 1 && errors[0].is_string();
+                    }
+                    false
                 })),
             ])
             .times(1)
