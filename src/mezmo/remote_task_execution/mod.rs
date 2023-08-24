@@ -5,7 +5,7 @@ use futures_util::StreamExt;
 use http::{header, HeaderValue};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     str::FromStr,
@@ -86,29 +86,13 @@ async fn run_task_step(
             continue;
         }
 
-        match execute_task(&t, config).await {
-            Ok(results) => {
-                if let Err(e) =
-                    post_task_results(client, auth_token, post_endpoint_url, &t, &results).await
-                {
-                    warn!(
-                        "There was an error when posting task results for {}: {}",
-                        t.task_id, e
-                    );
-                }
-            }
-            Err(e) => {
-                error!("Executing task {} failed: {}", t.task_id, &e);
-                let results = vec![HashMap::from([("error".to_string(), e)])];
-                if let Err(e) =
-                    post_task_results(client, auth_token, post_endpoint_url, &t, &results).await
-                {
-                    warn!(
-                        "There was an error when posting error message for task {}: {}",
-                        t.task_id, e
-                    );
-                }
-            }
+        let results = execute_task(&t, config).await;
+        if let Err(e) = post_task_results(client, auth_token, post_endpoint_url, &t, &results).await
+        {
+            warn!(
+                "There was an error when posting task results for {}: {}",
+                t.task_id, e
+            );
         }
     }
 }
@@ -134,9 +118,27 @@ struct TaskFetchResponse {
     data: Vec<Task>,
 }
 
+type Err = String;
 type TaskResult = Vec<HashMap<String, String>>;
 
-type Err = String;
+trait TaskPostRequest {
+    fn to_json(&self) -> Value;
+}
+
+impl TaskPostRequest for Result<TaskResult, Err> {
+    fn to_json(&self) -> Value {
+        match self {
+            Ok(results) => json!({
+                "data": {
+                    "events": results,
+                }
+            }),
+            Err(e) => {
+                json!({ "errors": [e] })
+            }
+        }
+    }
+}
 
 enum TaskType {
     Tap,
@@ -197,20 +199,15 @@ async fn post_task_results(
     auth_token: &str,
     endpoint_url: &str,
     task: &Task,
-    results: &TaskResult,
+    results: &Result<TaskResult, Err>,
 ) -> Result<(), Err> {
     let endpoint_url = endpoint_url
         .replace(":task_id", &task.task_id)
         .replace(":pipeline_id", &task.pipeline_id);
 
-    let body = json!({
-        "data": {
-            "events": results,
-        }
-    });
     let resp = client
         .post(&endpoint_url)
-        .json(&body)
+        .json(&results.to_json())
         .headers(get_headers(auth_token))
         .send()
         .await
@@ -292,8 +289,8 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::Log(ev) => {
                                     result.push(HashMap::from([
                                         ("type".to_string(), "Log".to_string()),
-                                        ("timestamp".to_string(), ev.timestamp.clone().unwrap_or(Utc::now()).to_string()),
-                                        ("message".to_string(), ev.mezmo_message.clone().unwrap_or("".to_string())),
+                                        ("timestamp".to_string(), ev.timestamp.unwrap_or_else(Utc::now).to_string()),
+                                        ("message".to_string(), ev.mezmo_message.clone().unwrap_or_default()),
                                     ]));
                                 },
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::Metric(ev) => {
@@ -361,12 +358,10 @@ mod tests {
                 request::path("/fake/post/task1/url"),
                 request::query(url_decoded(contains(("pipeline_id", "pip1")))),
                 request::body(json_decoded(|v: &serde_json::Value| -> bool {
-                    if let Some(data) = v["data"].as_object() {
-                        if let Some(events) = data["events"].as_array() {
-                            // API is not enabled in the test so the graphQL query should fail
-                            // with a single entry containing the error
-                            return events.len() == 1 && events[0]["error"].is_string();
-                        }
+                    if let Some(errors) = v["errors"].as_array() {
+                        // API is not enabled in the test so the graphQL query should fail
+                        // with a single entry containing the error
+                        return errors.len() == 1 && errors[0].is_string();
                     }
                     false
                 })),
