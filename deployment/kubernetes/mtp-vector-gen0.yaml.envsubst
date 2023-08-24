@@ -206,6 +206,13 @@ spec:
                 args:
                   - --config-dir
                   - /etc/vector/
+                startupProbe:
+                  timeoutSeconds: 5
+                  httpGet:
+                    path: /config
+                    port: 8686
+                  periodSeconds: 10
+                  failureThreshold: 18
                 resources:
                   requests:
                     memory: "{{{requests_memory}}}"
