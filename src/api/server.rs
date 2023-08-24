@@ -31,9 +31,10 @@ impl Server {
         config: &config::Config,
         watch_rx: topology::WatchRx,
         running: Arc<AtomicBool>,
+        config_loaded: Arc<AtomicBool>,
         runtime: &tokio::runtime::Runtime,
     ) -> crate::Result<Self> {
-        let routes = make_routes(config.api.playground, watch_rx, running);
+        let routes = make_routes(config.api.playground, watch_rx, running, config_loaded);
 
         let (_shutdown, rx) = oneshot::channel();
         // warp uses `tokio::spawn` and so needs us to enter the runtime context.
@@ -79,12 +80,15 @@ fn make_routes(
     playground: bool,
     watch_tx: topology::WatchRx,
     running: Arc<AtomicBool>,
+    config_loaded: Arc<AtomicBool>,
 ) -> BoxedFilter<(impl Reply,)> {
     // Routes...
 
     // Health.
     let health = warp::path("health")
-        .and(with_shared(running))
+        .and(with_shared(Arc::<std::sync::atomic::AtomicBool>::clone(
+            &running,
+        )))
         .and_then(handler::health);
 
     // 404.
@@ -143,11 +147,17 @@ fn make_routes(
         not_found.boxed()
     };
 
+    let config = warp::path("config")
+        .and(with_shared(running))
+        .and(with_shared(config_loaded))
+        .and_then(handler::config);
+
     // Wire up the health + GraphQL endpoints. Provides a permissive CORS policy to allow for
     // cross-origin interaction with the Vector API.
     health
         .or(graphql_handler)
         .or(graphql_playground)
+        .or(config)
         .or(not_found)
         .with(
             warp::cors()
