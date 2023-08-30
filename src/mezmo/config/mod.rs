@@ -67,11 +67,11 @@ impl Default for MezmoPartitionConfig {
     fn default() -> Self {
         Self {
             latest_revisions_url:
-                "http://pipeline-service/v1/control/pipelines/config/latest_revisions".into(),
+                "http://pipeline-service/internal/pipelines/config/latest_revisions".into(),
             loaded_revisions_url:
-                "http://pipeline-service/v1/control/pipelines/config/loaded_revisions".into(),
+                "http://pipeline-service/internal/pipelines/config/loaded_revisions".into(),
             pipelines_by_partition_url:
-                "http://pipeline-service/v1/control/partitions/{partition_id}/pipelines".into(),
+                "http://pipeline-service/internal/partitions/{partition_id}/pipelines".into(),
             partition_id: "sample_partition".into(),
             request: RequestConfig::default(),
             poll_interval_secs: 2,
@@ -514,9 +514,9 @@ mod tests {
     #[tokio::test]
     async fn build_incrementally_with_service_should_yield_only_changes() -> Result<(), String> {
         let partition_id = S!("part1");
-        let pipelines_by_partition_url = "/v1/control/partitions/part1/pipelines";
-        let latest_revisions_url = "/v1/control/pipelines/config/latest_revisions";
-        let loaded_revisions_url = "/v1/control/pipelines/config/loaded_revisions";
+        let pipelines_by_partition_url = "/internal/partitions/part1/pipelines";
+        let latest_revisions_url = "/internal/pipelines/config/latest_revisions";
+        let loaded_revisions_url = "/internal/pipelines/config/loaded_revisions";
         let mock_server = MockServer::start().await;
 
         Mock::given(matchers::method("GET"))
@@ -632,9 +632,9 @@ mod tests {
     #[tokio::test]
     async fn build_incrementally_should_reject_invalid_config() -> Result<(), String> {
         let partition_id = S!("part1");
-        let pipelines_by_partition_url = "/v1/control/partitions/part1/pipelines";
-        let latest_revisions_url = "/v1/control/pipelines/config/latest_revisions";
-        let loaded_revisions_url = "/v1/control/pipelines/config/loaded_revisions";
+        let pipelines_by_partition_url = "/internal/partitions/part1/pipelines";
+        let latest_revisions_url = "/internal/pipelines/config/latest_revisions";
+        let loaded_revisions_url = "/internal/pipelines/config/loaded_revisions";
         let mock_server = MockServer::start().await;
 
         Mock::given(matchers::method("GET"))
