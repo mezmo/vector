@@ -836,7 +836,8 @@ impl Runner {
                             self.send_outputs(&mut outputs_buf).await
                                 .map_err(TaskError::wrapped)?;
                         }
-                        _ => unreachable!("join error or bad poll"),
+                        Some(Err(e)) => error!("in_flight task join error: {e:?}"),
+                        None => unreachable!("in_flight task join error: FuturesOrdered polled when empty"),
                     }
                 }
 
