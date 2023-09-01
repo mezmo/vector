@@ -901,12 +901,17 @@ pub fn parse_metrics_request(bytes: &[u8]) -> vector_common::Result<SmallVec<[Ev
         .validate()
         .map_err(|e| DeserializerError::ProtobufValidationError { source: e })?;
 
-    Ok(to_events(parsed_metrics).into())
+    Ok(to_events(parsed_metrics))
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn to_events(metric_request: ExportMetricsServiceRequest) -> Vec<Event> {
-    let mut out: Vec<Event> = Vec::new();
+pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event; 1]> {
+    let metric_count = metric_request.resource_metrics.iter().fold(0, |acc, rms| {
+        rms.scope_metrics
+            .iter()
+            .fold(acc, |acc, sms| acc + sms.metrics.len())
+    });
+    let mut out = SmallVec::with_capacity(metric_count);
 
     for resource_metric in metric_request.resource_metrics {
         let tags = MetricTagsWrapper {

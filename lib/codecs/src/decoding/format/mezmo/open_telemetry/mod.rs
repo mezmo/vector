@@ -101,7 +101,7 @@ impl OpenTelemetryLogDeserializer {
     /// Schema definition for the Deserializer
     pub fn schema_definition(log_namespace: LogNamespace) -> schema::Definition {
         schema::Definition::new_with_default_metadata(
-            value::Kind::object(value::kind::Collection::empty()),
+            Kind::object(Collection::empty()),
             [log_namespace],
         )
     }

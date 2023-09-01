@@ -613,6 +613,7 @@ transforms-logs-mezmo = [
   "transforms-sample",
   "transforms-throttle",
   "transforms-mezmo_log_clustering",
+  "transforms-protobuf_to_log",
 ]
 transforms-metrics = [
   "transforms-aggregate",
@@ -654,6 +655,7 @@ transforms-sample = []
 transforms-tag_cardinality_limit = ["dep:bloom", "dep:hashbrown"]
 transforms-throttle = ["dep:governor"]
 transforms-protobuf_to_metric = []
+transforms-protobuf_to_log = []
 
 # Sinks (Upstream)
 # sinks = ["sinks-logs", "sinks-metrics"]
