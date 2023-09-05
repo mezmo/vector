@@ -1,4 +1,8 @@
+use base64::Engine;
+use blake2::{digest::consts::U8, Blake2b, Digest};
 use std::{borrow::Cow, collections::HashMap, fmt::Display, num::NonZeroUsize};
+
+type Blake2b64 = Blake2b<U8>;
 
 #[derive(Debug)]
 pub struct LogCluster<'a> {
@@ -8,12 +12,18 @@ pub struct LogCluster<'a> {
 }
 
 impl<'a> LogCluster<'a> {
-    pub const fn cluster_id(&self) -> usize {
-        self.cluster_id
-    }
-
     pub const fn match_count(&self) -> usize {
         self.match_count
+    }
+
+    /// A global cluster ID that will (hopefully) converge across multiple
+    /// instances of the algorithm running on the same log stream.
+    pub fn cluster_id(&self) -> String {
+        let mut hasher = Blake2b64::new();
+        self.template_tokens
+            .iter()
+            .for_each(|token| token.hash(&mut hasher));
+        base64::engine::general_purpose::STANDARD_NO_PAD.encode(hasher.finalize())
     }
 
     fn new(cluster_id: usize, tokens: Vec<&str>) -> Self {
@@ -106,6 +116,18 @@ impl<'a> Token<'a> {
         match self {
             Token::Wildcard => false,
             Token::Value(s) => s.chars().any(char::is_numeric),
+        }
+    }
+
+    fn hash(&self, hasher: &mut Blake2b64) {
+        match self {
+            Token::Wildcard => {
+                hasher.update(1u8.to_le_bytes());
+            }
+            Token::Value(s) => {
+                hasher.update(2u8.to_le_bytes());
+                hasher.update(s.as_bytes());
+            }
         }
     }
 }

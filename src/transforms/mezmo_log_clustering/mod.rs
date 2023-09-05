@@ -161,7 +161,7 @@ impl MezmoLogClustering {
 
             cluster.insert(
                 "cluster_id".to_string(),
-                Value::Integer(group.cluster_id() as i64),
+                Value::Bytes(group.cluster_id().into()),
             );
             cluster.insert(
                 "match_count".to_string(),
@@ -200,6 +200,8 @@ impl TaskTransform<Event> for MezmoLogClustering {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use super::MezmoLogClusteringConfig;
 
     use tokio::sync::mpsc;
@@ -229,21 +231,18 @@ mod tests {
     fn verify_cluster(
         event: Event,
         expected_template: &str,
-        expected_cluster_id: usize,
+        expected_cluster_id: &str,
         expected_match_count: usize,
         expected_values: Vec<String>,
     ) {
         let log = event.as_log();
         assert_eq!(
-            expected_template.to_string(),
-            log.get(".message.template").unwrap().to_string_lossy()
+            expected_template,
+            &log.get(".message.template").unwrap().to_string_lossy()
         );
         assert_eq!(
-            expected_cluster_id as i64,
-            log.get(".message.cluster_id")
-                .unwrap()
-                .as_integer()
-                .unwrap()
+            expected_cluster_id,
+            &log.get(".message.cluster_id").unwrap().to_string_lossy()
         );
         assert_eq!(
             expected_match_count as i64,
@@ -272,23 +271,46 @@ mod tests {
             let (topology, mut out) =
                 create_topology(ReceiverStream::new(rx), transform_config).await;
 
+            let mut log_parser = super::drain::LogParser::new(NonZeroUsize::new(1000).unwrap());
+
             tx.send(Event::Log(LogEvent::from("hi there 1")))
                 .await
                 .unwrap();
+            let (cluster, _) = log_parser.add_log_line("hi there 1", &mut vec![]);
             let new_event = out.recv().await.unwrap();
-            verify_cluster(new_event, "hi there 1", 1, 1, Vec::new());
+            verify_cluster(
+                new_event,
+                "hi there 1",
+                &cluster.cluster_id(),
+                1,
+                Vec::new(),
+            );
 
             tx.send(Event::Log(LogEvent::from("hi there 2")))
                 .await
                 .unwrap();
             let new_event = out.recv().await.unwrap();
-            verify_cluster(new_event, "hi there <*>", 1, 2, vec!["2".to_string()]);
+            let (cluster, _) = log_parser.add_log_line("hi there 2", &mut vec![]);
+            verify_cluster(
+                new_event,
+                "hi there <*>",
+                &cluster.cluster_id(),
+                2,
+                vec!["2".to_string()],
+            );
 
             tx.send(Event::Log(LogEvent::from("hi there 3")))
                 .await
                 .unwrap();
+            let (cluster, _) = log_parser.add_log_line("hi there 3", &mut vec![]);
             let new_event = out.recv().await.unwrap();
-            verify_cluster(new_event, "hi there <*>", 1, 3, vec!["3".to_string()]);
+            verify_cluster(
+                new_event,
+                "hi there <*>",
+                &cluster.cluster_id(),
+                3,
+                vec!["3".to_string()],
+            );
 
             drop(tx);
             topology.stop().await;
