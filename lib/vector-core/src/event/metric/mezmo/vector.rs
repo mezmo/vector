@@ -31,7 +31,7 @@ fn parse_value(
         "counter" => Ok(MetricValue::Counter {
             value: get_float(value_object, "value")?,
         }),
-        "gauge" => Ok(MetricValue::Gauge {
+        "gauge" | "count" => Ok(MetricValue::Gauge {
             value: get_float(value_object, "value")?,
         }),
         "summary" => {
@@ -516,6 +516,35 @@ mod tests {
 
         let actual = from_metric(&to_metric(&expected).unwrap());
 
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn count() {
+        let mut expected: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(
+            r#"{
+                "message": {
+                "name": "count",
+                "kind": "absolute",
+                "namespace": "ns",
+                "tags": {"k1": "v1"},
+                "value": {
+                    "type": "count",
+                    "value": 123.4
+                }
+            }
+        }"#,
+        )
+        .unwrap()
+        .into();
+
+        let actual = from_metric(&to_metric(&expected).unwrap());
+
+        // note: presently we materialize a MetricValue::Gauge. This causes
+        // the resulting metric to have 'type' 'guage'. This "makes it work"
+        // for now, but may not be desirable long term. This just characterizes
+        // what's there.
+        expected.insert("message.value.type", "gauge");
         assert_eq!(expected, actual);
     }
 
