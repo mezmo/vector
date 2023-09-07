@@ -87,7 +87,7 @@ impl Definition {
     ) -> Self {
         Self {
             event_kind,
-            metadata_kind: Kind::object(Collection::empty()),
+            metadata_kind: Kind::object(Collection::any()),
             meaning: BTreeMap::default(),
             log_namespaces: log_namespaces.into(),
         }
@@ -373,25 +373,55 @@ impl Definition {
     /// This method panics if the provided path points to an unknown location in the collection.
     #[must_use]
     pub fn with_meaning(mut self, target_path: OwnedTargetPath, meaning: &str) -> Self {
-        // Ensure the path exists in the collection.
-        match target_path.prefix {
-            PathPrefix::Event => assert!(
-                self.event_kind
-                    .at_path(&target_path.path)
-                    .contains_any_defined(),
-                "meaning must point to a valid path"
-            ),
-            PathPrefix::Metadata => assert!(
-                self.metadata_kind
-                    .at_path(&target_path.path)
-                    .contains_any_defined(),
-                "meaning must point to a valid path"
-            ),
-        };
-
-        self.meaning
-            .insert(meaning.to_owned(), MeaningPointer::Valid(target_path));
+        self.add_meaning(target_path, meaning);
         self
+    }
+
+    /// Adds the meaning pointing to the given path to our list of meanings.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the provided path points to an unknown location in the collection.
+    fn add_meaning(&mut self, target_path: OwnedTargetPath, meaning: &str) {
+        self.try_with_meaning(target_path, meaning)
+            .unwrap_or_else(|err| panic!("{}", err));
+    }
+
+    /// Register a semantic meaning for the definition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided path points to an unknown location in the collection.
+    pub fn try_with_meaning(
+        &mut self,
+        target_path: OwnedTargetPath,
+        meaning: &str,
+    ) -> Result<(), &'static str> {
+        match target_path.prefix {
+            PathPrefix::Event
+                if !self
+                    .event_kind
+                    .at_path(&target_path.path)
+                    .contains_any_defined() =>
+            {
+                Err("meaning must point to a valid path")
+            }
+
+            PathPrefix::Metadata
+                if !self
+                    .metadata_kind
+                    .at_path(&target_path.path)
+                    .contains_any_defined() =>
+            {
+                Err("meaning must point to a valid path")
+            }
+
+            _ => {
+                self.meaning
+                    .insert(meaning.to_owned(), MeaningPointer::Valid(target_path));
+                Ok(())
+            }
+        }
     }
 
     /// Set the kind for all unknown fields.
@@ -449,6 +479,21 @@ impl Definition {
                 MeaningPointer::Valid(path) => Some((id, path)),
                 MeaningPointer::Invalid(_) => None,
             })
+    }
+
+    /// Adds the meanings provided by an iterator over the given meanings.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the provided path from any of the incoming meanings point to
+    /// an unknown location in the collection.
+    pub fn add_meanings<'a>(
+        &'a mut self,
+        meanings: impl Iterator<Item = (&'a String, &'a OwnedTargetPath)>,
+    ) {
+        for (meaning, path) in meanings {
+            self.add_meaning(path.clone(), meaning);
+        }
     }
 
     pub fn event_kind(&self) -> &Kind {

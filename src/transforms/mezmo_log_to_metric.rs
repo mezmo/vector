@@ -1,10 +1,12 @@
+use std::collections::HashMap;
+
 use vector_config::configurable_component;
-use vector_core::config::LogNamespace;
+use vector_core::config::{LogNamespace, TransformOutput};
 use vector_core::event::metric::mezmo::to_metric;
 
 use crate::mezmo::user_trace::handle_transform_error;
 use crate::{
-    config::{DataType, GenerateConfig, Input, Output, TransformConfig, TransformContext},
+    config::{DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext},
     event::Event,
     mezmo::MezmoContext,
     schema,
@@ -46,8 +48,13 @@ impl TransformConfig for LogToMetricConfig {
         Input::log()
     }
 
-    fn outputs(&self, _: &schema::Definition, _: LogNamespace) -> Vec<Output> {
-        vec![Output::default(DataType::Metric)]
+    fn outputs(
+        &self,
+        _: &[(OutputId, schema::Definition)],
+        _: LogNamespace,
+    ) -> Vec<TransformOutput> {
+        // Converting the log to a metric means we lose all incoming `Definition`s.
+        vec![TransformOutput::new(DataType::Metric, HashMap::new())]
     }
 
     fn enable_concurrency(&self) -> bool {

@@ -49,8 +49,18 @@ impl TransformConfig for BasicTransformConfig {
         Input::all()
     }
 
-    fn outputs(&self, _: &schema::Definition, _: LogNamespace) -> Vec<Output> {
-        vec![Output::default(DataType::all())]
+    fn outputs(
+        &self,
+        definitions: &[(OutputId, schema::Definition)],
+        _: LogNamespace,
+    ) -> Vec<TransformOutput> {
+        vec![TransformOutput::new(
+            DataType::all(),
+            definitions
+                .iter()
+                .map(|(output, definition)| (output.clone(), definition.clone()))
+                .collect(),
+        )]
     }
 }
 

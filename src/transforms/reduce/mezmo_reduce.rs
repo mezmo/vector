@@ -16,10 +16,9 @@ use std::{
 pub use super::merge_strategy::*;
 use crate::{
     conditions::{AnyCondition, Condition},
-    config::{DataType, Input, Output, TransformConfig, TransformContext},
+    config::{DataType, Input, TransformConfig, TransformContext},
     event::{discriminant::Discriminant, Event, EventMetadata, LogEvent},
     internal_events::ReduceStaleEventFlushed,
-    schema,
     transforms::{TaskTransform, Transform},
 };
 use async_stream::stream;
@@ -27,14 +26,13 @@ use chrono::{TimeZone, Utc};
 use futures::{stream, Stream, StreamExt};
 use indexmap::IndexMap;
 use lookup::lookup_v2::{parse_target_path, OwnedSegment};
-use lookup::{owned_value_path, PathPrefix};
+use lookup::owned_value_path;
 use serde_with::serde_as;
 use vector_config::configurable_component;
-use vector_core::config::log_schema;
+use vector_core::config::{log_schema, OutputId, TransformOutput};
+use vector_core::schema::Definition;
 
 use crate::event::Value;
-use value::kind::Collection;
-use value::Kind;
 use vector_core::config::LogNamespace;
 
 /// Configuration for the `mezmo_reduce` transform.
@@ -178,91 +176,8 @@ impl TransformConfig for MezmoReduceConfig {
         Input::log()
     }
 
-    fn outputs(&self, input: &schema::Definition, _: LogNamespace) -> Vec<Output> {
-        let mut schema_definition = input.clone();
-
-        for (key, merge_strategy) in self.merge_strategies.iter() {
-            let key = if let Ok(key) = parse_target_path(key) {
-                key
-            } else {
-                continue;
-            };
-
-            let input_kind = match key.prefix {
-                PathPrefix::Event => schema_definition.event_kind().at_path(&key.path),
-                PathPrefix::Metadata => schema_definition.metadata_kind().at_path(&key.path),
-            };
-
-            let new_kind = match merge_strategy {
-                MergeStrategy::Discard | MergeStrategy::Retain => {
-                    /* does not change the type */
-                    input_kind.clone()
-                }
-                MergeStrategy::Sum | MergeStrategy::Max | MergeStrategy::Min => {
-                    // only keeps integer / float values
-                    match (input_kind.contains_integer(), input_kind.contains_float()) {
-                        (true, true) => Kind::float().or_integer(),
-                        (true, false) => Kind::integer(),
-                        (false, true) => Kind::float(),
-                        (false, false) => Kind::undefined(),
-                    }
-                }
-                MergeStrategy::Array => {
-                    let unknown_kind = input_kind.clone();
-                    Kind::array(Collection::empty().with_unknown(unknown_kind))
-                }
-                MergeStrategy::Concat => {
-                    let mut new_kind = Kind::never();
-
-                    if input_kind.contains_bytes() {
-                        new_kind.add_bytes();
-                    }
-                    if let Some(array) = input_kind.as_array() {
-                        // array elements can be either any type that the field can be, or any
-                        // element of the array
-                        let array_elements = array.reduced_kind().union(input_kind.without_array());
-                        new_kind.add_array(Collection::empty().with_unknown(array_elements));
-                    }
-                    new_kind
-                }
-                MergeStrategy::ConcatNewline | MergeStrategy::ConcatRaw => {
-                    // can only produce bytes (or undefined)
-                    if input_kind.contains_bytes() {
-                        Kind::bytes()
-                    } else {
-                        Kind::undefined()
-                    }
-                }
-                MergeStrategy::ShortestArray | MergeStrategy::LongestArray => {
-                    if let Some(array) = input_kind.as_array() {
-                        Kind::array(array.clone())
-                    } else {
-                        Kind::undefined()
-                    }
-                }
-                MergeStrategy::FlatUnique => {
-                    let mut array_elements = input_kind.without_array().without_object();
-                    if let Some(array) = input_kind.as_array() {
-                        array_elements = array_elements.union(array.reduced_kind());
-                    }
-                    if let Some(object) = input_kind.as_object() {
-                        array_elements = array_elements.union(object.reduced_kind());
-                    }
-                    Kind::array(Collection::empty().with_unknown(array_elements))
-                }
-            };
-
-            // all of the merge strategies are optional. They won't produce a value unless a value actually exists
-            let new_kind = if input_kind.contains_undefined() {
-                new_kind.or_undefined()
-            } else {
-                new_kind
-            };
-
-            schema_definition = schema_definition.with_field(&key, new_kind, None);
-        }
-
-        vec![Output::default(DataType::Log).with_schema_definition(schema_definition)]
+    fn outputs(&self, _: &[(OutputId, Definition)], _: LogNamespace) -> Vec<TransformOutput> {
+        vec![TransformOutput::new(DataType::Log, HashMap::new())]
     }
 }
 

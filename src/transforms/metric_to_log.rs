@@ -8,13 +8,11 @@ use value::kind::Collection;
 use value::Kind;
 use vector_common::TimeZone;
 use vector_config::configurable_component;
-use vector_core::config::LogNamespace;
+use vector_core::config::{LogNamespace, OutputId, TransformOutput};
 use vrl::prelude::BTreeMap;
 
 use crate::{
-    config::{
-        log_schema, DataType, GenerateConfig, Input, Output, TransformConfig, TransformContext,
-    },
+    config::{log_schema, DataType, GenerateConfig, Input, TransformConfig, TransformContext},
     event::{self, Event, LogEvent, Metric},
     internal_events::MetricToLogSerializeError,
     schema::Definition,
@@ -90,7 +88,11 @@ impl TransformConfig for MetricToLogConfig {
         Input::metric()
     }
 
-    fn outputs(&self, _: &Definition, global_log_namespace: LogNamespace) -> Vec<Output> {
+    fn outputs(
+        &self,
+        input_definitions: &[(OutputId, Definition)],
+        global_log_namespace: LogNamespace,
+    ) -> Vec<TransformOutput> {
         let log_namespace = global_log_namespace.merge(self.log_namespace);
         let mut schema_definition =
             Definition::default_for_namespace(&BTreeSet::from([log_namespace]))
@@ -223,7 +225,13 @@ impl TransformConfig for MetricToLogConfig {
             }
         }
 
-        vec![Output::default(DataType::Log).with_schema_definition(schema_definition)]
+        vec![TransformOutput::new(
+            DataType::Log,
+            input_definitions
+                .iter()
+                .map(|(output, _)| (output.clone(), schema_definition.clone()))
+                .collect(),
+        )]
     }
 
     fn enable_concurrency(&self) -> bool {

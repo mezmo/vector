@@ -7,14 +7,17 @@ use std::{
 use async_stream::stream;
 use futures::{Stream, StreamExt};
 use vector_config::configurable_component;
-use vector_core::event::metric::mezmo::from_metric;
 use vector_core::{
     config::LogNamespace,
     event::{metric::mezmo::to_metric, Metric},
 };
+use vector_core::{
+    config::{OutputId, TransformOutput},
+    event::metric::mezmo::from_metric,
+};
 
 use crate::{
-    config::{DataType, Input, Output, TransformConfig, TransformContext},
+    config::{DataType, Input, TransformConfig, TransformContext},
     event::{metric, Event, EventMetadata},
     internal_events::{
         MezmoAggregateEventRecorded, MezmoAggregateFlushed, MezmoAggregateUpdateFailed,
@@ -53,8 +56,12 @@ impl TransformConfig for AggregateConfig {
         Input::log()
     }
 
-    fn outputs(&self, _: &schema::Definition, _: LogNamespace) -> Vec<Output> {
-        vec![Output::default(DataType::Log)]
+    fn outputs(
+        &self,
+        _: &[(OutputId, schema::Definition)],
+        _: LogNamespace,
+    ) -> Vec<TransformOutput> {
+        vec![TransformOutput::new(DataType::Log, HashMap::new())]
     }
 }
 

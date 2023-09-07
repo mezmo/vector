@@ -263,15 +263,24 @@ impl TransformConfig for Ec2Metadata {
             &added_keys.tags_key.log_path,
         ];
 
-        let mut schema_definition = merged_definition.clone();
+        let schema_definition = input_definitions
+            .iter()
+            .map(|(output, definition)| {
+                let mut schema_definition = definition.clone();
 
-        for path in paths {
-            schema_definition =
-                schema_definition.with_field(path, Kind::bytes().or_undefined(), None);
-        }
+                for path in paths {
+                    schema_definition =
+                        schema_definition.with_field(path, Kind::bytes().or_undefined(), None);
+                }
 
-        vec![Output::default(DataType::Metric | DataType::Log)
-            .with_schema_definition(schema_definition)]
+                (output.clone(), schema_definition)
+            })
+            .collect();
+
+        vec![TransformOutput::new(
+            DataType::Metric | DataType::Log,
+            schema_definition,
+        )]
     }
 }
 

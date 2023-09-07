@@ -39,8 +39,18 @@ impl TransformConfig for NoopTransformConfig {
         Input::all()
     }
 
-    fn outputs(&self, _: &Definition, _: LogNamespace) -> Vec<Output> {
-        vec![Output::default(DataType::all())]
+    fn outputs(
+        &self,
+        definitions: &[(OutputId, Definition)],
+        _: LogNamespace,
+    ) -> Vec<TransformOutput> {
+        vec![TransformOutput::new(
+            DataType::all(),
+            definitions
+                .iter()
+                .map(|(output, definition)| (output.clone(), definition.clone()))
+                .collect(),
+        )]
     }
 
     async fn build(&self, _: &TransformContext) -> crate::Result<Transform> {

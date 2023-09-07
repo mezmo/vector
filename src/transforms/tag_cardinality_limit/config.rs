@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::config::{DataType, GenerateConfig, Input, Output, TransformConfig, TransformContext};
 use crate::schema;
 use crate::transforms::tag_cardinality_limit::TagCardinalityLimit;
@@ -108,7 +110,11 @@ impl TransformConfig for TagCardinalityLimitConfig {
         Input::metric()
     }
 
-    fn outputs(&self, _: &schema::Definition, _: LogNamespace) -> Vec<Output> {
-        vec![Output::default(DataType::Metric)]
+    fn outputs(
+        &self,
+        _: &[(OutputId, schema::Definition)],
+        _: LogNamespace,
+    ) -> Vec<TransformOutput> {
+        vec![TransformOutput::new(DataType::Metric, HashMap::new())]
     }
 }

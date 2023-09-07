@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::{
     collections::BTreeMap,
@@ -14,7 +15,7 @@ use value::Kind;
 use vector_common::TimeZone;
 use vector_config::configurable_component;
 use vector_core::compile_vrl;
-use vector_core::config::LogNamespace;
+use vector_core::config::{LogNamespace, OutputId, TransformOutput};
 use vector_core::schema::Definition;
 use vector_vrl_functions::set_semantic_meaning::MeaningList;
 use vrl::prelude::state::TypeState;
@@ -25,9 +26,7 @@ use vrl::{
 };
 
 use crate::{
-    config::{
-        log_schema, ComponentKey, DataType, Input, Output, TransformConfig, TransformContext,
-    },
+    config::{log_schema, ComponentKey, DataType, Input, TransformConfig, TransformContext},
     event::{Event, TargetEvents, VrlTarget},
     internal_events::{RemapMappingAbort, RemapMappingError},
     mezmo::{vrl as mezmo_vrl_functions, MezmoContext},
@@ -227,7 +226,11 @@ impl TransformConfig for RemapConfig {
         Input::all()
     }
 
-    fn outputs(&self, input_definition: &schema::Definition, _: LogNamespace) -> Vec<Output> {
+    fn outputs(
+        &self,
+        input_definitions: &[(OutputId, schema::Definition)],
+        _: LogNamespace,
+    ) -> Vec<TransformOutput> {
         // MEZMO
         // Compiling all remaps each time the config reloaded took several seconds with 100+ pipelines.
         // We intentionally don't care about schemas for VRL.
@@ -239,60 +242,78 @@ impl TransformConfig for RemapConfig {
         // - https://github.com/vectordotdev/vector/pull/11513
         // - https://github.com/vectordotdev/vector/pull/11526
 
-        let default_definition = Definition::new_with_default_metadata(
-            Kind::any(),
-            input_definition.log_namespaces().clone(),
-        );
+        let mut dropped_definitions = HashMap::new();
+        let mut default_definitions = HashMap::new();
 
-        // When a message is dropped and re-routed, we keep the original event, but also annotate
-        // it with additional metadata.
-        let mut dropped_definition = Definition::new_with_default_metadata(
-            Kind::never(),
-            input_definition.log_namespaces().clone(),
-        );
-
-        if input_definition
-            .log_namespaces()
-            .contains(&LogNamespace::Legacy)
-        {
-            dropped_definition =
-                dropped_definition.merge(input_definition.clone().with_event_field(
-                    &parse_value_path(log_schema().metadata_key()).expect("valid metadata key"),
-                    Kind::object(BTreeMap::from([
-                        ("reason".into(), Kind::bytes()),
-                        ("message".into(), Kind::bytes()),
-                        ("component_id".into(), Kind::bytes()),
-                        ("component_type".into(), Kind::bytes()),
-                        ("component_kind".into(), Kind::bytes()),
-                    ])),
-                    Some("metadata"),
-                ));
-        }
-
-        if input_definition
-            .log_namespaces()
-            .contains(&LogNamespace::Vector)
-        {
-            dropped_definition = dropped_definition.merge(
-                input_definition
-                    .clone()
-                    .with_metadata_field(&owned_value_path!("reason"), Kind::bytes(), None)
-                    .with_metadata_field(&owned_value_path!("message"), Kind::bytes(), None)
-                    .with_metadata_field(&owned_value_path!("component_id"), Kind::bytes(), None)
-                    .with_metadata_field(&owned_value_path!("component_type"), Kind::bytes(), None)
-                    .with_metadata_field(&owned_value_path!("component_kind"), Kind::bytes(), None),
+        for (output_id, input_definition) in input_definitions {
+            // Mezmo: avoid compiling
+            let default_definition = Definition::new_with_default_metadata(
+                Kind::any(),
+                input_definition.log_namespaces().clone(),
             );
+
+            // When a message is dropped and re-routed, we keep the original event, but also annotate
+            // it with additional metadata.
+            let mut dropped_definition = Definition::new_with_default_metadata(
+                Kind::never(),
+                input_definition.log_namespaces().clone(),
+            );
+
+            if input_definition
+                .log_namespaces()
+                .contains(&LogNamespace::Legacy)
+            {
+                dropped_definition =
+                    dropped_definition.merge(input_definition.clone().with_event_field(
+                        &parse_value_path(log_schema().metadata_key()).expect("valid metadata key"),
+                        Kind::object(BTreeMap::from([
+                            ("reason".into(), Kind::bytes()),
+                            ("message".into(), Kind::bytes()),
+                            ("component_id".into(), Kind::bytes()),
+                            ("component_type".into(), Kind::bytes()),
+                            ("component_kind".into(), Kind::bytes()),
+                        ])),
+                        Some("metadata"),
+                    ));
+            }
+
+            if input_definition
+                .log_namespaces()
+                .contains(&LogNamespace::Vector)
+            {
+                dropped_definition = dropped_definition.merge(
+                    input_definition
+                        .clone()
+                        .with_metadata_field(&owned_value_path!("reason"), Kind::bytes(), None)
+                        .with_metadata_field(&owned_value_path!("message"), Kind::bytes(), None)
+                        .with_metadata_field(
+                            &owned_value_path!("component_id"),
+                            Kind::bytes(),
+                            None,
+                        )
+                        .with_metadata_field(
+                            &owned_value_path!("component_type"),
+                            Kind::bytes(),
+                            None,
+                        )
+                        .with_metadata_field(
+                            &owned_value_path!("component_kind"),
+                            Kind::bytes(),
+                            None,
+                        ),
+                );
+            }
+
+            default_definitions.insert(output_id.clone(), default_definition);
+            dropped_definitions.insert(output_id.clone(), dropped_definition);
         }
 
-        let default_output =
-            Output::default(DataType::all()).with_schema_definition(default_definition);
+        let default_output = TransformOutput::new(DataType::all(), default_definitions);
 
         if self.reroute_dropped {
             vec![
                 default_output,
-                Output::default(DataType::all())
-                    .with_schema_definition(dropped_definition)
-                    .with_port(DROPPED),
+                TransformOutput::new(DataType::all(), dropped_definitions).with_port(DROPPED),
             ]
         } else {
             vec![default_output]
@@ -389,14 +410,23 @@ where
             .schema_definitions
             .get(&None)
             .expect("default schema required")
-            .clone();
+            // TODO we can now have multiple possible definitions.
+            // This is going to need to be updated to store these possible definitions and then
+            // choose the correct one based on the input the event has come from.
+            .iter()
+            .map(|(_output, definition)| definition.clone())
+            .next()
+            .unwrap_or_else(Definition::any);
 
         let dropped_schema_definition = context
             .schema_definitions
             .get(&Some(DROPPED.to_owned()))
             .or_else(|| context.schema_definitions.get(&None))
             .expect("dropped schema required")
-            .clone();
+            .iter()
+            .map(|(_output, definition)| definition.clone())
+            .next()
+            .unwrap_or_else(Definition::any);
 
         Ok(Remap {
             component_key: context.key.clone(),
@@ -642,8 +672,14 @@ mod tests {
 
     fn remap(config: RemapConfig) -> Result<Remap<AstRunner>> {
         let schema_definitions = HashMap::from([
-            (None, test_default_schema_definition()),
-            (Some(DROPPED.to_owned()), test_dropped_schema_definition()),
+            (
+                None,
+                [("source".into(), test_default_schema_definition())].into(),
+            ),
+            (
+                Some(DROPPED.to_owned()),
+                [("source".into(), test_dropped_schema_definition())].into(),
+            ),
         ]);
 
         Remap::new_ast(config, &TransformContext::new_test(schema_definitions))
@@ -1113,8 +1149,14 @@ mod tests {
             ..Default::default()
         };
         let schema_definitions = HashMap::from([
-            (None, test_default_schema_definition()),
-            (Some(DROPPED.to_owned()), test_dropped_schema_definition()),
+            (
+                None,
+                [("source".into(), test_default_schema_definition())].into(),
+            ),
+            (
+                Some(DROPPED.to_owned()),
+                [("source".into(), test_dropped_schema_definition())].into(),
+            ),
         ]);
         let context = TransformContext {
             key: Some(ComponentKey::from("remapper")),
@@ -1443,8 +1485,8 @@ mod tests {
     fn collect_outputs(ft: &mut dyn SyncTransform, event: Event) -> CollectedOuput {
         let mut outputs = TransformOutputsBuf::new_with_capacity(
             vec![
-                Output::default(DataType::all()),
-                Output::default(DataType::all()).with_port(DROPPED),
+                TransformOutput::new(DataType::all(), HashMap::new()),
+                TransformOutput::new(DataType::all(), HashMap::new()).with_port(DROPPED),
             ],
             1,
         );
@@ -1470,8 +1512,8 @@ mod tests {
     ) -> std::result::Result<Event, Event> {
         let mut outputs = TransformOutputsBuf::new_with_capacity(
             vec![
-                Output::default(DataType::all()),
-                Output::default(DataType::all()).with_port(DROPPED),
+                TransformOutput::new(DataType::all(), HashMap::new()),
+                TransformOutput::new(DataType::all(), HashMap::new()).with_port(DROPPED),
             ],
             1,
         );

@@ -4,12 +4,10 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use lru::LruCache;
 use vector_config::configurable_component;
-use vector_core::config::LogNamespace;
+use vector_core::config::{clone_input_definitions, LogNamespace, OutputId, TransformOutput};
 
 use crate::{
-    config::{
-        log_schema, DataType, GenerateConfig, Input, Output, TransformConfig, TransformContext,
-    },
+    config::{log_schema, DataType, GenerateConfig, Input, TransformConfig, TransformContext},
     event::{Event, Value},
     internal_events::DedupeEventsDropped,
     schema,
@@ -152,8 +150,15 @@ impl TransformConfig for DedupeConfig {
         Input::log()
     }
 
-    fn outputs(&self, merged_definition: &schema::Definition, _: LogNamespace) -> Vec<Output> {
-        vec![Output::default(DataType::Log).with_schema_definition(merged_definition.clone())]
+    fn outputs(
+        &self,
+        input_definitions: &[(OutputId, schema::Definition)],
+        _: LogNamespace,
+    ) -> Vec<TransformOutput> {
+        vec![TransformOutput::new(
+            DataType::Log,
+            clone_input_definitions(input_definitions),
+        )]
     }
 }
 

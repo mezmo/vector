@@ -2,12 +2,13 @@ use chrono::Utc;
 use codecs::BytesDeserializerConfig;
 use futures::StreamExt;
 use vector_config::configurable_component;
+use vector_core::config::SourceOutput;
 use vector_core::EstimatedJsonEncodedSizeOf;
 use vector_core::{config::LogNamespace, schema::Definition};
 
 use crate::mezmo::user_trace::UserLogSubscription;
 use crate::{
-    config::{DataType, Output, SourceConfig, SourceContext},
+    config::{DataType, SourceConfig, SourceContext},
     event::Event,
     internal_events::{InternalLogsBytesReceived, InternalLogsEventsReceived, StreamClosedError},
     shutdown::ShutdownSignal,
@@ -53,11 +54,11 @@ impl SourceConfig for MezmoUserLogsConfig {
         )))
     }
 
-    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<Output> {
+    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<SourceOutput> {
         let schema_definition =
             self.schema_definition(global_log_namespace.merge(self.log_namespace));
 
-        vec![Output::default(DataType::Log).with_schema_definition(schema_definition)]
+        vec![SourceOutput::new_logs(DataType::Log, schema_definition)]
     }
 
     fn can_acknowledge(&self) -> bool {

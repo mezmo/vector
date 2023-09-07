@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use smallvec::SmallVec;
 use vector_config::configurable_component;
 use vector_core::{config::LogNamespace, event::Value};
@@ -7,7 +9,7 @@ use codecs::decoding::MezmoDeserializer;
 use crate::mezmo::user_trace::handle_deserializer_error;
 
 use crate::{
-    config::{DataType, GenerateConfig, Input, Output, TransformConfig, TransformContext},
+    config::{DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext},
     event::{Event, LogEvent},
     mezmo::MezmoContext,
     schema,
@@ -15,7 +17,7 @@ use crate::{
 };
 
 use lookup::PathPrefix;
-use vector_core::config::log_schema;
+use vector_core::config::{log_schema, TransformOutput};
 
 /// The Enum to choose a protobuf vendor.
 #[configurable_component]
@@ -69,8 +71,12 @@ impl TransformConfig for ProtobufToMetricConfig {
         Input::log()
     }
 
-    fn outputs(&self, _: &schema::Definition, _: LogNamespace) -> Vec<Output> {
-        vec![Output::default(DataType::Log)]
+    fn outputs(
+        &self,
+        _: &[(OutputId, schema::Definition)],
+        _: LogNamespace,
+    ) -> Vec<TransformOutput> {
+        vec![TransformOutput::new(DataType::Log, HashMap::new())]
     }
 
     fn enable_concurrency(&self) -> bool {
