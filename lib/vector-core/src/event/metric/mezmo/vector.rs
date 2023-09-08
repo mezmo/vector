@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use chrono::Utc;
@@ -301,11 +302,20 @@ pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
             field: "value".into(),
         }
     })?;
-    let type_name = get_property(value_object, "type")?
-        .as_str()
-        .ok_or_else(|| TransformError::FieldInvalidType {
+
+    // this is trying to be tolerant of some sloppy metrics exporters, some of
+    // which will emit a numeric value without a type. We're setting a type
+    // that will succeed on a number, and the accumulation will be informed
+    // by the "kind"
+    let type_name = match value_object.get("type") {
+        Some(Value::Null) => Err(TransformError::FieldNull {
             field: "value.type".into(),
-        })?;
+        }),
+        Some(t) => Ok(t.as_str().ok_or_else(|| TransformError::FieldInvalidType {
+            field: "value.type".into(),
+        })?),
+        None => Ok(Cow::Borrowed("gauge")),
+    }?;
 
     let value = parse_value(type_name.as_ref(), value_object)?;
 
