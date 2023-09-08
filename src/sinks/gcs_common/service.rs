@@ -15,9 +15,9 @@ use http::{
 };
 use hyper::Body;
 use tower::Service;
-use value::Value;
 use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_core::{internal_event::CountByteSize, stream::DriverResponse};
+use vrl::value::Value;
 
 #[derive(Debug, Clone)]
 pub struct GcsService {

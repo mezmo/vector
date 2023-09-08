@@ -6,7 +6,7 @@ use crate::mezmo::user_trace::UserLoggingError;
 use aws_sdk_kinesis::{
     error::PutRecordsError, model::PutRecordsRequestEntry, types::SdkError, Client,
 };
-use value::Value;
+use vrl::value::Value;
 
 pub use super::{
     config::{build_sink, KinesisSinkBaseConfig},

@@ -11,9 +11,9 @@ use lookup::{
     PathPrefix,
 };
 use serde::{Deserialize, Deserializer};
-use value::Value;
 use vector_config::configurable_component;
 use vector_core::event::{LogEvent, MaybeAsLogMut};
+use vrl::value::Value;
 
 use crate::{
     event::Event, mezmo::reshape_log_event_by_message, serde::skip_serializing_if_default,

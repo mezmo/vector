@@ -1,9 +1,9 @@
 #![allow(missing_docs)]
 
+use ::vrl::value::Value;
 use snafu::Snafu;
 use std::convert::Infallible;
 use std::str::FromStr;
-use value::Value;
 
 use vector_core::config::log_schema;
 use vector_core::event::LogEvent;
@@ -134,10 +134,10 @@ pub fn reshape_log_event_by_message(log: &mut LogEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use value::Value;
     use vector_common::btreemap;
     use vector_core::config::log_schema;
     use vector_core::event::LogEvent;
+    use vrl::value::Value;
 
     #[test]
     fn test_mezmo_context_try_from_shared_component() {

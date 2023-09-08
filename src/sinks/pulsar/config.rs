@@ -22,10 +22,11 @@ use pulsar::{
 };
 use pulsar::{error::AuthenticationError, OperationRetryOptions};
 use snafu::ResultExt;
-use value::{Kind, Value};
 use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
 use vector_core::config::DataType;
+use vrl::value::Kind;
+use vrl::value::Value;
 
 /// Configuration for the `pulsar` sink.
 #[configurable_component(sink("pulsar"))]

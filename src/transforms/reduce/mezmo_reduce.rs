@@ -176,7 +176,12 @@ impl TransformConfig for MezmoReduceConfig {
         Input::log()
     }
 
-    fn outputs(&self, _: &[(OutputId, Definition)], _: LogNamespace) -> Vec<TransformOutput> {
+    fn outputs(
+        &self,
+        _: enrichment::TableRegistry,
+        _: &[(OutputId, Definition)],
+        _: LogNamespace,
+    ) -> Vec<TransformOutput> {
         vec![TransformOutput::new(DataType::Log, HashMap::new())]
     }
 }

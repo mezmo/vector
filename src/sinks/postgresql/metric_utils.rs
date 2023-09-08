@@ -2,9 +2,9 @@ use lookup::lookup_v2::{BorrowedSegment, ValuePath};
 use ordered_float::NotNan;
 use rand_distr::num_traits::FromPrimitive;
 use std::fmt::Debug;
-use value::Value;
 use vector_core::event::metric::MetricTags;
 use vector_core::event::{Metric, MetricValue};
+use vrl::value::Value;
 
 fn get_tag_value<'a>(
     tags: Option<&MetricTags>,

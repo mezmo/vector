@@ -8,7 +8,6 @@ use futures::StreamExt;
 use lookup::{lookup_v2::OptionalValuePath, owned_value_path, path, OwnedValuePath};
 use snafu::{ResultExt, Snafu};
 use tokio_util::codec::FramedRead;
-use value::Kind;
 use vector_common::internal_event::{
     ByteSize, BytesReceived, CountByteSize, InternalEventHandle as _, Protocol, Registered,
 };
@@ -17,6 +16,7 @@ use vector_core::{
     config::{LegacyKey, LogNamespace},
     EstimatedJsonEncodedSizeOf,
 };
+use vrl::value::Kind;
 
 use crate::{
     codecs::{Decoder, DecodingConfig},
@@ -318,6 +318,7 @@ mod integration_test {
         },
         SourceSender,
     };
+    use vrl::value::value;
 
     const REDIS_SERVER: &str = "redis://redis:6379/0";
 
@@ -390,7 +391,7 @@ mod integration_test {
             meta.value()
                 .get(path!(RedisSourceConfig::NAME, "key"))
                 .unwrap(),
-            &vrl::value!(key)
+            &value!(key)
         );
     }
 

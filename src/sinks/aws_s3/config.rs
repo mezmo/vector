@@ -13,10 +13,7 @@ use super::sink::S3RequestOptions;
 use crate::{
     aws::{AwsAuthentication, RegionOrEndpoint},
     codecs::{Encoder, EncodingConfigWithFraming, SinkType, Transformer},
-    config::{
-        AcknowledgementsConfig, DataType, GenerateConfig, Input, ProxyConfig, SinkConfig,
-        SinkContext,
-    },
+    config::{AcknowledgementsConfig, GenerateConfig, Input, ProxyConfig, SinkConfig, SinkContext},
     mezmo::user_trace::MezmoLoggingService,
     sinks::{
         s3_common::{
@@ -178,7 +175,7 @@ impl SinkConfig for S3SinkConfig {
     }
 
     fn input(&self) -> Input {
-        Input::new(self.encoding.config().1.input_type() & DataType::Log)
+        Input::new(self.encoding.config().1.input_type())
     }
 
     fn acknowledgements(&self) -> &AcknowledgementsConfig {

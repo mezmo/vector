@@ -5,9 +5,9 @@ mod unix;
 
 use codecs::decoding::DeserializerConfig;
 use lookup::{lookup_v2::OptionalValuePath, owned_value_path};
-use value::{kind::Collection, Kind};
 use vector_config::configurable_component;
 use vector_core::config::{log_schema, LegacyKey, LogNamespace};
+use vrl::value::{kind::Collection, Kind};
 
 #[cfg(unix)]
 use crate::serde::default_framing_message_based;
@@ -341,8 +341,10 @@ mod test {
         task::JoinHandle,
         time::{timeout, Duration, Instant},
     };
-    use value::btreemap;
     use vector_core::event::EventContainer;
+    use vrl::value::value;
+    use vrl::value::{btreemap, Value};
+
     #[cfg(unix)]
     use {
         super::{unix::UnixConfig, Mode},
@@ -433,15 +435,15 @@ mod test {
             assert_eq!(log.value(), &"test".into());
             assert_eq!(
                 event_meta.get(path!("vector", "source_type")).unwrap(),
-                &vrl::value!(SocketConfig::NAME)
+                &value!(SocketConfig::NAME)
             );
             assert_eq!(
                 event_meta.get(path!(SocketConfig::NAME, "host")).unwrap(),
-                &vrl::value!(addr.ip().to_string())
+                &value!(addr.ip().to_string())
             );
             assert_eq!(
                 event_meta.get(path!(SocketConfig::NAME, "port")).unwrap(),
-                &vrl::value!(addr.port())
+                &value!(addr.port())
             );
         })
         .await;
@@ -584,7 +586,7 @@ mod test {
                 "one line".into()
             );
 
-            let tls_meta: BTreeMap<String, value::Value> = btreemap!(
+            let tls_meta: BTreeMap<String, Value> = btreemap!(
                 "subject" => "CN=localhost,OU=Vector,O=Datadog,L=New York,ST=New York,C=US"
             );
 
@@ -649,7 +651,7 @@ mod test {
 
             assert_eq!(log.value(), &"one line".into());
 
-            let tls_meta: BTreeMap<String, value::Value> = btreemap!(
+            let tls_meta: BTreeMap<String, Value> = btreemap!(
                 "subject" => "CN=localhost,OU=Vector,O=Datadog,L=New York,ST=New York,C=US"
             );
 
@@ -657,7 +659,7 @@ mod test {
                 event_meta
                     .get(path!(SocketConfig::NAME, "tls_client_metadata"))
                     .unwrap(),
-                &vrl::value!(tls_meta.clone())
+                &value!(tls_meta.clone())
             );
 
             let event = rx.next().await.unwrap();
@@ -670,7 +672,7 @@ mod test {
                 event_meta
                     .get(path!(SocketConfig::NAME, "tls_client_metadata"))
                     .unwrap(),
-                &vrl::value!(tls_meta.clone())
+                &value!(tls_meta.clone())
             );
         })
         .await;
@@ -1093,15 +1095,15 @@ mod test {
             assert_eq!(log.value(), &"test".into());
             assert_eq!(
                 event_meta.get(path!("vector", "source_type")).unwrap(),
-                &vrl::value!(SocketConfig::NAME)
+                &value!(SocketConfig::NAME)
             );
             assert_eq!(
                 event_meta.get(path!(SocketConfig::NAME, "host")).unwrap(),
-                &vrl::value!(from.ip().to_string())
+                &value!(from.ip().to_string())
             );
             assert_eq!(
                 event_meta.get(path!(SocketConfig::NAME, "port")).unwrap(),
-                &vrl::value!(from.port())
+                &value!(from.port())
             );
         })
         .await;
@@ -1391,12 +1393,12 @@ mod test {
 
             assert_eq!(
                 event_meta.get(path!("vector", "source_type")).unwrap(),
-                &vrl::value!(SocketConfig::NAME)
+                &value!(SocketConfig::NAME)
             );
 
             assert_eq!(
                 event_meta.get(path!(SocketConfig::NAME, "host")).unwrap(),
-                &vrl::value!(UNNAMED_SOCKET_HOST)
+                &value!(UNNAMED_SOCKET_HOST)
             );
         })
         .await;
@@ -1522,11 +1524,11 @@ mod test {
             assert_eq!(1, events.len());
             assert_eq!(
                 event_meta.get(path!("vector", "source_type")).unwrap(),
-                &vrl::value!(SocketConfig::NAME)
+                &value!(SocketConfig::NAME)
             );
             assert_eq!(
                 event_meta.get(path!(SocketConfig::NAME, "host")).unwrap(),
-                &vrl::value!(UNNAMED_SOCKET_HOST)
+                &value!(UNNAMED_SOCKET_HOST)
             );
         })
         .await;

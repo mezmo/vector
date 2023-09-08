@@ -11,7 +11,6 @@ use std::{
 };
 use tokio_postgres::types::{to_sql_checked, IsNull, ToSql, Type};
 use tower::Service;
-use value::Value;
 use vector_common::byte_size_of::ByteSizeOf;
 use vector_common::finalization::{EventFinalizers, Finalizable};
 use vector_common::internal_event::{
@@ -19,6 +18,7 @@ use vector_common::internal_event::{
 };
 use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_core::{internal_event::CountByteSize, stream::DriverResponse};
+use vrl::value::Value;
 
 pub struct PostgreSQLRequest {
     data: Vec<Value>,

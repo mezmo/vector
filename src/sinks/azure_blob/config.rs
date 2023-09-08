@@ -3,9 +3,9 @@ use std::sync::Arc;
 use azure_storage_blobs::prelude::*;
 use codecs::{encoding::Framer, JsonSerializerConfig, NewlineDelimitedEncoderConfig};
 use tower::ServiceBuilder;
-use value::Value;
 use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
+use vrl::value::Value;
 
 use super::request_builder::AzureBlobRequestOptions;
 use crate::{

@@ -47,12 +47,11 @@ pub mod usage_metrics;
 #[cfg(feature = "vrl")]
 mod vrl;
 
+use float_eq::FloatEq;
 use std::path::PathBuf;
 
-use float_eq::FloatEq;
-
 #[cfg(feature = "vrl")]
-pub use vrl::compile_vrl;
+pub use crate::vrl::compile_vrl;
 
 pub use vector_buffers as buffers;
 #[cfg(any(test, feature = "test"))]

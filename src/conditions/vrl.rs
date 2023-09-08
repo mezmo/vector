@@ -1,8 +1,10 @@
-use value::Value;
 use vector_common::TimeZone;
 use vector_config::configurable_component;
 use vector_core::compile_vrl;
-use vrl::{diagnostic::Formatter, CompilationResult, CompileConfig, Program, Runtime, VrlRuntime};
+use vrl::compiler::runtime::{Runtime, RuntimeResult, Terminate};
+use vrl::compiler::{CompilationResult, CompileConfig, Program, TypeState, VrlRuntime};
+use vrl::diagnostic::Formatter;
+use vrl::value::Value;
 
 use crate::event::TargetEvents;
 use crate::{
@@ -43,14 +45,14 @@ impl ConditionalConfig for VrlConfig {
         //     },
         // };
 
-        let functions = vrl_stdlib::all()
+        let functions = vrl::stdlib::all()
             .into_iter()
             .chain(enrichment::vrl_functions().into_iter())
             .chain(vector_vrl_functions::all())
             .chain(mezmo_vrl_functions::vrl_functions())
             .collect::<Vec<_>>();
 
-        let state = vrl::state::TypeState::default();
+        let state = TypeState::default();
 
         let mut config = CompileConfig::default();
         config.set_custom(enrichment_tables.clone());
@@ -90,7 +92,7 @@ pub struct Vrl {
 }
 
 impl Vrl {
-    fn run(&self, event: Event) -> (Event, vrl::RuntimeResult) {
+    fn run(&self, event: Event) -> (Event, RuntimeResult) {
         let mut target = VrlTarget::new(event, self.program.info(), false);
         // TODO: use timezone from remap config
         let timezone = TimeZone::default();
@@ -126,7 +128,7 @@ impl Conditional for Vrl {
         let (event, result) = self.run(event);
 
         let value_result = result.map_err(|err| match err {
-            vrl::Terminate::Abort(err) => {
+            Terminate::Abort(err) => {
                 let err = Formatter::new(
                     &self.source,
                     vrl::diagnostic::Diagnostic::from(
@@ -137,7 +139,7 @@ impl Conditional for Vrl {
                 .to_string();
                 format!("source execution aborted: {}", err)
             }
-            vrl::Terminate::Error(err) => {
+            Terminate::Error(err) => {
                 let err = Formatter::new(
                     &self.source,
                     vrl::diagnostic::Diagnostic::from(

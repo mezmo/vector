@@ -4,10 +4,10 @@ use aws_sdk_sqs::{error::SendMessageError, types::SdkError, Client as SqsClient}
 use futures::{future::BoxFuture, TryFutureExt};
 use tower::Service;
 use tracing::Instrument;
-use value::Value;
 use vector_core::{
     event::EventStatus, internal_event::CountByteSize, stream::DriverResponse, ByteSizeOf,
 };
+use vrl::value::Value;
 
 use crate::mezmo::user_trace::{UserLoggingError, UserLoggingResponse};
 

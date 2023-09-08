@@ -9,7 +9,6 @@ use rdkafka::{
     util::Timeout,
 };
 use tower::Service;
-use value::Value;
 use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_core::{
     internal_event::{
@@ -17,6 +16,7 @@ use vector_core::{
     },
     stream::DriverResponse,
 };
+use vrl::value::Value;
 
 use crate::{
     event::{EventFinalizers, EventStatus, Finalizable},

@@ -6,7 +6,7 @@ use serde::Serialize;
 use snafu::Snafu;
 use std::collections::HashMap;
 use tower::ServiceBuilder;
-use value::Value;
+use vrl::value::Value;
 
 use crate::{
     codecs::{Encoder, Transformer},

@@ -14,9 +14,9 @@ use futures::{stream, FutureExt, SinkExt};
 use futures_util::{future, future::BoxFuture};
 use std::task::{Context, Poll};
 use tower::Service;
-use value::Value;
 use vector_config::configurable_component;
 use vector_core::{sink::VectorSink, EstimatedJsonEncodedSizeOf};
+use vrl::value::Value;
 
 use crate::{
     aws::{

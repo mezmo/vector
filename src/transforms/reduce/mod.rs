@@ -29,9 +29,9 @@ pub mod mezmo_reduce;
 
 use crate::event::Value;
 pub use merge_strategy::*;
-use value::kind::Collection;
-use value::Kind;
 use vector_core::config::{LogNamespace, OutputId, TransformOutput};
+use vrl::value::kind::Collection;
+use vrl::value::Kind;
 
 /// Configuration for the `reduce` transform.
 #[serde_as]
@@ -128,6 +128,7 @@ impl TransformConfig for ReduceConfig {
 
     fn outputs(
         &self,
+        _: enrichment::TableRegistry,
         input_definitions: &[(OutputId, schema::Definition)],
         _: LogNamespace,
     ) -> Vec<TransformOutput> {
@@ -477,7 +478,7 @@ mod test {
     use serde_json::json;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
-    use value::Kind;
+    use vrl::value::Kind;
 
     use super::*;
     use crate::event::{LogEvent, Value};
@@ -517,13 +518,16 @@ group_by = [ "request_id" ]
                     Kind::bytes().or_undefined(),
                     None,
                 );
-            let schema_definition = reduce_config
-                .outputs(&input_definition, LogNamespace::Legacy)
+            let schema_definitions = reduce_config
+                .outputs(
+                    enrichment::TableRegistry::default(),
+                    &[("test".into(), input_definition)],
+                    LogNamespace::Legacy,
+                )
                 .first()
                 .unwrap()
-                .log_schema_definition
-                .clone()
-                .unwrap();
+                .schema_definitions(true)
+                .clone();
 
             let (tx, rx) = mpsc::channel(1);
             let (topology, mut out) = create_topology(ReceiverStream::new(rx), reduce_config).await;

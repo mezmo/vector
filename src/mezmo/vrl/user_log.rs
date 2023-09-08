@@ -2,15 +2,8 @@ use crate::{
     mezmo::{user_trace::MezmoUserLog, MezmoContext},
     user_log,
 };
-use ::value::Value;
 use bytes::Bytes;
-use vrl::{
-    function::{ArgumentList, Compiled, Example, FunctionCompileContext, Parameter},
-    prelude::*,
-    state::TypeState,
-    value::{kind, VrlValueConvert},
-    Context, Expression, Function,
-};
+use vrl::{prelude::*, value::Value};
 
 #[derive(Clone, Copy, Debug)]
 pub struct UserLog;

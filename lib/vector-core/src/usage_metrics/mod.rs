@@ -4,8 +4,8 @@ use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
     time::{sleep, Duration},
 };
-use value::Value;
 use vector_common::byte_size_of::ByteSizeOf;
+use vrl::value::Value;
 
 use crate::{
     config::log_schema,
@@ -513,7 +513,7 @@ fn start_publishing_metrics_with_flusher(
 mod tests {
     use std::collections::{BTreeMap, HashMap};
     use tokio::sync::mpsc;
-    use value::Value;
+    use vrl::value::Value;
 
     use crate::{config::log_schema, event::LogEvent};
     use async_trait::async_trait;

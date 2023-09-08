@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use value::Value;
+use vrl::value::Value;
 
 use vector_core::event::metric::mezmo::{
     from_f64_or_zero, IntoValue, MetricValueAccessor, MetricValuePairs, MetricValueSerializable,

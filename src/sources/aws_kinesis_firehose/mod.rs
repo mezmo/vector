@@ -4,10 +4,10 @@ use codecs::decoding::{DeserializerConfig, FramingConfig};
 use futures::FutureExt;
 use lookup::owned_value_path;
 use tracing::Span;
-use value::Kind;
 use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
 use vector_core::config::{LegacyKey, LogNamespace};
+use vrl::value::Kind;
 use warp::Filter;
 
 use crate::{
@@ -251,6 +251,7 @@ mod tests {
     use similar_asserts::assert_eq;
     use tokio::time::{sleep, Duration};
     use vector_common::assert_event_data_eq;
+    use vrl::value::value;
 
     use super::*;
     use crate::{
@@ -605,12 +606,12 @@ mod tests {
                     let meta = log.metadata();
 
                     // event data, currently assumes default bytes deserializer
-                    assert_eq!(log.value(), &vrl::value!(Bytes::from(expected.to_owned())));
+                    assert_eq!(log.value(), &value!(Bytes::from(expected.to_owned())));
 
                     // vector metadata
                     assert_eq!(
                         meta.value().get(path!("vector", "source_type")).unwrap(),
-                        &vrl::value!("aws_kinesis_firehose")
+                        &value!("aws_kinesis_firehose")
                     );
                     assert!(meta
                         .value()
@@ -623,19 +624,19 @@ mod tests {
                         meta.value()
                             .get(path!("aws_kinesis_firehose", "request_id"))
                             .unwrap(),
-                        &vrl::value!(REQUEST_ID)
+                        &value!(REQUEST_ID)
                     );
                     assert_eq!(
                         meta.value()
                             .get(path!("aws_kinesis_firehose", "source_arn"))
                             .unwrap(),
-                        &vrl::value!(SOURCE_ARN)
+                        &value!(SOURCE_ARN)
                     );
                     assert_eq!(
                         meta.value()
                             .get(path!("aws_kinesis_firehose", "timestamp"))
                             .unwrap(),
-                        &vrl::value!(timestamp.trunc_subsecs(3))
+                        &value!(timestamp.trunc_subsecs(3))
                     );
                 }
 

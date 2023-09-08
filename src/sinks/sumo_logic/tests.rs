@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use value::Value;
 use vector_buffers::EventCount;
 use vector_core::event::{Event, LogEvent};
+use vrl::value::Value;
 
 use super::{
     config::{SumoLogicCredentials, SumoLogicSinkConfig},
