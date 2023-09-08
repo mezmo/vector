@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/answerbook/vector/compare/v1.11.1...v1.12.0) (2023-09-08)
+
+
+### Features
+
+* **mezmo_config**: VRL validation for remap tranforms [6a5dbfb](https://github.com/answerbook/vector/commit/6a5dbfbf7f06df3299bce11c7ddb5614d59db3a4) - Michael Penick [LOG-17690](https://logdna.atlassian.net/browse/LOG-17690)
+
 ## [1.11.1](https://github.com/answerbook/vector/compare/v1.11.0...v1.11.1) (2023-08-30)
 
 
