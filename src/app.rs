@@ -8,10 +8,6 @@ use std::{
     collections::HashMap,
     num::NonZeroUsize,
     path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
     time::{Duration, Instant},
 };
 use tokio::{
@@ -132,17 +128,12 @@ impl ApplicationConfig {
 
     /// Configure the API server, if applicable
     #[cfg(feature = "api")]
-    pub fn setup_api(
-        &self,
-        runtime: &Runtime,
-        config_loaded: Arc<AtomicBool>,
-    ) -> Option<api::Server> {
+    pub fn setup_api(&self, runtime: &Runtime) -> Option<api::Server> {
         if self.api.enabled {
             match api::Server::start(
                 self.topology.config(),
                 self.topology.watch(),
-                Arc::clone(&self.topology.running),
-                config_loaded,
+                std::sync::Arc::clone(&self.topology.running),
                 runtime,
             ) {
                 Ok(api_server) => {
@@ -241,17 +232,11 @@ impl Application {
             signals,
         } = self;
 
-        let config_loaded = Arc::new(AtomicBool::new(false));
-
         let topology_controller = SharedTopologyController::new(TopologyController {
             #[cfg(feature = "api")]
-            api_server: config.setup_api(
-                runtime,
-                Arc::<std::sync::atomic::AtomicBool>::clone(&config_loaded),
-            ),
+            api_server: config.setup_api(runtime),
             topology: config.topology,
             config_paths: config.config_paths.clone(),
-            config_loaded,
             require_healthy,
             #[cfg(feature = "enterprise")]
             enterprise_reporter: config.enterprise,
@@ -356,7 +341,6 @@ impl StartedApplication {
                             emit!(MezmoConfigReloadSignalReceive{});
                             let start = Instant::now();
                             let mut topology_controller = topology_controller.lock().await;
-                            let config_loaded = Arc::<std::sync::atomic::AtomicBool>::clone(&topology_controller.config_loaded);
 
                             // We use build_no_validation() to speed up building
                             // Configs were fully validated when generated and better errors
@@ -418,7 +402,6 @@ impl StartedApplication {
                                 },
                             };
 
-                            config_loaded.store(true, Ordering::Relaxed);
                         },
                         Ok(SignalTo::ReloadFromDisk) => {
                             let mut topology_controller = topology_controller.lock().await;

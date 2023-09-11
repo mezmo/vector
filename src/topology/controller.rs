@@ -1,4 +1,3 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 #[cfg(feature = "enterprise")]
@@ -37,7 +36,6 @@ impl SharedTopologyController {
 
 pub struct TopologyController {
     pub topology: RunningTopology,
-    pub config_loaded: Arc<AtomicBool>,
     pub config_paths: Vec<config::ConfigPath>,
     pub require_healthy: Option<bool>,
     #[cfg(feature = "enterprise")]
