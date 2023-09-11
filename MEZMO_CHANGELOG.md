@@ -1,3 +1,10 @@
+## [1.12.1](https://github.com/answerbook/vector/compare/v1.12.0...v1.12.1) (2023-09-11)
+
+
+### Chores
+
+* Remove startup probe [ec40707](https://github.com/answerbook/vector/commit/ec40707de3a11d61cd8c9884fb7f71194c657b04) - Jorge Bay [LOG-17724](https://logdna.atlassian.net/browse/LOG-17724)
+
 # [1.12.0](https://github.com/answerbook/vector/compare/v1.11.1...v1.12.0) (2023-09-08)
 
 
