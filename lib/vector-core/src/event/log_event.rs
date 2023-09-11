@@ -131,13 +131,21 @@ impl PartialEq for Inner {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct LogEvent {
     #[serde(flatten)]
     inner: Arc<Inner>,
 
     #[serde(skip)]
     metadata: EventMetadata,
+}
+
+// Mezmo: only consider the inner value and not the metadata in the equality
+// as we don't care about event metadata for now
+impl PartialEq for LogEvent {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.eq(&other.inner)
+    }
 }
 
 impl LogEvent {
@@ -388,7 +396,7 @@ impl LogEvent {
     pub fn merge(&mut self, mut incoming: LogEvent, fields: &[impl AsRef<str>]) {
         for field in fields {
             let Some(incoming_val) = incoming.remove(field.as_ref()) else {
-                continue
+                continue;
             };
             match self.get_mut(field.as_ref()) {
                 None => {

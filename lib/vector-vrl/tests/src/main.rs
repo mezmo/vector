@@ -1,5 +1,11 @@
 #![allow(clippy::print_stdout)] // tests
 #![allow(clippy::print_stderr)] // tests
+#![allow(
+    clippy::default_constructed_unit_structs,
+    clippy::explicit_iter_loop,
+    clippy::needless_pub_self,
+    clippy::useless_conversion
+)]
 
 mod docs;
 mod test_enrichment;

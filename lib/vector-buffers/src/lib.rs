@@ -9,6 +9,12 @@
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::type_complexity)] // long-types happen, especially in async code
 #![allow(clippy::must_use_candidate)]
+#![allow(
+    clippy::missing_fields_in_debug,
+    clippy::missing_panics_doc,
+    clippy::redundant_async_block,
+    clippy::redundant_closure_call
+)]
 
 #[macro_use]
 extern crate tracing;

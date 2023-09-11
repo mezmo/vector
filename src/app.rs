@@ -8,6 +8,10 @@ use std::{
     collections::HashMap,
     num::NonZeroUsize,
     path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 use tokio::{
@@ -128,12 +132,17 @@ impl ApplicationConfig {
 
     /// Configure the API server, if applicable
     #[cfg(feature = "api")]
-    pub fn setup_api(&self, runtime: &Runtime) -> Option<api::Server> {
+    pub fn setup_api(
+        &self,
+        runtime: &Runtime,
+        config_loaded: Arc<AtomicBool>,
+    ) -> Option<api::Server> {
         if self.api.enabled {
             match api::Server::start(
                 self.topology.config(),
                 self.topology.watch(),
-                std::sync::Arc::clone(&self.topology.running),
+                Arc::clone(&self.topology.running),
+                config_loaded,
                 runtime,
             ) {
                 Ok(api_server) => {
@@ -205,6 +214,9 @@ impl Application {
             &mut signals.handler,
         ))?;
 
+        #[cfg(feature = "api-client")]
+        start_remote_task_execution(&runtime, &config)?;
+
         Ok((
             runtime,
             Self {
@@ -229,11 +241,17 @@ impl Application {
             signals,
         } = self;
 
+        let config_loaded = Arc::new(AtomicBool::new(false));
+
         let topology_controller = SharedTopologyController::new(TopologyController {
             #[cfg(feature = "api")]
-            api_server: config.setup_api(runtime),
+            api_server: config.setup_api(
+                runtime,
+                Arc::<std::sync::atomic::AtomicBool>::clone(&config_loaded),
+            ),
             topology: config.topology,
             config_paths: config.config_paths.clone(),
+            config_loaded,
             require_healthy,
             #[cfg(feature = "enterprise")]
             enterprise_reporter: config.enterprise,
@@ -247,6 +265,49 @@ impl Application {
             metrics_tx: config.metrics_tx,
         })
     }
+}
+
+#[cfg(feature = "api-client")]
+fn start_remote_task_execution(
+    runtime: &Runtime,
+    _config: &ApplicationConfig,
+) -> Result<(), ExitCode> {
+    use std::env;
+
+    #[cfg(feature = "api")]
+    let api_config = _config.api;
+    #[cfg(not(feature = "api"))]
+    let api_config: config::api::Options = Default::default();
+
+    let auth_token = env::var("MEZMO_LOCAL_DEPLOY_AUTH_TOKEN").ok();
+    if let Some(auth_token) = auth_token {
+        let get_endpoint_url = env::var("MEZMO_TASKS_FETCH_ENDPOINT_URL").ok();
+        let post_endpoint_url = env::var("MEZMO_TASKS_POST_ENDPOINT_URL").ok();
+        match (get_endpoint_url, post_endpoint_url) {
+            (Some(get_endpoint_url), Some(post_endpoint_url)) => {
+                if !api_config.enabled {
+                    error!("API is disabled");
+                    return Err(exitcode::USAGE);
+                }
+
+                runtime.spawn(async move {
+                    mezmo::remote_task_execution::start_polling_for_tasks(
+                        api_config,
+                        auth_token,
+                        get_endpoint_url,
+                        post_endpoint_url,
+                    )
+                    .await;
+                });
+            }
+            (_, _) => {
+                error!("Mezmo tasks endpoints not set");
+                return Err(exitcode::USAGE);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub struct StartedApplication {
@@ -295,6 +356,7 @@ impl StartedApplication {
                             emit!(MezmoConfigReloadSignalReceive{});
                             let start = Instant::now();
                             let mut topology_controller = topology_controller.lock().await;
+                            let config_loaded = Arc::<std::sync::atomic::AtomicBool>::clone(&topology_controller.config_loaded);
 
                             // We use build_no_validation() to speed up building
                             // Configs were fully validated when generated and better errors
@@ -323,10 +385,13 @@ impl StartedApplication {
 
                             // LOG-17772: If the config reload future doesn't resolve in the allotted
                             // time, then crash the vector process and allow k8s to respawn the process
-                            // in order to get config reloading to work again.
+                            // in order to get config reloading to work again. Note that panic! doesn't
+                            // work to terminate the process since the higher level code traps the panic
+                            // and prevents termination.
                             if !reload_future_done {
                                 emit!(MezmoConfigReload{ elapsed, success: false });
-                                panic!("New topology reload future failed to resolved within the limit.");
+                                error!("New topology reload future failed to resolved within the limit.");
+                                std::process::abort();
                             }
 
                             match reload_outcome {
@@ -353,6 +418,7 @@ impl StartedApplication {
                                 },
                             };
 
+                            config_loaded.store(true, Ordering::Relaxed);
                         },
                         Ok(SignalTo::ReloadFromDisk) => {
                             let mut topology_controller = topology_controller.lock().await;

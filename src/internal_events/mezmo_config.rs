@@ -69,6 +69,26 @@ impl InternalEvent for MezmoConfigCompile {
     }
 }
 
+pub struct MezmoConfigVrlValidation {
+    pub elapsed: Duration,
+}
+
+impl InternalEvent for MezmoConfigVrlValidation {
+    fn emit(self) {
+        histogram!("mezmo_config_vrl_validation_seconds", self.elapsed);
+    }
+}
+
+pub struct MezmoConfigVrlValidationError {
+    pub failure_count: u64,
+}
+
+impl InternalEvent for MezmoConfigVrlValidationError {
+    fn emit(self) {
+        counter!("mezmo_config_vrl_validation_error", self.failure_count);
+    }
+}
+
 pub struct MezmoConfigBuilderCreate {
     pub revisions: usize,
 }

@@ -72,9 +72,24 @@ impl Future for ShutdownSignal {
                     Poll::Pending
                 }
             }
-            // TODO: This should almost certainly be a panic to avoid deadlocking in the case of a
-            // poll-after-ready situation.
-            None => Poll::Pending,
+            // LOG-17649: It's possible to end up in this arm of the match statement when the tripwire
+            // future resolved on a prior poll() call.
+            None => {
+                if self.shutdown_complete.is_some() {
+                    // Since the `shutdown_complete` Option value is not taken, we know that closed == false
+                    // on the prior poll() call. This happens when the tripwire was disabled and thus
+                    // the ShutdownSignal should never resolve to a value.
+                    Poll::Pending
+                } else {
+                    // The code ends up here without a `shutdown_complete` value only if the future is polled
+                    // after a value is resolved. This can happen in a select! macro when the code executed after
+                    // the shutdown signal is resolved awaits on an additional promise. This future no longer
+                    // has a trigger value to resolve with, the only thing that can be done is to panic. Code
+                    // that needs to await a future as part of the shutdown logic should fuse the ShutdownSignal
+                    // before polling it.
+                    panic!("ShutdownSignal future polled after resolving to Ready once before.")
+                }
+            }
         }
     }
 }

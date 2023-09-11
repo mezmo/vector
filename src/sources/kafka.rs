@@ -95,6 +95,19 @@ pub struct KafkaSourceConfig {
     #[configurable(metadata(docs::examples = "consumer-group-name"))]
     group_id: String,
 
+    /// The consumer group instance (member) id to use in static membership configurations.
+    /// Leave unset for dynamic membership and broker assignment.
+    group_instance_id: Option<String>,
+
+    /// Used in conjunction with `group_instance_id` (and `group_id`). This sets
+    /// the group instance ID to a uniformly distributed, but desterministic
+    /// value. This randomization avoids assigning parititions to only a small
+    /// group of consumers when using the default ("range") or "roundrobin"
+    /// assignment strategies. This is because these strategies
+    /// lexicographically sort the consumers (members) by group instance ID
+    /// (then member ID) before distributing them to the consumers.
+    use_hashed_group_instance_id: Option<bool>,
+
     /// If offsets for consumer group do not exist, set them using this strategy.
     ///
     /// See the [librdkafka documentation](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md) for the `auto.offset.reset` option for further clarification.
@@ -219,7 +232,7 @@ impl KafkaSourceConfig {
 }
 
 const fn default_session_timeout_ms() -> Duration {
-    Duration::from_millis(10000) // default in librdkafka
+    Duration::from_millis(30000) // mezmo
 }
 
 const fn default_socket_timeout_ms() -> Duration {
@@ -231,7 +244,7 @@ const fn default_fetch_wait_max_ms() -> Duration {
 }
 
 const fn default_commit_interval_ms() -> Duration {
-    Duration::from_millis(5000)
+    Duration::from_millis(1000) // mezmo
 }
 
 fn default_auto_offset_reset() -> String {
@@ -703,6 +716,27 @@ fn create_consumer(config: &KafkaSourceConfig) -> crate::Result<StreamConsumer<C
     if let Some(librdkafka_options) = &config.librdkafka_options {
         for (key, value) in librdkafka_options {
             client_config.set(key.as_str(), value.as_str());
+        }
+    }
+
+    if let Some(group_instance_id) = &config.group_instance_id {
+        if config.use_hashed_group_instance_id.unwrap_or(false) {
+            use sha2::{Digest, Sha224};
+            let mut hasher = Sha224::new();
+            hasher.update(&config.group_id);
+            hasher.update(group_instance_id);
+            // Includes group and group instance IDs for debugging
+            client_config.set(
+                "group.instance.id",
+                format!(
+                    "{:x}-{}-{}",
+                    hasher.finalize(),
+                    config.group_id,
+                    group_instance_id
+                ),
+            );
+        } else {
+            client_config.set("group.instance.id", group_instance_id);
         }
     }
 
@@ -1292,5 +1326,277 @@ mod integration_test {
                 log["offset"].to_string_lossy(),
             )
         })
+    }
+
+    mod mezmo {
+        use super::*;
+
+        use crate::{
+            config::log_schema,
+            event::Value,
+            sources::kafka::KafkaSourceConfig,
+            test_util::{collect_n, components::assert_source_compliance, random_string},
+            SourceSender,
+        };
+
+        use chrono::{DateTime, SubsecRound, Utc};
+        use codecs::decoding::{DeserializerConfig, MezmoDeserializer};
+
+        use lookup::path;
+
+        use rdkafka::{
+            message::{Header, OwnedHeaders},
+            producer::{FutureProducer, FutureRecord},
+            util::Timeout,
+            Offset,
+        };
+        use vector_core::config::LogNamespace;
+
+        use std::collections::BTreeMap;
+
+        const KEY: &str = "my key";
+        const HEADER_KEY: &str = "my header";
+        const HEADER_VALUE: &str = "my header value";
+
+        async fn send_events(topic: String, payload: Vec<u8>, count: usize) -> DateTime<Utc> {
+            let now = Utc::now();
+            let timestamp = now.timestamp_millis();
+
+            let producer: FutureProducer = client_config(None);
+
+            for i in 0..count {
+                let key = format!("{} {}", KEY, i);
+                let record = FutureRecord::to(&topic)
+                    .payload(&payload)
+                    .key(&key)
+                    .timestamp(timestamp)
+                    .headers(OwnedHeaders::new().insert(Header {
+                        key: HEADER_KEY,
+                        value: Some(HEADER_VALUE),
+                    }));
+
+                if let Err(error) = producer.send(record, Timeout::Never).await {
+                    panic!("Cannot send event to Kafka: {:?}", error);
+                }
+            }
+
+            now
+        }
+
+        async fn send_receive_prom(
+            acknowledgements: bool,
+            error_at: impl Fn(usize) -> bool,
+            receive_count: usize,
+            log_namespace: LogNamespace,
+        ) {
+            const SEND_COUNT: usize = 10;
+
+            let decoding = DeserializerConfig::Mezmo(MezmoDeserializer::PrometheusRemoteWrite);
+            let topic = format!("test-topic-{}", random_string(10));
+            let group_id = format!("test-group-{}", random_string(10));
+            let mut config = make_config(&topic, &group_id, log_namespace);
+            config.decoding = decoding;
+
+            // valid protobuf
+            let expected_encoded = b"\n1\n\x13\n\x08__name__\x12\x07unknown\n\x18\n\ntest_label\x12\ntest_value\x12\0\x1a\x17\x08\x01\x12\x07unknown\"\x04help*\x04unit";
+            let expected_compressed = snap::raw::Encoder::new()
+                .compress_vec(expected_encoded)
+                .expect("failed to compress");
+
+            let now = send_events(topic.clone(), expected_compressed, SEND_COUNT).await;
+
+            let events =
+                assert_source_compliance(&["protocol", "topic", "partition"], async move {
+                    let (tx, rx) = SourceSender::new_test_errors(error_at);
+                    let (trigger_shutdown, shutdown_done) =
+                        spawn_kafka(tx, config, acknowledgements, log_namespace);
+                    let events = collect_n(rx, SEND_COUNT).await;
+                    // Yield to the finalization task to let it collect the
+                    // batch status receivers before signalling the shutdown.
+                    tokio::task::yield_now().await;
+                    drop(trigger_shutdown);
+                    shutdown_done.await;
+
+                    events
+                })
+                .await;
+
+            let offset = fetch_tpl_offset(&group_id, &topic, 0);
+            assert_eq!(offset, Offset::from_raw(receive_count as i64));
+
+            assert_eq!(events.len(), SEND_COUNT);
+            for (i, event) in events.into_iter().enumerate() {
+                if let LogNamespace::Legacy = log_namespace {
+                    /*assert_eq!(
+                        event.as_log()[log_schema().message_key()],
+                        format!("{} {:03}", TEXT, i).into()
+                    );*/
+                    assert_eq!(
+                        event.as_log()["message_key"],
+                        format!("{} {}", KEY, i).into()
+                    );
+                    assert_eq!(
+                        event.as_log()[log_schema().source_type_key()],
+                        "kafka".into()
+                    );
+                    assert_eq!(
+                        event.as_log()[log_schema().timestamp_key().unwrap().to_string()],
+                        now.trunc_subsecs(3).into()
+                    );
+                    assert_eq!(event.as_log()["topic"], topic.clone().into());
+                    assert!(event.as_log().contains("partition"));
+                    assert!(event.as_log().contains("offset"));
+                    let mut expected_headers = BTreeMap::new();
+                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    assert_eq!(event.as_log()["headers"], Value::from(expected_headers));
+                } else {
+                    let meta = event.as_log().metadata().value();
+
+                    assert_eq!(
+                        meta.get(path!("vector", "source_type")).unwrap(),
+                        &value!(KafkaSourceConfig::NAME)
+                    );
+                    assert!(meta
+                        .get(path!("vector", "ingest_timestamp"))
+                        .unwrap()
+                        .is_timestamp());
+
+                    /*assert_eq!(
+                        event.as_log().value(),
+                        &value!(format!("{} {:03}", TEXT, i))
+                    );*/
+                    assert_eq!(
+                        meta.get(path!("kafka", "message_key")).unwrap(),
+                        &value!(format!("{} {}", KEY, i))
+                    );
+
+                    assert_eq!(
+                        meta.get(path!("kafka", "timestamp")).unwrap(),
+                        &value!(now.trunc_subsecs(3))
+                    );
+                    assert_eq!(
+                        meta.get(path!("kafka", "topic")).unwrap(),
+                        &value!(topic.clone())
+                    );
+                    assert!(meta.get(path!("kafka", "partition")).unwrap().is_integer(),);
+                    assert!(meta.get(path!("kafka", "offset")).unwrap().is_integer(),);
+
+                    let mut expected_headers = BTreeMap::new();
+                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    assert_eq!(
+                        meta.get(path!("kafka", "headers")).unwrap(),
+                        &Value::from(expected_headers)
+                    );
+                }
+            }
+        }
+
+        async fn send_receive_otlp(
+            acknowledgements: bool,
+            error_at: impl Fn(usize) -> bool,
+            receive_count: usize,
+            log_namespace: LogNamespace,
+        ) {
+            const SEND_COUNT: usize = 10;
+
+            let decoding = DeserializerConfig::Mezmo(MezmoDeserializer::OpenTelemetryMetrics);
+            let topic = format!("test-topic-{}", random_string(10));
+            let group_id = format!("test-group-{}", random_string(10));
+            let mut config = make_config(&topic, &group_id, log_namespace);
+            config.decoding = decoding;
+
+            // valid protobuf
+            let expected_encoded: &[u8] = b"\n\xa7\x02\n\xb8\x01\n)\n\x11service.namespace\x12\x14\n\x12opentelemetry-demo\n!\n\x0cservice.name\x12\x11\n\x0fcurrencyservice\n \n\x15telemetry.sdk.version\x12\x07\n\x051.8.2\n%\n\x12telemetry.sdk.name\x12\x0f\n\ropentelemetry\n\x1f\n\x16telemetry.sdk.language\x12\x05\n\x03cpp\x12j\n\x15\n\x0capp_currency\x12\x051.3.0\x12Q\n\x14app_currency_counter:9\n3\x11\xdc\xf9\0xl\x18W\x17\x19\xb7\xa2\xa1\xb3l\x18W\x171\x02\0\0\0\0\0\0\0:\x16\n\rcurrency_code\x12\x05\n\x03USD\x10\x01\x18\x01";
+
+            let now = send_events(topic.clone(), expected_encoded.to_vec(), SEND_COUNT).await;
+
+            let events =
+                assert_source_compliance(&["protocol", "topic", "partition"], async move {
+                    let (tx, rx) = SourceSender::new_test_errors(error_at);
+                    let (trigger_shutdown, shutdown_done) =
+                        spawn_kafka(tx, config, acknowledgements, log_namespace);
+                    let events = collect_n(rx, SEND_COUNT).await;
+                    // Yield to the finalization task to let it collect the
+                    // batch status receivers before signalling the shutdown.
+                    tokio::task::yield_now().await;
+                    drop(trigger_shutdown);
+                    shutdown_done.await;
+
+                    events
+                })
+                .await;
+
+            let offset = fetch_tpl_offset(&group_id, &topic, 0);
+
+            assert_eq!(offset, Offset::from_raw(receive_count as i64));
+
+            assert_eq!(events.len(), SEND_COUNT);
+            for (i, event) in events.into_iter().enumerate() {
+                if let LogNamespace::Legacy = log_namespace {
+                    assert_eq!(
+                        event.as_log()["message_key"],
+                        format!("{} {}", KEY, i).into()
+                    );
+                    assert_eq!(
+                        event.as_log()[log_schema().source_type_key()],
+                        "kafka".into()
+                    );
+                    assert_eq!(
+                        event.as_log()[log_schema().timestamp_key().unwrap().to_string()],
+                        now.trunc_subsecs(3).into()
+                    );
+                    assert_eq!(event.as_log()["topic"], topic.clone().into());
+                    assert!(event.as_log().contains("partition"));
+                    assert!(event.as_log().contains("offset"));
+                    let mut expected_headers = BTreeMap::new();
+                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    assert_eq!(event.as_log()["headers"], Value::from(expected_headers));
+                } else {
+                    let meta = event.as_log().metadata().value();
+
+                    assert_eq!(
+                        meta.get(path!("vector", "source_type")).unwrap(),
+                        &value!(KafkaSourceConfig::NAME)
+                    );
+                    assert!(meta
+                        .get(path!("vector", "ingest_timestamp"))
+                        .unwrap()
+                        .is_timestamp());
+
+                    assert_eq!(
+                        meta.get(path!("kafka", "message_key")).unwrap(),
+                        &value!(format!("{} {}", KEY, i))
+                    );
+
+                    assert_eq!(
+                        meta.get(path!("kafka", "timestamp")).unwrap(),
+                        &value!(now.trunc_subsecs(3))
+                    );
+                    assert_eq!(
+                        meta.get(path!("kafka", "topic")).unwrap(),
+                        &value!(topic.clone())
+                    );
+                    assert!(meta.get(path!("kafka", "partition")).unwrap().is_integer(),);
+                    assert!(meta.get(path!("kafka", "offset")).unwrap().is_integer(),);
+
+                    let mut expected_headers = BTreeMap::new();
+                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    assert_eq!(
+                        meta.get(path!("kafka", "headers")).unwrap(),
+                        &Value::from(expected_headers)
+                    );
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn consumes_from_prom() {
+            send_receive_prom(true, |_| false, 10, LogNamespace::Legacy).await;
+        }
+
+        #[tokio::test]
+        async fn consumes_from_otlp() {
+            send_receive_otlp(true, |_| false, 10, LogNamespace::Legacy).await;
+        }
     }
 }

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use vector_config::configurable_component;
 use vector_core::config::LogNamespace;
 use vector_core::{
-    config::{DataType, Input, Output},
+    config::{DataType, Input, TransformOutput},
     event::{
         metric::{MetricData, Sample},
         Event, MetricValue,
@@ -14,7 +14,7 @@ use vector_core::{
 };
 use vrl::value::Value;
 
-use crate::config::{TransformConfig, TransformContext};
+use crate::config::{OutputId, TransformConfig, TransformContext};
 
 /// Configuration for the `test_basic` transform.
 #[configurable_component(transform("test_basic", "Test (basic)"))]

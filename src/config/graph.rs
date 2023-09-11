@@ -367,6 +367,7 @@ impl Graph {
 #[cfg(test)]
 mod test {
     use similar_asserts::assert_eq;
+    use vector_core::schema::Definition;
 
     use super::*;
 
@@ -375,7 +376,11 @@ mod test {
             self.nodes.insert(
                 id.into(),
                 Node::Source {
-                    outputs: vec![Output::default(ty)],
+                    outputs: vec![match ty {
+                        DataType::Metric => SourceOutput::new_metrics(),
+                        DataType::Trace => SourceOutput::new_traces(),
+                        _ => SourceOutput::new_logs(ty, Definition::any()),
+                    }],
                 },
             );
         }
@@ -634,13 +639,13 @@ mod test {
         graph.nodes.insert(
             ComponentKey::from("foo.bar"),
             Node::Source {
-                outputs: vec![Output::default(DataType::all())],
+                outputs: vec![SourceOutput::new_logs(DataType::all(), Definition::any())],
             },
         );
         graph.nodes.insert(
             ComponentKey::from("foo.bar"),
             Node::Source {
-                outputs: vec![Output::default(DataType::all())],
+                outputs: vec![SourceOutput::new_logs(DataType::all(), Definition::any())],
             },
         );
         graph.nodes.insert(
@@ -665,7 +670,7 @@ mod test {
         graph.nodes.insert(
             ComponentKey::from("baz.errors"),
             Node::Source {
-                outputs: vec![Output::default(DataType::all())],
+                outputs: vec![SourceOutput::new_logs(DataType::all(), Definition::any())],
             },
         );
         graph.nodes.insert(

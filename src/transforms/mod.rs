@@ -19,6 +19,8 @@ pub mod lua;
 pub mod metric_to_log;
 #[cfg(feature = "transforms-mezmo_aggregate")]
 pub mod mezmo_aggregate;
+#[cfg(feature = "transforms-mezmo_log_clustering")]
+pub mod mezmo_log_clustering;
 #[cfg(feature = "transforms-mezmo_log_to_metric")]
 pub mod mezmo_log_to_metric;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]

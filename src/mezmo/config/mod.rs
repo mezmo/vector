@@ -6,20 +6,28 @@ use async_stream::stream;
 use futures::Stream;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use tokio::time;
+use tokio::time::{self, Instant};
 use vector_config::configurable_component;
 
 use crate::{
-    config::{self, provider::ProviderConfig, ConfigBuilder},
+    config::{
+        self, provider::ProviderConfig, schema::Definition, ConfigBuilder, OutputId,
+        TransformContext,
+    },
     internal_events::mezmo_config::{
         MezmoConfigBuildFailure, MezmoConfigBuilderCreate, MezmoConfigReloadSignalSend,
-        MezmoGenerateConfigError,
+        MezmoConfigVrlValidation, MezmoConfigVrlValidationError, MezmoGenerateConfigError,
     },
+    mezmo::user_trace::MezmoUserLog,
     providers::BuildResult,
     signal,
+    topology::schema,
+    user_log_error,
 };
 
 use self::service::{ConfigService, DefaultConfigService};
+
+use super::MezmoContext;
 
 /// Request settings.
 #[configurable_component]
@@ -60,6 +68,9 @@ pub struct MezmoPartitionConfig {
 
     /// How often to poll the provider, in seconds.
     poll_interval_secs: u64,
+
+    /// Validate and reject any invalid VRL snippets (currently supports only remap transforms)
+    validate_vrl: bool,
 }
 
 // Serde requires Default trait
@@ -67,14 +78,15 @@ impl Default for MezmoPartitionConfig {
     fn default() -> Self {
         Self {
             latest_revisions_url:
-                "http://pipeline-service/v1/control/pipelines/config/latest_revisions".into(),
+                "http://pipeline-service/internal/pipelines/config/latest_revisions".into(),
             loaded_revisions_url:
-                "http://pipeline-service/v1/control/pipelines/config/loaded_revisions".into(),
+                "http://pipeline-service/internal/pipelines/config/loaded_revisions".into(),
             pipelines_by_partition_url:
-                "http://pipeline-service/v1/control/partitions/{partition_id}/pipelines".into(),
+                "http://pipeline-service/internal/partitions/{partition_id}/pipelines".into(),
             partition_id: "sample_partition".into(),
             request: RequestConfig::default(),
             poll_interval_secs: 2,
+            validate_vrl: false,
         }
     }
 }
@@ -132,6 +144,8 @@ struct MezmoConfigBuilder {
 
     pipelines: Option<Vec<PipelineId>>,
     common_config: Option<String>,
+
+    validate_vrl: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -147,6 +161,7 @@ impl MezmoConfigBuilder {
             cache: HashMap::new(),
             pipelines: None,
             common_config: None,
+            validate_vrl: config.validate_vrl,
         }
     }
 
@@ -179,7 +194,7 @@ impl MezmoConfigBuilder {
         // If this fails, the cache is discarded and we fall back to an incremental build
         // via the execution of the provider's polling loop.
         let common_config = self.common_config.as_ref().unwrap();
-        match generate_config(common_config, &cache, None) {
+        match generate_config(common_config, &cache, None, self.validate_vrl).await {
             Ok(r) => {
                 info!(
                     "Initial configuration was successfully built with {} pipelines",
@@ -202,7 +217,7 @@ impl MezmoConfigBuilder {
         // Try to build using just the common config to allow the process to run
         // while the polling loop executes.
         cache = HashMap::new();
-        match generate_config(common_config, &cache, None) {
+        match generate_config(common_config, &cache, None, self.validate_vrl).await {
             Ok(r) => {
                 warn!("Initial configuration was successfully built without any pipeline");
                 Ok(r)
@@ -248,7 +263,7 @@ impl MezmoConfigBuilder {
                 message = "Updating the configuration based on a diff changes",
                 pipelines_removed, common_config_changed
             );
-            match generate_config(common_config, &self.cache, None) {
+            match generate_config(common_config, &self.cache, None, self.validate_vrl).await {
                 Ok(builder) => {
                     result_builder = Some(builder);
                 }
@@ -294,7 +309,14 @@ impl MezmoConfigBuilder {
                 }
             }
 
-            match generate_config(common_config, &self.cache, Some((&pipeline_id, &revision))) {
+            match generate_config(
+                common_config,
+                &self.cache,
+                Some((&pipeline_id, &revision)),
+                self.validate_vrl,
+            )
+            .await
+            {
                 Ok(builder) => {
                     loaded.push((pipeline_id.clone(), revision.id.clone()));
                     self.cache.insert(pipeline_id, revision);
@@ -360,10 +382,11 @@ impl MezmoConfigBuilder {
 }
 
 /// Attempts to create a `ConfigBuilder` with the provided revisions, with an optional updated revision.
-fn generate_config(
+async fn generate_config(
     common_config: &str,
     revisions: &HashMap<PipelineId, Revision>,
     updated: Option<(&PipelineId, &Revision)>,
+    validate_vrl: bool,
 ) -> BuildResult {
     let mut parts = Vec::with_capacity(revisions.len() + 2);
     parts.push(common_config);
@@ -387,8 +410,10 @@ fn generate_config(
 
     let config_str = parts.join("\n");
 
-    let (config_builder, warnings) =
-        config::load(config_str.as_bytes(), crate::config::format::Format::Toml)?;
+    let (config_builder, warnings) = config::load::<_, ConfigBuilder>(
+        config_str.as_bytes(),
+        crate::config::format::Format::Toml,
+    )?;
 
     if !warnings.is_empty() {
         warn!("{} warnings during config load", warnings.len());
@@ -397,7 +422,109 @@ fn generate_config(
         }
     }
 
+    if !validate_vrl {
+        return Ok(config_builder);
+    }
+
+    let start = Instant::now();
+    let errors = if let Some((_, r)) = updated {
+        // Update only validates the new pipeline's configuration
+        let (config_builder, _) = config::load::<_, ConfigBuilder>(
+            r.config.as_bytes(),
+            crate::config::format::Format::Toml,
+        )?;
+        // Warnings would have already been handled above in the full config load...
+        validate_vrl_transforms(&config_builder).await
+    } else {
+        validate_vrl_transforms(&config_builder).await
+    };
+    emit!(MezmoConfigVrlValidation {
+        elapsed: Instant::now() - start
+    });
+
+    errors?; // Return errors after emitting the metric
+
     Ok(config_builder)
+}
+
+async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), Vec<String>> {
+    let mut failures = Vec::new();
+    if let Ok(config) = config_builder.clone().build_no_validation() {
+        let mut definition_cache = HashMap::default();
+        let enrichment_tables = enrichment::tables::TableRegistry::default();
+
+        for (key, transform) in config.transforms() {
+            let schema_definitions = HashMap::from([(
+                None,
+                HashMap::from([(OutputId::from(key.clone()), Definition::any())]),
+            )]);
+            let input_definitions = match schema::input_definitions(
+                &transform.inputs,
+                &config,
+                enrichment_tables.clone(),
+                &mut definition_cache,
+            ) {
+                Ok(definitions) => definitions,
+                Err(_) => {
+                    // Skip
+                    continue;
+                }
+            };
+
+            let merged_definition: Definition = input_definitions
+                .iter()
+                .map(|(_output_id, definition)| definition.clone())
+                .reduce(Definition::merge)
+                // We may not have any definitions if all the inputs are from metrics sources.
+                .unwrap_or_else(Definition::any);
+
+            let transform = &transform.inner;
+            // Handling only remaps currently, but could be extended in the future
+            if transform.get_component_name() == "remap" {
+                let mezmo_ctx = MezmoContext::try_from(key.clone().into_id()).ok();
+                // IMPORTANT: This is not properly setting up schema or enrichment
+                // tables as part of the validation. These would need to be
+                // added if we want to support those.
+                let context = TransformContext {
+                    key: Some(key.clone()),
+                    globals: config.global.clone(),
+                    enrichment_tables: enrichment_tables.clone(),
+                    schema_definitions,
+                    merged_schema_definition: merged_definition.clone(),
+                    mezmo_ctx: mezmo_ctx.clone(),
+                    schema: config.schema,
+                };
+                // Compile the VRL snippet in the transform
+                if let Err(error) = transform.build(&context).await {
+                    if let Some(ctx) = &mezmo_ctx {
+                        match &ctx.pipeline_id {
+                            super::ContextIdentifier::Value { id: _ } => {
+                                user_log_error!(
+                                mezmo_ctx,
+                                "Error loading existing transform component. Please contact support");
+                                failures.push(format!(
+                                    "Error validating VRL in transform {key}: {error}"
+                                ));
+                            }
+                            super::ContextIdentifier::Shared => {
+                                // This shouldn't happen...
+                                failures
+                                    .push(format!("Invalid VRL found in shared component {key}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        emit!(MezmoConfigVrlValidationError {
+            failure_count: failures.len() as u64
+        });
+        Err(failures)
+    }
 }
 
 #[async_trait::async_trait]
@@ -417,6 +544,8 @@ impl ProviderConfig for MezmoPartitionConfig {
 
 #[cfg(test)]
 mod tests {
+    use crate::topology;
+
     use super::*;
     use http::StatusCode;
     use mockall::mock;
@@ -500,6 +629,144 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn build_all_should_allow_valid_vrl_when_validating() {
+        let mut service = MockConfigService::new();
+        service
+            .expect_get_pipelines_by_partition()
+            .returning(|| Ok((vec![S!("pipeline1")], S!("data_dir = \"/data/vector\""))));
+        service.expect_get_new_revisions().returning(|_| {
+            Ok(HashMap::from([(
+                S!("pipeline1"),
+                Revision {
+                    id: S!("revision1"),
+                    config: S!(r#"
+                    [sources.in]
+                    type="stdin"
+
+                    # Requires proper format: 'v1:{type}:{kind}:{component_id}:{pipeline_id}:{account_id}'
+                    [transforms."v1:remap:transform:component1:pipeline1:account1"]
+                    inputs=["in"]
+                    type="remap"
+                    source="""
+                    i, err = parse_int("123")
+                    """
+                    "#),
+                },
+            )]))
+        });
+
+        let mut b = MezmoConfigBuilder {
+            service: Box::new(service),
+            cache: HashMap::new(),
+            pipelines: None,
+            common_config: None,
+            validate_vrl: true, // Validated, and should succeed
+        };
+        let config_builder = b.build_all().await.expect("to build successfully");
+        assert!(
+            b.cache.get("pipeline1").is_some(),
+            "pipeline should be in the cache"
+        );
+        let result = validate_config(config_builder).await;
+        assert!(result.is_ok(), "expected the invalid VRL to be excluded");
+    }
+
+    #[tokio::test]
+    async fn build_all_should_fail_on_invalid_vrl_when_disabled() {
+        let mut service = MockConfigService::new();
+        service
+            .expect_get_pipelines_by_partition()
+            .returning(|| Ok((vec![S!("pipeline1")], S!("data_dir = \"/data/vector\""))));
+        service.expect_get_new_revisions().returning(|_| {
+            Ok(HashMap::from([(
+                S!("pipeline1"),
+                Revision {
+                    id: S!("revision1"),
+                    config: S!(r#"
+                    [sources.in]
+                    type="stdin"
+
+                    # Requires proper format: 'v1:{type}:{kind}:{component_id}:{pipeline_id}:{account_id}'
+                    [transforms."v1:remap:transform:component1:pipeline1:account1"]
+                    inputs=["in"]
+                    type="remap"
+                    source="""
+                    a = invalid("abc")
+                    """
+                    "#),
+                },
+            )]))
+        });
+        let mut b = MezmoConfigBuilder {
+            service: Box::new(service),
+            cache: HashMap::new(),
+            pipelines: None,
+            common_config: None,
+            validate_vrl: false, // Expect an error
+        };
+        let config_builder = b.build_all().await.expect("to build successfully");
+        assert!(
+            b.cache.get("pipeline1").is_some(),
+            "pipeline should be in the cache"
+        );
+        let result = validate_config(config_builder).await;
+        assert!(
+            result.is_err(),
+            "expected an error when building invalid VRL without validation"
+        );
+        if let Err(errors) = result {
+            assert!(
+                errors
+                    .iter()
+                    .any(|error| error.contains("undefined function")),
+                "expected to fail with \"undefined function\""
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn build_all_should_handle_invalid_vrl_when_validating() {
+        let mut service = MockConfigService::new();
+        service
+            .expect_get_pipelines_by_partition()
+            .returning(|| Ok((vec![S!("pipeline1")], S!("data_dir = \"/data/vector\""))));
+        service.expect_get_new_revisions().returning(|_| {
+            Ok(HashMap::from([(
+                S!("pipeline1"),
+                Revision {
+                    id: S!("revision1"),
+                    config: S!(r#"
+                    [sources.in]
+                    type="stdin"
+
+                    # Requires proper format: 'v1:{type}:{kind}:{component_id}:{pipeline_id}:{account_id}'
+                    [transforms."v1:remap:transform:component1:pipeline1:account1"]
+                    inputs=["in"]
+                    type="remap"
+                    source="""
+                    a = invalid("abc")
+                    """
+                    "#),
+                },
+            )]))
+        });
+        let mut b = MezmoConfigBuilder {
+            service: Box::new(service),
+            cache: HashMap::new(),
+            pipelines: None,
+            common_config: None,
+            validate_vrl: true, // Expect no error to happen
+        };
+        let config_builder = b.build_all().await.expect("to build successfully");
+        assert!(
+            b.cache.get("pipeline1").is_none(),
+            "pipeline should NOT be in the cache"
+        );
+        let result = validate_config(config_builder).await;
+        assert!(result.is_ok(), "expected the invalid VRL to be excluded");
+    }
+
+    #[tokio::test]
     async fn build_incrementally_should_fail_when_getting_partition_info_fails_test() {
         let mut service = MockConfigService::new();
         service
@@ -514,9 +781,9 @@ mod tests {
     #[tokio::test]
     async fn build_incrementally_with_service_should_yield_only_changes() -> Result<(), String> {
         let partition_id = S!("part1");
-        let pipelines_by_partition_url = "/v1/control/partitions/part1/pipelines";
-        let latest_revisions_url = "/v1/control/pipelines/config/latest_revisions";
-        let loaded_revisions_url = "/v1/control/pipelines/config/loaded_revisions";
+        let pipelines_by_partition_url = "/internal/partitions/part1/pipelines";
+        let latest_revisions_url = "/internal/pipelines/config/latest_revisions";
+        let loaded_revisions_url = "/internal/pipelines/config/loaded_revisions";
         let mock_server = MockServer::start().await;
 
         Mock::given(matchers::method("GET"))
@@ -594,6 +861,7 @@ mod tests {
             partition_id,
             request: RequestConfig::default(),
             poll_interval_secs: 0,
+            validate_vrl: false,
         };
 
         let service = DefaultConfigService::new(&partition_config);
@@ -632,9 +900,9 @@ mod tests {
     #[tokio::test]
     async fn build_incrementally_should_reject_invalid_config() -> Result<(), String> {
         let partition_id = S!("part1");
-        let pipelines_by_partition_url = "/v1/control/partitions/part1/pipelines";
-        let latest_revisions_url = "/v1/control/pipelines/config/latest_revisions";
-        let loaded_revisions_url = "/v1/control/pipelines/config/loaded_revisions";
+        let pipelines_by_partition_url = "/internal/partitions/part1/pipelines";
+        let latest_revisions_url = "/internal/pipelines/config/latest_revisions";
+        let loaded_revisions_url = "/internal/pipelines/config/loaded_revisions";
         let mock_server = MockServer::start().await;
 
         Mock::given(matchers::method("GET"))
@@ -671,6 +939,7 @@ mod tests {
             partition_id,
             request: RequestConfig::default(),
             poll_interval_secs: 0,
+            validate_vrl: false,
         };
 
         let service = DefaultConfigService::new(&partition_config);
@@ -684,12 +953,113 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn build_incrementally_should_allow_valid_vrl_when_validating() {
+        let mut service = MockConfigService::new();
+        service
+            .expect_get_pipelines_by_partition()
+            .returning(|| Ok((vec![S!("pipeline1")], S!("data_dir = \"/data/vector\""))));
+        service.expect_get_new_revisions().returning(|_| {
+            Ok(HashMap::from([(
+                S!("pipeline1"),
+                Revision {
+                    id: S!("revision1"),
+                    config: S!(r#"
+                    [sources.in]
+                    type="stdin"
+
+                    # Requires proper format: 'v1:{type}:{kind}:{component_id}:{pipeline_id}:{account_id}'
+                    [transforms."v1:remap:transform:component1:pipeline1:account1"]
+                    inputs=["in"]
+                    type="remap"
+                    source="""
+                    i, err = parse_int("123")
+                    """
+                    "#),
+                },
+            )]))
+        });
+
+        let mut b = MezmoConfigBuilder {
+            service: Box::new(service),
+            cache: HashMap::new(),
+            pipelines: None,
+            common_config: None,
+            validate_vrl: true, // Validated, and should succeed
+        };
+        let (config_builder, loaded) = b
+            .build_incrementally()
+            .await
+            .expect("to build successfully");
+        assert!(loaded
+            .iter()
+            .any(|(pipeline, _)| { pipeline == "pipeline1" })); // Loaded
+        let result = validate_config(config_builder.unwrap()).await;
+        assert!(result.is_ok(), "expected the invalid VRL to be excluded");
+    }
+
+    #[tokio::test]
+    async fn build_incrementally_should_handle_invalid_vrl_when_validating() {
+        let mut service = MockConfigService::new();
+        service
+            .expect_get_pipelines_by_partition()
+            .returning(|| Ok((vec![S!("pipeline1")], S!("data_dir = \"/data/vector\""))));
+        service.expect_get_new_revisions().returning(|_| {
+            Ok(HashMap::from([(
+                S!("pipeline1"),
+                Revision {
+                    id: S!("revision1"),
+                    config: S!(r#"
+                    [sources.in]
+                    type="stdin"
+
+                    # Requires proper format: 'v1:{type}:{kind}:{component_id}:{pipeline_id}:{account_id}'
+                    [transforms."v1:remap:transform:component1:pipeline1:account1"]
+                    inputs=["in"]
+                    type="remap"
+                    source="""
+                    a = invalid("abc")
+                    """
+                    "#),
+                },
+            )]))
+        });
+        let mut b = MezmoConfigBuilder {
+            service: Box::new(service),
+            cache: HashMap::new(),
+            pipelines: None,
+            common_config: None,
+            validate_vrl: true, // Expect no error to happen
+        };
+        let (config_builder, loaded) = b
+            .build_incrementally()
+            .await
+            .expect("to build successfully");
+        assert!(!loaded
+            .iter()
+            .any(|(pipeline, _)| { pipeline == "pipeline1" })); // Not loaded
+        let result = validate_config(config_builder.unwrap()).await;
+        assert!(result.is_ok(), "expected the invalid VRL to be excluded");
+    }
+
     fn new_test_builder(service: Box<dyn ConfigService>) -> MezmoConfigBuilder {
         MezmoConfigBuilder {
             service,
             cache: HashMap::new(),
             pipelines: None,
             common_config: None,
+            validate_vrl: false,
         }
+    }
+
+    async fn validate_config(config_builder: ConfigBuilder) -> Result<(), Vec<String>> {
+        let config = config_builder
+            .build_no_validation()
+            .expect("to build config successfully");
+
+        let diff = config::ConfigDiff::initial(&config);
+        topology::builder::build_pieces(&config, &diff, None, HashMap::new())
+            .await
+            .map(|_| ())
     }
 }

@@ -526,6 +526,7 @@ mod test_utils {
         /// Checks that the schema definition is _valid_ for the given event.
         ///
         /// # Errors
+        ///
         /// If the definition is not valid, debug info will be returned.
         pub fn is_valid_for_event(&self, event: &Event) -> Result<(), String> {
             if let Some(log) = event.maybe_as_log() {
@@ -567,12 +568,26 @@ mod test_utils {
         }
 
         /// Asserts that the schema definition is _valid_ for the given event.
+        ///
         /// # Panics
+        ///
         /// If the definition is not valid for the event.
         pub fn assert_valid_for_event(&self, event: &Event) {
             if let Err(err) = self.is_valid_for_event(event) {
                 panic!("Schema definition assertion failed: {err}");
             }
+        }
+
+        /// Asserts that the schema definition is _invalid_ for the given event.
+        ///
+        /// # Panics
+        ///
+        /// If the definition is valid for the event.
+        pub fn assert_invalid_for_event(&self, event: &Event) {
+            assert!(
+                self.is_valid_for_event(event).is_err(),
+                "Schema definition assertion should not be valid"
+            );
         }
     }
 }
@@ -777,7 +792,7 @@ mod tests {
                             "foo".into(),
                             Kind::boolean().or_undefined(),
                         )])),
-                        metadata_kind: Kind::object(Collection::empty()),
+                        metadata_kind: Kind::object(Collection::any()),
                         meaning: [(
                             "foo_meaning".to_owned(),
                             MeaningPointer::Valid(parse_target_path("foo").unwrap()),
@@ -801,7 +816,7 @@ mod tests {
                                 Kind::regex().or_null().or_undefined(),
                             )])),
                         )])),
-                        metadata_kind: Kind::object(Collection::empty()),
+                        metadata_kind: Kind::object(Collection::any()),
                         meaning: [(
                             "foobar".to_owned(),
                             MeaningPointer::Valid(parse_target_path(".foo.bar").unwrap()),
@@ -822,7 +837,7 @@ mod tests {
                             "foo".into(),
                             Kind::boolean().or_undefined(),
                         )])),
-                        metadata_kind: Kind::object(Collection::empty()),
+                        metadata_kind: Kind::object(Collection::any()),
                         meaning: BTreeMap::default(),
                         log_namespaces: BTreeSet::new(),
                     },
@@ -840,7 +855,7 @@ mod tests {
     fn test_unknown_fields() {
         let want = Definition {
             event_kind: Kind::object(Collection::from_unknown(Kind::bytes().or_integer())),
-            metadata_kind: Kind::object(Collection::empty()),
+            metadata_kind: Kind::object(Collection::any()),
             meaning: BTreeMap::default(),
             log_namespaces: BTreeSet::new(),
         };

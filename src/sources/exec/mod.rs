@@ -37,6 +37,7 @@ use crate::{
     shutdown::ShutdownSignal,
     SourceSender,
 };
+use futures::FutureExt;
 use lookup::{owned_value_path, path};
 use vector_core::config::{log_schema, LogNamespace};
 
@@ -432,7 +433,7 @@ async fn run_command(
     config: ExecConfig,
     hostname: Option<String>,
     decoder: Decoder,
-    mut shutdown: ShutdownSignal,
+    #[allow(unused_mut)] mut shutdown: ShutdownSignal,
     mut out: SourceSender,
     log_namespace: LogNamespace,
 ) -> Result<Option<ExitStatus>, Error> {
@@ -474,6 +475,11 @@ async fn run_command(
 
     let bytes_received = register!(BytesReceived::from(Protocol::NONE));
 
+    // LOG-17649: Due to the `shutdown_child` call in the shutdown arm in the select! macro,
+    // we need to fuse shutdown so shutdown.poll() won't be called after it produces a ready
+    // response. Without the fuse call, the test sources::exec::tests::test_graceful_shutdown
+    // will fail.
+    let mut shutdown = shutdown.fuse();
     'outer: loop {
         tokio::select! {
             _ = &mut shutdown => {

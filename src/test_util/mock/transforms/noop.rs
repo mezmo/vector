@@ -5,13 +5,13 @@ use futures_util::Stream;
 use vector_config::configurable_component;
 use vector_core::config::LogNamespace;
 use vector_core::{
-    config::{DataType, Input, Output},
+    config::{DataType, Input, TransformOutput},
     event::{Event, EventContainer},
     schema::Definition,
     transform::{FunctionTransform, OutputBuffer, TaskTransform, Transform},
 };
 
-use crate::config::{GenerateConfig, TransformConfig, TransformContext};
+use crate::config::{GenerateConfig, OutputId, TransformConfig, TransformContext};
 
 use super::TransformType;
 

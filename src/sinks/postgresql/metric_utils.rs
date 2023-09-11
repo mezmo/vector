@@ -82,9 +82,9 @@ mod tests {
     use super::*;
     use chrono;
     use std::{collections::BTreeSet, iter, num::NonZeroU32};
-    use value::kind::Kind;
     use vector_core::event::MetricKind;
     use vector_core::metric_tags;
+    use vrl::value::kind::Kind;
 
     fn new_metric() -> Metric {
         let ts = chrono::NaiveDate::from_ymd_opt(2022, 10, 1)
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_get_from_metric() {
-        let test_properties: Vec<(&str, for<'r> fn(&'r value::Kind) -> bool, &str)> = vec![
+        let test_properties: Vec<(&str, for<'r> fn(&'r Kind) -> bool, &str)> = vec![
             (".timestamp", Kind::is_timestamp, "t'2022-10-01T13:51:30Z'"),
             (".interval_ms", Kind::is_integer, "12345"),
             (".namespace", Kind::is_bytes, "\"namespace-a\""),

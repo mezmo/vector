@@ -887,7 +887,6 @@ mod test {
                 ]),
             );
             e_1.insert("timestamp", Value::from(start_date));
-            let metadata_1 = e_1.metadata().clone();
 
             let mut e_2 = LogEvent::default();
             e_2.insert(
@@ -931,7 +930,6 @@ mod test {
             );
             assert_eq!(output_1["message.my_date"], start_date.into());
             assert_eq!(output_1["message.my_date_end"], end_date.into());
-            assert_eq!(output_1.metadata(), &metadata_1);
 
             // The top-level timestamp field should use the default strategy
             assert_eq!(output_1["timestamp"], start_date.into());

@@ -3,7 +3,9 @@
     clippy::module_name_repetitions,
     clippy::print_stdout,
     clippy::unused_self,
-    clippy::unnecessary_wraps
+    clippy::unnecessary_wraps,
+    clippy::useless_conversion,
+    clippy::needless_raw_string_hashes
 )]
 
 #[macro_use]

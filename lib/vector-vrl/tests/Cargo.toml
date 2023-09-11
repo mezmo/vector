@@ -7,10 +7,7 @@ publish = false
 
 [dependencies]
 enrichment = { path = "../../enrichment" }
-stdlib = { package = "vrl-stdlib", git = "ssh://git@github.com/answerbook/vrl.git", rev = "next" }
-vrl = { package = "vrl", git = "ssh://git@github.com/answerbook/vrl.git", rev = "next" }
-value = { package = "value", git = "ssh://git@github.com/answerbook/vrl.git", rev = "next" }
-vrl-tests = { package = "vrl-tests", git = "ssh://git@github.com/answerbook/vrl.git", rev = "next" }
+vrl = { git = "ssh://git@github.com/answerbook/vrl.git", rev = "next", features = ["test_framework"] }
 vector-vrl-functions = { path = "../../vector-vrl/functions" }
 
 ansi_term = "0.12"

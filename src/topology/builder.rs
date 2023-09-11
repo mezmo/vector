@@ -168,6 +168,7 @@ pub async fn build_pieces(
         tx
     } else {
         // Create a dummy transmitter to simplify implementation (avoid adapting all test code)
+        warn!("Building pieces with unbounded channel. This may result in an OOM error for long running processes.");
         let (tx, _) = mpsc::unbounded_channel::<UsageMetrics>();
         tx
     };
@@ -869,7 +870,8 @@ impl Runner {
                             self.send_outputs(&mut outputs_buf).await
                                 .map_err(TaskError::wrapped)?;
                         }
-                        _ => unreachable!("join error or bad poll"),
+                        Some(Err(e)) => error!("in_flight task join error: {e:?}"),
+                        None => unreachable!("in_flight task join error: FuturesOrdered polled when empty"),
                     }
                 }
 

@@ -11,6 +11,8 @@ use vector_core::event::LogEvent;
 pub mod callsite;
 pub mod config;
 pub mod macros;
+#[cfg(feature = "api-client")]
+pub mod remote_task_execution;
 #[allow(dead_code)]
 pub mod user_trace;
 pub mod vrl;
@@ -137,7 +139,6 @@ mod tests {
     use vector_common::btreemap;
     use vector_core::config::log_schema;
     use vector_core::event::LogEvent;
-    use vrl::value::Value;
 
     #[test]
     fn test_mezmo_context_try_from_shared_component() {

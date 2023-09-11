@@ -11,6 +11,13 @@
 #![deny(unused_extern_crates)]
 #![deny(unused_assignments)]
 #![deny(unused_comparisons)]
+#![allow(clippy::default_constructed_unit_structs)]
+#![allow(
+    clippy::default_constructed_unit_structs,
+    clippy::explicit_iter_loop,
+    clippy::needless_pub_self,
+    clippy::useless_conversion
+)]
 
 #[cfg(feature = "btreemap")]
 pub use vrl::value::btreemap;

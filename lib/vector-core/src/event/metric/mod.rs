@@ -54,7 +54,7 @@ macro_rules! metric_tags {
 
 /// A metric.
 #[configurable_component]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Metric {
     #[serde(flatten)]
     pub(super) series: MetricSeries,
@@ -65,6 +65,14 @@ pub struct Metric {
     /// Internal event metadata.
     #[serde(skip, default = "EventMetadata::default")]
     internal_metadata: EventMetadata,
+}
+
+// Mezmo: only consider the inner value and not the metadata in the equality
+// as we don't care about event metadata for now
+impl PartialEq for Metric {
+    fn eq(&self, other: &Self) -> bool {
+        self.series.eq(&other.series) && self.data.eq(&other.data)
+    }
 }
 
 impl Metric {

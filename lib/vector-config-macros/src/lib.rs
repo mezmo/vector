@@ -1,4 +1,5 @@
 #![deny(warnings)]
+#![allow(clippy::needless_pub_self)]
 
 use proc_macro::TokenStream;
 

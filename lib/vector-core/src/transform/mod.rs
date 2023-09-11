@@ -16,7 +16,7 @@ use crate::{
     ByteSizeOf,
 };
 
-#[cfg(any(feature = "lua"))]
+#[cfg(feature = "lua")]
 pub mod runtime_transform;
 
 /// Transforms come in two variants. Functions, or tasks.
