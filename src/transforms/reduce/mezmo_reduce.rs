@@ -31,6 +31,7 @@ use serde_with::serde_as;
 use vector_config::configurable_component;
 use vector_core::config::{log_schema, OutputId, TransformOutput};
 use vector_core::schema::Definition;
+use vector_core::ByteSizeOf;
 
 use crate::event::Value;
 use vector_core::config::LogNamespace;
@@ -204,6 +205,10 @@ impl ReduceState {
         mezmo_metadata: MezmoMetadata,
         group_by: &[String],
     ) -> Self {
+        // Events are retained until flushed (and finalized) so this should also
+        // keep track of the event's size as part of the total memory consumed.
+        let mut size_estimate: usize = event.allocated_bytes();
+
         let (value, metadata) = event.into_parts();
 
         // Use default merge strategies for root fields
@@ -214,8 +219,6 @@ impl ReduceState {
         };
 
         let (value, _) = message_event.into_parts();
-
-        let mut size_estimate: usize = 0;
 
         // Create a list of root property names after their field path notations are parsed (."my-thing" === "my-thing")
         // This is used only to disallow using merge_strategies on group_by fields below.
@@ -274,8 +277,11 @@ impl ReduceState {
         event: LogEvent,
         message_event: LogEvent,
         strategies: &IndexMap<String, MergeStrategy>,
-        byte_threshold_per_state: usize,
     ) {
+        // Events are retained until flushed (and finalized) so this should also
+        // keep track of the event's size as part of the total memory consumed.
+        self.size_estimate += event.allocated_bytes();
+
         let (value, metadata) = event.into_parts();
         self.metadata.merge(metadata);
 
@@ -334,30 +340,16 @@ impl ReduceState {
                     entry.get_mut().add(v.clone()).map_or_else(
                         |error| warn!(message = "Failed to merge value.", %error),
                         |_| {
-                            // Watch for negative values which can happen for strategies such as "retain" which can
-                            // have size values decrease (for values like Object)
-                            let i128_estimate: i128 = num::cast(entry.get().size_estimate())
-                                .unwrap_or_else(|| {
-                                    error!("Cannot cast reduced size estimate. Will prompt a flush.");
-                                    i128::MAX
-                                });
-                                let i128_original_size: i128 = num::cast(original_size).unwrap_or_else(|| {
-                                    error!("Cannot cast reduced original size estimate. Will prompt a flush.");
-                                    i128::MAX
-                                });
-                                if i128_estimate == i128::MAX || i128_original_size == i128::MAX {
-                                    // arithmetic boundaries reached, so forcefully flush
-                                    self.size_estimate = byte_threshold_per_state;
-                                    return;
+                            let new_size = entry.get().size_estimate();
+                            if new_size < original_size {
+                                let delta = original_size - new_size;
+                                if delta > self.size_estimate {
+                                    self.size_estimate = 0
+                                } else {
+                                    self.size_estimate -= delta;
                                 }
-
-                            let delta = i128_estimate - i128_original_size;
-                            if delta > 0 {
-                                let (add_result, not_ok) = self.size_estimate.overflowing_add(delta as usize);
-                                self.size_estimate = if not_ok { byte_threshold_per_state } else {add_result};
                             } else {
-                                let (sub_result, not_ok) = self.size_estimate.overflowing_sub(delta.unsigned_abs() as usize);
-                                self.size_estimate = if not_ok { byte_threshold_per_state } else {sub_result};
+                                self.size_estimate += new_size - original_size;
                             }
                         },
                     );
@@ -618,12 +610,9 @@ impl MezmoReduce {
                 ));
             }
             hash_map::Entry::Occupied(mut entry) => {
-                entry.get_mut().add_event(
-                    event,
-                    message_event,
-                    &self.merge_strategies,
-                    self.byte_threshold_per_state,
-                );
+                entry
+                    .get_mut()
+                    .add_event(event, message_event, &self.merge_strategies);
             }
         }
     }
@@ -705,12 +694,7 @@ impl MezmoReduce {
         } else if ends_here {
             output.push(match self.reduce_merge_states.remove(&discriminant) {
                 Some(mut state) => {
-                    state.add_event(
-                        event,
-                        message_event,
-                        &self.merge_strategies,
-                        self.byte_threshold_per_state,
-                    );
+                    state.add_event(event, message_event, &self.merge_strategies);
                     state.flush().into()
                 }
                 None => ReduceState::new(
@@ -1605,7 +1589,7 @@ mod test {
 
     #[assay(
         env = [
-          ("REDUCE_BYTE_THRESHOLD_PER_STATE", "30"),
+          ("REDUCE_BYTE_THRESHOLD_PER_STATE", "200"),
         ]
       )]
     async fn mezmo_reduce_state_exceeds_threshold() {
