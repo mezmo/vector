@@ -18,4 +18,4 @@ ordered-float = { version = "3.7.0", default-features = false }
 prost = { version = "0.11", default-features = false, features = ["std"] }
 tonic = { version = "0.9", default-features = false, features = ["codegen", "gzip", "prost", "tls", "tls-roots", "transport"] }
 vector-core = { path = "../vector-core", default-features = false }
-vrl = { git = "ssh://git@github.com/answerbook/vrl.git", rev = "next" }
+vrl = { git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.5.1" }
