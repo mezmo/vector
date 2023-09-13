@@ -11,9 +11,16 @@
 #![deny(unused_extern_crates)]
 #![deny(unused_assignments)]
 #![deny(unused_comparisons)]
+#![allow(clippy::default_constructed_unit_structs)]
+#![allow(
+    clippy::default_constructed_unit_structs,
+    clippy::explicit_iter_loop,
+    clippy::needless_pub_self,
+    clippy::useless_conversion
+)]
 
 #[cfg(feature = "btreemap")]
-pub use value::btreemap;
+pub use vrl::value::btreemap;
 
 #[cfg(feature = "byte_size_of")]
 pub mod byte_size_of;
@@ -21,15 +28,15 @@ pub mod byte_size_of;
 pub mod config;
 
 #[cfg(feature = "conversion")]
-pub use vrl_core::TimeZone;
+pub use vrl::compiler::TimeZone;
 
 #[cfg(feature = "encoding")]
 pub mod encode_logfmt {
-    pub use vrl_core::encode_logfmt::*;
+    pub use vrl::core::encode_logfmt::*;
 }
 
 pub mod conversion {
-    pub use vrl_core::conversion::*;
+    pub use vrl::compiler::conversion::*;
 }
 
 pub mod event_data_eq;

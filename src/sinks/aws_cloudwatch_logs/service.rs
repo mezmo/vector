@@ -22,10 +22,9 @@ use tower::{
     timeout::Timeout,
     Service, ServiceBuilder, ServiceExt,
 };
-use value::Value;
 use vector_common::request_metadata::MetaDescriptive;
 use vector_core::{internal_event::CountByteSize, stream::DriverResponse};
-use vrl::prelude::fmt::Debug;
+use vrl::value::Value;
 
 use crate::{
     config::SinkContext,

@@ -102,7 +102,12 @@
 // title/description from the field instead, which could be useful when using newtype wrappers
 // around existing/remote types for the purpose of making them `Configurable`.
 #![deny(warnings)]
-
+#![allow(
+    clippy::default_constructed_unit_structs,
+    clippy::explicit_iter_loop,
+    clippy::needless_pub_self,
+    clippy::useless_conversion
+)]
 // Re-export of the various public dependencies required by the generated code to simplify the import requirements for
 // crates actually using the macros/derives.
 pub mod indexmap {

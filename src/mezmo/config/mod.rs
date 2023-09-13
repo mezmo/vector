@@ -10,7 +10,10 @@ use tokio::time::{self, Instant};
 use vector_config::configurable_component;
 
 use crate::{
-    config::{self, provider::ProviderConfig, ConfigBuilder, TransformContext},
+    config::{
+        self, provider::ProviderConfig, schema::Definition, ConfigBuilder, OutputId,
+        TransformContext,
+    },
     internal_events::mezmo_config::{
         MezmoConfigBuildFailure, MezmoConfigBuilderCreate, MezmoConfigReloadSignalSend,
         MezmoConfigVrlValidation, MezmoConfigVrlValidationError, MezmoGenerateConfigError,
@@ -451,9 +454,29 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
         let enrichment_tables = enrichment::tables::TableRegistry::default();
 
         for (key, transform) in config.transforms() {
-            let schema_definitions = HashMap::from([(None, crate::schema::Definition::any())]);
-            let merged_definition =
-                schema::merged_definition(&transform.inputs, &config, &mut definition_cache);
+            let schema_definitions = HashMap::from([(
+                None,
+                HashMap::from([(OutputId::from(key.clone()), Definition::any())]),
+            )]);
+            let input_definitions = match schema::input_definitions(
+                &transform.inputs,
+                &config,
+                enrichment_tables.clone(),
+                &mut definition_cache,
+            ) {
+                Ok(definitions) => definitions,
+                Err(_) => {
+                    // Skip
+                    continue;
+                }
+            };
+
+            let merged_definition: Definition = input_definitions
+                .iter()
+                .map(|(_output_id, definition)| definition.clone())
+                .reduce(Definition::merge)
+                // We may not have any definitions if all the inputs are from metrics sources.
+                .unwrap_or_else(Definition::any);
 
             let transform = &transform.inner;
             // Handling only remaps currently, but could be extended in the future

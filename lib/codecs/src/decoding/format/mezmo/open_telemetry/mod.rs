@@ -14,6 +14,9 @@ use vector_core::{
 
 use vector_core::event::Event;
 
+use vrl::value::kind::Collection;
+use vrl::value::Kind;
+
 use opentelemetry_rs::Error as OpenTelemetryError;
 
 /// OpenTelemetry protobuf deserializer error list
@@ -47,7 +50,7 @@ impl OpenTelemetryMetricDeserializer {
     /// Schema definition for the Deserializer
     pub fn schema_definition(log_namespace: LogNamespace) -> schema::Definition {
         schema::Definition::new_with_default_metadata(
-            value::Kind::object(value::kind::Collection::empty()),
+            Kind::object(Collection::empty()),
             [log_namespace],
         )
     }

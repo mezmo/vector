@@ -6,10 +6,10 @@ use http::{Request, Uri};
 use indoc::indoc;
 use lookup::lookup_v2::{parse_value_path, OptionalValuePath};
 use lookup::{OwnedValuePath, PathPrefix};
-use value::Kind;
 use vector_config::configurable_component;
 use vector_core::config::log_schema;
 use vector_core::schema;
+use vrl::value::Kind;
 
 use crate::{
     codecs::Transformer,
@@ -593,23 +593,31 @@ mod tests {
         event.as_mut_log().insert("value", 100);
         event.as_mut_log().insert("timestamp", ts());
 
-        let sink = create_sink(
+        let mut sink = create_sink(
             "http://localhost:9999",
             "my-token",
             ProtocolVersion::V2,
             "vector",
-            ["metric_type"].to_vec(),
+            [].to_vec(),
         );
+        // exclude default metric_type tag so to emit empty tags
+        sink.transformer
+            .set_except_fields(Some(vec!["metric_type".into()]))
+            .unwrap();
         let mut encoder = sink.build_encoder();
 
         let bytes = encoder.encode_event(event).unwrap();
-        let string = std::str::from_utf8(&bytes).unwrap();
+        let line = std::str::from_utf8(&bytes).unwrap();
+        assert!(
+            line.starts_with("vector "),
+            "measurement (without tags) should ends with space ' '"
+        );
 
-        let line_protocol = split_line_protocol(string);
+        let line_protocol = split_line_protocol(line);
         assert_eq!("vector", line_protocol.0);
-        assert_eq!("metric_type=logs", line_protocol.1);
+        assert_eq!("", line_protocol.1, "tags should be empty");
         assert_fields(
-            line_protocol.2.to_string(),
+            line_protocol.2,
             ["value=100i", "message=\"hello\""].to_vec(),
         );
 
@@ -761,7 +769,7 @@ mod tests {
         let (mut config, cx) = load_sink::<InfluxDbLogsConfig>(&config).unwrap();
 
         // Make sure we can build the config
-        let _ = config.build(cx.clone()).await.unwrap();
+        _ = config.build(cx.clone()).await.unwrap();
 
         let addr = next_addr();
         // Swap out the host so we can force send it
@@ -876,6 +884,7 @@ mod integration_tests {
     use std::sync::Arc;
     use vector_core::config::{LegacyKey, LogNamespace};
     use vector_core::event::{BatchNotifier, BatchStatus, Event, LogEvent};
+    use vrl::value::value;
 
     use super::*;
     use crate::{
@@ -932,7 +941,7 @@ mod integration_tests {
         event2.insert("source_type", "file");
 
         let mut namespaced_log =
-            LogEvent::from(vrl::value!("namespaced message")).with_batch_notifier(&batch);
+            LogEvent::from(value!("namespaced message")).with_batch_notifier(&batch);
         LogNamespace::Vector.insert_source_metadata(
             "file",
             &mut namespaced_log,

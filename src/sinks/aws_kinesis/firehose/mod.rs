@@ -7,7 +7,7 @@ use crate::mezmo::user_trace::UserLoggingError;
 use aws_sdk_firehose::{
     error::PutRecordBatchError, model::Record as FRecord, types::SdkError, Client,
 };
-use value::Value;
+use vrl::value::Value;
 
 pub use super::{
     config::{build_sink, KinesisSinkBaseConfig},

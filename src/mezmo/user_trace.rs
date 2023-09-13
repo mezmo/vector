@@ -14,9 +14,9 @@ use tokio::sync::broadcast::{self, Receiver, Sender};
 use tokio_stream::wrappers::BroadcastStream;
 use tower::Service;
 use tracing::log::Level;
-use value::Value;
 use vector_core::event::metric::mezmo::TransformError;
 use vector_core::{event::LogEvent, ByteSizeOf};
+use vrl::value::Value;
 
 use crate::http::HttpError;
 use crate::sinks::util::http::HttpBatchService;

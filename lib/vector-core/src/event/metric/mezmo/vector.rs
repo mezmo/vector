@@ -489,7 +489,7 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
 mod tests {
     use std::collections::BTreeMap;
 
-    use value::Value;
+    use vrl::value::Value;
 
     use crate::event::LogEvent;
 

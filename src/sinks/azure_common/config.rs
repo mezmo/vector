@@ -8,9 +8,9 @@ use bytes::Bytes;
 use futures::FutureExt;
 use http::StatusCode;
 use snafu::Snafu;
-use value::Value;
 use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_core::{internal_event::CountByteSize, stream::DriverResponse};
+use vrl::value::Value;
 
 use crate::{
     config::SinkContext,

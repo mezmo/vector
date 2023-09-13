@@ -19,8 +19,8 @@ use aws_smithy_client::SdkError;
 use futures::FutureExt;
 use http::StatusCode;
 use snafu::Snafu;
-use value::Value;
 use vector_config::configurable_component;
+use vrl::value::Value;
 
 /// Per-operation configuration when writing objects to S3.
 #[configurable_component]

@@ -1,14 +1,22 @@
-use std::{collections::BTreeMap, future::ready, num::NonZeroUsize};
+use std::{
+    collections::{BTreeMap, HashMap},
+    future::ready,
+    num::NonZeroUsize,
+};
 
 use crate::{
-    config::{DataType, Input, LogNamespace, Output, TransformConfig, TransformContext},
+    config::{
+        schema::Definition, DataType, Input, LogNamespace, OutputId, TransformConfig,
+        TransformContext,
+    },
     event::Event,
-    schema,
     transforms::{TaskTransform, Transform},
 };
 use futures::StreamExt;
 use vector_config::configurable_component;
-use vector_core::config::log_schema;
+use vector_core::config::{log_schema, TransformOutput};
+
+use vrl::value::Value;
 
 mod drain;
 
@@ -67,8 +75,13 @@ impl TransformConfig for MezmoLogClusteringConfig {
         Input::log()
     }
 
-    fn outputs(&self, _: &schema::Definition, _: LogNamespace) -> Vec<Output> {
-        vec![Output::default(DataType::Log)]
+    fn outputs(
+        &self,
+        _: enrichment::TableRegistry,
+        _: &[(OutputId, Definition)],
+        _: LogNamespace,
+    ) -> Vec<TransformOutput> {
+        vec![TransformOutput::new(DataType::Log, HashMap::new())]
     }
 
     fn enable_concurrency(&self) -> bool {
@@ -148,29 +161,27 @@ impl MezmoLogClustering {
 
             cluster.insert(
                 "cluster_id".to_string(),
-                value::Value::Integer(group.cluster_id() as i64),
+                Value::Integer(group.cluster_id() as i64),
             );
             cluster.insert(
                 "match_count".to_string(),
-                value::Value::Integer(group.match_count() as i64),
+                Value::Integer(group.match_count() as i64),
             );
             cluster.insert(
                 "template".to_string(),
-                value::Value::Bytes(format!("{}", group).into()),
+                Value::Bytes(format!("{}", group).into()),
             );
             cluster.insert(
                 "values".to_string(),
-                value::Value::Array(
+                Value::Array(
                     values
                         .iter()
-                        .map(|value| {
-                            value::Value::Bytes(bytes::Bytes::copy_from_slice(value.as_bytes()))
-                        })
-                        .collect::<Vec<value::Value>>(),
+                        .map(|value| Value::Bytes(bytes::Bytes::copy_from_slice(value.as_bytes())))
+                        .collect::<Vec<Value>>(),
                 ),
             );
 
-            log.insert(self.cluster_field.as_str(), value::Value::Object(cluster));
+            log.insert(self.cluster_field.as_str(), Value::Object(cluster));
         }
 
         Some(event)

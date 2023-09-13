@@ -5,10 +5,9 @@ use bytes::Bytes;
 use futures::{FutureExt, SinkExt};
 use http::{Request, StatusCode, Uri};
 use serde_json::json;
-use value::Kind;
-use value::Value;
 use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
+use vrl::value::{Kind, Value};
 
 use crate::user_log_error;
 use crate::{
@@ -376,7 +375,7 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
 
         if self.use_message_as_line.unwrap_or(false) {
             log.remove(message_key)
-                .unwrap_or(value::Value::Object(BTreeMap::new()))
+                .unwrap_or(Value::Object(BTreeMap::new()))
                 .as_object()
                 .unwrap_or(&BTreeMap::new())
                 .iter()
@@ -1189,7 +1188,7 @@ mod tests {
         .unwrap();
 
         // Make sure we can build the config
-        let _ = config.build(cx.clone()).await.unwrap();
+        _ = config.build(cx.clone()).await.unwrap();
 
         let addr = next_addr();
         // Swap out the host so we can force send it

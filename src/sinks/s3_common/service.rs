@@ -12,13 +12,13 @@ use futures::future::BoxFuture;
 use md5::Digest;
 use tower::Service;
 use tracing::Instrument;
-use value::Value;
 use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
 use vector_core::{
     event::{EventFinalizers, EventStatus, Finalizable},
     internal_event::CountByteSize,
     stream::DriverResponse,
 };
+use vrl::value::Value;
 
 use super::config::S3Options;
 use super::partitioner::S3PartitionKey;

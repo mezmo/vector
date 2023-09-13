@@ -2,11 +2,11 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use hashbrown::HashMap;
 use std::{collections::BTreeMap, future::ready, pin::Pin};
-use value::Value;
 use vector_core::{
     config::log_schema,
     event::{metric::mezmo::TransformError, LogEvent},
 };
+use vrl::value::Value;
 
 use crate::{
     event::Event,

@@ -51,7 +51,17 @@ impl LuaConfig {
         // Lua causes the type definition to be reset
         let definition = Definition::default_for_namespace(merged_definition.log_namespaces());
 
-        vec![Output::default(DataType::Log).with_schema_definition(definition)]
+        let definition = input_definitions
+            .iter()
+            .map(|(output, _definition)| {
+                (
+                    output.clone(),
+                    Definition::default_for_namespace(&namespaces),
+                )
+            })
+            .collect();
+
+        vec![TransformOutput::new(DataType::Log, definition)]
     }
 }
 

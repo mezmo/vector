@@ -8,10 +8,9 @@ use vector_config::{
 };
 use vector_config_common::attributes::CustomAttribute;
 use vector_config_common::schema::{SchemaGenerator, SchemaObject};
+use vector_core::config::SourceOutput;
 use vector_core::{
-    config::{
-        AcknowledgementsConfig, GlobalOptions, LogNamespace, Output, SourceAcknowledgementsConfig,
-    },
+    config::{AcknowledgementsConfig, GlobalOptions, LogNamespace, SourceAcknowledgementsConfig},
     source::Source,
 };
 
@@ -90,7 +89,7 @@ pub trait SourceConfig: DynClone + NamedComponent + core::fmt::Debug + Send + Sy
     async fn build(&self, cx: SourceContext) -> crate::Result<Source>;
 
     /// Gets the list of outputs exposed by this source.
-    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<Output>;
+    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<SourceOutput>;
 
     /// Gets the list of resources, if any, used by this source.
     ///

@@ -394,7 +394,7 @@ mod tests {
     use std::borrow::Cow;
     use std::collections::BTreeMap;
 
-    use value::Value;
+    use vrl::value::Value;
 
     use crate::event::LogEvent;
 

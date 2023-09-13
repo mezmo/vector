@@ -16,7 +16,7 @@ use crate::{
     ByteSizeOf,
 };
 
-#[cfg(any(feature = "lua"))]
+#[cfg(feature = "lua")]
 pub mod runtime_transform;
 
 /// Transforms come in two variants. Functions, or tasks.
@@ -39,34 +39,6 @@ impl Transform {
     /// where possible.
     pub fn function(v: impl FunctionTransform + 'static) -> Self {
         Transform::Function(Box::new(v))
-    }
-
-    /// Mutably borrow the inner transform as a function transform.
-    ///
-    /// # Panics
-    ///
-    /// If the transform is not a [`FunctionTransform`] this will panic.
-    pub fn as_function(&mut self) -> &mut Box<dyn FunctionTransform> {
-        match self {
-            Transform::Function(t) => t,
-            _ => panic!(
-                "Called `Transform::as_function` on something that was not a function variant."
-            ),
-        }
-    }
-
-    /// Transmute the inner transform into a function transform.
-    ///
-    /// # Panics
-    ///
-    /// If the transform is not a [`FunctionTransform`] this will panic.
-    pub fn into_function(self) -> Box<dyn FunctionTransform> {
-        match self {
-            Transform::Function(t) => t,
-            _ => panic!(
-                "Called `Transform::into_function` on something that was not a function variant."
-            ),
-        }
     }
 
     /// Create a new synchronous transform.
@@ -103,20 +75,6 @@ impl Transform {
     /// TODO
     pub fn event_task(v: impl TaskTransform<Event> + 'static) -> Self {
         Transform::Task(Box::new(WrapEventTask(v)))
-    }
-
-    /// Mutably borrow the inner transform as a task transform.
-    ///
-    /// # Panics
-    ///
-    /// If the transform is a [`FunctionTransform`] this will panic.
-    pub fn as_task(&mut self) -> &mut Box<dyn TaskTransform<EventArray>> {
-        match self {
-            Transform::Task(t) => t,
-            _ => {
-                panic!("Called `Transform::as_task` on something that was not a task variant.")
-            }
-        }
     }
 
     /// Transmute the inner transform into a task transform.
@@ -223,14 +181,14 @@ struct TransformOutput {
 }
 
 pub struct TransformOutputs {
-    outputs_spec: Vec<config::Output>,
+    outputs_spec: Vec<config::TransformOutput>,
     primary_output: Option<TransformOutput>,
     named_outputs: HashMap<String, TransformOutput>,
 }
 
 impl TransformOutputs {
     pub fn new(
-        outputs_in: Vec<config::Output>,
+        outputs_in: Vec<config::TransformOutput>,
     ) -> (Self, HashMap<Option<String>, fanout::ControlChannel>) {
         let outputs_spec = outputs_in.clone();
         let mut primary_output = None;
@@ -333,7 +291,7 @@ pub struct TransformOutputsBuf {
 }
 
 impl TransformOutputsBuf {
-    pub fn new_with_capacity(outputs_in: Vec<config::Output>, capacity: usize) -> Self {
+    pub fn new_with_capacity(outputs_in: Vec<config::TransformOutput>, capacity: usize) -> Self {
         let mut primary_buffer = None;
         let mut named_buffers = HashMap::new();
 

@@ -107,8 +107,9 @@ impl<T: Bufferable> LimitedSender<T> {
             .limiter
             .clone()
             .acquire_many_owned(permits_required)
-            .await else {
-            return Err(SendError(item))
+            .await
+        else {
+            return Err(SendError(item));
         };
 
         self.inner

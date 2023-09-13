@@ -17,9 +17,9 @@ use hyper_proxy::ProxyConnector;
 use snafu::{ResultExt, Snafu};
 use tower::Service;
 use tracing::Instrument;
-use value::Value;
 use vector_common::sensitive_string::SensitiveString;
 use vector_config::configurable_component;
+use vrl::value::Value;
 
 use crate::{
     config::ProxyConfig,

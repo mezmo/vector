@@ -23,11 +23,14 @@ use vector_common::internal_event::{
     ByteSize, BytesReceived, CountByteSize, InternalEvent, InternalEventHandle as _, Protocol,
 };
 use vector_config::configurable_component;
-use vector_core::{config::LogNamespace, EstimatedJsonEncodedSizeOf};
+use vector_core::{
+    config::{LogNamespace, SourceOutput},
+    EstimatedJsonEncodedSizeOf,
+};
 
 use crate::{
     codecs::{Decoder, DecodingConfig},
-    config::{Output, SourceConfig, SourceContext},
+    config::{SourceConfig, SourceContext},
     internal_events::{EventsReceived, StreamClosedError},
     serde::{default_decoding, default_framing_message_based},
     shutdown::ShutdownSignal,
@@ -375,7 +378,7 @@ impl SourceConfig for MezmoDemoLogsConfig {
         )))
     }
 
-    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<Output> {
+    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<SourceOutput> {
         // There is a global and per-source `log_namespace` config. The source config overrides the global setting,
         // and is merged here.
         let log_namespace = global_log_namespace.merge(self.log_namespace);
@@ -385,7 +388,10 @@ impl SourceConfig for MezmoDemoLogsConfig {
             .schema_definition(log_namespace)
             .with_standard_vector_source_metadata();
 
-        vec![Output::default(self.decoding.output_type()).with_schema_definition(schema_definition)]
+        vec![SourceOutput::new_logs(
+            self.decoding.output_type(),
+            schema_definition,
+        )]
     }
 
     fn can_acknowledge(&self) -> bool {

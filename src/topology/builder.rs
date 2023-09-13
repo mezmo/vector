@@ -22,7 +22,7 @@ use vector_common::internal_event::{
     self, CountByteSize, EventsSent, InternalEventHandle as _, Registered,
 };
 use vector_config::NamedComponent;
-use vector_core::config::LogNamespace;
+use vector_core::config::{LogNamespace, TransformOutput};
 use vector_core::{
     buffers::{
         topology::{
@@ -47,8 +47,8 @@ use super::{
 use crate::mezmo::MezmoContext;
 use crate::{
     config::{
-        ComponentKey, DataType, EnrichmentTableConfig, Input, Inputs, Output, OutputId,
-        ProxyConfig, SinkConfig, SinkContext, SourceContext, TransformContext, TransformOuter,
+        ComponentKey, DataType, EnrichmentTableConfig, Input, Inputs, OutputId, ProxyConfig,
+        SinkConfig, SinkContext, SourceContext, TransformContext, TransformOuter,
     },
     event::{EventArray, EventContainer},
     internal_events::EventsReceived,
@@ -206,15 +206,21 @@ pub async fn build_pieces(
         let source_name = key.id().parse().ok();
 
         for output in source_outputs {
-            let mut rx = builder.add_output(output.clone());
+            let mut rx = builder.add_source_output(output.clone());
 
             let (mut fanout, control) = Fanout::new();
             let usage_tracker = get_component_usage_tracker(&source_name, &metrics_tx.clone());
+            let source = Arc::new(OutputId {
+                component: key.clone(),
+                port: output.port.clone(),
+            });
+
             let pump = async move {
                 debug!("Source pump starting.");
 
-                while let Some(array) = rx.next().await {
+                while let Some(mut array) = rx.next().await {
                     usage_tracker.track(&array);
+                    array.set_output_id(&source);
 
                     fanout.send(array).await.map_err(|e| {
                         debug!("Source pump finished with an error.");
@@ -235,11 +241,10 @@ pub async fn build_pieces(
                 control,
             );
 
-            let schema_definition = output
-                .log_schema_definition
-                .unwrap_or_else(schema::Definition::default_legacy_namespace);
-
-            schema_definitions.insert(output.port, schema_definition);
+            let port = output.port.clone();
+            if let Some(definition) = output.schema_definition(config.schema.enabled) {
+                schema_definitions.insert(port, definition);
+            }
         }
 
         let (pump_error_tx, mut pump_error_rx) = oneshot::channel();
@@ -260,7 +265,7 @@ pub async fn build_pieces(
                 if let Err(e) = output {
                     // Immediately send the error to the source's wrapper future, but ignore any
                     // errors during the send, since nested errors wouldn't make any sense here.
-                    let _ = pump_error_tx.send(e);
+                    _ = pump_error_tx.send(e);
                     had_pump_error = true;
                     break;
                 }
@@ -366,9 +371,27 @@ pub async fn build_pieces(
     {
         debug!(component = %key, "Building new transform.");
 
-        let mut schema_definitions = HashMap::new();
-        let merged_definition =
-            schema::merged_definition(&transform.inputs, config, &mut definition_cache);
+        let input_definitions = match schema::input_definitions(
+            &transform.inputs,
+            config,
+            enrichment_tables.clone(),
+            &mut definition_cache,
+        ) {
+            Ok(definitions) => definitions,
+            Err(_) => {
+                // We have received an error whilst retrieving the definitions,
+                // there is no point in continuing.
+
+                break;
+            }
+        };
+
+        let merged_definition: Definition = input_definitions
+            .iter()
+            .map(|(_output_id, definition)| definition.clone())
+            .reduce(Definition::merge)
+            // We may not have any definitions if all the inputs are from metrics sources.
+            .unwrap_or_else(Definition::any);
 
         let span = error_span!(
             "transform",
@@ -379,15 +402,20 @@ pub async fn build_pieces(
             component_name = %key.id(),
         );
 
-        for output in transform
+        // Create a map of the outputs to the list of possible definitions from those outputs.
+        let schema_definitions = transform
             .inner
-            .outputs(&merged_definition, config.schema.log_namespace())
-        {
-            let definition = output
-                .log_schema_definition
-                .unwrap_or_else(|| merged_definition.clone());
-            schema_definitions.insert(output.port, definition);
-        }
+            .outputs(
+                enrichment_tables.clone(),
+                &input_definitions,
+                config.schema.log_namespace(),
+            )
+            .into_iter()
+            .map(|output| {
+                let definitions = output.schema_definitions(config.schema.enabled);
+                (output.port, definitions)
+            })
+            .collect::<HashMap<_, _>>();
 
         let mezmo_ctx = MezmoContext::try_from(key.clone().into_id()).ok();
         let context = TransformContext {
@@ -402,8 +430,9 @@ pub async fn build_pieces(
 
         let node = TransformNode::from_parts(
             key.clone(),
+            enrichment_tables.clone(),
             transform,
-            &merged_definition,
+            &input_definitions,
             config.schema.log_namespace(),
         );
 
@@ -452,7 +481,9 @@ pub async fn build_pieces(
         // At this point, we've validated that all transforms are valid, including any
         // transform that mutates the schema provided by their sources. We can now validate the
         // schema expectations of each individual sink.
-        if let Err(mut err) = schema::validate_sink_expectations(key, sink, config) {
+        if let Err(mut err) =
+            schema::validate_sink_expectations(key, sink, config, enrichment_tables.clone())
+        {
             errors.append(&mut err);
         };
 
@@ -643,15 +674,16 @@ struct TransformNode {
     typetag: &'static str,
     inputs: Inputs<OutputId>,
     input_details: Input,
-    outputs: Vec<Output>,
+    outputs: Vec<TransformOutput>,
     enable_concurrency: bool,
 }
 
 impl TransformNode {
     pub fn from_parts(
         key: ComponentKey,
+        enrichment_tables: enrichment::TableRegistry,
         transform: &TransformOuter<OutputId>,
-        schema_definition: &Definition,
+        schema_definition: &[(OutputId, Definition)],
         global_log_namespace: LogNamespace,
     ) -> Self {
         Self {
@@ -659,9 +691,11 @@ impl TransformNode {
             typetag: transform.inner.get_component_name(),
             inputs: transform.inputs.clone(),
             input_details: transform.inner.input(),
-            outputs: transform
-                .inner
-                .outputs(schema_definition, global_log_namespace),
+            outputs: transform.inner.outputs(
+                enrichment_tables,
+                schema_definition,
+                global_log_namespace,
+            ),
             enable_concurrency: transform.inner.enable_concurrency(),
         }
     }

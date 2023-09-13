@@ -99,8 +99,11 @@ impl SinkConfig for StackdriverConfig {
         // we should continue building the topology. Convert the result into an option
         // that can be shared with consumers, while logging the error in-place.
         let auth = self.auth.build(Scope::MonitoringWrite).await;
-        if let Err(err) = &auth {
-            warn!("Invalid authentication: {}", err)
+        match &auth {
+            Err(err) => warn!("Invalid authentication: {}", err),
+            Ok(auth) => {
+                auth.spawn_regenerate_token();
+            }
         }
         let auth = auth.ok();
 
