@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - master
+      - ci-fix
 
 concurrency:
   # For pull requests, cancel running workflows, for master, run all
@@ -22,8 +23,8 @@ env:
   AWS_ACCESS_KEY_ID: "dummy"
   AWS_SECRET_ACCESS_KEY: "dummy"
   CONTAINER_TOOL: "docker"
-  RUST_BACKTRACE: full
-  RUST_TEST_THREADS: 1
+  RUST_BACKTRACE: 1
+  RUST_TEST_THREADS: 2
   TEST_LOG: vector=debug
   VERBOSE: true
   CI: true
@@ -35,6 +36,7 @@ jobs:
   test-integration:
     name: Integration - Linux, ${{ matrix.test }}
     runs-on: ubuntu-20.04
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:

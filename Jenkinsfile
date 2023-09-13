@@ -76,46 +76,36 @@ pipeline {
       }
     }
     stage('Check'){
-      parallel {
-        stage('Check'){
-          steps {
-            sh """
-              make check ENVIRONMENT=true
-            """
+      steps {
+        sh """
+          make check ENVIRONMENT=true
+          make check-fmt ENVIRONMENT=true
+        """
+      }
+    }
+    stage('Lint and test release'){
+      tools {
+        nodejs 'NodeJS 16'
+      }
+      environment {
+        GIT_BRANCH = "${CURRENT_BRANCH}"
+        // This is not populated on PR builds and is needed for the release dry runs
+        BRANCH_NAME = "${CURRENT_BRANCH}"
+        CHANGE_ID = ""
+      }
+      steps {
+        script {
+          configFileProvider(NPMRC) {
+            sh 'npm ci'
+            sh 'npm run release:dry'
           }
         }
-        stage('Style'){
-          steps {
-              sh """
-                make check-fmt ENVIRONMENT=true
-              """
-          }
-        }
+        sh './release-tool lint'
+        sh './release-tool test'
       }
     }
     stage('Lint and Test'){
       parallel {
-        stage('Lint and test release'){
-          tools {
-            nodejs 'NodeJS 16'
-          }
-          environment {
-            GIT_BRANCH = "${CURRENT_BRANCH}"
-            // This is not populated on PR builds and is needed for the release dry runs
-            BRANCH_NAME = "${CURRENT_BRANCH}"
-            CHANGE_ID = ""
-          }
-          steps {
-            script {
-              configFileProvider(NPMRC) {
-                sh 'npm ci'
-                sh 'npm run release:dry'
-              }
-            }
-            sh './release-tool lint'
-            sh './release-tool test'
-          }
-        }
         stage('Lint'){
           steps {
             sh """
