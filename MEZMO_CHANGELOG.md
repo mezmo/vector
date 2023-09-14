@@ -1,3 +1,15 @@
+# [1.14.0](https://github.com/answerbook/vector/compare/v1.13.1...v1.14.0) (2023-09-14)
+
+
+### Bug Fixes
+
+* **mezmo_reduce**: Account for event size [981200e](https://github.com/answerbook/vector/commit/981200e60b697407b25035add2f004b77cbc325d) - Michael Penick [LOG-18143](https://logdna.atlassian.net/browse/LOG-18143)
+
+
+### Features
+
+* **prototype**: Use global clustering ID [2dcc6d0](https://github.com/answerbook/vector/commit/2dcc6d0bb081dcb99ece80655fdd0e1f0ecf022c) - Michael Penick [LOG-17981](https://logdna.atlassian.net/browse/LOG-17981)
+
 ## [1.13.1](https://github.com/answerbook/vector/compare/v1.13.0...v1.13.1) (2023-09-14)
 
 
