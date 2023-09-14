@@ -1,3 +1,16 @@
+## [1.13.1](https://github.com/answerbook/vector/compare/v1.13.0...v1.13.1) (2023-09-14)
+
+
+### Bug Fixes
+
+* Revert "feat: Add liveness check for config provider loading" [b62774c](https://github.com/answerbook/vector/commit/b62774cfb78ae550431f05a78bc964205a99c938) - Michael Penick [LOG-18139](https://logdna.atlassian.net/browse/LOG-18139)
+
+
+### Chores
+
+* Add (fixed) startup probe [4df53ab](https://github.com/answerbook/vector/commit/4df53abe9c639c34c5e99a74a535b4b2775dfc75) - Michael Penick [LOG-18139](https://logdna.atlassian.net/browse/LOG-18139)
+* Improve CI reliability [a4cbf68](https://github.com/answerbook/vector/commit/a4cbf68323450a2b02617a955b19f669840f0090) - Jorge Bay [LOG-17997](https://logdna.atlassian.net/browse/LOG-17997)
+
 # [1.13.0](https://github.com/answerbook/vector/compare/v1.12.1...v1.13.0) (2023-09-13)
 
 
