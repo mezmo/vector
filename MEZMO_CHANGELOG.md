@@ -1,3 +1,21 @@
+# [1.15.0](https://github.com/answerbook/vector/compare/v1.14.0...v1.15.0) (2023-09-14)
+
+
+### Bug Fixes
+
+* **mezmo_reduce**: Revert including event size [ef907fd](https://github.com/answerbook/vector/commit/ef907fdd3221f1800f606d69f2a2dfbe20e4f1d4) - Michael Penick [LOG-18143](https://logdna.atlassian.net/browse/LOG-18143)
+
+
+### Features
+
+* handle numeric metrics without value.type [908086f](https://github.com/answerbook/vector/commit/908086f92d5a39c5727ba3e4e95df3e9ce471cec) - Adam Holmberg [LOG-17689](https://logdna.atlassian.net/browse/LOG-17689)
+* support converting a metric with 'count' type [fa87791](https://github.com/answerbook/vector/commit/fa87791544157c294c98c438338a11ac69b04e89) - Adam Holmberg [LOG-17689](https://logdna.atlassian.net/browse/LOG-17689)
+
+
+### Miscellaneous
+
+* Merge pull request #321 from answerbook/holmberg/LOG-17689 [968d422](https://github.com/answerbook/vector/commit/968d422509add351af099760a8611c301736d596) - GitHub [LOG-17689](https://logdna.atlassian.net/browse/LOG-17689)
+
 # [1.14.0](https://github.com/answerbook/vector/compare/v1.13.1...v1.14.0) (2023-09-14)
 
 
