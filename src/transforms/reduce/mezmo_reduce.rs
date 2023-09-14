@@ -31,7 +31,6 @@ use serde_with::serde_as;
 use vector_config::configurable_component;
 use vector_core::config::{log_schema, OutputId, TransformOutput};
 use vector_core::schema::Definition;
-use vector_core::ByteSizeOf;
 
 use crate::event::Value;
 use vector_core::config::LogNamespace;
@@ -205,10 +204,6 @@ impl ReduceState {
         mezmo_metadata: MezmoMetadata,
         group_by: &[String],
     ) -> Self {
-        // Events are retained until flushed (and finalized) so this should also
-        // keep track of the event's size as part of the total memory consumed.
-        let mut size_estimate: usize = event.allocated_bytes();
-
         let (value, metadata) = event.into_parts();
 
         // Use default merge strategies for root fields
@@ -229,6 +224,8 @@ impl ReduceState {
                 group_by_lookups.push(root_key);
             }
         }
+
+        let mut size_estimate: usize = 0;
 
         let message_fields = if let Value::Object(fields) = value {
             fields
@@ -278,10 +275,6 @@ impl ReduceState {
         message_event: LogEvent,
         strategies: &IndexMap<String, MergeStrategy>,
     ) {
-        // Events are retained until flushed (and finalized) so this should also
-        // keep track of the event's size as part of the total memory consumed.
-        self.size_estimate += event.allocated_bytes();
-
         let (value, metadata) = event.into_parts();
         self.metadata.merge(metadata);
 
@@ -1589,7 +1582,7 @@ mod test {
 
     #[assay(
         env = [
-          ("REDUCE_BYTE_THRESHOLD_PER_STATE", "200"),
+          ("REDUCE_BYTE_THRESHOLD_PER_STATE", "30"),
         ]
       )]
     async fn mezmo_reduce_state_exceeds_threshold() {
