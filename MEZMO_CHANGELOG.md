@@ -1,3 +1,10 @@
+## [1.15.1](https://github.com/answerbook/vector/compare/v1.15.0...v1.15.1) (2023-09-20)
+
+
+### Chores
+
+* Adapt the topology builder to match upstream [0af206b](https://github.com/answerbook/vector/commit/0af206b3b0bfd6f47eec653f3e416b007e587885) - Jorge Bay [LOG-18150](https://logdna.atlassian.net/browse/LOG-18150)
+
 # [1.15.0](https://github.com/answerbook/vector/compare/v1.14.0...v1.15.0) (2023-09-14)
 
 
