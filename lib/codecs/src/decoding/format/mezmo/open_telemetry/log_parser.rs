@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::time::SystemTime;
+use vector_core::event::metric::mezmo::IntoValue;
 
 use smallvec::SmallVec;
 
@@ -14,7 +15,7 @@ use vector_core::{
     event::{Event, EventMetadata, LogEvent, Value},
 };
 
-use crate::decoding::format::mezmo::open_telemetry::DeserializerError;
+use crate::decoding::format::mezmo::open_telemetry::{DeserializerError, OpenTelemetryAnyValue};
 
 pub fn parse_logs_request(bytes: &[u8]) -> vector_common::Result<smallvec::SmallVec<[Event; 1]>> {
     let parsed_logs = ExportLogsServiceRequest::try_from(bytes)
@@ -29,6 +30,7 @@ pub fn parse_logs_request(bytes: &[u8]) -> vector_common::Result<smallvec::Small
 
 const MAX_METADATA_SIZE: usize = 32 * 1024;
 const MAX_LOG_LEVEL_LEN: usize = 80;
+const NANOS_IN_MILLIS: u64 = 1_000_000;
 
 #[allow(clippy::too_many_lines)]
 pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> {
@@ -107,7 +109,7 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                             .try_into()
                             .unwrap_or(u64::MAX)
                     } else {
-                        log_record.time_unix_nano / 1000
+                        log_record.time_unix_nano / NANOS_IN_MILLIS
                     });
 
                     let sev = log_record.severity_text;
@@ -120,50 +122,8 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                         );
                     }
 
-                    fn anyvalue_to_value(any_value: AnyValue) -> Value {
-                        match any_value {
-                            AnyValue {
-                                value: AnyValueOneOfvalue::string_value(v),
-                            } => Value::from(v),
-                            AnyValue {
-                                value: AnyValueOneOfvalue::bool_value(v),
-                            } => Value::Boolean(v),
-                            AnyValue {
-                                value: AnyValueOneOfvalue::int_value(v),
-                            } => Value::Integer(v),
-                            AnyValue {
-                                value: AnyValueOneOfvalue::double_value(v),
-                            } => Value::Float(vrl::prelude::NotNan::new(v).unwrap()),
-                            AnyValue {
-                                value: AnyValueOneOfvalue::bytes_value(v),
-                            } => Value::Bytes(bytes::Bytes::copy_from_slice(&v[..])),
-                            AnyValue {
-                                value: AnyValueOneOfvalue::array_value(arr),
-                            } => Value::Array(
-                                arr.values
-                                    .into_iter()
-                                    .map(anyvalue_to_value)
-                                    .collect::<Vec<Value>>(),
-                            ),
-                            AnyValue {
-                                value: AnyValueOneOfvalue::kvlist_value(arr),
-                            } => Value::Object(
-                                arr.values
-                                    .into_iter()
-                                    .filter_map(|kv| {
-                                        kv.value
-                                            .map(|av| (kv.key.to_string(), anyvalue_to_value(av)))
-                                    })
-                                    .collect::<BTreeMap<String, Value>>(),
-                            ),
-                            AnyValue {
-                                value: AnyValueOneOfvalue::None,
-                            } => Value::Null,
-                        }
-                    }
-
                     let line = match log_record.body {
-                        Some(av) => anyvalue_to_value(av),
+                        Some(av) => OpenTelemetryAnyValue { value: av }.to_value(),
                         None => Value::Null,
                     };
 

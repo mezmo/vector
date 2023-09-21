@@ -6002,8 +6002,8 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry-rs"
-version = "1.1.0"
-source = "git+ssh://git@github.com/answerbook/opentelemetry-rs.git?branch=main#c5e9a3ee13680893643c85e0bf65c656f8c5352f"
+version = "1.2.1"
+source = "git+ssh://git@github.com/answerbook/opentelemetry-rs.git?branch=main#44c3af5a9fa039983447067f662639d665107799"
 dependencies = [
  "bytes 1.4.0",
  "combine 4.6.6",

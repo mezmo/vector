@@ -23,6 +23,9 @@ pub enum MezmoDeserializer {
 
     /// Open Telemetry Logs config
     OpenTelemetryLogs,
+
+    /// Open Telemetry Traces config
+    OpenTelemetryTraces,
 }
 
 impl MezmoDeserializer {
@@ -37,6 +40,7 @@ impl MezmoDeserializer {
                 Box::<open_telemetry::OpenTelemetryMetricDeserializer>::default()
             }
             OpenTelemetryLogs => Box::<open_telemetry::OpenTelemetryLogDeserializer>::default(),
+            OpenTelemetryTraces => Box::<open_telemetry::OpenTelemetryTraceDeserializer>::default(),
         }
     }
 
@@ -49,6 +53,7 @@ impl MezmoDeserializer {
             }
             OpenTelemetryMetrics => open_telemetry::OpenTelemetryMetricDeserializer::output_type(),
             OpenTelemetryLogs => open_telemetry::OpenTelemetryLogDeserializer::output_type(),
+            OpenTelemetryTraces => open_telemetry::OpenTelemetryTraceDeserializer::output_type(),
         }
     }
 
@@ -67,6 +72,9 @@ impl MezmoDeserializer {
             OpenTelemetryLogs => {
                 open_telemetry::OpenTelemetryLogDeserializer::schema_definition(log_namespace)
             }
+            OpenTelemetryTraces => {
+                open_telemetry::OpenTelemetryTraceDeserializer::schema_definition(log_namespace)
+            }
         }
     }
 
@@ -83,6 +91,9 @@ impl MezmoDeserializer {
             OpenTelemetryLogs => {
                 open_telemetry::OpenTelemetryLogDeserializer::default_stream_framing()
             }
+            OpenTelemetryTraces => {
+                open_telemetry::OpenTelemetryTraceDeserializer::default_stream_framing()
+            }
         }
     }
 
@@ -97,6 +108,9 @@ impl MezmoDeserializer {
                 open_telemetry::OpenTelemetryMetricDeserializer::content_type(framer)
             }
             OpenTelemetryLogs => open_telemetry::OpenTelemetryLogDeserializer::content_type(framer),
+            OpenTelemetryTraces => {
+                open_telemetry::OpenTelemetryTraceDeserializer::content_type(framer)
+            }
         }
     }
 }
