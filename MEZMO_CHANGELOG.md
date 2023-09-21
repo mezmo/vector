@@ -1,3 +1,15 @@
+# [1.16.0](https://github.com/answerbook/vector/compare/v1.15.1...v1.16.0) (2023-09-21)
+
+
+### Features
+
+* **otlp-logs**: add otlp log parsing [a8e76e9](https://github.com/answerbook/vector/commit/a8e76e98d4ea041367dbc91211681c5877172ee9) - Chris Nixon [LOG-17746](https://logdna.atlassian.net/browse/LOG-17746)
+
+
+### Miscellaneous
+
+* otlp log support [ea16542](https://github.com/answerbook/vector/commit/ea16542252d7e9072de83c2e44a59f25ebb972c0) - Chris Nixon
+
 ## [1.15.1](https://github.com/answerbook/vector/compare/v1.15.0...v1.15.1) (2023-09-20)
 
 
