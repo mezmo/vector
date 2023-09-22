@@ -1,3 +1,15 @@
+# [1.17.0](https://github.com/answerbook/vector/compare/v1.16.0...v1.17.0) (2023-09-22)
+
+
+### Features
+
+* **decoding**: otlp traces decoding implementation [57ce4ce](https://github.com/answerbook/vector/commit/57ce4ce540f87f74584f5415a86f65e325f3e1ee) - Sergey Opria [LOG-18137](https://logdna.atlassian.net/browse/LOG-18137)
+
+
+### Miscellaneous
+
+* Merge pull request #331 from answerbook/sopria/LOG-18137 [b9ad513](https://github.com/answerbook/vector/commit/b9ad513a09585faa86eafb626dae4bb9687ec539) - GitHub [LOG-18137](https://logdna.atlassian.net/browse/LOG-18137)
+
 # [1.16.0](https://github.com/answerbook/vector/compare/v1.15.1...v1.16.0) (2023-09-21)
 
 
