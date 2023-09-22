@@ -9,7 +9,7 @@ use opentelemetry_rs::opentelemetry::metrics::{
     SummaryDataPoint, SummaryDataPointValueAtQuantile, Validate,
 };
 
-use opentelemetry_rs::opentelemetry::common::{AnyValue, AnyValueOneOfvalue, KeyValue};
+use opentelemetry_rs::opentelemetry::common::KeyValue;
 
 use vector_core::{
     config::log_schema,
@@ -23,7 +23,7 @@ use vector_core::{
     },
 };
 
-use crate::decoding::format::mezmo::open_telemetry::DeserializerError;
+use crate::decoding::format::mezmo::open_telemetry::{DeserializerError, OpenTelemetryKeyValue};
 
 const NANO_RATIO: i64 = 1_000_000_000;
 const METRIC_TIMESTAMP_KEY: &str = "message.value.value.time_unix_nano";
@@ -34,7 +34,7 @@ pub struct GaugeMetricValue<'a> {
     pub scope: ScopeMetricValue<'a>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub attributes: AttributesMetricValue<'a>,
+    pub attributes: OpenTelemetryKeyValue<'a>,
     pub exemplars: ExemplarsMetricValue<'a>,
     pub start_time_unix_nano: u64,
     pub time_unix_nano: u64,
@@ -55,7 +55,7 @@ impl<'a> GaugeMetricValue<'a> {
             scope,
             description,
             unit,
-            attributes: AttributesMetricValue {
+            attributes: OpenTelemetryKeyValue {
                 attributes: gauge_metric.attributes,
             },
             exemplars: ExemplarsMetricValue {
@@ -126,7 +126,7 @@ pub struct SumMetricValue<'a> {
     pub scope: ScopeMetricValue<'a>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub attributes: AttributesMetricValue<'a>,
+    pub attributes: OpenTelemetryKeyValue<'a>,
     pub exemplars: ExemplarsMetricValue<'a>,
     pub start_time_unix_nano: u64,
     pub time_unix_nano: u64,
@@ -151,7 +151,7 @@ impl<'a> SumMetricValue<'a> {
             scope,
             description,
             unit,
-            attributes: AttributesMetricValue {
+            attributes: OpenTelemetryKeyValue {
                 attributes: sum_metric.attributes,
             },
             exemplars: ExemplarsMetricValue {
@@ -238,7 +238,7 @@ pub struct HistogramMetricValue<'a> {
     pub scope: ScopeMetricValue<'a>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub attributes: AttributesMetricValue<'a>,
+    pub attributes: OpenTelemetryKeyValue<'a>,
     pub exemplars: ExemplarsMetricValue<'a>,
     pub start_time_unix_nano: u64,
     pub time_unix_nano: u64,
@@ -266,7 +266,7 @@ impl<'a> HistogramMetricValue<'a> {
             scope,
             description,
             unit,
-            attributes: AttributesMetricValue {
+            attributes: OpenTelemetryKeyValue {
                 attributes: histogram_metric.attributes,
             },
             exemplars: ExemplarsMetricValue {
@@ -362,7 +362,7 @@ pub struct ExponentialHistogramMetricValue<'a> {
     pub scope: ScopeMetricValue<'a>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub attributes: AttributesMetricValue<'a>,
+    pub attributes: OpenTelemetryKeyValue<'a>,
     pub exemplars: ExemplarsMetricValue<'a>,
     pub start_time_unix_nano: u64,
     pub time_unix_nano: u64,
@@ -393,7 +393,7 @@ impl<'a> ExponentialHistogramMetricValue<'a> {
             scope,
             description,
             unit,
-            attributes: AttributesMetricValue {
+            attributes: OpenTelemetryKeyValue {
                 attributes: exp_histogram_metric.attributes,
             },
             exemplars: ExemplarsMetricValue {
@@ -501,7 +501,7 @@ pub struct SummaryMetricValue<'a> {
     pub scope: ScopeMetricValue<'a>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub attributes: AttributesMetricValue<'a>,
+    pub attributes: OpenTelemetryKeyValue<'a>,
     pub start_time_unix_nano: u64,
     pub time_unix_nano: u64,
     pub count: u64,
@@ -523,7 +523,7 @@ impl<'a> SummaryMetricValue<'a> {
             scope,
             description,
             unit,
-            attributes: AttributesMetricValue {
+            attributes: OpenTelemetryKeyValue {
                 attributes: summary_metric.attributes,
             },
             start_time_unix_nano: summary_metric.start_time_unix_nano,
@@ -617,7 +617,7 @@ impl<'a> ScopeMetricValue<'a> {
 
 impl IntoValue for ScopeMetricValue<'_> {
     fn to_value(&self) -> Value {
-        let attributes = AttributesMetricValue {
+        let attributes = OpenTelemetryKeyValue {
             attributes: self.attributes.as_ref().unwrap().clone(),
         };
 
@@ -645,7 +645,7 @@ impl IntoValue for ScopeMetricValue<'_> {
 
 #[derive(Debug, Default, PartialEq)]
 pub struct ResourceMetricValue<'a> {
-    pub attributes: AttributesMetricValue<'a>,
+    pub attributes: OpenTelemetryKeyValue<'a>,
     pub dropped_attributes_count: Option<u32>,
 }
 
@@ -653,13 +653,13 @@ impl<'a> ResourceMetricValue<'a> {
     fn new(opt: Option<Resource<'a>>) -> Self {
         match opt {
             Some(resource) => ResourceMetricValue {
-                attributes: AttributesMetricValue {
+                attributes: OpenTelemetryKeyValue {
                     attributes: resource.attributes,
                 },
                 dropped_attributes_count: Some(resource.dropped_attributes_count),
             },
             None => ResourceMetricValue {
-                attributes: AttributesMetricValue {
+                attributes: OpenTelemetryKeyValue {
                     attributes: Vec::new(),
                 },
                 dropped_attributes_count: None,
@@ -681,71 +681,6 @@ impl IntoValue for ResourceMetricValue<'_> {
             .into_iter()
             .collect(),
         )
-    }
-}
-
-#[derive(Debug, Default, PartialEq)]
-pub struct AttributesMetricValue<'a> {
-    pub attributes: Vec<KeyValue<'a>>,
-}
-
-impl IntoValue for AttributesMetricValue<'_> {
-    fn to_value(&self) -> Value {
-        self.attributes
-            .iter()
-            .filter_map(|key_value| match &key_value.value {
-                Some(any_value) => {
-                    let value = AnyValueMetricValue {
-                        value: any_value.clone(),
-                    };
-                    Some((key_value.key.to_string(), value.to_value()))
-                }
-                None => None,
-            })
-            .collect::<Value>()
-    }
-}
-
-#[derive(Debug, Default, PartialEq)]
-pub struct AnyValueMetricValue<'a> {
-    pub value: AnyValue<'a>,
-}
-
-impl IntoValue for AnyValueMetricValue<'_> {
-    fn to_value(&self) -> Value {
-        match &self.value.value {
-            AnyValueOneOfvalue::string_value(val) => Value::from(val.to_string()),
-            AnyValueOneOfvalue::bool_value(val) => Value::Boolean(*val),
-            AnyValueOneOfvalue::int_value(val) => Value::Integer(*val),
-            AnyValueOneOfvalue::double_value(val) => from_f64_or_zero(*val),
-            AnyValueOneOfvalue::bytes_value(value) => Value::from(&value[..]),
-            AnyValueOneOfvalue::array_value(val_list) => Value::Array(
-                val_list
-                    .values
-                    .iter()
-                    .map(|any_value| {
-                        let metric_any_value = AnyValueMetricValue {
-                            value: any_value.clone(),
-                        };
-                        metric_any_value.to_value()
-                    })
-                    .collect(),
-            ),
-            AnyValueOneOfvalue::kvlist_value(kv_list) => kv_list
-                .values
-                .iter()
-                .filter_map(|key_value| match &key_value.value {
-                    Some(any_value) => {
-                        let metric_any_value = AnyValueMetricValue {
-                            value: any_value.clone(),
-                        };
-                        Some((key_value.key.to_string(), metric_any_value.to_value()))
-                    }
-                    None => None,
-                })
-                .collect::<Value>(),
-            AnyValueOneOfvalue::None => Value::Null,
-        }
     }
 }
 
@@ -791,7 +726,7 @@ impl IntoValue for ExemplarsMetricValue<'_> {
                         ExemplarOneOfvalue::None => Value::Null,
                     };
 
-                    let filtered_attributes = AttributesMetricValue {
+                    let filtered_attributes = OpenTelemetryKeyValue {
                         attributes: exemplar.filtered_attributes.clone(),
                     };
 

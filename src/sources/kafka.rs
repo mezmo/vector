@@ -1589,6 +1589,104 @@ mod integration_test {
             }
         }
 
+        async fn send_receive_otlp_traces(
+            acknowledgements: bool,
+            error_at: impl Fn(usize) -> bool,
+            receive_count: usize,
+            log_namespace: LogNamespace,
+        ) {
+            const SEND_COUNT: usize = 10;
+
+            let decoding = DeserializerConfig::Mezmo(MezmoDeserializer::OpenTelemetryTraces);
+            let topic = format!("test-topic-{}", random_string(10));
+            let group_id = format!("test-group-{}", random_string(10));
+            let mut config = make_config(&topic, &group_id, log_namespace);
+            config.decoding = decoding;
+
+            // valid protobuf
+            let expected_encoded: &[u8] = b"\n\xb3\x0b\n\x83\x03\n \n\x15telemetry.sdk.version\x12\x07\n\x051.2.1\n%\n\x12telemetry.sdk.name\x12\x0f\n\ropentelemetry\n\"\n\x16telemetry.sdk.language\x12\x08\n\x06erlang\n$\n\x0cservice.name\x12\x14\n\x12featureflagservice\n8\n\x13service.instance.id\x12!\n\x1ffeatureflagservice@d69d857131ac\n%\n\x17process.runtime.version\x12\n\n\x0811.2.2.8\n\x1e\n\x14process.runtime.name\x12\x06\n\x04BEAM\n<\n\x1bprocess.runtime.description\x12\x1d\n\x1bErlang/OTP 23 erts-11.2.2.8\n/\n\x17process.executable.name\x12\x14\n\x12featureflagservice\x12\x92\x04\n\x1e\n\x15opentelemetry_phoenix\x12\x051.0.0\x12\xef\x03\n\x10\xc4\xce\xa2\"\x12\nVl\xea\xf63E\0\xab\x01(\x12\x08>@\xb3&\xa3)\x08\x97\"\0*\x01/0\x029x\xc4\xb6\xdc[\xc4\x82\x17A9\x90\xcc\xdc[\xc4\x82\x17J=\n\x0cphoenix.plug\x12-\n+Elixir.FeatureflagserviceWeb.PageControllerJ\x19\n\x0ephoenix.action\x12\x07\n\x05indexJ\x19\n\rnet.transport\x12\x08\n\x06IP.TCPJ\x15\n\rnet.peer.port\x12\x04\x18\xb2\x98\x02J\x1a\n\x0bnet.peer.ip\x12\x0b\n\t127.0.0.1J\x14\n\rnet.host.port\x12\x03\x18\x91?J\x1a\n\x0bnet.host.ip\x12\x0b\n\t127.0.0.1J \n\x0fhttp.user_agent\x12\r\n\x0bcurl/7.74.0J\x12\n\x0bhttp.target\x12\x03\n\x01/J\x17\n\x10http.status_code\x12\x03\x18\xc8\x01J\x15\n\x0bhttp.scheme\x12\x06\n\x04httpJ\x11\n\nhttp.route\x12\x03\n\x01/J\x14\n\x0bhttp.method\x12\x05\n\x03GETJ\x18\n\thttp.host\x12\x0b\n\tlocalhostJ\x14\n\x0bhttp.flavor\x12\x05\n\x031.1J\x1d\n\x0ehttp.client_ip\x12\x0b\n\t127.0.0.1z\0\x12\x95\x04\n\x1b\n\x12opentelemetry_ecto\x12\x051.0.0\x12\xf5\x03\n\x10\xc4\xce\xa2\"\x12\nVl\xea\xf63E\0\xab\x01(\x12\x08u\xe5\x7fF\t\xad\xff\x0e\"\x08>@\xb3&\xa3)\x08\x97**featureflagservice.repo.query:featureflags0\x039\xbf$\xbb\xdc[\xc4\x82\x17AN\xef\xc6\xdc[\xc4\x82\x17J\x1e\n\x17total_time_microseconds\x12\x03\x18\xa2\x04J\x18\n\x06source\x12\x0e\n\x0cfeatureflagsJ\x1d\n\x17queue_time_microseconds\x12\x02\x184J\x1e\n\x17query_time_microseconds\x12\x03\x18\xe9\x03J\x1e\n\x16idle_time_microseconds\x12\x04\x18\xf3\xd5#J\x1e\n\x18decode_time_microseconds\x12\x02\x18\x05J\x1f\n\x06db.url\x12\x15\n\x13ecto://ffs_postgresJ\x10\n\x07db.type\x12\x05\n\x03sqlJ\x88\x01\n\x0cdb.statement\x12x\nvSELECT f0.\"id\", f0.\"description\", f0.\"enabled\", f0.\"name\", f0.\"inserted_at\", f0.\"updated_at\" FROM \"featureflags\" AS f0J\x14\n\x0bdb.instance\x12\x05\n\x03ffsz\0";
+
+            let now = send_events(topic.clone(), expected_encoded.to_vec(), SEND_COUNT).await;
+
+            let events =
+                assert_source_compliance(&["protocol", "topic", "partition"], async move {
+                    let (tx, rx) = SourceSender::new_test_errors(error_at);
+                    let (trigger_shutdown, shutdown_done) =
+                        spawn_kafka(tx, config, acknowledgements, log_namespace);
+                    let events = collect_n(rx, SEND_COUNT).await;
+                    // Yield to the finalization task to let it collect the
+                    // batch status receivers before signalling the shutdown.
+                    tokio::task::yield_now().await;
+                    drop(trigger_shutdown);
+                    shutdown_done.await;
+
+                    events
+                })
+                .await;
+
+            let offset = fetch_tpl_offset(&group_id, &topic, 0);
+
+            assert_eq!(offset, Offset::from_raw((receive_count as i64) / 2));
+
+            assert_eq!(events.len(), SEND_COUNT);
+            for (i, event) in events.into_iter().enumerate() {
+                if let LogNamespace::Legacy = log_namespace {
+                    assert_eq!(
+                        event.as_log()["message_key"],
+                        format!("{} {}", KEY, ((i as f32) / 2_f32).floor()).into()
+                    );
+                    assert_eq!(
+                        event.as_log()[log_schema().source_type_key()],
+                        "kafka".into()
+                    );
+                    assert_eq!(
+                        event.as_log()[log_schema().timestamp_key().unwrap().to_string()],
+                        now.trunc_subsecs(3).into()
+                    );
+                    assert_eq!(event.as_log()["topic"], topic.clone().into());
+                    assert!(event.as_log().contains("partition"));
+                    assert!(event.as_log().contains("offset"));
+                    let mut expected_headers = BTreeMap::new();
+                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    assert_eq!(event.as_log()["headers"], Value::from(expected_headers));
+                } else {
+                    let meta = event.as_log().metadata().value();
+
+                    assert_eq!(
+                        meta.get(path!("vector", "source_type")).unwrap(),
+                        &value!(KafkaSourceConfig::NAME)
+                    );
+                    assert!(meta
+                        .get(path!("vector", "ingest_timestamp"))
+                        .unwrap()
+                        .is_timestamp());
+
+                    assert_eq!(
+                        meta.get(path!("kafka", "message_key")).unwrap(),
+                        &value!(format!("{} {}", KEY, ((i as f32) / 2_f32).floor()))
+                    );
+
+                    assert_eq!(
+                        meta.get(path!("kafka", "timestamp")).unwrap(),
+                        &value!(now.trunc_subsecs(3))
+                    );
+                    assert_eq!(
+                        meta.get(path!("kafka", "topic")).unwrap(),
+                        &value!(topic.clone())
+                    );
+                    assert!(meta.get(path!("kafka", "partition")).unwrap().is_integer(),);
+                    assert!(meta.get(path!("kafka", "offset")).unwrap().is_integer(),);
+
+                    let mut expected_headers = BTreeMap::new();
+                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    assert_eq!(
+                        meta.get(path!("kafka", "headers")).unwrap(),
+                        &Value::from(expected_headers)
+                    );
+                }
+            }
+        }
+
         #[tokio::test]
         async fn consumes_from_prom() {
             send_receive_prom(true, |_| false, 10, LogNamespace::Legacy).await;
@@ -1597,6 +1695,11 @@ mod integration_test {
         #[tokio::test]
         async fn consumes_from_otlp() {
             send_receive_otlp(true, |_| false, 10, LogNamespace::Legacy).await;
+        }
+
+        #[tokio::test]
+        async fn consumes_from_otlp_traces() {
+            send_receive_otlp_traces(true, |_| false, 10, LogNamespace::Legacy).await;
         }
     }
 }
