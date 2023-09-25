@@ -603,6 +603,7 @@ impl HttpSink for MezmoSink {
             .uri(uri)
             .method("POST")
             .header("Content-Type", "application/json")
+            .header("x-response-format", "pipeline")
             .body(body)
             .unwrap();
 
