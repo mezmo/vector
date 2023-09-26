@@ -1,3 +1,15 @@
+## [1.17.1](https://github.com/answerbook/vector/compare/v1.17.0...v1.17.1) (2023-09-26)
+
+
+### Bug Fixes
+
+* **pulse**: Align timeouts for fetching tap data [28c16b9](https://github.com/answerbook/vector/commit/28c16b9716a959b99d3a8369c7172dc9d8cf6199) - Jorge Bay [LOG-18263](https://logdna.atlassian.net/browse/LOG-18263)
+
+
+### Chores
+
+* **ci**: Disable Splunk integration tests [de434f8](https://github.com/answerbook/vector/commit/de434f82ff8c8d36b9766b7fc46d334da333144c) - Jorge Bay [LOG-17997](https://logdna.atlassian.net/browse/LOG-17997)
+
 # [1.17.0](https://github.com/answerbook/vector/compare/v1.16.0...v1.17.0) (2023-09-22)
 
 
