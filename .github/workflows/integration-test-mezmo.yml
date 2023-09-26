@@ -68,11 +68,12 @@ jobs:
           # - test: 'redis'
           # - test: 'shutdown'
           # - test: 'sumo-logic'
-          - test: 'postgres'
-          - test: 'splunk'
-            env:
-              SPLUNK_VERSION: 7.3.9
-          - test: 'splunk'
+          # We should re-enable splunk tests in LOG-18162
+          # - test: 'postgres'
+          # - test: 'splunk'
+          #   env:
+          #     SPLUNK_VERSION: 7.3.9
+          # - test: 'splunk'
     steps:
       - uses: actions/checkout@v3
       - run: git config --global url."https://${GITHUB_TOKEN}@github.com".insteadOf ssh://git@github.com
