@@ -252,22 +252,22 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
         .await
         .map_err(|e| format!("Couldn't connect to Vector API via WebSockets: {}", e))?;
 
-    tokio::pin! {
-        let stream = subscription_client.output_events_by_component_id_patterns_subscription(
-            vec![component_id.to_string()],
-            vec![],
-            TapEncodingFormat::Json,
-            limit as i64,
-            500, // Default interval, see src/tap/mod.rs
-        );
-    };
-
     let tap_timeout = task
         .task_parameters
         .timeout_ms
         .map_or(DEFAULT_TAP_TIMEOUT, |timeout_ms| {
             Duration::from_millis(timeout_ms)
         });
+
+    tokio::pin! {
+        let stream = subscription_client.output_events_by_component_id_patterns_subscription(
+            vec![component_id.to_string()],
+            vec![],
+            TapEncodingFormat::Json,
+            limit as i64,
+            tap_timeout.as_millis() as i64, // Continue fetching for the duration of the timeout
+        );
+    }
 
     let mut result = Vec::new();
     let sleep_future = sleep(tap_timeout);
