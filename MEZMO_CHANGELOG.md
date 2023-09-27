@@ -1,3 +1,10 @@
+## [1.17.2](https://github.com/answerbook/vector/compare/v1.17.1...v1.17.2) (2023-09-27)
+
+
+### Bug Fixes
+
+* **pulse**: Revert align timeouts for fetching tap data [c39dc9d](https://github.com/answerbook/vector/commit/c39dc9d189746f062575b0810d581a41a10325a7) - Jorge Bay [LOG-18263](https://logdna.atlassian.net/browse/LOG-18263)
+
 ## [1.17.1](https://github.com/answerbook/vector/compare/v1.17.0...v1.17.1) (2023-09-26)
 
 
