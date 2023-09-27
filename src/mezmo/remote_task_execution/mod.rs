@@ -29,6 +29,10 @@ const TASK_MAX_AGE_SECS: isize = 120;
 const DEFAULT_TAP_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_TAP_LIMIT_PER_INTERVAL: isize = 10;
 
+/// Flush buffered events eagerly, at the expense of I/O overhead.
+/// See [vector::api::schema::events::create_events_stream] for more info.
+const SUBSCRIPTION_FLUSH_INTERVAL_MS: i64 = 100;
+
 /// Fetches and executes tasks for local deployments, mainly used for remote tapping.
 pub(crate) async fn start_polling_for_tasks(
     config: config::api::Options,
@@ -252,22 +256,22 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
         .await
         .map_err(|e| format!("Couldn't connect to Vector API via WebSockets: {}", e))?;
 
-    let tap_timeout = task
-        .task_parameters
-        .timeout_ms
-        .map_or(DEFAULT_TAP_TIMEOUT, |timeout_ms| {
-            Duration::from_millis(timeout_ms)
-        });
-
     tokio::pin! {
         let stream = subscription_client.output_events_by_component_id_patterns_subscription(
             vec![component_id.to_string()],
             vec![],
             TapEncodingFormat::Json,
             limit as i64,
-            tap_timeout.as_millis() as i64, // Continue fetching for the duration of the timeout
+            SUBSCRIPTION_FLUSH_INTERVAL_MS,
         );
-    }
+    };
+
+    let tap_timeout = task
+        .task_parameters
+        .timeout_ms
+        .map_or(DEFAULT_TAP_TIMEOUT, |timeout_ms| {
+            Duration::from_millis(timeout_ms)
+        });
 
     let mut result = Vec::new();
     let sleep_future = sleep(tap_timeout);
