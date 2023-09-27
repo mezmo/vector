@@ -1,3 +1,15 @@
+## [1.17.3](https://github.com/answerbook/vector/compare/v1.17.2...v1.17.3) (2023-09-27)
+
+
+### Chores
+
+* **sinks**: Mezmo sink add header for custom response [173badc](https://github.com/answerbook/vector/commit/173badc8e81f00eac36148ce21238602fcd83285) - Darin Spivey [LOG-18256](https://logdna.atlassian.net/browse/LOG-18256)
+
+
+### Miscellaneous
+
+* Merge pull request #332 from answerbook/darinspivey/LOG-18256 [9231c3f](https://github.com/answerbook/vector/commit/9231c3ff949fa9e384aa11ae44fb8affd5d416cd) - GitHub [LOG-18256](https://logdna.atlassian.net/browse/LOG-18256)
+
 ## [1.17.2](https://github.com/answerbook/vector/compare/v1.17.1...v1.17.2) (2023-09-27)
 
 
