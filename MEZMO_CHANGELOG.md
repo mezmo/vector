@@ -1,3 +1,10 @@
+## [1.17.4](https://github.com/answerbook/vector/compare/v1.17.3...v1.17.4) (2023-10-02)
+
+
+### Bug Fixes
+
+* Change HPA apiVersion to v2 [a10d84c](https://github.com/answerbook/vector/commit/a10d84ca0565ac403f3a3f329af66884e34b0632) - Michael Penick [LOG-18049](https://logdna.atlassian.net/browse/LOG-18049)
+
 ## [1.17.3](https://github.com/answerbook/vector/compare/v1.17.2...v1.17.3) (2023-09-27)
 
 
