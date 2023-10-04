@@ -192,6 +192,12 @@ spec:
                       name: pipeline-pguser-metrics
                       key: uri
 
+                - name: MEZMO_PIPELINE_DB_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: pipeline-pguser-pipeline
+                      key: uri
+
                 - name: POD_NAME # This is what vector uses as the pod name
                   valueFrom:
                     fieldRef:

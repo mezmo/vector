@@ -10,6 +10,10 @@ pub mod file;
 #[cfg(feature = "enrichment-tables-geoip")]
 pub mod geoip;
 
+/// Adds the ability to use postgres as an enrichment table
+#[cfg(feature = "enrichment-tables-state_variables")]
+pub mod state_variables;
+
 /// Configurable enrichment tables.
 #[configurable_component]
 #[derive(Clone, Debug)]
@@ -25,6 +29,10 @@ pub enum EnrichmentTables {
     /// [geoip2]: https://www.maxmind.com/en/geoip2-databases
     #[cfg(feature = "enrichment-tables-geoip")]
     Geoip(geoip::GeoipConfig),
+
+    /// The ability to look up "state variables" in a key/val fashion
+    #[cfg(feature = "enrichment-tables-state_variables")]
+    StateVariables(state_variables::StateVariablesConfig),
 }
 
 // TODO: Use `enum_dispatch` here.
@@ -34,6 +42,8 @@ impl NamedComponent for EnrichmentTables {
             Self::File(config) => config.get_component_name(),
             #[cfg(feature = "enrichment-tables-geoip")]
             Self::Geoip(config) => config.get_component_name(),
+            #[cfg(feature = "enrichment-tables-state_variables")]
+            Self::StateVariables(config) => config.get_component_name(),
             #[allow(unreachable_patterns)]
             _ => unimplemented!(),
         }
