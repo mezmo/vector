@@ -6,7 +6,7 @@ pub mod tables;
 
 #[cfg(test)]
 mod test_util;
-mod vrl_util;
+pub mod vrl_util;
 use std::collections::BTreeMap;
 
 use dyn_clone::DynClone;
