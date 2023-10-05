@@ -1,3 +1,15 @@
+# [1.18.0](https://github.com/answerbook/vector/compare/v1.17.4...v1.18.0) (2023-10-05)
+
+
+### Features
+
+* **enrichment**: Dynamic Pipelines can look up state variables [8fb1abd](https://github.com/answerbook/vector/commit/8fb1abd6fc02041fe372013c7d86b173706c9fdc) - Darin Spivey [LOG-18286](https://logdna.atlassian.net/browse/LOG-18286) [LOG-18333](https://logdna.atlassian.net/browse/LOG-18333)
+
+
+### Miscellaneous
+
+* Merge pull request #338 from answerbook/darinspivey/LOG-18286 [d964789](https://github.com/answerbook/vector/commit/d964789e02ddf80f7effa54617b7ace72ce056f3) - GitHub [LOG-18286](https://logdna.atlassian.net/browse/LOG-18286)
+
 ## [1.17.4](https://github.com/answerbook/vector/compare/v1.17.3...v1.17.4) (2023-10-02)
 
 
