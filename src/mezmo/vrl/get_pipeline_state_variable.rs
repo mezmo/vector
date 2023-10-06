@@ -80,11 +80,16 @@ impl FunctionExpression for GetPipelineStateVariableFn {
             None, // indexes aren't used
         ) {
             Ok(data) => {
+                debug!(
+                    "get_pipeline_state_variable lookup result: {data:?}  Value: {}",
+                    data.get(&name).unwrap()
+                );
                 // The enrichment handles the case where keys aren't found.  If so, it's Value::Null
                 Ok(data.get(&name).unwrap().to_owned())
             }
             Err(err) => {
-                warn!("Returning noop for state_variables lookup: {err:?}");
+                // This should only happen if the enrichment table is not accessible
+                warn!("Returning noop for state_variables '{name}' lookup: {err:?}");
                 Ok(Value::Null)
             }
         }

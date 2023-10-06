@@ -3,7 +3,7 @@ use deadpool_postgres::{Config, Pool, Runtime};
 use enrichment::{Case, Condition, IndexHandle, Table};
 use moka::sync::Cache;
 use snafu::Snafu;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -129,6 +129,7 @@ async fn fetch_states_from_db(
                         let pipeline_id: String = row.get(1);
                         let state: String = row.get(2);
                         let key = get_cache_key(&account_id, &pipeline_id);
+                        debug!("CACHE INSERT: {key} / {state}");
                         cache.insert(key, state);
                     }
                     Ok(rows.len())
@@ -163,28 +164,14 @@ impl EnrichmentTableConfig for StateVariablesConfig {
 /// A struct that implements [enrichment::Table] to handle loading data from postgres.
 #[derive(Clone)]
 pub struct StateVariables {
-    continue_polling: Option<Arc<Mutex<bool>>>,
-    state_poller: Option<Arc<JoinHandle<()>>>,
+    _state_poller: Option<Arc<JoinHandle<()>>>, // Saved here only to prevent dropping. It's not really used directly.
     cache: Arc<Cache<String, String>>,
-}
-
-impl Drop for StateVariables {
-    fn drop(&mut self) {
-        if let Some(continue_polling) = &self.continue_polling {
-            let mut val = continue_polling.lock().unwrap();
-            *val = false;
-
-            let _ = self.state_poller.take();
-        }
-        self.cache.invalidate_all();
-    }
 }
 
 impl StateVariables {
     /// Impl for the state variables enrichment table
     pub async fn new() -> Result<Self, StateVariablesDBError> {
         let cache = Arc::new(Cache::new(MAX_CACHE_ENTRIES));
-        let continue_polling = Arc::new(std::sync::Mutex::new(true));
         let pool = Arc::new(connect_db().await?);
 
         let row_count = fetch_states_from_db(&cache, &pool).await?;
@@ -193,16 +180,10 @@ impl StateVariables {
         }
 
         let spawn_pool = Arc::clone(&pool);
-        let spawn_polling = Arc::clone(&continue_polling);
         let spawn_cache = Arc::clone(&cache);
 
         let state_poller = tokio::task::spawn(async move {
             loop {
-                let polling = { *spawn_polling.lock().unwrap() };
-                if !polling {
-                    break;
-                }
-
                 match fetch_states_from_db(&spawn_cache, &spawn_pool).await {
                     Ok(row_len) if row_len == 0 => {
                         warn!("Warning: The state variables DB table appears to be empty")
@@ -216,8 +197,7 @@ impl StateVariables {
         });
 
         Ok(Self {
-            continue_polling: Some(continue_polling),
-            state_poller: Some(Arc::new(state_poller)),
+            _state_poller: Some(Arc::new(state_poller)),
             cache,
         })
     }
@@ -225,8 +205,7 @@ impl StateVariables {
     #[cfg(test)]
     pub fn new_test() -> Self {
         Self {
-            continue_polling: None,
-            state_poller: None,
+            _state_poller: None,
             cache: Arc::new(Cache::new(1000)),
         }
     }
