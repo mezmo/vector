@@ -19,6 +19,7 @@ massif.*
 tmp
 output
 release-tool
+.vscode
 
 # tilt
 tilt_modules/

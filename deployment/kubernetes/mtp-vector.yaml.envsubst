@@ -2,10 +2,10 @@
 apiVersion: "deploy.razee.io/v1alpha2"
 kind: MustacheTemplate
 metadata:
-  name: vector-gen0
+  name: vector
   namespace: pipeline
   labels:
-    app: vector-gen0
+    app: vector
     razee/watch-resource: "lite"
     deploy.razee.io/Reconcile: 'false'
   annotations:
@@ -16,61 +16,24 @@ metadata:
 spec:
   env:
 
-    - name: requests_cpu
+    - name: vector-partitions
       optional: true
-      default: 1
+      default: |
+        [{
+          "partition-id": "gen0",
+          "requests-cpu": 1,
+          "requests-memory": "2Gi",
+          "limits-cpu": 8,
+          "limits-memory": "16Gi",
+          "min-replicas": 2,
+          "max-replicas": 8
+        }]
       valueFrom:
         configMapKeyRef:
-          namespace: default
-          name: resources
-          key: vector-gen0_requests-cpu
-          type: number
-
-    - name: requests_memory
-      optional: true
-      default: 2Gi
-      valueFrom:
-        configMapKeyRef:
-          namespace: default
-          name: resources
-          key: vector-gen0_requests-memory
-
-    - name: limits_cpu
-      optional: true
-      default: 8
-      valueFrom:
-        configMapKeyRef:
-          namespace: default
-          name: resources
-          key: vector-gen0_limits-cpu
-          type: number
-
-    - name: limits_memory
-      optional: true
-      default: 16Gi
-      valueFrom:
-        configMapKeyRef:
-          namespace: default
-          name: resources
-          key: vector-gen0_limits-memory
-
-    - name: min_replicas
-      optional: true
-      default: 2
-      valueFrom:
-        configMapKeyRef:
-          namespace: default
-          name: resources
-          key: vector-gen0_min-replicas
-
-    - name: max_replicas
-      optional: true
-      default: 8
-      valueFrom:
-        configMapKeyRef:
-          namespace: default
-          name: resources
-          key: vector-gen0_max-replicas
+          namespace: pipeline
+          name: vector-partitions
+          key: vector-partitions
+          type: json
 
     - name: mezmo_reshape_message
       optional: true
@@ -96,22 +59,23 @@ spec:
     apiVersion: v1
     kind: List
     items:
+    {{#vector-partitions}}
     - apiVersion: v1
       kind: Service
       metadata:
-        name: vector-gen0
+        name: vector-{{partition-id}}
         namespace: pipeline
         labels:
           deploy.razee.io/Reconcile: 'false'
           deploy.razee.io/mode: 'StrategicMergePatch'
           app: vector
-          partition: gen0
+          partition: {{partition-id}}
           version: "${APP_VERSION}"
       spec:
         clusterIP: None
         selector:
           app: vector
-          partition: gen0
+          partition: {{partition-id}}
         ports:
           - name: vector-graphql-api
             protocol: TCP
@@ -121,19 +85,19 @@ spec:
     - apiVersion: apps/v1
       kind: StatefulSet
       metadata:
-        name: vector-gen0
+        name: vector-{{partition-id}}
         namespace: pipeline
         labels:
           app: vector
-          partition: gen0
+          partition: {{partition-id}}
           version: "${APP_VERSION}"
       spec:
-        serviceName: vector-gen0
+        serviceName: vector-{{partition-id}}
         podManagementPolicy: "OrderedReady"
         selector:
           matchLabels:
             app: vector
-            partition: gen0
+            partition: {{partition-id}}
         template:
           metadata:
             annotations:
@@ -142,7 +106,7 @@ spec:
               prometheus.io/port: "9598"
             labels:
               app: vector
-              partition: gen0
+              partition: {{partition-id}}
           spec:
             containers:
               - name: vector
@@ -150,7 +114,7 @@ spec:
                 imagePullPolicy: IfNotPresent
                 env:
                 - name: PARTITION_NAME
-                  value: gen0
+                  value: {{partition-id}}
 
                 - name: VECTOR_LOG
                   valueFrom:
@@ -221,11 +185,11 @@ spec:
                   failureThreshold: 18
                 resources:
                   requests:
-                    memory: "{{{requests_memory}}}"
-                    cpu: "{{{requests_cpu}}}"
+                    memory: "{{{requests-memory}}}"
+                    cpu: "{{{requests-cpu}}}"
                   limits:
-                    memory: "{{{limits_memory}}}"
-                    cpu: "{{{limits_cpu}}}"
+                    memory: "{{{limits-memory}}}"
+                    cpu: "{{{limits-cpu}}}"
                 volumeMounts:
                   - name: data
                     mountPath: "/vector-data-dir"
@@ -260,7 +224,7 @@ spec:
                       - key: partition
                         operator: In
                         values:
-                        - gen0
+                        - {{partition-id}}
             tolerations:
             - effect: NoSchedule
               key: workload-pipeline
@@ -270,15 +234,15 @@ spec:
     - apiVersion: autoscaling/v2
       kind: HorizontalPodAutoscaler
       metadata:
-        name: vector-gen0
+        name: vector-{{partition-id}}
         namespace: pipeline
       spec:
-        minReplicas: {{{min_replicas}}}
-        maxReplicas: {{{max_replicas}}}
+        minReplicas: {{{min-replicas}}}
+        maxReplicas: {{{max-replicas}}}
         scaleTargetRef:
           apiVersion: apps/v1
           kind: StatefulSet
-          name: vector-gen0
+          name: vector-{{partition-id}}
         metrics:
         - type: Resource
           resource:
@@ -301,3 +265,4 @@ spec:
             - type: Pods
               value: 1
               periodSeconds: 60
+    {{/vector-partitions}}

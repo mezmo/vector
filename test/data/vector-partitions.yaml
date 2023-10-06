@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-partitions
+  namespace: pipeline
+data:
+  default-partition: "test1"
+  vector-partitions: [{
+    partition-id: "test0",
+    requests-cpu: 1,
+    requests-memory: 2Gi,
+    limits-cpu: 3,
+    limits-memory: 4Gi,
+    min-replicas: 5,
+    max-replicas: 6,
+  }, {
+    partition-id: "test1",
+    requests-cpu: 7,
+    requests-memory: 8Gi,
+    limits-cpu: 9,
+    limits-memory: 10Gi,
+    min-replicas: 11,
+    max-replicas: 12,
+  }
+  ]
