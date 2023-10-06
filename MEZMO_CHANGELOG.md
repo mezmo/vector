@@ -1,3 +1,15 @@
+## [1.18.1](https://github.com/answerbook/vector/compare/v1.18.0...v1.18.1) (2023-10-06)
+
+
+### Bug Fixes
+
+* **state_variables**: Polling is killed on topology reload [b8412ca](https://github.com/answerbook/vector/commit/b8412cab16a0f8d3c99916b5ca519f180a9c7f0f) - Darin Spivey [LOG-18392](https://logdna.atlassian.net/browse/LOG-18392)
+
+
+### Miscellaneous
+
+* Merge pull request #339 from answerbook/darinspivey/LOG-18392 [afbbe26](https://github.com/answerbook/vector/commit/afbbe26811f154a494f19bb53a2b7dfcca3a498a) - GitHub [LOG-18392](https://logdna.atlassian.net/browse/LOG-18392)
+
 # [1.18.0](https://github.com/answerbook/vector/compare/v1.17.4...v1.18.0) (2023-10-05)
 
 
