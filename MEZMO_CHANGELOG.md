@@ -1,3 +1,13 @@
+## [1.18.2](https://github.com/answerbook/vector/compare/v1.18.1...v1.18.2) (2023-10-12)
+
+
+### Chores
+
+* **deps**: bump rdkafka from 0.30.0 to 0.31.0 (#17428) [96409c6](https://github.com/answerbook/vector/commit/96409c652649d8133075b3e7ed30065aca3a58e8) - Chris Nixon
+* **deps**: Bump rdkafka from 0.31.0 to 0.32.2 (#17664) [2cad998](https://github.com/answerbook/vector/commit/2cad9984b7125950b685bb3ff326faff6ab9a03a) - Chris Nixon
+* **deps**: Bump rdkafka from 0.32.2 to 0.33.2 (#17891) [5713394](https://github.com/answerbook/vector/commit/57133949589d94f27082302d6d14eee5c17688c3) - Chris Nixon
+* **deps**: Bump rdkafka from 0.33.2 to 0.34.0 (#18393) [bb93658](https://github.com/answerbook/vector/commit/bb93658abd77cb87bdd573f6f233b78cc3732695) - Chris Nixon
+
 ## [1.18.1](https://github.com/answerbook/vector/compare/v1.18.0...v1.18.1) (2023-10-06)
 
 
