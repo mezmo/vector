@@ -5,6 +5,7 @@ mod events_received;
 mod events_sent;
 mod prelude;
 pub mod service;
+pub mod usage_metrics;
 
 pub use metrics::SharedString;
 

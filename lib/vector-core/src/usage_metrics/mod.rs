@@ -1,4 +1,9 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::hash_map::Entry;
+use std::collections::BTreeMap;
+use std::iter::Sum;
+use std::sync::OnceLock;
+use std::time::Instant;
 use std::{collections::HashMap, env, str::FromStr, sync::Arc};
 use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
@@ -11,6 +16,7 @@ use crate::{
     config::log_schema,
     event::EventArray,
     event::{array::EventContainer, MetricValue},
+    internal_event::{emit, usage_metrics::AggregatedProfileChanged},
     usage_metrics::flusher::HttpFlusher,
 };
 use flusher::{DbFlusher, MetricsFlusher, StdErrFlusher};
@@ -18,17 +24,19 @@ use flusher::{DbFlusher, MetricsFlusher, StdErrFlusher};
 use self::flusher::NoopFlusher;
 
 const DEFAULT_FLUSH_INTERVAL_SECS: u64 = 20;
+const DEFAULT_PROFILE_FLUSH_INTERVAL: Duration = Duration::from_secs(60);
 const BASE_ARRAY_SIZE: usize = 8; // Add some overhead to the array and object size
 const BASE_BTREE_SIZE: usize = 8;
 static INTERNAL_TRANSFORM: ComponentKind = ComponentKind::Transform { internal: true };
 
 mod flusher;
 
+/// Represents an aggregated view of events per component for billing and profiling.
 #[derive(Debug)]
 pub struct UsageMetrics {
     key: UsageMetricsKey,
-    events: usize,
-    total_size: usize,
+    billing: Option<UsageMetricsValue>,
+    usage_by_annotation: Option<AnnotationMap>,
 }
 
 #[derive(Debug)]
@@ -72,7 +80,7 @@ impl FromStr for ComponentKind {
     }
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, PartialEq)]
 pub(crate) struct UsageMetricsValue {
     /// Total number of events
     total_count: usize,
@@ -106,8 +114,17 @@ impl UsageMetricsKey {
         }
     }
 
-    /// Determines whether the component with this key should be tracked
+    /// Determines whether the component with this key should be tracked for billing
+    fn is_tracked_for_billing(&self) -> bool {
+        self.check_tracked(false)
+    }
+
+    /// Determines whether the component with this key should be tracked for profiling or billing
     fn is_tracked(&self) -> bool {
+        self.check_tracked(true)
+    }
+
+    fn check_tracked(&self, track_transforms: bool) -> bool {
         match self.component_kind {
             ComponentKind::Source { internal } => {
                 // Internal sources should not be tracked, remap transforms will be tracked instead
@@ -117,10 +134,9 @@ impl UsageMetricsKey {
             ComponentKind::Transform { internal } => {
                 if internal {
                     // Only track source format transforms and the swimlanes
-                    (self.component_type == "remap" && self.pipeline_id != "shared")
-                        || (self.component_type == "route" && self.pipeline_id == "shared")
+                    self.component_type == "remap" && self.pipeline_id != "shared"
                 } else {
-                    false
+                    track_transforms
                 }
             }
         }
@@ -193,18 +209,74 @@ impl FromStr for UsageMetricsKey {
     }
 }
 
-/// Counts the size of the payload and sends the pipeline-based usage metrics to the provided channel.
+/// A set of annotation keys and values (allow listing).
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub(crate) struct AnnotationSet {
+    app: Option<String>,
+    host: Option<String>,
+    level: Option<String>,
+}
+
+type AnnotationMap = HashMap<AnnotationSet, UsageMetricsValue>;
+
+/// Represents aggregated size and count information for events
+#[derive(Debug, Default)]
+pub struct UsageProfileValue {
+    /// Total number of events
+    total_count: usize,
+    /// Total size in bytes
+    total_size: usize,
+    /// A map of annotation keys with count and size as values
+    usage_by_annotation: AnnotationMap,
+}
+
+impl Sum<UsageProfileValue> for UsageProfileValue {
+    fn sum<I: Iterator<Item = UsageProfileValue>>(iter: I) -> Self {
+        iter.fold(Default::default(), |a, b| {
+            let mut usage_by_annotation = a.usage_by_annotation;
+            for (k, v) in b.usage_by_annotation {
+                add_annotation_value(&mut usage_by_annotation, k, &v);
+            }
+
+            UsageProfileValue {
+                total_count: a.total_count + b.total_count,
+                total_size: a.total_size + b.total_size,
+                usage_by_annotation,
+            }
+        })
+    }
+}
+
+/// Sends the pipeline-based usage metrics to the provided channel.
 fn track_usage(
     tx: &UnboundedSender<UsageMetrics>,
     key: &UsageMetricsKey,
-    events: usize,
-    total_size: usize,
+    usage: UsageProfileValue,
 ) {
+    let mut billing = None;
+    let mut usage_by_annotation = None;
+
+    if key.is_tracked_for_billing() {
+        billing = Some(UsageMetricsValue {
+            total_count: usage.total_count,
+            total_size: usage.total_size,
+        });
+    }
+
+    if is_profile_enabled() && !usage.usage_by_annotation.is_empty() {
+        usage_by_annotation = Some(usage.usage_by_annotation);
+    }
+
+    if billing.is_none() && usage_by_annotation.is_none() {
+        // Ignore
+        return;
+    }
+
     if tx
         .send(UsageMetrics {
             key: key.clone(),
-            events,
-            total_size,
+            billing,
+            usage_by_annotation,
         })
         .is_err()
     {
@@ -238,6 +310,7 @@ pub fn get_transform_usage_tracker(
         if key.is_tracked() {
             return Box::new(DefaultOutputTracker {
                 metrics_tx: tx.clone(),
+                // Use the target key (e.g. source), not the original key (e.g. source format)
                 target_key: key.target_key(),
             });
         }
@@ -253,7 +326,8 @@ pub trait ComponentUsageTracker: Send + Sync {
 
 /// Represents a tracker for the output
 pub trait OutputUsageTracker: Send + Sync {
-    fn track_output(&self, events_count: usize, total_size: usize);
+    fn track_output(&self, usage: UsageProfileValue);
+    fn get_size_and_profile(&self, array: &EventArray) -> UsageProfileValue;
 }
 
 struct NoopTracker {}
@@ -265,8 +339,12 @@ impl ComponentUsageTracker for NoopTracker {
 }
 
 impl OutputUsageTracker for NoopTracker {
-    fn track_output(&self, _events_count: usize, _total_size: usize) {
+    fn track_output(&self, _usage: UsageProfileValue) {
         // Do nothing
+    }
+
+    fn get_size_and_profile(&self, _array: &EventArray) -> UsageProfileValue {
+        Default::default()
     }
 }
 
@@ -277,12 +355,8 @@ struct DefaultComponentTracker {
 
 impl ComponentUsageTracker for DefaultComponentTracker {
     fn track(&self, array: &EventArray) {
-        track_usage(
-            &self.metrics_tx,
-            &self.key,
-            array.len(),
-            mezmo_byte_size(array),
-        );
+        let usage = get_size_and_profile(array);
+        track_usage(&self.metrics_tx, &self.key, usage);
     }
 }
 
@@ -292,50 +366,132 @@ struct DefaultOutputTracker {
 }
 
 impl OutputUsageTracker for DefaultOutputTracker {
-    fn track_output(&self, events_count: usize, total_size: usize) {
-        track_usage(&self.metrics_tx, &self.target_key, events_count, total_size);
+    fn track_output(&self, usage: UsageProfileValue) {
+        track_usage(&self.metrics_tx, &self.target_key, usage);
     }
+
+    fn get_size_and_profile(&self, array: &EventArray) -> UsageProfileValue {
+        get_size_and_profile(array)
+    }
+}
+
+/// Sums the count and size by set, returning true when a new key is added
+fn add_annotation_value(
+    map: &mut AnnotationMap,
+    key: AnnotationSet,
+    value: &UsageMetricsValue,
+) -> bool {
+    let mut new_entry = false;
+    let entry_value = match map.entry(key) {
+        Entry::Occupied(entry) => entry.into_mut(),
+        Entry::Vacant(k) => {
+            new_entry = true;
+            k.insert(Default::default())
+        }
+    };
+    entry_value.total_count += value.total_count;
+    entry_value.total_size += value.total_size;
+    new_entry
 }
 
 /// Estimates the byte size of a group of events according to Mezmo billing practices, documented in the ADR
 /// <https://github.com/answerbook/pipeline-prototype/blob/main/doc/adr/0018-billing-ingress-egress.md>
-pub fn mezmo_byte_size(array: &EventArray) -> usize {
+fn get_size_and_profile(array: &EventArray) -> UsageProfileValue {
     match array {
-        // For logs: account for the value size of ".message" and ".meta"
-        EventArray::Logs(a) => a
-            .iter()
-            .map(|l| {
-                if let Some(fields) = l.as_map() {
+        EventArray::Logs(a) => {
+            let total_count = array.len();
+            let mut total_size = 0;
+            let mut usage_by_annotation = AnnotationMap::new();
+            for log_event in a {
+                if let Some(fields) = log_event.as_map() {
                     // Account for the value of ".message" and ".meta"
-                    fields.get(log_schema().message_key()).map_or(0, value_size)
+                    let size = fields.get(log_schema().message_key()).map_or(0, value_size)
                         + fields
                             .get(log_schema().user_metadata_key())
-                            .map_or(0, value_size)
-                } else {
-                    0
+                            .map_or(0, value_size);
+
+                    total_size += size;
+
+                    if let Some(annotation_set) = get_annotations(fields) {
+                        add_annotation_value(
+                            &mut usage_by_annotation,
+                            annotation_set,
+                            &UsageMetricsValue {
+                                total_count: 1,
+                                total_size: size,
+                            },
+                        );
+                    }
                 }
-            })
-            .sum(),
+            }
+
+            UsageProfileValue {
+                total_count,
+                total_size,
+                usage_by_annotation,
+            }
+        }
         // In the Mezmo pipeline, we only use the metrics type for internal metrics
         // User provided metric events are represented in vector as logs (NOT metrics)
         // For metrics: add byte size of the name, timestamp and value.
-        EventArray::Metrics(a) => a
-            .iter()
-            .map(|m| {
+        EventArray::Metrics(a) => {
+            let mut total_count = 0;
+            let mut total_size = 0;
+            for m in a {
                 let series = m.series();
                 let data = m.data();
 
-                let mut result = series.name().allocated_bytes();
+                total_size += series.name().allocated_bytes();
                 if data.timestamp().is_some() {
-                    result += 8;
+                    total_size += 8;
                 }
-                result += metric_value_size(data.value());
-                result
-            })
-            .sum(),
+                total_size += metric_value_size(data.value());
+                total_count += 1;
+            }
+
+            UsageProfileValue {
+                total_count,
+                total_size,
+                usage_by_annotation: Default::default(),
+            }
+        }
         // We currently don't support Traces type, leave it as an oversized estimation
-        EventArray::Traces(a) => a.allocated_bytes(),
+        EventArray::Traces(a) => UsageProfileValue {
+            total_count: a.len(),
+            total_size: a.allocated_bytes(),
+            usage_by_annotation: Default::default(),
+        },
     }
+}
+
+/// Determines whether the feature for tracking usage annotations is enabled.
+fn is_profile_enabled() -> bool {
+    // Inaccessible outside of the function but it isn't dropped at the end of the function
+    static IS_ENABLED: OnceLock<bool> = OnceLock::new();
+
+    *IS_ENABLED.get_or_init(|| {
+        env::var("USAGE_METRICS_PROFILE_ENABLED")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(false)
+    })
+}
+
+fn get_annotations(fields: &BTreeMap<String, Value>) -> Option<AnnotationSet> {
+    let annotations_field = fields.get(log_schema().annotations_key())?.as_object()?;
+
+    Some(AnnotationSet {
+        app: get_string_field(annotations_field, "app"),
+        host: get_string_field(annotations_field, "host"),
+        level: get_string_field(annotations_field, "level"),
+    })
+}
+
+fn get_string_field(fields: &BTreeMap<String, Value>, key: &str) -> Option<String> {
+    let bytes = fields.get(key)?.as_bytes();
+    std::str::from_utf8(bytes?)
+        .map(std::string::ToString::to_string)
+        .ok()
 }
 
 pub fn value_size(v: &Value) -> usize {
@@ -393,7 +549,7 @@ fn metric_value_size(v: &MetricValue) -> usize {
 pub async fn start_publishing_metrics(
     rx: UnboundedReceiver<UsageMetrics>,
 ) -> Result<(), MetricsPublishingError> {
-    let agg_window = if let Ok(interval_str) = std::env::var("USAGE_METRICS_FLUSH_INTERVAL_SECS") {
+    let agg_window = if let Ok(interval_str) = env::var("USAGE_METRICS_FLUSH_INTERVAL_SECS") {
         let secs = interval_str.parse().unwrap_or_else(|_| {
             warn!("USAGE_METRICS_FLUSH_INTERVAL_SECS environment variable invalid, using default");
             DEFAULT_FLUSH_INTERVAL_SECS
@@ -404,8 +560,13 @@ pub async fn start_publishing_metrics(
         Duration::from_secs(DEFAULT_FLUSH_INTERVAL_SECS)
     };
 
+    let profile_flush_interval = env::var("USAGE_METRICS_PROFILE_FLUSH_INTERVAL_SECS")
+        .ok()
+        .and_then(|s| s.parse().map(Duration::from_secs).ok())
+        .unwrap_or(DEFAULT_PROFILE_FLUSH_INTERVAL);
+
     let flusher = get_flusher(agg_window).await?;
-    start_publishing_metrics_with_flusher(rx, agg_window, flusher);
+    start_publishing_metrics_with_flusher(rx, agg_window, profile_flush_interval, flusher);
     Ok(())
 }
 
@@ -460,16 +621,21 @@ async fn get_flusher(
 fn start_publishing_metrics_with_flusher(
     mut rx: UnboundedReceiver<UsageMetrics>,
     agg_window: Duration,
+    profile_agg_window: Duration,
     flusher: Arc<dyn MetricsFlusher + Send>,
 ) {
     tokio::spawn(async move {
         info!("Start publishing usage metrics");
 
         let mut finished = false;
+        let mut aggregated_profiles: HashMap<UsageMetricsKey, AnnotationMap> = HashMap::new();
+        let mut profile_entries_count = 0;
+        let mut start_profile = Instant::now();
 
         while !finished {
-            let mut event_count = 0;
-            let mut aggregated: HashMap<_, UsageMetricsValue> = HashMap::new();
+            let mut billing_events_count = 0;
+            let mut aggregated_billing: HashMap<UsageMetricsKey, UsageMetricsValue> =
+                HashMap::new();
             let timeout = sleep(agg_window);
             tokio::pin!(timeout);
 
@@ -482,10 +648,40 @@ fn start_publishing_metrics_with_flusher(
                         break;
                     },
                     Some(message) = rx.recv() => {
-                        let value = aggregated.entry(message.key).or_default();
-                        value.total_count += message.events;
-                        value.total_size += message.total_size;
-                        event_count += message.events;
+                        if let Some(billing) = &message.billing {
+                            // Billing tracking enabled for the component
+                            if let Some(value) = aggregated_billing.get_mut(&message.key) {
+                                // Prevent cloning with HashMap::entry() for the most common case
+                                value.total_count += billing.total_count;
+                                value.total_size += billing.total_size;
+                            } else {
+                                aggregated_billing.insert(
+                                    message.key.clone(),
+                                    UsageMetricsValue {
+                                        total_count: billing.total_count,
+                                        total_size: billing.total_size,
+                                    }
+                                );
+                            }
+                            billing_events_count += billing.total_count;
+                        }
+
+                        if let Some(usage_by_annotation) = message.usage_by_annotation {
+                            // Profile/annotation tracking is enabled
+                            let profile = aggregated_profiles.entry(message.key).or_default();
+                            let profile_entries_initial_count = profile_entries_count;
+                            for (k, v) in usage_by_annotation {
+                                if add_annotation_value(profile, k, &v) {
+                                    profile_entries_count += 1;
+                                }
+                            }
+
+                            if profile_entries_count > profile_entries_initial_count {
+                                emit(AggregatedProfileChanged {
+                                    count: profile_entries_count
+                                });
+                            }
+                        }
                     },
                     else => {
                         // Channel closed
@@ -495,15 +691,31 @@ fn start_publishing_metrics_with_flusher(
                 }
             }
 
-            if event_count > 0 {
+            if billing_events_count > 0 {
                 // Flush aggregated metrics
                 debug!(
                     "Saving {} aggregated usage metrics from {} metrics events",
-                    aggregated.len(),
-                    event_count
+                    aggregated_billing.len(),
+                    billing_events_count
                 );
 
-                flusher.save_metrics(aggregated).await;
+                // Flush billing metrics in the foreground
+                flusher.save_billing_metrics(aggregated_billing).await;
+            }
+
+            if start_profile.elapsed() > profile_agg_window && !aggregated_profiles.is_empty() {
+                // Flush aggregated profiles
+                let flusher = Arc::clone(&flusher);
+
+                // Flush profiles in the background
+                tokio::spawn(async move {
+                    flusher.save_profile_metrics(aggregated_profiles).await;
+                });
+
+                // Reset the profiles
+                aggregated_profiles = HashMap::new();
+                profile_entries_count = 0;
+                start_profile = Instant::now();
             }
         }
     });
@@ -523,13 +735,18 @@ mod tests {
     // Create a manual mock
     // We can't use mockall because we need to inspect the value from the struct after the field is moved.
     struct MockMetricsFlusher {
-        tx: UnboundedSender<HashMap<UsageMetricsKey, UsageMetricsValue>>,
+        billing_tx: UnboundedSender<HashMap<UsageMetricsKey, UsageMetricsValue>>,
+        profile_tx: UnboundedSender<HashMap<UsageMetricsKey, AnnotationMap>>,
     }
 
     #[async_trait]
     impl flusher::MetricsFlusher for MockMetricsFlusher {
-        async fn save_metrics(&self, metrics: HashMap<UsageMetricsKey, UsageMetricsValue>) {
-            self.tx.send(metrics).unwrap();
+        async fn save_billing_metrics(&self, metrics: HashMap<UsageMetricsKey, UsageMetricsValue>) {
+            self.billing_tx.send(metrics).unwrap();
+        }
+
+        async fn save_profile_metrics(&self, metrics: HashMap<UsageMetricsKey, AnnotationMap>) {
+            self.profile_tx.send(metrics).unwrap();
         }
     }
 
@@ -611,18 +828,24 @@ mod tests {
     }
 
     #[test]
-    fn is_tracked_test() {
+    fn is_tracked_for_billing_test() {
         let value: UsageMetricsKey = "v1:http:sink:comp1:pipe1:account1".parse().unwrap();
-        assert!(value.is_tracked(), "All sinks should be tracked");
+        assert!(
+            value.is_tracked_for_billing(),
+            "All sinks should be tracked"
+        );
 
         let value: UsageMetricsKey = "v1:s3:source:comp1:pipe1:account1".parse().unwrap();
-        assert!(value.is_tracked(), "Most sources should be tracked");
+        assert!(
+            value.is_tracked_for_billing(),
+            "Most sources should be tracked"
+        );
 
         let value: UsageMetricsKey = "v1:remap:internal_transform:comp1:pipe1:account1"
             .parse()
             .unwrap();
         assert!(
-            value.is_tracked(),
+            value.is_tracked_for_billing(),
             "internal remap transform should be tracked"
         );
 
@@ -630,14 +853,17 @@ mod tests {
             .parse()
             .unwrap();
         assert!(
-            !value.is_tracked(),
+            !value.is_tracked_for_billing(),
             "User defined transforms should NOT be tracked"
         );
 
         let value: UsageMetricsKey = "v1:kafka:internal_source:comp1:pipe1:account1"
             .parse()
             .unwrap();
-        assert!(!value.is_tracked(), "Kafka source should NOT be tracked");
+        assert!(
+            !value.is_tracked_for_billing(),
+            "Kafka source should NOT be tracked"
+        );
     }
 
     #[test]
@@ -671,35 +897,35 @@ mod tests {
     }
 
     #[test]
-    fn mezmo_byte_size_log_message_number_test() {
+    fn get_size_and_profile_log_message_number_test() {
         let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
         event_map.insert("this_is_ignored".into(), 1u8.into());
         event_map.insert("another_ignored".into(), 1.into());
         event_map.insert(log_schema().message_key().into(), 9.into());
         let event: LogEvent = event_map.into();
+        let usage_profile = get_size_and_profile(&event.into());
         assert_eq!(
-            mezmo_byte_size(&event.into()),
-            8,
+            usage_profile.total_size, 8,
             "only accounts for the value of message"
         );
     }
 
     #[test]
-    fn mezmo_byte_size_log_message_and_meta_test() {
+    fn get_size_and_profile_log_message_and_meta_test() {
         let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
         event_map.insert("this_is_ignored".into(), 2.into());
         event_map.insert(log_schema().message_key().into(), "hello ".into());
         event_map.insert(log_schema().user_metadata_key().into(), "world".into());
         let event: LogEvent = event_map.into();
         assert_eq!(
-            mezmo_byte_size(&event.into()),
+            get_size_and_profile(&event.into()).total_size,
             "hello world".len(),
             "value of message and meta"
         );
     }
 
     #[test]
-    fn mezmo_byte_size_log_nested_test() {
+    fn get_size_and_profile_log_nested_test() {
         let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
         let mut nested_map: BTreeMap<String, Value> = BTreeMap::new();
         nested_map.insert("prop1".into(), 1u64.into());
@@ -709,18 +935,24 @@ mod tests {
         event_map.insert(log_schema().message_key().into(), Value::from(nested_map));
         let event: LogEvent = event_map.into();
         assert_eq!(
-            mezmo_byte_size(&event.into()),
+            get_size_and_profile(&event.into()).total_size,
             BASE_BTREE_SIZE + "propX".len() * 4 + 28
         );
     }
 
+    #[allow(clippy::too_many_lines)]
     #[tokio::test]
     async fn start_publishing_metrics_should_aggregate_and_publish_metrics_periodically() {
         let (metrics_tx, rx) = mpsc::unbounded_channel::<UsageMetrics>();
 
-        let (result_tx, mut result_rx) =
+        let (billing_tx, mut billing_rx) =
             mpsc::unbounded_channel::<HashMap<UsageMetricsKey, UsageMetricsValue>>();
-        let flusher = MockMetricsFlusher { tx: result_tx };
+        let (profile_tx, mut profile_rx) =
+            mpsc::unbounded_channel::<HashMap<UsageMetricsKey, AnnotationMap>>();
+        let flusher = MockMetricsFlusher {
+            billing_tx,
+            profile_tx,
+        };
 
         let key1 = UsageMetricsKey {
             account_id: "a".into(),
@@ -741,29 +973,76 @@ mod tests {
         metrics_tx
             .send(UsageMetrics {
                 key: key1.clone(),
-                events: 2,
-                total_size: 10,
+                billing: Some(UsageMetricsValue {
+                    total_count: 2,
+                    total_size: 10,
+                }),
+                usage_by_annotation: Some(HashMap::from([(
+                    AnnotationSet {
+                        app: Some("app1".into()),
+                        host: Some("host1".into()),
+                        level: None,
+                    },
+                    UsageMetricsValue {
+                        total_count: 1,
+                        total_size: 5,
+                    },
+                )])),
             })
             .unwrap();
         metrics_tx
             .send(UsageMetrics {
                 key: key1.clone(),
-                events: 4,
-                total_size: 30,
+                billing: Some(UsageMetricsValue {
+                    total_count: 4,
+                    total_size: 30,
+                }),
+                usage_by_annotation: Some(HashMap::from([
+                    (
+                        AnnotationSet {
+                            app: Some("app1".into()),
+                            host: Some("host1".into()),
+                            level: None,
+                        },
+                        UsageMetricsValue {
+                            total_count: 3,
+                            total_size: 20,
+                        },
+                    ),
+                    (
+                        AnnotationSet {
+                            app: Some("app2".into()),
+                            host: None,
+                            level: None,
+                        },
+                        UsageMetricsValue {
+                            total_count: 1,
+                            total_size: 10,
+                        },
+                    ),
+                ])),
             })
             .unwrap();
         metrics_tx
             .send(UsageMetrics {
                 key: key2.clone(),
-                events: 1,
-                total_size: 123,
+                billing: Some(UsageMetricsValue {
+                    total_count: 1,
+                    total_size: 123,
+                }),
+                usage_by_annotation: None,
             })
             .unwrap();
 
-        start_publishing_metrics_with_flusher(rx, Duration::from_millis(20), Arc::new(flusher));
+        start_publishing_metrics_with_flusher(
+            rx,
+            Duration::from_millis(20),
+            Duration::from_millis(100),
+            Arc::new(flusher),
+        );
 
         // It should publish 2 aggregated metrics
-        let m = result_rx.recv().await.unwrap();
+        let m = billing_rx.recv().await.unwrap();
         assert_eq!(m.len(), 2);
         let v = m.get(&key1).unwrap();
         assert_eq!(v.total_count, 6);
@@ -772,5 +1051,35 @@ mod tests {
         let v = m.get(&key2).unwrap();
         assert_eq!(v.total_count, 1);
         assert_eq!(v.total_size, 123);
+
+        let profiles = profile_rx.recv().await.expect("to receive a profile map");
+        let v = profiles.get(&key1).unwrap();
+        assert_eq!(
+            v,
+            &HashMap::from([
+                (
+                    AnnotationSet {
+                        app: Some("app1".into()),
+                        host: Some("host1".into()),
+                        level: None,
+                    },
+                    UsageMetricsValue {
+                        total_count: 4,
+                        total_size: 25,
+                    },
+                ),
+                (
+                    AnnotationSet {
+                        app: Some("app2".into()),
+                        host: None,
+                        level: None,
+                    },
+                    UsageMetricsValue {
+                        total_count: 1,
+                        total_size: 10,
+                    },
+                ),
+            ])
+        );
     }
 }

@@ -80,6 +80,10 @@ pub struct LogSchema {
     /// that may be referenced in field templates.
     #[serde(default = "LogSchema::default_user_metadata_key")]
     user_metadata_key: String,
+
+    /// The name of the event field for Mezmo's internal annotations
+    #[serde(default = "LogSchema::default_annotations_key")]
+    annotations_key: String,
 }
 
 impl Default for LogSchema {
@@ -91,6 +95,7 @@ impl Default for LogSchema {
             source_type_key: Self::default_source_type_key(),
             metadata_key: Self::default_metadata_key(),
             user_metadata_key: Self::default_user_metadata_key(),
+            annotations_key: Self::default_annotations_key(),
         }
     }
 }
@@ -120,6 +125,10 @@ impl LogSchema {
 
     fn default_user_metadata_key() -> String {
         String::from("metadata")
+    }
+
+    fn default_annotations_key() -> String {
+        String::from("annotations")
     }
 
     pub fn message_key(&self) -> &str {
@@ -153,6 +162,10 @@ impl LogSchema {
 
     pub fn user_metadata_key(&self) -> &str {
         &self.user_metadata_key
+    }
+
+    pub fn annotations_key(&self) -> &str {
+        &self.annotations_key
     }
 
     pub fn set_message_key(&mut self, v: String) {

@@ -6,7 +6,7 @@ use vector_common::internal_event::{
 };
 use vector_common::EventDataEq;
 
-use crate::usage_metrics::{mezmo_byte_size, OutputUsageTracker};
+use crate::usage_metrics::OutputUsageTracker;
 use crate::{
     config,
     event::{
@@ -253,10 +253,11 @@ impl TransformOutputs {
                 EstimatedJsonEncodedSizeOf::estimated_json_encoded_size_of,
             );
 
-            let output_byte_size = buf
-                .primary_buffer
-                .as_ref()
-                .map_or(0, |o| o.0.iter().map(mezmo_byte_size).sum());
+            let usage_profile = buf.primary_buffer.as_ref().map_or(Default::default(), |o| {
+                o.0.iter()
+                    .map(|a| usage_tracker.get_size_and_profile(a))
+                    .sum()
+            });
 
             buf.primary_buffer
                 .as_mut()
@@ -269,7 +270,7 @@ impl TransformOutputs {
             // Named outputs are for stuff like route/swimlanes that we don't want to track atm.
             // We only want to capture the traffic of the remap transform after the node representing
             // the source (kafka / route transform)
-            usage_tracker.track_output(count, output_byte_size);
+            usage_tracker.track_output(usage_profile);
         }
 
         for (key, buf) in &mut buf.named_buffers {
@@ -278,6 +279,8 @@ impl TransformOutputs {
             let output = self.named_outputs.get_mut(key).expect("unknown output");
             buf.send(&mut output.fanout).await?;
             output.events_sent.emit(CountByteSize(count, byte_size));
+
+            // TODO: track named outputs
         }
 
         Ok(())
