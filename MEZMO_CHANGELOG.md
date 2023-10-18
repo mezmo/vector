@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/answerbook/vector/compare/v1.18.2...v1.19.0) (2023-10-18)
+
+
+### Features
+
+* **deploy**: enable configuring partitions [ae165c3](https://github.com/answerbook/vector/commit/ae165c36d8e04c6657f921b7713cf40e6479c770) - Matt March [LOG-18365](https://logdna.atlassian.net/browse/LOG-18365)
+
 ## [1.18.2](https://github.com/answerbook/vector/compare/v1.18.1...v1.18.2) (2023-10-12)
 
 
