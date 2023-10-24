@@ -1,3 +1,10 @@
+# [1.20.0](https://github.com/answerbook/vector/compare/v1.19.0...v1.20.0) (2023-10-24)
+
+
+### Features
+
+* Intercept and track annotated events using the UsageTracker [5577922](https://github.com/answerbook/vector/commit/55779221a709574d6d7720de280017f0c1f0b919) - Jorge Bay [LOG-18411](https://logdna.atlassian.net/browse/LOG-18411)
+
 # [1.19.0](https://github.com/answerbook/vector/compare/v1.18.2...v1.19.0) (2023-10-18)
 
 
