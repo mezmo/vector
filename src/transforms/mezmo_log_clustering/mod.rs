@@ -153,9 +153,8 @@ impl MezmoLogClustering {
         let field = log.get_mut(self.cluster_field.as_str());
 
         if let Some(field) = field {
-            let mut values = vec![];
             let line = field.to_string_lossy();
-            let (group, _) = self.parser.add_log_line(line.as_ref(), &mut values);
+            let (group, _) = self.parser.add_log_line(line.as_ref());
 
             let mut cluster = BTreeMap::new();
 
@@ -170,15 +169,6 @@ impl MezmoLogClustering {
             cluster.insert(
                 "template".to_string(),
                 Value::Bytes(format!("{}", group).into()),
-            );
-            cluster.insert(
-                "values".to_string(),
-                Value::Array(
-                    values
-                        .iter()
-                        .map(|value| Value::Bytes(bytes::Bytes::copy_from_slice(value.as_bytes())))
-                        .collect::<Vec<Value>>(),
-                ),
             );
 
             log.insert(self.cluster_field.as_str(), Value::Object(cluster));
@@ -233,7 +223,6 @@ mod tests {
         expected_template: &str,
         expected_cluster_id: &str,
         expected_match_count: usize,
-        expected_values: Vec<String>,
     ) {
         let log = event.as_log();
         assert_eq!(
@@ -251,16 +240,6 @@ mod tests {
                 .as_integer()
                 .unwrap()
         );
-        assert_eq!(
-            expected_values,
-            log.get(".message.values")
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|value| value.to_string_lossy().to_string())
-                .collect::<Vec<String>>()
-        );
     }
 
     #[tokio::test]
@@ -276,41 +255,23 @@ mod tests {
             tx.send(Event::Log(LogEvent::from("hi there 1")))
                 .await
                 .unwrap();
-            let (cluster, _) = log_parser.add_log_line("hi there 1", &mut vec![]);
+            let (cluster, _) = log_parser.add_log_line("hi there 1");
             let new_event = out.recv().await.unwrap();
-            verify_cluster(
-                new_event,
-                "hi there 1",
-                &cluster.cluster_id(),
-                1,
-                Vec::new(),
-            );
+            verify_cluster(new_event, "hi there <*>", &cluster.cluster_id(), 1);
 
             tx.send(Event::Log(LogEvent::from("hi there 2")))
                 .await
                 .unwrap();
             let new_event = out.recv().await.unwrap();
-            let (cluster, _) = log_parser.add_log_line("hi there 2", &mut vec![]);
-            verify_cluster(
-                new_event,
-                "hi there <*>",
-                &cluster.cluster_id(),
-                2,
-                vec!["2".to_string()],
-            );
+            let (cluster, _) = log_parser.add_log_line("hi there 2");
+            verify_cluster(new_event, "hi there <*>", &cluster.cluster_id(), 2);
 
             tx.send(Event::Log(LogEvent::from("hi there 3")))
                 .await
                 .unwrap();
-            let (cluster, _) = log_parser.add_log_line("hi there 3", &mut vec![]);
+            let (cluster, _) = log_parser.add_log_line("hi there 3");
             let new_event = out.recv().await.unwrap();
-            verify_cluster(
-                new_event,
-                "hi there <*>",
-                &cluster.cluster_id(),
-                3,
-                vec!["3".to_string()],
-            );
+            verify_cluster(new_event, "hi there <*>", &cluster.cluster_id(), 3);
 
             drop(tx);
             topology.stop().await;

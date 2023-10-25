@@ -8,7 +8,8 @@ type Blake2b64 = Blake2b<U8>;
 pub struct LogCluster<'a> {
     template_tokens: Vec<Token<'a>>,
     match_count: usize,
-    cluster_id: usize,
+    /// The local numeric identifier (auto-incremental)
+    id: usize,
 }
 
 impl<'a> LogCluster<'a> {
@@ -26,14 +27,20 @@ impl<'a> LogCluster<'a> {
         base64::engine::general_purpose::STANDARD_NO_PAD.encode(hasher.finalize())
     }
 
-    fn new(cluster_id: usize, tokens: Vec<&str>) -> Self {
+    fn new(cluster_id: usize, parameterize_numeric_tokens: bool, tokens: Vec<&str>) -> Self {
         Self {
             template_tokens: tokens
                 .iter()
-                .map(|token| Token::Value(Cow::Owned(token.to_string())))
+                .map(|token| {
+                    if parameterize_numeric_tokens && token.chars().any(char::is_numeric) {
+                        Token::Wildcard
+                    } else {
+                        Token::Value(Cow::Owned(token.to_string()))
+                    }
+                })
                 .collect(),
             match_count: 1,
-            cluster_id,
+            id: cluster_id,
         }
     }
 
@@ -70,15 +77,14 @@ impl<'a> LogCluster<'a> {
 
     // Update template tokens to wildcards where the log tokens and the template
     // tokens are different. Also, return a value for each wildcard tokens.
-    fn maybe_update(&mut self, tokens: &Tokens, values: &mut Vec<String>) -> bool {
-        assert!(self.template_tokens.len() == tokens.len());
+    fn maybe_update(&mut self, tokens: &Tokens) -> bool {
+        assert_eq!(self.template_tokens.len(), tokens.len());
         let mut updated = false;
         for (template_token1, token2) in self.template_tokens.iter_mut().zip(tokens.iter()) {
             match template_token1 {
-                Token::Wildcard => values.push(token2.to_string()),
+                Token::Wildcard => {}
                 Token::Value(token1) => {
                     if token1 != token2 {
-                        values.push(token2.to_string());
                         *template_token1 = Token::Wildcard;
                         updated = true;
                     }
@@ -182,8 +188,8 @@ impl<'a> LogParser<'a> {
             clusters: lru::LruCache::new(max_clusters),
             clusters_count: 0,
             sim_threshold: 0.4,
-            max_node_depth: 4,
-            max_children: 100,
+            max_node_depth: 8,
+            max_children: 40,
             parameterize_numeric_tokens: true,
             extra_delimiters: Vec::new(),
         }
@@ -216,21 +222,15 @@ impl<'a> LogParser<'a> {
         self
     }
 
-    pub fn add_log_line(
-        &mut self,
-        line: &str,
-        values: &mut Vec<String>,
-    ) -> (&LogCluster, LogUpdateStatus) {
+    pub fn add_log_line(&mut self, line: &str) -> (&LogCluster, LogUpdateStatus) {
         let tokens = tokenize(line, &self.extra_delimiters);
-
-        values.clear();
 
         match self.tree_search(&tokens) {
             None => {
                 // No cluster found for the log line, create a new cluster.
                 self.clusters_count += 1;
                 let cluster_id = self.clusters_count;
-                let cluster = LogCluster::new(cluster_id, tokens);
+                let cluster = LogCluster::new(cluster_id, self.parameterize_numeric_tokens, tokens);
                 self.add_seq_to_prefix_tree(&cluster); // Add the node path to the new cluster.
                 (
                     self.clusters.get_or_insert(cluster_id, || cluster),
@@ -241,7 +241,7 @@ impl<'a> LogParser<'a> {
                 // Existing cluster found for the log line, update it if there are differences.
                 let cluster = self.clusters.get_mut(&cluster_id).unwrap(); // Already verified this cluster exists in tree_search()
                 cluster.match_count += 1;
-                let updated = cluster.maybe_update(&tokens, values);
+                let updated = cluster.maybe_update(&tokens);
                 (
                     cluster,
                     if updated {
@@ -263,12 +263,24 @@ impl<'a> LogParser<'a> {
             .or_insert_with(Node::new);
 
         if token_count == 0 {
-            curr_node.cluster_ids.push(cluster.cluster_id);
+            curr_node.cluster_ids.push(cluster.id);
             return;
         }
 
         let mut curr_node_depth = 1;
         for token in &cluster.template_tokens {
+            // There's a diminishing return in having more children as the height increases
+            let max_children = if curr_node_depth > 1 {
+                let factor = curr_node_depth * 2;
+                let result = self.max_children / factor;
+                if result < 2 {
+                    2
+                } else {
+                    result
+                }
+            } else {
+                self.max_children
+            };
             if curr_node_depth >= self.max_node_depth || curr_node_depth >= token_count {
                 break;
             }
@@ -281,7 +293,7 @@ impl<'a> LogParser<'a> {
                     .entry(Token::Wildcard)
                     .or_insert_with(Node::new);
             } else if curr_node.children.contains_key(&Token::Wildcard) {
-                if curr_node.children.len() < self.max_children {
+                if curr_node.children.len() < max_children {
                     curr_node = curr_node
                         .children
                         .entry(token.clone())
@@ -289,13 +301,13 @@ impl<'a> LogParser<'a> {
                 } else {
                     curr_node.children.get_mut(&Token::Wildcard).unwrap();
                 }
-            } else if curr_node.children.len() + 1 < self.max_children {
+            } else if curr_node.children.len() + 1 < max_children {
                 // We leave space for a final wildcard token
                 curr_node = curr_node
                     .children
                     .entry(token.clone())
                     .or_insert_with(Node::new);
-            } else if curr_node.children.len() + 1 == self.max_children {
+            } else if curr_node.children.len() + 1 == max_children {
                 // Add a wildcard token as the last child of a cluster group
                 curr_node = curr_node
                     .children
@@ -309,7 +321,7 @@ impl<'a> LogParser<'a> {
         }
 
         // Add new cluster to the leaf node
-        let cluster_id = cluster.cluster_id;
+        let cluster_id = cluster.id;
         let mut new_cluster_ids = Vec::new();
         for cluster_id in &curr_node.cluster_ids {
             if self.clusters.contains(cluster_id) {
@@ -389,6 +401,8 @@ fn tokenize<'a>(s: &'a str, extra_delimiters: &[char]) -> Tokens<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use std::collections::HashSet;
     use std::{num::NonZeroUsize, vec};
 
     use super::{tokenize, LogParser};
@@ -405,40 +419,20 @@ mod tests {
         ];
 
         let expected = vec![
-            "Dec 10 07:07:38 LabSZ sshd[24206]: input_userauth_request: invalid user test9 [preauth]",
-            "Dec 10 <*> LabSZ <*> input_userauth_request: invalid user <*> [preauth]",
-            "Dec 10 09:12:32 LabSZ sshd[24490]: Failed password for invalid user ftpuser from 0.0.0.0 port 62891 ssh2",
-            "Dec 10 <*> LabSZ <*> Failed password for invalid user <*> from 0.0.0.0 port <*> ssh2",
-            "Dec 10 <*> LabSZ <*> Failed password for invalid user <*> from 0.0.0.0 port <*> ssh2",
-            "Dec 10 <*> LabSZ <*> input_userauth_request: invalid user <*> [preauth]",
-        ];
-
-        let expected_values = vec![
-            vec![],
-            vec!["07:08:28", "sshd[24208]:", "webmaster"],
-            vec![],
-            vec!["09:12:35", "sshd[24492]:", "pi", "49289"],
-            vec!["09:12:44", "sshd[24501]:", "ftpuser", "60836"],
-            vec!["07:28:03", "sshd[24245]:", "pgadmin"],
+            "Dec <*> <*> LabSZ <*> input_userauth_request: invalid user <*> [preauth]",
+            "Dec <*> <*> LabSZ <*> input_userauth_request: invalid user <*> [preauth]",
+            "Dec <*> <*> LabSZ <*> Failed password for invalid user ftpuser from <*> port <*> <*>",
+            // The next will cause ftpuser to become a wildcard
+            "Dec <*> <*> LabSZ <*> Failed password for invalid user <*> from <*> port <*> <*>",
+            "Dec <*> <*> LabSZ <*> Failed password for invalid user <*> from <*> port <*> <*>",
+            "Dec <*> <*> LabSZ <*> input_userauth_request: invalid user <*> [preauth]",
         ];
 
         let mut parser = LogParser::new(NonZeroUsize::new(1000).unwrap());
-        for ((line, expected), expected_values) in lines
-            .iter()
-            .zip(expected.iter())
-            .zip(expected_values.iter())
-        {
-            let mut values = Vec::new();
-            let (group, _) = parser.add_log_line(line, &mut values);
+        for (line, expected) in lines.iter().zip(expected.iter()) {
+            let (group, _) = parser.add_log_line(line);
             let actual = format!("{}", group);
             assert_eq!(expected.to_string(), actual);
-            assert_eq!(
-                expected_values
-                    .iter()
-                    .map(|v| v.to_string())
-                    .collect::<Vec<String>>(),
-                values
-            );
         }
     }
 
@@ -449,47 +443,27 @@ mod tests {
             "Dec 10 07:08:28 LabSZ sshd[24208]: input_userauth_request: invalid user webmaster [preauth]",
             "Dec 10 09:12:32 LabSZ sshd[24490]: Failed password for invalid user ftpuser from 0.0.0.0 port 62891 ssh2",
             "Dec 10 09:12:35 LabSZ sshd[24492]: Failed password for invalid user pi from 0.0.0.0 port 49289 ssh2",
-            "Dec 10 09:12:44 LabSZ sshd[24501]: Failed password for invalid user ftpuser from 0.0.0.0 port 60836 ssh2",
+            "Dec 10 09:12:44 LabSZ sshd[24501]: Failed password for invalid user my_user from 0.0.0.0 port 60836 ssh2",
             "Dec 10 07:28:03 LabSZ sshd[24245]: input_userauth_request: invalid user pgadmin [preauth]",
         ];
 
         let expected = vec![
-            "Dec 10 07:07:38 LabSZ sshd[24206]: input_userauth_request: invalid user test9 [preauth]",
-            "Dec 10 07:08:28 LabSZ sshd[24208]: input_userauth_request: invalid user webmaster [preauth]",
-            "Dec 10 09:12:32 LabSZ sshd[24490]: Failed password for invalid user ftpuser from 0.0.0.0 port 62891 ssh2",
-            "Dec 10 <*> LabSZ <*> Failed password for invalid user <*> from 0.0.0.0 port <*> ssh2",
-            "Dec 10 <*> LabSZ <*> Failed password for invalid user <*> from 0.0.0.0 port <*> ssh2",
-            "Dec 10 07:28:03 LabSZ sshd[24245]: input_userauth_request: invalid user pgadmin [preauth]"
-        ];
-
-        let expected_values = vec![
-            vec![],
-            vec![],
-            vec![],
-            vec!["09:12:35", "sshd[24492]:", "pi", "49289"],
-            vec!["09:12:44", "sshd[24501]:", "ftpuser", "60836"],
-            vec![],
+            "Dec <*> <*> LabSZ <*> input_userauth_request: invalid user <*> [preauth]",
+            "Dec <*> <*> LabSZ <*> input_userauth_request: invalid user webmaster [preauth]",
+            "Dec <*> <*> LabSZ <*> Failed password for invalid user ftpuser from <*> port <*> <*>",
+            // Note that these 2 will not templatize the group further
+            "Dec <*> <*> LabSZ <*> Failed password for invalid user pi from <*> port <*> <*>",
+            "Dec <*> <*> LabSZ <*> Failed password for invalid user my_user from <*> port <*> <*>",
+            "Dec <*> <*> LabSZ <*> input_userauth_request: invalid user pgadmin [preauth]",
         ];
 
         let mut parser = LogParser::new(NonZeroUsize::new(1000).unwrap())
             .sim_threshold(0.75)
             .max_node_depth(4);
-        for ((line, expected), expected_values) in lines
-            .iter()
-            .zip(expected.iter())
-            .zip(expected_values.iter())
-        {
-            let mut values = Vec::new();
-            let (group, _) = parser.add_log_line(line, &mut values);
+        for (line, expected) in lines.iter().zip(expected.iter()) {
+            let (group, _) = parser.add_log_line(line);
             let actual = format!("{}", group);
             assert_eq!(expected.to_string(), actual);
-            assert_eq!(
-                expected_values
-                    .iter()
-                    .map(|v| v.to_string())
-                    .collect::<Vec<String>>(),
-                values
-            );
         }
     }
 
@@ -506,18 +480,65 @@ mod tests {
         ];
 
         let expected = vec![
-            "A format 1",
-            "A format <*>",
-            "B format 1",
-            "B format <*>",
-            "A format 3",
+            ("A format <*>", 1usize),
+            ("A format <*>", 1),
+            ("B format <*>", 2),
+            ("B format <*>", 2),
+            ("A format <*>", 3),
         ];
 
         for (line, expected) in lines.iter().zip(expected.iter()) {
-            let (group, _) = parser.add_log_line(line, &mut Vec::new());
+            let (group, _) = parser.add_log_line(line);
+            let actual = format!("{}", group);
+            assert_eq!(expected.0.to_string(), actual);
+            assert_eq!(expected.1, group.id);
+        }
+    }
+
+    #[test]
+    fn stable_cluster_id_test() {
+        let mut parser = LogParser::new(NonZeroUsize::new(100).unwrap())
+            .sim_threshold(0.5)
+            .max_node_depth(6);
+
+        let lines = vec![
+            "A format 1",
+            "A format 2",
+            "B format 1",
+            "B format 2",
+            "A format 3",
+            "Something that can be set into a template: my_user",
+            "Something that can be set into a template: another_user",
+            "Hello my world",
+            "Hello my Mars",
+        ];
+
+        let expected = vec![
+            "A format <*>",
+            "A format <*>",
+            "B format <*>",
+            "B format <*>",
+            "A format <*>",
+            "Something that can be set into a template: my_user",
+            "Something that can be set into a template: <*>",
+            "Hello my world",
+            "Hello my <*>",
+        ];
+
+        let mut cluster_map = HashMap::<usize, HashSet<String>>::new();
+        for (line, expected) in lines.iter().zip(expected.iter()) {
+            let (group, _) = parser.add_log_line(line);
             let actual = format!("{}", group);
             assert_eq!(expected.to_string(), actual);
+            let gen_ids = cluster_map.entry(group.id).or_insert(HashSet::new());
+            gen_ids.insert(group.cluster_id());
         }
+
+        assert_eq!(cluster_map.get(&1).unwrap().len(), 1);
+        assert_eq!(cluster_map.get(&2).unwrap().len(), 1);
+        // The following groups got templatized as part of similitude check
+        assert_eq!(cluster_map.get(&3).unwrap().len(), 2);
+        assert_eq!(cluster_map.get(&4).unwrap().len(), 2);
     }
 
     #[test]
