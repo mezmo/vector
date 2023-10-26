@@ -1,3 +1,10 @@
+# [1.21.0](https://github.com/answerbook/vector/compare/v1.20.0...v1.21.0) (2023-10-26)
+
+
+### Features
+
+* Use stable ids for log clustering [f517538](https://github.com/answerbook/vector/commit/f51753886866bdea3a13a5711e2ebfe6f9a7a0f7) - Jorge Bay [LOG-18409](https://logdna.atlassian.net/browse/LOG-18409)
+
 # [1.20.0](https://github.com/answerbook/vector/compare/v1.19.0...v1.20.0) (2023-10-24)
 
 
