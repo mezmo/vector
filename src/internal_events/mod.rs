@@ -87,6 +87,8 @@ mod metric_to_log;
 #[cfg(feature = "transforms-mezmo_aggregate")]
 mod mezmo_aggregate;
 pub mod mezmo_config;
+#[cfg(feature = "transforms-mezmo_log_clustering")]
+pub(crate) mod mezmo_log_clustering;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 mod mezmo_tag_cardinality_limit;
 #[cfg(feature = "sources-mongodb_metrics")]

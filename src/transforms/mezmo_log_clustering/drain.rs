@@ -4,12 +4,15 @@ use std::{borrow::Cow, collections::HashMap, fmt::Display, num::NonZeroUsize};
 
 type Blake2b64 = Blake2b<U8>;
 
+/// An alias for the local id
+pub type LocalId = usize;
+
 #[derive(Debug)]
 pub struct LogCluster<'a> {
     template_tokens: Vec<Token<'a>>,
     match_count: usize,
     /// The local numeric identifier (auto-incremental)
-    id: usize,
+    id: LocalId,
 }
 
 impl<'a> LogCluster<'a> {
@@ -25,6 +28,10 @@ impl<'a> LogCluster<'a> {
             .iter()
             .for_each(|token| token.hash(&mut hasher));
         base64::engine::general_purpose::STANDARD_NO_PAD.encode(hasher.finalize())
+    }
+
+    pub const fn local_id(&self) -> LocalId {
+        self.id
     }
 
     fn new(cluster_id: usize, parameterize_numeric_tokens: bool, tokens: Vec<&str>) -> Self {
@@ -164,6 +171,7 @@ impl<'a> Node<'a> {
 
 type Tokens<'a> = Vec<&'a str>;
 
+#[derive(PartialEq)]
 pub enum LogUpdateStatus {
     CreatedCluster,
     ChangedClusterTemplate,

@@ -1,5 +1,9 @@
+use deadpool_postgres::PoolConfig;
+use std::borrow::Cow;
+use std::time::{Duration, SystemTime};
 use std::{
     collections::{BTreeMap, HashMap},
+    env,
     future::ready,
     num::NonZeroUsize,
 };
@@ -13,12 +17,22 @@ use crate::{
     transforms::{TaskTransform, Transform},
 };
 use futures::StreamExt;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc, OnceCell};
+use uuid::Uuid;
 use vector_config::configurable_component;
 use vector_core::config::{log_schema, TransformOutput};
 
+use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogUpdateStatus};
+use crate::transforms::mezmo_log_clustering::store::save_in_loop;
+use vector_core::event::LogEvent;
+use vector_core::usage_metrics::{get_annotations, get_db_config, AnnotationSet};
 use vrl::value::Value;
 
 mod drain;
+mod store;
+
+const DEFAULT_DB_CONNECTION_POOL_SIZE: usize = 2;
 
 /// Configuration for the `mezmo_log_clustering` transform.
 #[configurable_component(transform("mezmo_log_clustering"))]
@@ -44,6 +58,20 @@ pub struct MezmoLogClusteringConfig {
 
     /// The field to cluster. If not provide then ".message" will be used
     pub cluster_field: Option<String>,
+
+    /// Determines whether it should store data in the metrics database
+    #[serde(default)]
+    pub store_metrics: bool,
+
+    /// When `store_metrics` is set, it determines the beginning of the window when data is stored.
+    pub sample_start: Option<i64>,
+
+    /// When `store_metrics` is set, it determines the end of the window when data is stored.
+    pub sample_end: Option<i64>,
+
+    /// When `store_metrics` is enabled, it determines the flush interval.
+    #[serde(default = "default_store_metrics_flush_interval")]
+    pub store_metrics_flush_interval: Duration,
 }
 
 const fn default_max_clusters() -> usize {
@@ -55,20 +83,71 @@ const fn default_similarity_threshold() -> f64 {
 }
 
 const fn default_max_node_depth() -> usize {
-    5
+    6
 }
 
 const fn default_max_children() -> usize {
-    100
+    40
+}
+
+const fn default_store_metrics_flush_interval() -> Duration {
+    Duration::from_secs(20)
 }
 
 impl_generate_config_from_default!(MezmoLogClusteringConfig);
 
+type DbTransmitter = UnboundedSender<LogGroupInfo>;
+static ONCE: OnceCell<DbTransmitter> = OnceCell::const_new();
+
 #[async_trait::async_trait]
 #[typetag::serde(name = "mezmo_log_clustering")]
 impl TransformConfig for MezmoLogClusteringConfig {
-    async fn build(&self, _context: &TransformContext) -> crate::Result<Transform> {
-        Ok(Transform::event_task(MezmoLogClustering::new(self)))
+    async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
+        // Create a channel with a db connection pool only once
+        let mut key = None;
+        let db_tx = if self.store_metrics {
+            let db_url = env::var("MEZMO_METRICS_DB_URL").ok();
+            let Some(db_url) = db_url else {
+                return Err(
+                    "Cannot store log clustering metrics without MEZMO_METRICS_DB_URL being set"
+                        .into(),
+                );
+            };
+
+            let Ok(mut config) = get_db_config(db_url.as_str()) else {
+                return Err("Invalid db url".into());
+            };
+            config.pool = Some(PoolConfig::new(DEFAULT_DB_CONNECTION_POOL_SIZE));
+            let Some(component_key) = context.key.as_ref() else {
+                return Err("Cannot store log clustering metrics without a component key".into());
+            };
+            let Ok(component_key) = get_component_info(component_key.id()) else {
+                return Err("Component key is not valid".into());
+            };
+            key = Some(component_key);
+
+            let store_metrics_flush_interval = self.store_metrics_flush_interval;
+            let tx = ONCE
+                .get_or_init(move || async move {
+                    let (tx, rx) = mpsc::unbounded_channel();
+                    // Start saving in the background
+                    // This task will be running forever, topology changes should not affect it
+                    tokio::spawn(async move {
+                        save_in_loop(rx, config, store_metrics_flush_interval).await;
+                    });
+
+                    tx
+                })
+                .await;
+
+            Some(tx.clone())
+        } else {
+            None
+        };
+
+        Ok(Transform::event_task(MezmoLogClustering::new(
+            self, key, db_tx,
+        )))
     }
 
     fn input(&self) -> Input {
@@ -85,17 +164,43 @@ impl TransformConfig for MezmoLogClusteringConfig {
     }
 
     fn enable_concurrency(&self) -> bool {
-        true
+        false
     }
 }
 
-pub struct MezmoLogClustering {
+struct MezmoLogClustering {
     parser: drain::LogParser<'static>,
-    cluster_field: String,
+    cluster_field: Option<String>,
+    store_metrics: bool,
+    sample_start: Option<i64>,
+    sample_end: Option<i64>,
+    transform_status: Option<TransformStatus>,
+    key: Option<PipelineInfo>,
+    db_tx: Option<DbTransmitter>,
+}
+
+#[derive(Copy, Clone, PartialEq)]
+enum TransformStatus {
+    Noop,
+    Store,
+    AnnotateEvent,
+}
+
+pub(crate) struct LogGroupInfo {
+    local_id: LocalId,
+    cluster_id: String,
+    size: i64,
+    template: Option<String>,
+    annotation_set: Option<AnnotationSet>,
+    key: PipelineInfo,
 }
 
 impl MezmoLogClustering {
-    pub fn new(config: &MezmoLogClusteringConfig) -> Self {
+    pub fn new(
+        config: &MezmoLogClusteringConfig,
+        key: Option<PipelineInfo>,
+        db_tx: Option<DbTransmitter>,
+    ) -> Self {
         let similarity_threshold = if config.similarity_threshold > 1.0
             || config.similarity_threshold < 0.0
         {
@@ -140,22 +245,96 @@ impl MezmoLogClustering {
             .sim_threshold(similarity_threshold)
             .max_node_depth(max_node_depth)
             .max_children(max_children),
-            cluster_field: config
-                .cluster_field
-                .as_deref()
-                .unwrap_or_else(|| log_schema().message_key())
-                .to_string(),
+            store_metrics: config.store_metrics,
+            sample_start: config.sample_start,
+            sample_end: config.sample_end,
+            transform_status: None,
+            key,
+            db_tx,
+            cluster_field: config.cluster_field.clone(),
+        }
+    }
+
+    /// Determines whether the Transform is:
+    /// - Modifying the event with cluster information
+    /// - Storing the event
+    /// - Passing through the event (noop)
+    fn get_transform_status(&self) -> TransformStatus {
+        if !self.store_metrics {
+            return TransformStatus::AnnotateEvent;
+        }
+
+        if let (Some(start), Some(end)) = (self.sample_start, self.sample_end) {
+            let ts = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map(|t| t.as_millis() as i64)
+                .unwrap_or(0);
+
+            if ts > start && ts < end {
+                TransformStatus::Store
+            } else {
+                // Outside the sample window
+                TransformStatus::Noop
+            }
+        } else {
+            // No sample window
+            TransformStatus::Store
         }
     }
 
     fn transform_one(&mut self, mut event: Event) -> Option<Event> {
+        let status = self.get_transform_status();
+        let last_status = self.transform_status;
+        self.transform_status = Some(status);
+
+        if status == TransformStatus::Noop {
+            if last_status == Some(TransformStatus::Store) {
+                // We are no longer storing data from this component.
+                // Free the parser memory by dropping the previous parser.
+                self.parser = drain::LogParser::new(NonZeroUsize::new(1).unwrap());
+            }
+
+            return Some(event);
+        }
+
         let log = event.as_mut_log();
-        let field = log.get_mut(self.cluster_field.as_str());
+        let (Some(field_name), Some(line)) = self.get_cluster_line(log) else {
+            return Some(event);
+        };
+        let field_name = if status == TransformStatus::AnnotateEvent {
+            // Copy for the AnnotateEvent case
+            Some(field_name.to_string())
+        } else {
+            // Not needed
+            None
+        };
 
-        if let Some(field) = field {
-            let line = field.to_string_lossy();
-            let (group, _) = self.parser.add_log_line(line.as_ref());
+        let (group, group_status) = self.parser.add_log_line(line.as_ref());
 
+        if status == TransformStatus::Store {
+            let mut info = LogGroupInfo {
+                local_id: group.local_id(),
+                cluster_id: group.cluster_id(),
+                size: line.as_ref().len() as i64,
+                template: None,
+                annotation_set: None,
+                // The component_key was already validated to be "some" for the Store case
+                key: self.key.unwrap(),
+            };
+
+            // Send the full cluster information only when it has added/changed
+            if group_status != LogUpdateStatus::None {
+                info.template = Some(format!("{}", group));
+
+                if group_status == LogUpdateStatus::CreatedCluster {
+                    info.annotation_set = log.as_map().and_then(get_annotations);
+                }
+            }
+
+            if let Err(_) = self.db_tx.as_ref().expect("can't fail").send(info) {
+                error!("Db channel closed");
+            }
+        } else if status == TransformStatus::AnnotateEvent {
             let mut cluster = BTreeMap::new();
 
             cluster.insert(
@@ -171,10 +350,49 @@ impl MezmoLogClustering {
                 Value::Bytes(format!("{}", group).into()),
             );
 
-            log.insert(self.cluster_field.as_str(), Value::Object(cluster));
+            log.insert(
+                field_name.expect("to be set for annotate case").as_str(),
+                Value::Object(cluster),
+            );
         }
 
         Some(event)
+    }
+
+    /// Tries to get the line string from the log event using the cluster_field configured or
+    /// using the .annotations.message_key or checking the value of .message.message or .message.
+    fn get_cluster_line<'a>(
+        &self,
+        log: &'a LogEvent,
+    ) -> (Option<Cow<'a, str>>, Option<Cow<'a, str>>) {
+        let field_name: Option<Cow<'a, str>> = if let Some(field_name) = self.cluster_field.as_ref()
+        {
+            Some(Cow::Owned(field_name.as_str().to_string()))
+        } else if let Some(field_name) =
+            log.get((log_schema().annotations_key().to_string() + ".message_key").as_str())
+        {
+            field_name.as_str()
+        } else {
+            None
+        };
+
+        if field_name.is_none() {
+            // Check .message property for backward compatibility
+            let field_name = log_schema().message_key();
+            if let Some(field) = log.get(field_name) {
+                if field.is_bytes() {
+                    return (Some(Cow::Owned(field_name.to_string())), field.as_str());
+                }
+            }
+            return (None, None);
+        }
+
+        let line = field_name
+            .as_ref()
+            .and_then(|name| log.get(name.as_ref()))
+            .and_then(|f| f.as_str());
+
+        (field_name, line)
     }
 }
 
@@ -188,11 +406,38 @@ impl TaskTransform<Event> for MezmoLogClustering {
     }
 }
 
+#[derive(Default)]
+struct LogGroupAggregateInfo {
+    cluster_id: String,
+    count: i64,
+    size: i64,
+    template: Option<String>,
+    annotation_set: Option<AnnotationSet>,
+}
+
+#[derive(Hash, Eq, PartialEq, Clone, Copy)]
+struct PipelineInfo {
+    account_id: Uuid,
+    pipeline_id: Uuid,
+}
+
+fn get_component_info(key: &str) -> crate::Result<PipelineInfo> {
+    // Expected format is 'v1:{type}:{kind}:${component_id}:${pipeline_id}:${account_id}'
+    let parts: Vec<&str> = key.split(':').collect();
+    if parts.len() != 6 {
+        return Err("Invalid number of parts in component".into());
+    }
+    Ok(PipelineInfo {
+        account_id: Uuid::try_parse(parts[5])?,
+        pipeline_id: Uuid::try_parse(parts[4])?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
 
-    use super::MezmoLogClusteringConfig;
+    use super::{default_store_metrics_flush_interval, MezmoLogClusteringConfig};
 
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
@@ -215,6 +460,10 @@ mod tests {
             max_node_depth: 5,
             max_children: 100,
             cluster_field: None,
+            store_metrics: false,
+            sample_start: None,
+            sample_end: None,
+            store_metrics_flush_interval: default_store_metrics_flush_interval(),
         }
     }
 

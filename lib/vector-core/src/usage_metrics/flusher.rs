@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use deadpool_postgres::{Config, Pool, PoolConfig, Runtime};
+use deadpool_postgres::{Pool, Runtime};
 use futures::future::join_all;
 use http::{header, HeaderName, HeaderValue};
 use reqwest::Client;
@@ -16,17 +16,16 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::NoTls;
-use url::Url;
 use uuid::Uuid;
 
-use super::{AnnotationMap, AnnotationSet, UsageMetricsKey, UsageMetricsValue};
+use super::{get_db_config, AnnotationMap, AnnotationSet, UsageMetricsKey, UsageMetricsValue};
 
 const INSERT_BILLING_QUERY: &str =
     "INSERT INTO usage_metrics (event_ts, account_id, pipeline_id, component_id, processor, metric, value) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
 const INSERT_PROFILES_QUERY: &str =
     "INSERT INTO usage_metrics_by_annotations (ts, account_id, pipeline_id, component_id, count, size, annotations) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
 
-const DB_MAX_PARALLEL_EXECUTIONS: usize = 4;
+const DB_MAX_PARALLEL_EXECUTIONS: usize = 8;
 const VECTOR_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[async_trait]
@@ -50,7 +49,7 @@ pub(crate) struct DbFlusher {
 
 impl DbFlusher {
     pub(crate) async fn new(endpoint_url: String, pod_name: &str) -> Result<Self, DbFlusherError> {
-        let cfg = DbFlusher::get_config(&endpoint_url)?;
+        let cfg = get_db_config(&endpoint_url).map_err(|_| DbFlusherError::UrlInvalid)?;
         let pool = cfg
             .create_pool(Some(Runtime::Tokio1), NoTls)
             .map_err(|_| DbFlusherError::ConnectionError)?;
@@ -74,41 +73,6 @@ impl DbFlusher {
             pool,
             processor_name,
         })
-    }
-
-    fn get_config(endpoint_url: &str) -> Result<Config, DbFlusherError> {
-        // The library deadpool postgres does not support urls like tokio_postgres::connect
-        // Implement our own
-        let url = Url::parse(endpoint_url).map_err(|_| DbFlusherError::UrlInvalid)?;
-        if url.scheme() != "postgresql" && url.scheme() != "postgres" {
-            error!(
-                message = "Invalid scheme for metrics db",
-                scheme = url.scheme()
-            );
-            return Err(DbFlusherError::UrlInvalid);
-        }
-
-        let mut cfg = Config::new();
-        cfg.host = url.host().map(|h| h.to_string());
-        cfg.port = url.port();
-        cfg.user = (!url.username().is_empty()).then(|| {
-            urlencoding::decode(url.username())
-                .expect("UTF-8")
-                .to_string()
-        });
-        cfg.password = url
-            .password()
-            .map(|v| urlencoding::decode(v).expect("UTF-8").to_string());
-        if let Some(mut path_segments) = url.path_segments() {
-            if let Some(first) = path_segments.next() {
-                cfg.dbname = Some(first.into());
-            }
-        }
-
-        // Set the max_size on the pool to match the number of parallel inserts
-        cfg.pool = Some(PoolConfig::new(DB_MAX_PARALLEL_EXECUTIONS));
-
-        Ok(cfg)
     }
 }
 
@@ -494,23 +458,23 @@ mod tests {
     static HTTP_FLUSHER_MAX_DELAY: Duration = Duration::from_millis(400);
 
     #[test]
-    fn get_config_test() {
-        let config = DbFlusher::get_config("postgresql://user1:pass@server/db1").unwrap();
+    fn get_db_config_test() {
+        let config = get_db_config("postgresql://user1:pass@server/db1").unwrap();
         assert_eq!(config.host, Some("server".to_string()));
         assert_eq!(config.user, Some("user1".to_string()));
         assert_eq!(config.password, Some("pass".to_string()));
         assert_eq!(config.dbname, Some("db1".to_string()));
 
-        let config = DbFlusher::get_config("postgres://user1:pass@server/db1?zzz=1").unwrap();
+        let config = get_db_config("postgres://user1:pass@server/db1?zzz=1").unwrap();
         assert_eq!(config.host, Some("server".to_string()));
         assert_eq!(config.user, Some("user1".to_string()));
         assert_eq!(config.password, Some("pass".to_string()));
         assert_eq!(config.dbname, Some("db1".to_string()));
 
-        assert!(DbFlusher::get_config("http://abc.com/sa").is_err());
-        assert!(DbFlusher::get_config("http://abc.com/sa").is_err());
+        assert!(get_db_config("http://abc.com/sa").is_err());
+        assert!(get_db_config("http://abc.com/sa").is_err());
 
-        let config = DbFlusher::get_config("postgresql://metrics:A_%3EBX%2FWN%3E%3CZZ%3BBg@pipeline-primary.pipeline.svc:5432/metrics").unwrap();
+        let config = get_db_config("postgresql://metrics:A_%3EBX%2FWN%3E%3CZZ%3BBg@pipeline-primary.pipeline.svc:5432/metrics").unwrap();
         assert_eq!(config.port, Some(5432));
         assert_eq!(
             config.host,

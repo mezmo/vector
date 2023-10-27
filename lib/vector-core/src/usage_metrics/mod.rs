@@ -1,3 +1,4 @@
+use deadpool_postgres::{Config, PoolConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
@@ -9,6 +10,7 @@ use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
     time::{sleep, Duration},
 };
+use url::Url;
 use vector_common::byte_size_of::ByteSizeOf;
 use vrl::value::Value;
 
@@ -25,6 +27,7 @@ use self::flusher::NoopFlusher;
 
 const DEFAULT_FLUSH_INTERVAL_SECS: u64 = 20;
 const DEFAULT_PROFILE_FLUSH_INTERVAL: Duration = Duration::from_secs(60);
+const DEFAULT_DB_CONNECTION_POOL_SIZE: usize = 4;
 const BASE_ARRAY_SIZE: usize = 8; // Add some overhead to the array and object size
 const BASE_BTREE_SIZE: usize = 8;
 static INTERNAL_TRANSFORM: ComponentKind = ComponentKind::Transform { internal: true };
@@ -45,9 +48,11 @@ pub enum ParseError {
     InvalidFormat,
 }
 
+#[derive(Debug)]
 pub enum MetricsPublishingError {
     FlusherError,
     DbEndpointUrlNotSet,
+    DbEndpointUrlInvalid,
     AuthNotSetError,
 }
 
@@ -211,7 +216,7 @@ impl FromStr for UsageMetricsKey {
 
 /// A set of annotation keys and values (allow listing).
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub(crate) struct AnnotationSet {
+pub struct AnnotationSet {
     app: Option<String>,
     host: Option<String>,
     level: Option<String>,
@@ -477,7 +482,7 @@ fn is_profile_enabled() -> bool {
     })
 }
 
-fn get_annotations(fields: &BTreeMap<String, Value>) -> Option<AnnotationSet> {
+pub fn get_annotations(fields: &BTreeMap<String, Value>) -> Option<AnnotationSet> {
     let annotations_field = fields.get(log_schema().annotations_key())?.as_object()?;
 
     Some(AnnotationSet {
@@ -719,6 +724,45 @@ fn start_publishing_metrics_with_flusher(
             }
         }
     });
+}
+
+/// Gets a config instance from the url.
+/// # Errors
+/// When the url can not be parsed as a valid config.
+pub fn get_db_config(endpoint_url: &str) -> Result<Config, MetricsPublishingError> {
+    // The library deadpool postgres does not support urls like tokio_postgres::connect
+    // Implement our own
+    let url = Url::parse(endpoint_url).map_err(|_| MetricsPublishingError::DbEndpointUrlInvalid)?;
+    if url.scheme() != "postgresql" && url.scheme() != "postgres" {
+        error!(
+            message = "Invalid scheme for metrics db",
+            scheme = url.scheme()
+        );
+        return Err(MetricsPublishingError::DbEndpointUrlInvalid);
+    }
+
+    let mut cfg = Config::new();
+    cfg.host = url.host().map(|h| h.to_string());
+    cfg.port = url.port();
+    cfg.user = (!url.username().is_empty()).then(|| {
+        urlencoding::decode(url.username())
+            .expect("UTF-8")
+            .to_string()
+    });
+    cfg.password = url
+        .password()
+        .map(|v| urlencoding::decode(v).expect("UTF-8").to_string());
+    if let Some(mut path_segments) = url.path_segments() {
+        if let Some(first) = path_segments.next() {
+            cfg.dbname = Some(first.into());
+        }
+    }
+
+    // Postgres client supports request pipelining (aka pipeline mode).
+    // We can have a small pool and send a large number of requests in parallel
+    cfg.pool = Some(PoolConfig::new(DEFAULT_DB_CONNECTION_POOL_SIZE));
+
+    Ok(cfg)
 }
 
 #[cfg(test)]
