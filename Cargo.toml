@@ -227,6 +227,7 @@ tui = { version = "0.19.0", optional = true, default-features = false, features 
 # Datadog Pipelines
 datadog-filter = { package = "datadog-filter", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.5.1" }
 datadog-search-syntax = { package = "datadog-search-syntax", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.5.1" }
+fgrok-parser = { package = "fgrok-parser", git = "ssh://git@github.com/answerbook/fgrok-rs.git", rev = "v1.0.0" , optional = true }
 hex = { version = "0.4.3", default-features = false, optional = true }
 sha2 = { version = "0.10.6", default-features = false, optional = true }
 
@@ -614,6 +615,7 @@ transforms-logs-mezmo = [
   "transforms-sample",
   "transforms-throttle",
   "transforms-mezmo_log_clustering",
+  "transforms-mezmo_log_classification",
   "transforms-protobuf_to_log",
 ]
 transforms-metrics = [
@@ -649,6 +651,7 @@ transforms-mezmo_reduce = ["transforms-reduce"] # depends on the upstream versio
 transforms-mezmo_aggregate = []
 transforms-mezmo_log_to_metric = []
 transforms-mezmo_log_clustering = ["dep:lru", "dep:blake2", "dep:base64"]
+transforms-mezmo_log_classification = ["dep:fgrok-parser"]
 transforms-mezmo_tag_cardinality_limit = ["dep:bloom", "dep:hashbrown"]
 transforms-remap = []
 transforms-route = []
