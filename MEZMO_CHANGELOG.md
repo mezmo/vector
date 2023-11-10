@@ -1,3 +1,15 @@
+# [1.23.0](https://github.com/answerbook/vector/compare/v1.22.0...v1.23.0) (2023-11-10)
+
+
+### Features
+
+* **automated-parsing**: fgrok classification transform [0d325aa](https://github.com/answerbook/vector/commit/0d325aaf2791bf761b6229ac4b92353a36023420) - Mike Del Tito [LOG-18364](https://logdna.atlassian.net/browse/LOG-18364)
+
+
+### Miscellaneous
+
+* Merge pull request #345 from answerbook/mdeltito/LOG-18364 [10ada72](https://github.com/answerbook/vector/commit/10ada7200d701e4423b164968464564c489bbf5e) - GitHub [LOG-18364](https://logdna.atlassian.net/browse/LOG-18364)
+
 # [1.22.0](https://github.com/answerbook/vector/compare/v1.21.0...v1.22.0) (2023-11-10)
 
 
