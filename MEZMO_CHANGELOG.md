@@ -1,3 +1,10 @@
+# [1.22.0](https://github.com/answerbook/vector/compare/v1.21.0...v1.22.0) (2023-11-10)
+
+
+### Features
+
+* Support storing log clustering info out of band [d43a518](https://github.com/answerbook/vector/commit/d43a5186062dcf4fd6a4b3d67a588dffb49bf7ed) - Jorge Bay [LOG-18410](https://logdna.atlassian.net/browse/LOG-18410)
+
 # [1.21.0](https://github.com/answerbook/vector/compare/v1.20.0...v1.21.0) (2023-10-26)
 
 
