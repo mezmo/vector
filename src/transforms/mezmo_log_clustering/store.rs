@@ -1,6 +1,6 @@
 use crate::internal_events::mezmo_log_clustering::MezmoLogClusteringStore;
 use crate::transforms::mezmo_log_clustering::{
-    LocalId, LogGroupAggregateInfo, LogGroupInfo, PipelineInfo,
+    ComponentInfo, LocalId, LogGroupAggregateInfo, LogGroupInfo,
 };
 use chrono::Utc;
 use deadpool_postgres::{Config, Object, Pool, Runtime};
@@ -18,8 +18,8 @@ use tokio_postgres::{NoTls, Statement};
 const MAX_NEW_TEMPLATES_QUEUED: usize = 100;
 const DB_MAX_PARALLEL_EXECUTIONS: usize = 8;
 
-const INSERT_USAGE_QUERY: &str = "INSERT INTO usage_metrics_log_cluster (ts, account_id, pipeline_id, log_cluster_id, count, size) VALUES ($1, $2, $3, $4, $5, $6)";
-const INSERT_LOG_CLUSTER_QUERY: &str = "INSERT INTO log_clusters (account_id, pipeline_id, log_cluster_id, template, first_seen_at, annotations) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING";
+const INSERT_USAGE_QUERY: &str = "INSERT INTO usage_metrics_log_cluster (ts, component_id, log_cluster_id, count, size) VALUES ($1, $2, $3, $4, $5)";
+const INSERT_LOG_CLUSTER_QUERY: &str = "INSERT INTO log_clusters (ts, account_id, component_id, log_cluster_id, template, first_seen_at, annotations) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
 
 async fn init_db_pool(config: Config) -> crate::Result<Pool> {
     let pool = config
@@ -75,7 +75,7 @@ pub(crate) async fn save_in_loop(
 
     let mut finished = false;
     while !finished {
-        let mut aggregated: HashMap<PipelineInfo, HashMap<LocalId, LogGroupAggregateInfo>> =
+        let mut aggregated: HashMap<ComponentInfo, HashMap<LocalId, LogGroupAggregateInfo>> =
             HashMap::new();
         let timeout = sleep(agg_window);
         tokio::pin!(timeout);
@@ -118,7 +118,7 @@ pub(crate) async fn save_in_loop(
 
 async fn save(
     pool: &Pool,
-    aggregated: HashMap<PipelineInfo, HashMap<LocalId, LogGroupAggregateInfo>>,
+    aggregated: HashMap<ComponentInfo, HashMap<LocalId, LogGroupAggregateInfo>>,
 ) {
     if aggregated.is_empty() {
         return;
@@ -142,7 +142,7 @@ async fn save(
     };
 
     // Use references, avoid copying
-    let mut usage: Vec<(&PipelineInfo, &LogGroupAggregateInfo)> = Vec::new();
+    let mut usage: Vec<(&ComponentInfo, &LogGroupAggregateInfo)> = Vec::new();
     let mut log_clusters = Vec::new();
     for (k, v) in aggregated.iter() {
         for (_, aggregate_info) in v.iter() {
@@ -180,7 +180,7 @@ async fn save(
 async fn insert_log_clusters_sequentially(
     client: &Object,
     stmt: &Statement,
-    iter: Arc<Mutex<IntoIter<(&PipelineInfo, &LogGroupAggregateInfo)>>>,
+    iter: Arc<Mutex<IntoIter<(&ComponentInfo, &LogGroupAggregateInfo)>>>,
 ) {
     while let Some((k, v)) = get_next(Arc::clone(&iter)).await {
         insert_log_clusters(client, stmt, k, v).await;
@@ -190,17 +190,18 @@ async fn insert_log_clusters_sequentially(
 async fn insert_log_clusters(
     client: &Object,
     stmt: &Statement,
-    pipeline_info: &PipelineInfo,
+    component_info: &ComponentInfo,
     aggregate_info: &LogGroupAggregateInfo,
 ) {
     let json_set = aggregate_info.annotation_set.as_ref().map(Json);
-    let first_seen_at = Utc::now();
+    let ts = Utc::now();
     let params: Vec<&(dyn ToSql + Sync)> = vec![
-        &pipeline_info.account_id,
-        &pipeline_info.pipeline_id,
+        &ts,
+        &component_info.account_id,
+        &component_info.component_id,
         &aggregate_info.cluster_id,
         aggregate_info.template.as_ref().expect("Already validated"),
-        &first_seen_at,
+        &ts,
         &json_set,
     ];
 
@@ -212,7 +213,7 @@ async fn insert_log_clusters(
 async fn insert_usage_sequentially(
     client: &Object,
     stmt: &Statement,
-    iter: Arc<Mutex<IntoIter<(&PipelineInfo, &LogGroupAggregateInfo)>>>,
+    iter: Arc<Mutex<IntoIter<(&ComponentInfo, &LogGroupAggregateInfo)>>>,
 ) {
     while let Some((k, v)) = get_next(Arc::clone(&iter)).await {
         insert_usage(client, stmt, k, v).await;
@@ -222,14 +223,13 @@ async fn insert_usage_sequentially(
 async fn insert_usage(
     client: &Object,
     stmt: &Statement,
-    pipeline_info: &PipelineInfo,
+    component_info: &ComponentInfo,
     aggregate_info: &LogGroupAggregateInfo,
 ) {
     let ts = Utc::now();
     let params: Vec<&(dyn ToSql + Sync)> = vec![
         &ts,
-        &pipeline_info.account_id,
-        &pipeline_info.pipeline_id,
+        &component_info.component_id,
         &aggregate_info.cluster_id,
         &aggregate_info.count,
         &aggregate_info.size,

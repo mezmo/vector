@@ -61,6 +61,11 @@ impl FunctionExpression for GetPipelineStateVariableFn {
     fn resolve(&self, ctx: &mut Context) -> Resolved {
         let name = self.name.resolve(ctx)?.to_string_lossy().to_string();
 
+        if self.mezmo_ctx.pipeline_id.is_none() {
+            // Noop for non-pipeline components
+            return Ok(Value::Null);
+        }
+
         let conditions = vec![
             Condition::Equals {
                 field: "account_id",
@@ -68,7 +73,7 @@ impl FunctionExpression for GetPipelineStateVariableFn {
             },
             Condition::Equals {
                 field: "pipeline_id",
-                value: Value::from(&self.mezmo_ctx.pipeline_id),
+                value: Value::from(self.mezmo_ctx.pipeline_id.as_ref().unwrap()),
             },
         ];
 

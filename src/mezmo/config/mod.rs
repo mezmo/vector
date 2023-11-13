@@ -498,7 +498,7 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
                 if let Err(error) = transform.build(&context).await {
                     if let Some(ctx) = &mezmo_ctx {
                         match &ctx.pipeline_id {
-                            super::ContextIdentifier::Value { id: _ } => {
+                            Some(super::ContextIdentifier::Value { id: _ }) => {
                                 user_log_error!(
                                 mezmo_ctx,
                                 "Error loading existing transform component. Please contact support");
@@ -506,10 +506,13 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
                                     "Error validating VRL in transform {key}: {error}"
                                 ));
                             }
-                            super::ContextIdentifier::Shared => {
+                            Some(super::ContextIdentifier::Shared) => {
                                 // This shouldn't happen...
                                 failures
                                     .push(format!("Invalid VRL found in shared component {key}"));
+                            }
+                            None => {
+                                // Ignore config validation for non-pipeline components (analysis)
                             }
                         }
                     }

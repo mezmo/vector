@@ -4,6 +4,7 @@ use ::vrl::value::Value;
 use snafu::Snafu;
 use std::convert::Infallible;
 use std::str::FromStr;
+use uuid::Uuid;
 
 use vector_core::config::log_schema;
 use vector_core::event::LogEvent;
@@ -25,7 +26,10 @@ pub enum ContextParseError {
 
 #[derive(PartialEq, Eq, Debug, Hash, Clone)]
 pub enum ContextIdentifier {
-    Value { id: String },
+    Value {
+        id: String,
+    },
+    /// Defines shared components within a pipeline deployment
     Shared,
 }
 
@@ -74,10 +78,26 @@ impl From<&ComponentKind> for Value {
 pub struct MezmoContext {
     id: String,
     account_id: ContextIdentifier,
-    pipeline_id: ContextIdentifier,
+    pipeline_id: Option<ContextIdentifier>,
     component_id: String,
     component_kind: ComponentKind,
     internal: bool,
+}
+
+impl MezmoContext {
+    /// Gets the account id, when it's defined in the key (not a shared component)
+    pub fn account_id(&self) -> Option<Uuid> {
+        match &self.account_id {
+            ContextIdentifier::Value { id } => Uuid::try_parse(id).ok(),
+            ContextIdentifier::Shared => None,
+        }
+    }
+
+    /// Gets the id of the component tracked, it can be the source/transform/sink id or
+    /// the analysis id (in the context of auto-parsing).
+    pub fn component_id(&self) -> &str {
+        &self.component_id
+    }
 }
 
 impl TryFrom<String> for MezmoContext {
@@ -96,14 +116,26 @@ impl TryFrom<String> for MezmoContext {
             parts.push("shared");
         }
 
-        if parts.len() != 6 || parts[0] != "v1" {
+        if parts[0] != "v1" {
             return Err(Self::Error::NotUserIdentifier { id });
         }
 
-        // Format: 'v1:{type}:{kind}:{component_id}:{pipeline_id}:{account_id}'
-        // Example: v1:mezmo:sink:ef757476-43a5-4e0d-b998-3db35dbde001:1515707f-f668-4ca1-8493-969e5b13e781:800e5a08-3e67-431c-bbf0-14aa94beafcc
-        let account_id = ContextIdentifier::from_str(parts[5]).unwrap();
-        let pipeline_id = ContextIdentifier::from_str(parts[4]).unwrap();
+        let (account_id, pipeline_id) = if parts.len() == 5 {
+            // Deployments without a pipeline id, for example route analysis
+            // Format: 'v1:{type}:{kind}:{analysis_id}:{account_id}'
+            (ContextIdentifier::from_str(parts[4]).unwrap(), None)
+        } else if parts.len() == 6 {
+            // Components that belong to a specific pipeline
+            // Format: 'v1:{type}:{kind}:{component_id}:{pipeline_id}:{account_id}'
+            // Example: v1:mezmo:sink:ef757476-43a5-4e0d-b998-3db35dbde001:1515707f-f668-4ca1-8493-969e5b13e781:800e5a08-3e67-431c-bbf0-14aa94beafcc
+            (
+                ContextIdentifier::from_str(parts[5]).unwrap(),
+                Some(ContextIdentifier::from_str(parts[4]).unwrap()),
+            )
+        } else {
+            return Err(Self::Error::NotUserIdentifier { id });
+        };
+
         let component_id = parts[3].to_owned();
         let internal = parts[2].starts_with("internal_");
         let component_kind = match parts[2] {
@@ -144,7 +176,7 @@ mod tests {
     fn test_mezmo_context_try_from_shared_component() {
         let res = MezmoContext::try_from("v1:internal_source:http:shared".to_owned()).unwrap();
         assert_eq!(res.account_id, ContextIdentifier::Shared);
-        assert_eq!(res.pipeline_id, ContextIdentifier::Shared);
+        assert_eq!(res.pipeline_id, Some(ContextIdentifier::Shared));
         assert_eq!(res.component_kind, ComponentKind::Source);
         assert_eq!(res.component_id, "http".to_owned());
         assert!(res.internal);
@@ -157,7 +189,9 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(res.account_id, ContextIdentifier::Value { id } if id == "account_id"));
-        assert!(matches!(res.pipeline_id, ContextIdentifier::Value { id } if id == "pipeline_id"));
+        assert!(
+            matches!(res.pipeline_id, Some(ContextIdentifier::Value { id }) if id == "pipeline_id")
+        );
         assert_eq!(res.component_kind, ComponentKind::Source);
         assert_eq!(res.component_id, "component_id".to_owned());
         assert!(res.internal);
@@ -169,9 +203,24 @@ mod tests {
             MezmoContext::try_from("v1:mezmo:sink:component_id:pipeline_id:account_id".to_owned())
                 .unwrap();
         assert!(matches!(res.account_id, ContextIdentifier::Value { id } if id == "account_id"));
-        assert!(matches!(res.pipeline_id, ContextIdentifier::Value { id } if id == "pipeline_id"));
+        assert!(
+            matches!(res.pipeline_id, Some(ContextIdentifier::Value { id }) if id == "pipeline_id")
+        );
         assert_eq!(res.component_kind, ComponentKind::Sink);
         assert_eq!(res.component_id, "component_id".to_owned());
+        assert!(!res.internal);
+    }
+
+    #[test]
+    fn test_mezmo_context_try_from_analysis_deployments() {
+        let res = MezmoContext::try_from(
+            "v1:classifier_reduce:transform:component1:my_account_id".to_owned(),
+        )
+        .unwrap();
+        assert!(matches!(res.account_id, ContextIdentifier::Value { id } if id == "my_account_id"));
+        assert_eq!(res.pipeline_id, None);
+        assert_eq!(res.component_kind, ComponentKind::Transform);
+        assert_eq!(&res.component_id, "component1");
         assert!(!res.internal);
     }
 

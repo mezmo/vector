@@ -96,7 +96,11 @@ pub(crate) struct UsageMetricsValue {
 #[derive(PartialEq, Eq, Debug, Hash, Clone, Serialize)]
 pub struct UsageMetricsKey {
     account_id: String,
-    pipeline_id: String,
+    /// Determines the pipeline id of the component. When None, it represents a component that
+    /// is not part of a pipeline config, e.g., analysis phase.
+    pipeline_id: Option<String>,
+    /// Component id as a string (not uuid) as it might contain the output name
+    /// and other separators.
     component_id: String,
     component_type: String,
     component_kind: ComponentKind,
@@ -105,7 +109,7 @@ pub struct UsageMetricsKey {
 impl UsageMetricsKey {
     fn new(
         account_id: String,
-        pipeline_id: String,
+        pipeline_id: Option<String>,
         component_id: String,
         component_type: String,
         component_kind: ComponentKind,
@@ -119,17 +123,26 @@ impl UsageMetricsKey {
         }
     }
 
+    /// Determines whether the component with this key should be tracked for profiling.
+    /// Currently only during the analysis phase.
+    fn is_tracked_for_profiling(&self) -> bool {
+        if self.pipeline_id.is_some() {
+            return false;
+        }
+
+        let ComponentKind::Transform { internal } = self.component_kind else {
+            return false;
+        };
+
+        !internal && self.component_type == "mezmo_log_classification"
+    }
+
     /// Determines whether the component with this key should be tracked for billing
     fn is_tracked_for_billing(&self) -> bool {
-        self.check_tracked(false)
-    }
+        if self.pipeline_id.is_none() {
+            return false;
+        }
 
-    /// Determines whether the component with this key should be tracked for profiling or billing
-    fn is_tracked(&self) -> bool {
-        self.check_tracked(true)
-    }
-
-    fn check_tracked(&self, track_transforms: bool) -> bool {
         match self.component_kind {
             ComponentKind::Source { internal } => {
                 // Internal sources should not be tracked, remap transforms will be tracked instead
@@ -137,14 +150,17 @@ impl UsageMetricsKey {
             }
             ComponentKind::Sink => true,
             ComponentKind::Transform { internal } => {
-                if internal {
-                    // Only track source format transforms and the swimlanes
-                    self.component_type == "remap" && self.pipeline_id != "shared"
-                } else {
-                    track_transforms
-                }
+                // Only track source format transforms and the swimlanes
+                internal
+                    && self.component_type == "remap"
+                    && self.pipeline_id != Some("shared".into())
             }
         }
+    }
+
+    /// Determines whether the component with this key should be tracked for profiling or billing
+    fn is_tracked(&self) -> bool {
+        self.is_tracked_for_billing() || self.is_tracked_for_profiling()
     }
 
     /// Gets the target key to use to track.
@@ -153,7 +169,7 @@ impl UsageMetricsKey {
     fn target_key(&self) -> UsageMetricsKey {
         if self.component_kind == INTERNAL_TRANSFORM
             && self.component_type == "remap"
-            && self.pipeline_id != "shared"
+            && self.pipeline_id != Some("shared".into())
         {
             return UsageMetricsKey::new(
                 self.account_id.clone(),
@@ -193,24 +209,28 @@ impl FromStr for UsageMetricsKey {
             let type_name = parts[2];
             return Ok(UsageMetricsKey::new(
                 parts[3].into(),
-                "shared".into(),
+                Some("shared".into()),
                 type_name.into(),
                 type_name.into(),
                 kind,
             ));
         }
-        if parts.len() == 6 {
+        let (account_id, pipeline_id) = if parts.len() == 6 {
             // Expected format is 'v1:{type}:{kind}:${component_id}:${pipeline_id}:${account_id}'
-            return Ok(UsageMetricsKey::new(
-                parts[5].into(),
-                parts[4].into(),
-                parts[3].into(),
-                parts[1].into(),
-                parts[2].parse()?,
-            ));
-        }
+            (parts[5].into(), Some(parts[4].into()))
+        } else if parts.len() == 5 {
+            (parts[4].into(), None)
+        } else {
+            return Err(Self::Err::InvalidFormat);
+        };
 
-        Err(Self::Err::InvalidFormat)
+        Ok(UsageMetricsKey::new(
+            account_id,
+            pipeline_id,
+            parts[3].into(),
+            parts[1].into(),
+            parts[2].parse()?,
+        ))
     }
 }
 
@@ -802,7 +822,7 @@ mod tests {
                 key.expect("to be ok"),
                 UsageMetricsKey::new(
                     $account_id.into(),
-                    $pipeline_id.into(),
+                    Some($pipeline_id.into()),
                     $comp_id.into(),
                     $type_name.into(),
                     $kind,
@@ -872,7 +892,7 @@ mod tests {
     }
 
     #[test]
-    fn is_tracked_for_billing_test() {
+    fn is_tracked_test() {
         let value: UsageMetricsKey = "v1:http:sink:comp1:pipe1:account1".parse().unwrap();
         assert!(
             value.is_tracked_for_billing(),
@@ -884,20 +904,32 @@ mod tests {
             value.is_tracked_for_billing(),
             "Most sources should be tracked"
         );
+        assert!(value.is_tracked(), "as it's tracked for billing -> true");
 
         let value: UsageMetricsKey = "v1:remap:internal_transform:comp1:pipe1:account1"
             .parse()
             .unwrap();
         assert!(
             value.is_tracked_for_billing(),
-            "internal remap transform should be tracked"
+            "internal remap transform is tracked for billing"
         );
+        assert!(
+            !value.is_tracked_for_profiling(),
+            "not tracked for profiling"
+        );
+
+        let value: UsageMetricsKey = "v1:mezmo_log_classification:transform:comp1:account1"
+            .parse()
+            .unwrap();
+        assert!(value.is_tracked());
+        assert!(value.is_tracked_for_profiling());
+        assert!(!value.is_tracked_for_billing());
 
         let value: UsageMetricsKey = "v1:filter-by-field:transform:comp1:pipe1:account1"
             .parse()
             .unwrap();
         assert!(
-            !value.is_tracked_for_billing(),
+            !value.is_tracked(),
             "User defined transforms should NOT be tracked"
         );
 
@@ -1000,7 +1032,7 @@ mod tests {
 
         let key1 = UsageMetricsKey {
             account_id: "a".into(),
-            pipeline_id: "b".into(),
+            pipeline_id: Some("b".into()),
             component_id: "c".into(),
             component_type: "d".into(),
             component_kind: ComponentKind::Source { internal: false },
@@ -1008,7 +1040,7 @@ mod tests {
 
         let key2 = UsageMetricsKey {
             account_id: "d".into(),
-            pipeline_id: "e".into(),
+            pipeline_id: Some("e".into()),
             component_id: "f".into(),
             component_type: "g".into(),
             component_kind: ComponentKind::Source { internal: false },

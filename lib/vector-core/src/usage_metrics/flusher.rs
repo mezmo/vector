@@ -23,7 +23,7 @@ use super::{get_db_config, AnnotationMap, AnnotationSet, UsageMetricsKey, UsageM
 const INSERT_BILLING_QUERY: &str =
     "INSERT INTO usage_metrics (event_ts, account_id, pipeline_id, component_id, processor, metric, value) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
 const INSERT_PROFILES_QUERY: &str =
-    "INSERT INTO usage_metrics_by_annotations (ts, account_id, pipeline_id, component_id, count, size, annotations) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
+    "INSERT INTO usage_metrics_by_annotations (ts, account_id, component_id, count, size, annotations) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING";
 
 const DB_MAX_PARALLEL_EXECUTIONS: usize = 8;
 const VECTOR_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -137,27 +137,18 @@ impl DbFlusher {
         set: AnnotationSet,
         v: UsageMetricsValue,
     ) {
-        let (Ok(account_id), Ok(pipeline_id)) = (
-            Uuid::try_parse(&k.account_id),
-            Uuid::parse_str(&k.pipeline_id),
-        ) else {
-            error!("account_id or pipeline_id could not be parsed for profile metrics");
+        let Ok(account_id) = Uuid::try_parse(&k.account_id) else {
+            error!("account_id could not be parsed for profile metrics");
             return;
         };
-        // ts, account_id, pipeline_id, component_id, count, size, annotations
+
+        // ts, account_id, component_id, count, size, annotations
         let ts = Utc::now();
         let count = v.total_count as i32;
         let size = v.total_size as i32;
         let json_set = tokio_postgres::types::Json(set);
-        let params: Vec<&(dyn ToSql + Sync)> = vec![
-            &ts,
-            &account_id,
-            &pipeline_id,
-            &k.component_id, // It might include the output name
-            &count,
-            &size,
-            &json_set,
-        ];
+        let params: Vec<&(dyn ToSql + Sync)> =
+            vec![&ts, &account_id, &k.component_id, &count, &size, &json_set];
 
         match self.pool.get().await {
             Ok(client) => {
@@ -278,7 +269,9 @@ impl HttpFlusher {
             .into_iter()
             .map(|(k, v)| HttpFlusherRequestBodyItem {
                 event_ts,
-                pipeline_id: k.pipeline_id,
+                pipeline_id: k
+                    .pipeline_id
+                    .expect("to be set for billing usage metrics in Edge"),
                 component_id: k.component_id,
                 processor: self.processor_name.clone(),
                 total_count: v.total_count,
@@ -536,7 +529,7 @@ mod tests {
 
         let key = UsageMetricsKey {
             account_id: "account1".to_string(),
-            pipeline_id: "pipeline1".to_string(),
+            pipeline_id: Some("pipeline1".to_string()),
             component_id: "component1".to_string(),
             component_type: "type1".to_string(),
             component_kind: ComponentKind::Sink,

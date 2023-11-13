@@ -23,6 +23,7 @@ use uuid::Uuid;
 use vector_config::configurable_component;
 use vector_core::config::{log_schema, TransformOutput};
 
+use crate::mezmo::MezmoContext;
 use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogUpdateStatus};
 use crate::transforms::mezmo_log_clustering::store::save_in_loop;
 use vector_core::event::LogEvent;
@@ -118,13 +119,13 @@ impl TransformConfig for MezmoLogClusteringConfig {
                 return Err("Invalid db url".into());
             };
             config.pool = Some(PoolConfig::new(DEFAULT_DB_CONNECTION_POOL_SIZE));
-            let Some(component_key) = context.key.as_ref() else {
+            let Some(mezmo_ctx) = context.mezmo_ctx.as_ref() else {
                 return Err("Cannot store log clustering metrics without a component key".into());
             };
-            let Ok(component_key) = get_component_info(component_key.id()) else {
+            key = get_component_info(mezmo_ctx);
+            if key.is_none() {
                 return Err("Component key is not valid".into());
-            };
-            key = Some(component_key);
+            }
 
             let store_metrics_flush_interval = self.store_metrics_flush_interval;
             let tx = ONCE
@@ -175,7 +176,7 @@ struct MezmoLogClustering {
     sample_start: Option<i64>,
     sample_end: Option<i64>,
     transform_status: Option<TransformStatus>,
-    key: Option<PipelineInfo>,
+    key: Option<ComponentInfo>,
     db_tx: Option<DbTransmitter>,
 }
 
@@ -192,13 +193,13 @@ pub(crate) struct LogGroupInfo {
     size: i64,
     template: Option<String>,
     annotation_set: Option<AnnotationSet>,
-    key: PipelineInfo,
+    key: ComponentInfo,
 }
 
 impl MezmoLogClustering {
     pub fn new(
         config: &MezmoLogClusteringConfig,
-        key: Option<PipelineInfo>,
+        key: Option<ComponentInfo>,
         db_tx: Option<DbTransmitter>,
     ) -> Self {
         let similarity_threshold = if config.similarity_threshold > 1.0
@@ -319,7 +320,7 @@ impl MezmoLogClustering {
                 template: None,
                 annotation_set: None,
                 // The component_key was already validated to be "some" for the Store case
-                key: self.key.unwrap(),
+                key: self.key.as_ref().unwrap().clone(),
             };
 
             // Send the full cluster information only when it has added/changed
@@ -415,21 +416,17 @@ struct LogGroupAggregateInfo {
     annotation_set: Option<AnnotationSet>,
 }
 
-#[derive(Hash, Eq, PartialEq, Clone, Copy)]
-struct PipelineInfo {
+#[derive(Hash, Eq, PartialEq, Clone)]
+struct ComponentInfo {
     account_id: Uuid,
-    pipeline_id: Uuid,
+    // The id of the shared route/source or other component that is being tracked
+    component_id: String,
 }
 
-fn get_component_info(key: &str) -> crate::Result<PipelineInfo> {
-    // Expected format is 'v1:{type}:{kind}:${component_id}:${pipeline_id}:${account_id}'
-    let parts: Vec<&str> = key.split(':').collect();
-    if parts.len() != 6 {
-        return Err("Invalid number of parts in component".into());
-    }
-    Ok(PipelineInfo {
-        account_id: Uuid::try_parse(parts[5])?,
-        pipeline_id: Uuid::try_parse(parts[4])?,
+fn get_component_info(mezmo_ctx: &MezmoContext) -> Option<ComponentInfo> {
+    Some(ComponentInfo {
+        account_id: mezmo_ctx.account_id()?,
+        component_id: mezmo_ctx.component_id().to_string(),
     })
 }
 
