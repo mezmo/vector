@@ -1,3 +1,10 @@
+# [1.24.0](https://github.com/answerbook/vector/compare/v1.23.0...v1.24.0) (2023-11-15)
+
+
+### Features
+
+* Adapt profiling to work in the analysis phase. [306eb4c](https://github.com/answerbook/vector/commit/306eb4c05c09bef406fecb0de80f211a6328772b) - Jorge Bay [LOG-18571](https://logdna.atlassian.net/browse/LOG-18571)
+
 # [1.23.0](https://github.com/answerbook/vector/compare/v1.22.0...v1.23.0) (2023-11-10)
 
 
