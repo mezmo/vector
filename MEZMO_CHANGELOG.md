@@ -1,3 +1,15 @@
+## [1.24.1](https://github.com/answerbook/vector/compare/v1.24.0...v1.24.1) (2023-11-15)
+
+
+### Bug Fixes
+
+* **automated-parsing**: avoid clobbering annotations.classification [a8ab95a](https://github.com/answerbook/vector/commit/a8ab95af6d6a77f40b0e11c1805c121866c116d2) - Mike Del Tito [LOG-18650](https://logdna.atlassian.net/browse/LOG-18650)
+
+
+### Miscellaneous
+
+* Merge pull request #348 from answerbook/mdeltito/LOG-18650 [24f2c18](https://github.com/answerbook/vector/commit/24f2c18138c8951d31bce82ca4b08fb4ad3189bc) - GitHub [LOG-18650](https://logdna.atlassian.net/browse/LOG-18650)
+
 # [1.24.0](https://github.com/answerbook/vector/compare/v1.23.0...v1.24.0) (2023-11-15)
 
 
