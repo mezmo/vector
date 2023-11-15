@@ -7,7 +7,6 @@ use crate::{
     transforms::{TaskTransform, Transform},
 };
 use futures::StreamExt;
-use vector_common::btreemap;
 use vector_config::configurable_component;
 use vector_core::{
     config::{log_schema, TransformOutput},
@@ -73,6 +72,11 @@ impl LogClassification {
         if let Some(message) = log.get(log_schema().message_key()) {
             let mut matches = vec![];
             let mut message_key = log_schema().message_key().to_string();
+            let mut message_size = value_size(message) as i64;
+            if message_size.is_negative() {
+                warn!("total_bytes for message exceeded i64 limit, using i64::MAX instead");
+                message_size = i64::MAX;
+            }
 
             // For object messages, look for matches in any of the line_fields in order.
             // Otherwise just look for matches in the message (string).
@@ -107,13 +111,25 @@ impl LogClassification {
                 matches = vec!["UNDEFINED".to_string()];
             }
 
+            let classification_path =
+                log_schema().annotations_key().to_string() + ".classification";
+
             log.insert(
-                (log_schema().annotations_key().to_string() + ".classification").as_str(),
-                Value::Object(btreemap!(
-                    "event_count".to_string() => Value::Integer(1),
-                    "event_types".to_string() => Value::Object(matches.into_iter().map(|m| (m.to_string(), Value::Integer(1))).collect()),
-                    "total_bytes".to_string() => Value::Integer(value_size(message) as i64),
-                ))
+                (classification_path.clone() + ".total_bytes").as_str(),
+                Value::Integer(message_size),
+            );
+            log.insert(
+                (classification_path.clone() + ".event_count").as_str(),
+                Value::Integer(1),
+            );
+            log.insert(
+                (classification_path.clone() + ".event_types").as_str(),
+                Value::Object(
+                    matches
+                        .into_iter()
+                        .map(|m| (m.to_string(), Value::Integer(1)))
+                        .collect(),
+                ),
             );
             log.insert(
                 (log_schema().annotations_key().to_string() + ".message_key").as_str(),
@@ -141,6 +157,7 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
+    use vector_common::btreemap;
     use vector_core::event::Value;
 
     use super::*;
@@ -331,6 +348,9 @@ mod tests {
             "message" => r#"47.29.201.179 - - [28/Feb/2019:13:17:10 +0000] "GET /?p=1 HTTP/2.0" 200 5316 "https://domain1.com/?p=1" "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36" "2.75"#,
             "annotations" => btreemap! {
                 "foo" => "bar",
+                "classification" => btreemap! {
+                    "baz" => "qux",
+                }
             }
         }));
 
@@ -347,6 +367,7 @@ mod tests {
         );
 
         annotations.insert("foo", Value::Bytes("bar".into()));
+        annotations.insert(".classification.baz", Value::Bytes("qux".into()));
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
