@@ -15,8 +15,98 @@ use vector_core::{
 
 use vrl::value::Value;
 
-use std::collections::HashMap;
 use std::future::ready;
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::OnceLock,
+};
+
+const DEFAULT_LOG_EVENT_TYPES: [&str; 67] = [
+    "HTTPD_COMBINEDLOG",
+    "HTTPD_COMMONLOG",
+    "HTTPD_ERRORLOG",
+    "SYSLOG5424LINE",
+    "SYSLOGLINE",
+    "SYSLOGPAMSESSION",
+    "CRONLOG",
+    "MONGO3_LOG",
+    "NAGIOSLOGLINE",
+    "POSTGRESQL",
+    "RAILS3",
+    "REDISLOG",
+    "S3_ACCESS_LOG",
+    "ELB_ACCESS_LOG",
+    "CLOUDFRONT_ACCESS_LOG",
+    "CATALINALOG",
+    "TOMCATLOG",
+    "REDISMONLOG",
+    "RUBY_LOGGER",
+    "SQUID3",
+    "BIND9",
+    "HAPROXYTCP",
+    "HAPROXYHTTP",
+    "BACULA_LOGLINE",
+    "BRO_HTTP",
+    "BRO_DNS",
+    "BRO_CONN",
+    "BRO_FILES",
+    "NETSCREENSESSIONLOG",
+    "CISCO_TAGGED_SYSLOG",
+    "CISCOFW104001",
+    "CISCOFW104002",
+    "CISCOFW104003",
+    "CISCOFW104004",
+    "CISCOFW105003",
+    "CISCOFW105004",
+    "CISCOFW105005",
+    "CISCOFW105008",
+    "CISCOFW105009",
+    "CISCOFW106001",
+    "CISCOFW106006_106007_106010",
+    "CISCOFW106014",
+    "CISCOFW106015",
+    "CISCOFW106021",
+    "CISCOFW106023",
+    "CISCOFW106100_2_3",
+    "CISCOFW106100",
+    "CISCOFW304001",
+    "CISCOFW110002",
+    "CISCOFW302010",
+    "CISCOFW302013_302014_302015_302016",
+    "CISCOFW302020_302021",
+    "CISCOFW305011",
+    "CISCOFW313001_313004_313008",
+    "CISCOFW313005",
+    "CISCOFW321001",
+    "CISCOFW402117",
+    "CISCOFW402119",
+    "CISCOFW419001",
+    "CISCOFW419002",
+    "CISCOFW500004",
+    "CISCOFW602303_602304",
+    "CISCOFW710001_710002_710003_710005_710006",
+    "CISCOFW713172",
+    "CISCOFW733100",
+    "SHOREWALL",
+    "SFW2",
+];
+
+fn grok_patterns() -> &'static BTreeMap<String, grok::Pattern> {
+    let mut parser = grok::Grok::with_default_patterns();
+
+    static GROK_PATTERNS: OnceLock<BTreeMap<String, grok::Pattern>> = OnceLock::new();
+    GROK_PATTERNS.get_or_init(|| {
+        let mut m = BTreeMap::new();
+        for s in DEFAULT_LOG_EVENT_TYPES.iter() {
+            let pattern_str = format!("%{{{s}}}");
+            let pattern = parser
+                .compile(&pattern_str, false)
+                .expect("The pattern was unknown");
+            m.insert(s.to_string(), pattern);
+        }
+        m
+    })
+}
 
 /// Configuration for the `mezmo_log_classification` transform.
 #[configurable_component(transform("mezmo_log_classification"))]
@@ -28,6 +118,17 @@ pub struct LogClassificationConfig {
     /// first matched field will classify the event. Note that these fields are relative to
     /// the message field rather than the root of the event.
     line_fields: Option<Vec<String>>,
+
+    /// List of Grok patterns to match on
+    #[serde(default = "default_grok_patterns")]
+    grok_patterns: Vec<String>,
+}
+
+fn default_grok_patterns() -> Vec<String> {
+    DEFAULT_LOG_EVENT_TYPES
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 impl_generate_config_from_default!(LogClassificationConfig);
@@ -54,16 +155,34 @@ impl TransformConfig for LogClassificationConfig {
 }
 
 pub struct LogClassification {
-    parser: fgrok_parser::GrokMatcher,
+    patterns: Vec<String>,
     line_fields: Vec<String>,
 }
 
 impl LogClassification {
     pub fn new(config: &LogClassificationConfig) -> Self {
         LogClassification {
-            parser: fgrok_parser::GrokMatcher::default(),
+            patterns: config.grok_patterns.clone(),
             line_fields: config.line_fields.clone().unwrap_or_default(),
         }
+    }
+
+    fn match_event_type(&self, message: &str) -> Option<String> {
+        for pattern_name in self.patterns.iter() {
+            let pattern = grok_patterns().get(pattern_name);
+
+            if pattern.is_none() {
+                warn!("Unsupported grok pattern: {}", pattern_name);
+                continue;
+            }
+
+            let pattern = pattern.unwrap();
+            if let Some(_) = pattern.match_against(message) {
+                return Some(pattern_name.to_string());
+            }
+        }
+
+        None
     }
 
     fn transform_one(&mut self, mut event: Event) -> Option<Event> {
@@ -93,7 +212,9 @@ impl LogClassification {
                         }
 
                         let line = value.to_string_lossy();
-                        matches = self.parser.classify_all(&line);
+                        if let Some(event_type) = self.match_event_type(&line) {
+                            matches.push(event_type);
+                        }
 
                         // First field with matches wins
                         if !matches.is_empty() {
@@ -103,7 +224,9 @@ impl LogClassification {
                     }
                 }
             } else if message.is_bytes() {
-                matches = self.parser.classify_all(&message.to_string_lossy())
+                if let Some(event_type) = self.match_event_type(&message.to_string_lossy()) {
+                    matches.push(event_type);
+                }
             };
 
             // If there is no matches, classify as UNDEFINED
@@ -215,16 +338,16 @@ mod tests {
             btreemap!(message_key.clone() => Value::Bytes(line.into())),
         )));
 
-        let config = LogClassificationConfig { line_fields: None };
+        let config = LogClassificationConfig {
+            line_fields: None,
+            grok_patterns: default_grok_patterns(),
+        };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
         let annotations = make_expected_annotations(
             &event,
             message_key.clone(),
-            vec![
-                "HTTPD_COMBINEDLOG".to_string(),
-                "HTTPD_COMMONLOG".to_string(),
-            ],
+            vec!["HTTPD_COMBINEDLOG".to_string()],
         );
 
         // line is retained
@@ -248,7 +371,10 @@ mod tests {
             ]
         }));
 
-        let config = LogClassificationConfig { line_fields: None };
+        let config = LogClassificationConfig {
+            line_fields: None,
+            grok_patterns: default_grok_patterns(),
+        };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
         let annotations =
@@ -270,7 +396,10 @@ mod tests {
             }
         }));
 
-        let config = LogClassificationConfig { line_fields: None };
+        let config = LogClassificationConfig {
+            line_fields: None,
+            grok_patterns: default_grok_patterns(),
+        };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
         let annotations =
@@ -298,6 +427,7 @@ mod tests {
                 ".key2".to_string(),
                 ".key3".to_string(),
             ]),
+            grok_patterns: default_grok_patterns(),
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
@@ -323,17 +453,14 @@ mod tests {
         let config = LogClassificationConfig {
             // First match wins, apache is not detected
             line_fields: Some(vec![".syslog".to_string(), ".apache".to_string()]),
+            grok_patterns: default_grok_patterns(),
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
         let annotations = make_expected_annotations(
             &event,
             ".syslog".to_string(),
-            vec![
-                "MCOLLECTIVEAUDIT".to_string(),
-                "SYSLOG5424LINE".to_string(),
-                "SYSLOGLINE".to_string(),
-            ],
+            vec!["SYSLOG5424LINE".to_string()],
         );
 
         assert_eq!(
@@ -354,16 +481,16 @@ mod tests {
             }
         }));
 
-        let config = LogClassificationConfig { line_fields: None };
+        let config = LogClassificationConfig {
+            line_fields: None,
+            grok_patterns: default_grok_patterns(),
+        };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
         let mut annotations = make_expected_annotations(
             &event,
             "message".to_string(),
-            vec![
-                "HTTPD_COMBINEDLOG".to_string(),
-                "HTTPD_COMMONLOG".to_string(),
-            ],
+            vec!["HTTPD_COMBINEDLOG".to_string()],
         );
 
         annotations.insert("foo", Value::Bytes("bar".into()));

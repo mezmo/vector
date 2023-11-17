@@ -3292,16 +3292,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
 
 [[package]]
-name = "fancy-regex"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b95f7c0680e4142284cf8b22c14a476e87d61b004a3a0861872b32ef7ead40a2"
-dependencies = [
- "bit-set",
- "regex",
-]
-
-[[package]]
 name = "faster-hex"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3317,15 +3307,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7a407cfaa3385c4ae6b23e84623d48c2798d06e3e6a1878f7f59f17b3f86499"
 dependencies = [
  "instant",
-]
-
-[[package]]
-name = "fgrok-parser"
-version = "1.0.0"
-source = "git+ssh://git@github.com/answerbook/fgrok-rs.git?rev=v1.0.0#4d2b858a440d90381dd8edc17761a5905b45fe91"
-dependencies = [
- "combine 4.6.6",
- "fancy-regex",
 ]
 
 [[package]]
@@ -9741,7 +9722,6 @@ dependencies = [
  "enum_dispatch",
  "exitcode",
  "fakedata",
- "fgrok-parser",
  "file-source",
  "flate2",
  "futures 0.3.28",
