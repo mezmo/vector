@@ -115,8 +115,8 @@ fn grok_patterns() -> &'static BTreeMap<String, grok::Pattern> {
 pub struct LogClassificationConfig {
     /// When a [[LogEvent]] ".message" property is an object, look for matches in these fields.
     /// Fields are evaluated in the order they are defined in the configuration, and the
-    /// first matched field will classify the event. Note that these fields are relative to
-    /// the message field rather than the root of the event.
+    /// first valid (string) field will be used to attempt to classify the event.
+    /// Note that these fields are relative to the message field rather than the root of the event.
     line_fields: Option<Vec<String>>,
 
     /// List of Grok patterns to match on
@@ -197,7 +197,7 @@ impl LogClassification {
                 message_size = i64::MAX;
             }
 
-            // For object messages, look for matches in any of the line_fields in order.
+            // For object messages, look for a valid field from `line_fields` in order.
             // Otherwise just look for matches in the message (string).
             // NOTE: array values for `message` are not explicitly handled here, as it is
             // expected the events are already unrolled when hitting this transform.
@@ -205,22 +205,21 @@ impl LogClassification {
                 for line_field in self.line_fields.iter() {
                     let value = message.get(line_field.as_str());
                     if let Some(value) = value {
-                        // Avoid checking the string representation of objects/arrays
-                        // that are deeply nested to avoid false-positives.
-                        if value.is_array() || value.is_object() {
+                        // Only consider fields containing string values.
+                        // The first string field we encounter will be used, regardless
+                        // of whether or not there are other string fields that may potentially
+                        // match one of the patterns.
+                        if !value.is_bytes() {
                             continue;
                         }
 
                         let line = value.to_string_lossy();
                         if let Some(event_type) = self.match_event_type(&line) {
                             matches.push(event_type);
+                            message_key = format!("{message_key}{line_field}");
                         }
 
-                        // First field with matches wins
-                        if !matches.is_empty() {
-                            message_key = line_field.to_string();
-                            break;
-                        }
+                        break;
                     }
                 }
             } else if message.is_bytes() {
@@ -295,15 +294,21 @@ mod tests {
 
     fn make_expected_annotations(
         input_event: &Event,
-        message_key: String,
+        line_field: Option<String>,
         matches: Vec<String>,
     ) -> Value {
         let mut annotations = BTreeMap::new();
 
+        let msg = log_schema().message_key();
         let message = input_event
             .as_log()
-            .get(log_schema().message_key())
+            .get(msg)
             .expect("message always exists in the presence of annotations");
+
+        let message_key = match line_field {
+            Some(line_field) => format!("{msg}{line_field}"),
+            None => msg.to_string(),
+        };
 
         annotations.insert("message_key".to_string(), Value::Bytes(message_key.into()));
         annotations.insert("classification".to_string(), Value::Object(btreemap!(
@@ -344,11 +349,8 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations = make_expected_annotations(
-            &event,
-            message_key.clone(),
-            vec!["HTTPD_COMBINEDLOG".to_string()],
-        );
+        let annotations =
+            make_expected_annotations(&event, None, vec!["HTTPD_COMBINEDLOG".to_string()]);
 
         // line is retained
         assert_eq!(
@@ -377,8 +379,7 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations =
-            make_expected_annotations(&event, "message".to_string(), vec!["UNDEFINED".to_string()]);
+        let annotations = make_expected_annotations(&event, None, vec!["UNDEFINED".to_string()]);
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
@@ -402,8 +403,7 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations =
-            make_expected_annotations(&event, "message".to_string(), vec!["UNDEFINED".to_string()]);
+        let annotations = make_expected_annotations(&event, None, vec!["UNDEFINED".to_string()]);
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
@@ -431,8 +431,7 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations =
-            make_expected_annotations(&event, "message".to_string(), vec!["UNDEFINED".to_string()]);
+        let annotations = make_expected_annotations(&event, None, vec!["UNDEFINED".to_string()]);
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
@@ -459,9 +458,33 @@ mod tests {
 
         let annotations = make_expected_annotations(
             &event,
-            ".syslog".to_string(),
+            Some(".syslog".to_string()),
             vec!["SYSLOG5424LINE".to_string()],
         );
+
+        assert_eq!(
+            output.as_log().get(log_schema().annotations_key()),
+            Some(&annotations)
+        );
+    }
+
+    #[tokio::test]
+    async fn event_with_object_message_stops_on_first_valid_field() {
+        let event = Event::Log(LogEvent::from(btreemap! {
+            "message" => btreemap! {
+                "foo" => "bar",
+                "apache" => r#"47.29.201.179 - - [28/Feb/2019:13:17:10 +0000] "GET /?p=1 HTTP/2.0" 200 5316 "https://domain1.com/?p=1" "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36" "2.75"#,
+            }
+        }));
+
+        let config = LogClassificationConfig {
+            // The first valid field is the only field considered
+            line_fields: Some(vec![".foo".to_string(), ".apache".to_string()]),
+            grok_patterns: default_grok_patterns(),
+        };
+        let output = do_transform(config, event.clone().into()).await.unwrap();
+
+        let annotations = make_expected_annotations(&event, None, vec!["UNDEFINED".to_string()]);
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
@@ -487,11 +510,8 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let mut annotations = make_expected_annotations(
-            &event,
-            "message".to_string(),
-            vec!["HTTPD_COMBINEDLOG".to_string()],
-        );
+        let mut annotations =
+            make_expected_annotations(&event, None, vec!["HTTPD_COMBINEDLOG".to_string()]);
 
         annotations.insert("foo", Value::Bytes("bar".into()));
         annotations.insert(".classification.baz", Value::Bytes("qux".into()));
