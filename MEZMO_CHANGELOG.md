@@ -1,3 +1,16 @@
+## [1.24.2](https://github.com/answerbook/vector/compare/v1.24.1...v1.24.2) (2023-11-21)
+
+
+### Bug Fixes
+
+* **tap**: avoid compiling globs frequently during tap [5c7eea1](https://github.com/answerbook/vector/commit/5c7eea16b02fac821381e3dbb2494cc6017b1ee5) - Adam Holmberg [LOG-18645](https://logdna.atlassian.net/browse/LOG-18645)
+* **tap**: reduce glob compilation for performance [5927407](https://github.com/answerbook/vector/commit/592740789c380a48dfbb0ebdd28472f3f33befe0) - Adam Holmberg [LOG-18645](https://logdna.atlassian.net/browse/LOG-18645)
+
+
+### Miscellaneous
+
+* Merge pull request #350 from answerbook/feature/LOG-18645 [0b5f102](https://github.com/answerbook/vector/commit/0b5f10220344de9c5123265f5ccc41a0f3f6148f) - GitHub [LOG-18645](https://logdna.atlassian.net/browse/LOG-18645)
+
 ## [1.24.1](https://github.com/answerbook/vector/compare/v1.24.0...v1.24.1) (2023-11-15)
 
 
