@@ -1,3 +1,10 @@
+## [1.24.3](https://github.com/answerbook/vector/compare/v1.24.2...v1.24.3) (2023-11-22)
+
+
+### Chores
+
+* Bump vrl library to include new functions [bf4c1e9](https://github.com/answerbook/vector/commit/bf4c1e902b775cb5253052931a49b036005cb0e9) - Jorge Bay [LOG-17868](https://logdna.atlassian.net/browse/LOG-17868)
+
 ## [1.24.2](https://github.com/answerbook/vector/compare/v1.24.1...v1.24.2) (2023-11-21)
 
 
