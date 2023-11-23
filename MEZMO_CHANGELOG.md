@@ -1,3 +1,10 @@
+# [1.25.0](https://github.com/answerbook/vector/compare/v1.24.3...v1.25.0) (2023-11-23)
+
+
+### Features
+
+* **otlp**: bring in resource, scope attributes [660f36d](https://github.com/answerbook/vector/commit/660f36db610fe4c20d767b805d0c5bfa73bd3c84) - Matt March [LOG-18506](https://logdna.atlassian.net/browse/LOG-18506)
+
 ## [1.24.3](https://github.com/answerbook/vector/compare/v1.24.2...v1.24.3) (2023-11-22)
 
 
