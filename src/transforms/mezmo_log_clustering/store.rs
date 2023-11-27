@@ -109,10 +109,9 @@ pub(crate) async fn save_in_loop(
                     break;
                 }
             }
-
-            save(&pool, aggregated).await;
-            aggregated = HashMap::new();
         }
+
+        save(&pool, aggregated).await;
     }
 }
 

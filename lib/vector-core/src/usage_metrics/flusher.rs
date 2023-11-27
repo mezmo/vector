@@ -144,8 +144,8 @@ impl DbFlusher {
 
         // ts, account_id, component_id, count, size, annotations
         let ts = Utc::now();
-        let count = v.total_count as i32;
-        let size = v.total_size as i32;
+        let count = v.total_count as i64;
+        let size = v.total_size as i64;
         let json_set = tokio_postgres::types::Json(set);
         let params: Vec<&(dyn ToSql + Sync)> =
             vec![&ts, &account_id, &k.component_id, &count, &size, &json_set];
