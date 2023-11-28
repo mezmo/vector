@@ -1,3 +1,10 @@
+## [1.25.1](https://github.com/answerbook/vector/compare/v1.25.0...v1.25.1) (2023-11-28)
+
+
+### Bug Fixes
+
+* Make sure log clustering data is aggregated in memory [93b0016](https://github.com/answerbook/vector/commit/93b0016062c21f0eed99eeb65522e0670842479f) - Jorge Bay [LOG-18708](https://logdna.atlassian.net/browse/LOG-18708)
+
 # [1.25.0](https://github.com/answerbook/vector/compare/v1.24.3...v1.25.0) (2023-11-23)
 
 
