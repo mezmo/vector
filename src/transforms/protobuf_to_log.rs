@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use vector_config::configurable_component;
 use vector_core::{config::LogNamespace, event::Value};
 
@@ -103,6 +104,14 @@ impl FunctionTransform for ProtobufToLog {
             .and_then(Value::as_bytes)
             .expect("Log event has no message");
 
+        let mut root_metadata = &BTreeMap::new();
+        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
+            if let Some(root_meta_obj) = metadata.as_object() {
+                root_metadata = root_meta_obj;
+            }
+        }
+        let root_metadata = root_metadata;
+
         let deserializer = match self.config.vendor {
             ProtobufVendors::OpenTelemetryLogs => {
                 MezmoDeserializer::build(&MezmoDeserializer::OpenTelemetryLogs)
@@ -125,12 +134,31 @@ impl FunctionTransform for ProtobufToLog {
                         );
                     }
 
+                    let mut metadata = root_metadata.clone();
+
                     if let Some(user_metadata) =
-                        log.get((PathPrefix::Event, log_schema().user_metadata_key()))
+                        event.get((PathPrefix::Event, log_schema().user_metadata_key()))
                     {
+                        if let Some(user_meta_obj) = user_metadata.as_object() {
+                            for entry in user_meta_obj.iter() {
+                                metadata.insert(entry.0.to_string(), entry.1.clone());
+                            }
+                        }
+                    }
+
+                    if !metadata.is_empty() {
                         log_event.insert(
                             (PathPrefix::Event, log_schema().user_metadata_key()),
-                            user_metadata.to_owned(),
+                            metadata,
+                        );
+                    }
+
+                    if let Some(internal_metadata) =
+                        event.get((PathPrefix::Event, log_schema().metadata_key()))
+                    {
+                        log_event.insert(
+                            (PathPrefix::Event, log_schema().metadata_key()),
+                            internal_metadata.to_owned(),
                         );
                     }
 
@@ -209,10 +237,21 @@ mod tests {
     async fn metric_protobuf_test() {
         let logs: &[u8] = b"\n\x85\x06\x12\x82\x06\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 0\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 1\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 2\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 3\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 4\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 5\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 6\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 7\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 8\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 9\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 10\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 11\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 12\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 13\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 14\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 15\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 16\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 17\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 18\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 19";
 
-        let expect_metadata = Value::Object(BTreeMap::from([(
-            "headers".to_owned(),
-            Value::Object(BTreeMap::from([("key".into(), "value".into())])),
-        )]));
+        let expect_metadata = Value::Object(BTreeMap::from([
+            (
+                "headers".to_owned(),
+                Value::Object(BTreeMap::from([("key".into(), "value".into())])),
+            ),
+            ("attributes".to_owned(), Value::Object(BTreeMap::from([]))),
+            ("resource".to_owned(), Value::Object(BTreeMap::from([]))),
+            ("scope".to_owned(), Value::Object(BTreeMap::from([]))),
+            ("flags".to_owned(), Value::Integer(0)),
+            ("severity_number".to_owned(), Value::Integer(0)),
+            ("severity_text".to_owned(), "ERROR".into()),
+            ("span_id".to_owned(), "".into()),
+            ("trace_id".to_owned(), "".into()),
+            ("time".to_owned(), Value::Integer(1)),
+        ]));
 
         let event = log_event_from_bytes(logs, &expect_metadata);
 
