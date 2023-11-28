@@ -94,7 +94,7 @@ async fn http_request(
         .body(Body::empty())
         .map_err(|_| "Couldn't create HTTP request".to_string())?;
 
-    info!(
+    debug!(
         message = "Attempting to retrieve configuration.",
         url = ?url.as_str()
     );
@@ -109,7 +109,11 @@ async fn http_request(
         format!("{message}. Error: {err:?}")
     })?;
 
-    info!(message = "Response received.", url = ?url.as_str(), status_code = ?response.status());
+    info!(
+        message = "Config response received.",
+        url = ?url.as_str(),
+        status_code = ?response.status()
+    );
 
     hyper::body::to_bytes(response.into_body())
         .await
@@ -152,6 +156,7 @@ fn poll_http(
     tls_options: Option<TlsConfig>,
     headers: IndexMap<String, String>,
     proxy: ProxyConfig,
+    mut loaded_config_hash: String,
 ) -> impl Stream<Item = signal::SignalTo> {
     let duration = time::Duration::from_secs(poll_interval_secs);
     let mut interval = time::interval_at(time::Instant::now() + duration, duration);
@@ -159,18 +164,23 @@ fn poll_http(
     stream! {
         loop {
             interval.tick().await;
-
             match http_request_to_config_builder(&url, &tls_options, &headers, &proxy).await {
                 Ok(config_builder) => {
-                    info!("Sending reload config signal");
-                    yield signal::SignalTo::ReloadFromConfigBuilder(config_builder)
+                    let current_hash = config_builder.sha256_hash();
+                    // Make sure we only send the reload signal when the config changed
+                    if current_hash != loaded_config_hash {
+                        info!("Sending reload config signal");
+                        loaded_config_hash = current_hash;
+
+                        yield signal::SignalTo::ReloadFromConfigBuilder(config_builder)
+                    }
                 },
                 Err(e) => {
                     error!("Error loading configuration from HTTP: {e:?}");
                 },
             };
 
-            info!(
+            debug!(
                 message = "HTTP provider is waiting.",
                 poll_interval_secs = ?poll_interval_secs,
                 url = ?url.as_str());
@@ -201,6 +211,7 @@ impl ProviderConfig for HttpConfig {
             tls_options,
             request.headers.clone(),
             proxy.clone(),
+            config_builder.sha256_hash(),
         ));
 
         Ok(config_builder)

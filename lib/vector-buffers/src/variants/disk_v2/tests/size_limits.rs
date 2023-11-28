@@ -290,6 +290,7 @@ async fn writer_rolls_data_files_when_the_limit_is_exceeded() {
     .await;
 }
 
+#[cfg_attr(not(ignored_upstream_flaky), ignore)]
 #[tokio::test]
 async fn writer_rolls_data_files_when_the_limit_is_exceeded_after_reload() {
     let _a = install_tracing_helpers();

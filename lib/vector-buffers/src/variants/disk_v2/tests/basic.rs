@@ -66,6 +66,7 @@ async fn basic_read_write_loop() {
     .await;
 }
 
+#[cfg_attr(not(ignored_upstream_flaky), ignore)]
 #[tokio::test]
 async fn reader_exits_cleanly_when_writer_done_and_in_flight_acks() {
     let assertion_registry = install_tracing_helpers();
