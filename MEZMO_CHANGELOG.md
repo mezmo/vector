@@ -1,3 +1,21 @@
+## [1.25.2](https://github.com/answerbook/vector/compare/v1.25.1...v1.25.2) (2023-11-28)
+
+
+### Bug Fixes
+
+* **automated-parsing**: only consider the first valid line_field [b157004](https://github.com/answerbook/vector/commit/b1570043b1b3ff9b58180e616ce59c58b87c0c6d) - Mike Del Tito [LOG-18677](https://logdna.atlassian.net/browse/LOG-18677)
+* Http config provider sends reload signal when config changes [da7c8eb](https://github.com/answerbook/vector/commit/da7c8ebb347c02371d03cb321f0e0c06d8117486) - Jorge Bay [LOG-18264](https://logdna.atlassian.net/browse/LOG-18264)
+
+
+### Code Refactoring
+
+* **automated-parsing**: use grok crate [d1bbd90](https://github.com/answerbook/vector/commit/d1bbd90acc91ec155f60a9efb9a6b35fde90ba67) - Mike Del Tito [LOG-18677](https://logdna.atlassian.net/browse/LOG-18677)
+
+
+### Miscellaneous
+
+* Merge pull request #349 from answerbook/mdeltito/poc-grok [43110bd](https://github.com/answerbook/vector/commit/43110bdd1b0be2bed4fa4de4342cfddee553e896) - GitHub
+
 ## [1.25.1](https://github.com/answerbook/vector/compare/v1.25.0...v1.25.1) (2023-11-28)
 
 
