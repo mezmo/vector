@@ -1,3 +1,15 @@
+## [1.25.5](https://github.com/answerbook/vector/compare/v1.25.4...v1.25.5) (2023-11-30)
+
+
+### Bug Fixes
+
+* **classification**: Remove tracking undefined event types [2cec43e](https://github.com/answerbook/vector/commit/2cec43ee08640dfaedba4f13a6f2151901b20bd8) - Darin Spivey [LOG-18724](https://logdna.atlassian.net/browse/LOG-18724)
+
+
+### Miscellaneous
+
+* Merge pull request #357 from answerbook/darinspivey/LOG-18724 [77bc735](https://github.com/answerbook/vector/commit/77bc7355959926b81ea26f1432bbe0fceabcae58) - GitHub [LOG-18724](https://logdna.atlassian.net/browse/LOG-18724)
+
 ## [1.25.4](https://github.com/answerbook/vector/compare/v1.25.3...v1.25.4) (2023-11-30)
 
 
