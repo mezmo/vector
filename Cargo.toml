@@ -227,8 +227,8 @@ tui = { version = "0.19.0", optional = true, default-features = false, features 
 # Datadog Pipelines
 datadog-filter = { package = "datadog-filter", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.6.0" }
 datadog-search-syntax = { package = "datadog-search-syntax", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.6.0" }
-hex = { version = "0.4.3", default-features = false, optional = true }
-sha2 = { version = "0.10.6", default-features = false, optional = true }
+hex = { version = "0.4.3", default-features = false }
+sha2 = { version = "0.10.6", default-features = false }
 
 # VRL Lang
 vrl = { package = "vrl", git = "ssh://git@github.com/answerbook/vrl.git", rev = "v0.6.0", features = ["cli"] }
@@ -558,13 +558,13 @@ sources-internal_logs = []
 sources-mezmo_user_logs = ["sources-internal_logs"]
 sources-internal_metrics = []
 sources-journald = []
-sources-kafka = ["dep:rdkafka", "dep:sha2"]
+sources-kafka = ["dep:rdkafka"]
 sources-kubernetes_logs = ["dep:file-source", "kubernetes", "transforms-reduce"]
 sources-logstash = ["sources-utils-net-tcp", "tokio-util/net"]
 sources-mongodb_metrics = ["dep:mongodb"]
 sources-nats = ["dep:nats", "dep:nkeys"]
 sources-nginx_metrics = ["dep:nom"]
-sources-opentelemetry = ["dep:hex", "dep:opentelemetry-proto", "dep:prost-types", "sources-http_server", "sources-utils-http", "sources-vector"]
+sources-opentelemetry = ["dep:opentelemetry-proto", "dep:prost-types", "sources-http_server", "sources-utils-http", "sources-vector"]
 sources-postgresql_metrics = ["dep:postgres-openssl", "dep:tokio-postgres"]
 sources-prometheus = ["dep:prometheus-parser", "sinks-prometheus", "sources-utils-http-client"]
 sources-redis= ["dep:redis"]
@@ -811,8 +811,6 @@ sinks-webhdfs = ["dep:opendal"]
 
 # Datadog integration
 enterprise = [
-  "dep:hex",
-  "dep:sha2",
   "sources-host_metrics",
   # Mezmo: disabled in favor of *-mezmo feature lists
   # This feature with the above dependencies is kept for convience of future upstream merges

@@ -8,10 +8,12 @@ const BASE_DELAY: Duration = Duration::from_millis(100);
 const LOGGING_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Maintains state for exponential backoff strategy
+#[allow(dead_code)]
 pub struct Backoff {
     step: u32,
 }
 
+#[allow(dead_code)]
 impl Backoff {
     pub const fn new() -> Backoff {
         Backoff { step: 0 }
@@ -35,14 +37,15 @@ impl Backoff {
 
 /// Maintains state for avoiding spamming the logs by allowing a single
 /// message per interval
+#[allow(dead_code)]
 pub struct LogBackoff {
     t: Instant,
     interval: Duration,
 }
 
+// unused in tests and only relevant outside of this module
+#[allow(dead_code)]
 impl LogBackoff {
-    // unused in tests and only relevant outside of this module
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             interval: LOGGING_INTERVAL,

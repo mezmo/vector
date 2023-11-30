@@ -1,9 +1,7 @@
-#[cfg(feature = "enterprise")]
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use indexmap::IndexMap;
-#[cfg(feature = "enterprise")]
 use serde_json::Value;
 use vector_config::configurable_component;
 use vector_core::config::GlobalOptions;
@@ -80,7 +78,6 @@ pub struct ConfigBuilder {
     pub secret: IndexMap<ComponentKey, SecretBackends>,
 }
 
-#[cfg(feature = "enterprise")]
 #[derive(::serde::Serialize)]
 struct ConfigBuilderHash<'a> {
     version: String,
@@ -98,7 +95,6 @@ struct ConfigBuilderHash<'a> {
     secret: BTreeMap<&'a ComponentKey, &'a SecretBackends>,
 }
 
-#[cfg(feature = "enterprise")]
 impl ConfigBuilderHash<'_> {
     /// Sort inner JSON values to maintain a consistent ordering. This prevents
     /// non-deterministically serializable structures like HashMap from
@@ -125,7 +121,6 @@ impl ConfigBuilderHash<'_> {
 ///
 /// Rather than rely on the opaque underlying serde structures, we are explicit
 /// about sorting, sacrificing a bit of potential convenience for correctness.
-#[cfg(feature = "enterprise")]
 fn to_sorted_json_string<T>(value: T) -> String
 where
     T: ::serde::Serialize,
@@ -136,7 +131,6 @@ where
     serde_json::to_string(&value).expect("Should serialize Value to JSON string. Please report.")
 }
 
-#[cfg(feature = "enterprise")]
 fn sort_json_value(value: &mut Value) {
     match value {
         Value::Array(arr) => {
@@ -158,7 +152,6 @@ fn sort_json_value(value: &mut Value) {
     }
 }
 
-#[cfg(feature = "enterprise")]
 impl<'a> From<&'a ConfigBuilder> for ConfigBuilderHash<'a> {
     fn from(value: &'a ConfigBuilder) -> Self {
         ConfigBuilderHash {
