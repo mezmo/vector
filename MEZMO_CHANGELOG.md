@@ -1,3 +1,10 @@
+## [1.25.4](https://github.com/answerbook/vector/compare/v1.25.3...v1.25.4) (2023-11-30)
+
+
+### Bug Fixes
+
+* **otlp**: get user meta from event and parent log [ce99a12](https://github.com/answerbook/vector/commit/ce99a1295579cfaaff1e7561e6bed52ce7c5d4eb) - Matt March [LOG-18717](https://logdna.atlassian.net/browse/LOG-18717)
+
 ## [1.25.3](https://github.com/answerbook/vector/compare/v1.25.2...v1.25.3) (2023-11-30)
 
 
