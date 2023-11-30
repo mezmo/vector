@@ -1,3 +1,10 @@
+## [1.25.3](https://github.com/answerbook/vector/compare/v1.25.2...v1.25.3) (2023-11-30)
+
+
+### Bug Fixes
+
+* Incorrect usage of enterprise build feature in ConfigBuilder [5164e6c](https://github.com/answerbook/vector/commit/5164e6c4442ac5228d25240c35b5734675971e1e) - Jorge Bay [LOG-18735](https://logdna.atlassian.net/browse/LOG-18735)
+
 ## [1.25.2](https://github.com/answerbook/vector/compare/v1.25.1...v1.25.2) (2023-11-28)
 
 
