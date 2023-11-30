@@ -228,11 +228,6 @@ impl LogClassification {
                 }
             };
 
-            // If there is no matches, classify as UNDEFINED
-            if matches.is_empty() {
-                matches = vec!["UNDEFINED".to_string()];
-            }
-
             let classification_path =
                 log_schema().annotations_key().to_string() + ".classification";
 
@@ -379,7 +374,7 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations = make_expected_annotations(&event, None, vec!["UNDEFINED".to_string()]);
+        let annotations = make_expected_annotations(&event, None, vec![]);
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
@@ -403,7 +398,7 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations = make_expected_annotations(&event, None, vec!["UNDEFINED".to_string()]);
+        let annotations = make_expected_annotations(&event, None, vec![]);
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
@@ -431,7 +426,7 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations = make_expected_annotations(&event, None, vec!["UNDEFINED".to_string()]);
+        let annotations = make_expected_annotations(&event, None, vec![]);
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
@@ -484,7 +479,7 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations = make_expected_annotations(&event, None, vec!["UNDEFINED".to_string()]);
+        let annotations = make_expected_annotations(&event, None, vec![]);
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
