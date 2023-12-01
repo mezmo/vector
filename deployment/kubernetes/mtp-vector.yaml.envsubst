@@ -156,6 +156,20 @@ spec:
                       name: pipeline-pguser-metrics
                       key: uri
 
+                - name: USAGE_METRICS_PROFILE_ENABLED
+                  valueFrom:
+                    secretKeyRef:
+                      name: pipeline-env-config
+                      key: usage-metrics-profile-enabled
+                      optional: true
+
+                - name: USAGE_METRICS_PROFILE_FLUSH_INTERVAL_SECS
+                  valueFrom:
+                    secretKeyRef:
+                      name: pipeline-env-config
+                      key: usage-metrics-profile-flush-interval-secs
+                      optional: true
+
                 - name: MEZMO_PIPELINE_DB_URL
                   valueFrom:
                     secretKeyRef:
