@@ -1,3 +1,10 @@
+## [1.25.6](https://github.com/answerbook/vector/compare/v1.25.5...v1.25.6) (2023-12-01)
+
+
+### Chores
+
+* Support enabling data profile metrics collection [a922406](https://github.com/answerbook/vector/commit/a922406dfef88f4f3fa221da47b20b2dab16f627) - Jorge Bay [LOG-18636](https://logdna.atlassian.net/browse/LOG-18636)
+
 ## [1.25.5](https://github.com/answerbook/vector/compare/v1.25.4...v1.25.5) (2023-11-30)
 
 
