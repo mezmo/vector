@@ -131,9 +131,15 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                         Value::from(log_record.severity_number as i32),
                     );
                     // "trace_id": "0x5b8aa5a2d2c872e8321cf37308d69df2",
-                    metadata.insert("trace_id".to_string(), log_record.trace_id[..].into());
+                    metadata.insert(
+                        "trace_id".to_string(),
+                        Value::from(faster_hex::hex_string(&log_record.trace_id)),
+                    );
                     // "span_id": "0x051581bf3cb55c13",
-                    metadata.insert("span_id".to_string(), log_record.span_id[..].into());
+                    metadata.insert(
+                        "span_id".to_string(),
+                        Value::from(faster_hex::hex_string(&log_record.span_id)),
+                    );
                     // "trace_flags": "00",
                     metadata.insert("flags".to_string(), Value::from(log_record.flags));
 
@@ -270,8 +276,8 @@ mod tests {
                 ),
                 ("severity_number".into(), 1.into()),
                 ("severity_text".into(), "ERROR".into()),
-                ("span_id".into(), "test".into()),
-                ("trace_id".into(), "test".into()),
+                ("span_id".into(), "74657374".into()),
+                ("trace_id".into(), "74657374".into()),
                 (
                     "resource".into(),
                     Value::Object(BTreeMap::from([("foo".into(), "bar".into())]))

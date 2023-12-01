@@ -735,8 +735,14 @@ impl IntoValue for ExemplarsMetricValue<'_> {
                             ("filtered_attributes".into(), filtered_attributes.to_value()),
                             ("value".into(), exemplar_value),
                             ("time_unix_nano".into(), exemplar.time_unix_nano.into()),
-                            ("span_id".into(), exemplar.span_id[..].into()),
-                            ("trace_id".into(), exemplar.trace_id[..].into()),
+                            (
+                                "span_id".into(),
+                                Value::from(faster_hex::hex_string(&exemplar.span_id)),
+                            ),
+                            (
+                                "trace_id".into(),
+                                Value::from(faster_hex::hex_string(&exemplar.trace_id)),
+                            ),
                         ]
                         .into_iter()
                         .collect(),
@@ -1156,12 +1162,12 @@ mod tests {
                                                 "test".into()
                                             ),]))
                                         ),
-                                        ("span_id".into(), "test".into()),
+                                        ("span_id".into(), "74657374".into()),
                                         (
                                             "time_unix_nano".into(),
                                             Value::Integer(1_579_134_612_000_000_011)
                                         ),
-                                        ("trace_id".into(), "test".into()),
+                                        ("trace_id".into(), "74657374".into()),
                                         ("value".into(), Value::Integer(10)),
                                     ]))]))
                                 ),
@@ -1312,12 +1318,12 @@ mod tests {
                                                 "test".into()
                                             ),]))
                                         ),
-                                        ("span_id".into(), "test".into()),
+                                        ("span_id".into(), "74657374".into()),
                                         (
                                             "time_unix_nano".into(),
                                             Value::Integer(1_579_134_612_000_000_011)
                                         ),
-                                        ("trace_id".into(), "test".into()),
+                                        ("trace_id".into(), "74657374".into()),
                                         ("value".into(), Value::Integer(10)),
                                     ]))]))
                                 ),
@@ -1482,12 +1488,12 @@ mod tests {
                                                 "test".into()
                                             ),]))
                                         ),
-                                        ("span_id".into(), "test".into()),
+                                        ("span_id".into(), "74657374".into()),
                                         (
                                             "time_unix_nano".into(),
                                             Value::Integer(1_579_134_612_000_000_011)
                                         ),
-                                        ("trace_id".into(), "test".into()),
+                                        ("trace_id".into(), "74657374".into()),
                                         ("value".into(), from_f64_or_zero(10.5)),
                                     ]))]))
                                 ),
@@ -1669,12 +1675,12 @@ mod tests {
                                                 "test".into()
                                             ),]))
                                         ),
-                                        ("span_id".into(), "test".into()),
+                                        ("span_id".into(), "74657374".into()),
                                         (
                                             "time_unix_nano".into(),
                                             Value::Integer(1_579_134_612_000_000_011)
                                         ),
-                                        ("trace_id".into(), "test".into()),
+                                        ("trace_id".into(), "74657374".into()),
                                         ("value".into(), Value::Integer(10)),
                                     ]))]))
                                 ),
