@@ -1,3 +1,10 @@
+## [1.25.7](https://github.com/answerbook/vector/compare/v1.25.6...v1.25.7) (2023-12-04)
+
+
+### Bug Fixes
+
+* **otlp**: parse trace, span ids correctly [85ee7b3](https://github.com/answerbook/vector/commit/85ee7b315c6a4394c5a042f00547b6a1e2bd3a73) - Matt March [LOG-18753](https://logdna.atlassian.net/browse/LOG-18753)
+
 ## [1.25.6](https://github.com/answerbook/vector/compare/v1.25.5...v1.25.6) (2023-12-01)
 
 
