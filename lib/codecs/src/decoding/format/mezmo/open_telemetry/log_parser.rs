@@ -212,7 +212,7 @@ mod tests {
     };
 
     #[test]
-    fn basic_to_events() {
+    fn otlp_logs_deserialize_to_events() {
         let key_value = KeyValue {
             key: Cow::from("foo"),
             value: Some(AnyValue {

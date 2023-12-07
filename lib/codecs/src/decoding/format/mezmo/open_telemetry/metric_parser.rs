@@ -30,42 +30,32 @@ const METRIC_TIMESTAMP_KEY: &str = "message.value.value.time_unix_nano";
 
 #[derive(Debug, Default, PartialEq)]
 pub struct GaugeMetricValue<'a> {
-    pub resource: ResourceMetricValue<'a>,
-    pub scope: ScopeMetricValue<'a>,
+    pub value: NumberDataPointOneOfValue,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub attributes: OpenTelemetryKeyValue<'a>,
     pub exemplars: ExemplarsMetricValue<'a>,
     pub start_time_unix_nano: u64,
     pub time_unix_nano: u64,
-    pub value: NumberDataPointOneOfValue,
     pub flags: u32,
 }
 
 impl<'a> GaugeMetricValue<'a> {
     fn new(
         gauge_metric: NumberDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
-        scope: ScopeMetricValue<'a>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
     ) -> Self {
         GaugeMetricValue {
-            resource,
-            scope,
+            value: NumberDataPointOneOfValue {
+                value: gauge_metric.value,
+            },
             description,
             unit,
-            attributes: OpenTelemetryKeyValue {
-                attributes: gauge_metric.attributes,
-            },
             exemplars: ExemplarsMetricValue {
                 exemplars: gauge_metric.exemplars,
             },
             start_time_unix_nano: gauge_metric.start_time_unix_nano,
             time_unix_nano: gauge_metric.time_unix_nano,
-            value: NumberDataPointOneOfValue {
-                value: gauge_metric.value,
-            },
             flags: gauge_metric.flags,
         }
     }
@@ -77,7 +67,7 @@ impl<'a> GaugeMetricValue<'a> {
 
 impl<'a> MetricValueAccessor<'a> for GaugeMetricValue<'_> {
     type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 10>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 7>;
 
     fn metric_type(&'a self) -> Option<Cow<'a, str>> {
         Some(Cow::from("gauge"))
@@ -86,25 +76,16 @@ impl<'a> MetricValueAccessor<'a> for GaugeMetricValue<'_> {
     fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Object(MetricValuePairs {
             elements: [
-                (
-                    &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
-                ),
-                (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
+                (&"value" as &dyn ToString, &self.value as &dyn IntoValue),
                 (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
                 ),
                 (&"unit" as &dyn ToString, &self.unit as &dyn IntoValue),
                 (
-                    &"attributes" as &dyn ToString,
-                    &self.attributes as &dyn IntoValue,
-                ),
-                (
                     &"exemplars" as &dyn ToString,
                     &self.exemplars as &dyn IntoValue,
                 ),
-                (&"value" as &dyn ToString, &self.value as &dyn IntoValue),
                 (
                     &"start_time_unix_nano" as &dyn ToString,
                     &self.start_time_unix_nano as &dyn IntoValue,
@@ -121,50 +102,89 @@ impl<'a> MetricValueAccessor<'a> for GaugeMetricValue<'_> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct SumMetricValue<'a> {
+pub struct GaugeMetricMetadata<'a> {
     pub resource: ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
+    pub attributes: OpenTelemetryKeyValue<'a>,
+}
+
+impl<'a> GaugeMetricMetadata<'a> {
+    fn new(
+        gauge_metric: NumberDataPoint<'a>,
+        resource: ResourceMetricValue<'a>,
+        scope: ScopeMetricValue<'a>,
+    ) -> Self {
+        GaugeMetricMetadata {
+            resource,
+            scope,
+            attributes: OpenTelemetryKeyValue {
+                attributes: gauge_metric.attributes,
+            },
+        }
+    }
+}
+
+impl<'a> MetricValueAccessor<'a> for GaugeMetricMetadata<'_> {
+    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+
+    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
+        None
+    }
+
+    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+        MetricValueSerializable::Object(MetricValuePairs {
+            elements: [
+                (
+                    &"resource" as &dyn ToString,
+                    &self.resource as &dyn IntoValue,
+                ),
+                (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
+                (
+                    &"attributes" as &dyn ToString,
+                    &self.attributes as &dyn IntoValue,
+                ),
+            ]
+            .into_iter(),
+        })
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct SumMetricValue<'a> {
+    pub value: NumberDataPointOneOfValue,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub attributes: OpenTelemetryKeyValue<'a>,
     pub exemplars: ExemplarsMetricValue<'a>,
     pub start_time_unix_nano: u64,
     pub time_unix_nano: u64,
-    pub value: NumberDataPointOneOfValue,
     pub flags: u32,
-    pub aggregation_temporality: i32,
     pub is_monotonic: bool,
+    pub aggregation_temporality: i32,
 }
 
 impl<'a> SumMetricValue<'a> {
     fn new(
         sum_metric: NumberDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
-        scope: ScopeMetricValue<'a>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
         aggregation_temporality: AggregationTemporality,
         is_monotonic: bool,
     ) -> Self {
         SumMetricValue {
-            resource,
-            scope,
+            value: NumberDataPointOneOfValue {
+                value: sum_metric.value,
+            },
             description,
             unit,
-            attributes: OpenTelemetryKeyValue {
-                attributes: sum_metric.attributes,
-            },
             exemplars: ExemplarsMetricValue {
                 exemplars: sum_metric.exemplars,
             },
             start_time_unix_nano: sum_metric.start_time_unix_nano,
             time_unix_nano: sum_metric.time_unix_nano,
-            value: NumberDataPointOneOfValue {
-                value: sum_metric.value,
-            },
             flags: sum_metric.flags,
-            aggregation_temporality: aggregation_temporality as i32,
             is_monotonic,
+            aggregation_temporality: aggregation_temporality as i32,
         }
     }
 
@@ -181,7 +201,7 @@ impl<'a> SumMetricValue<'a> {
 
 impl<'a> MetricValueAccessor<'a> for SumMetricValue<'_> {
     type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 12>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 9>;
 
     fn metric_type(&'a self) -> Option<Cow<'a, str>> {
         Some(Cow::from("sum"))
@@ -190,25 +210,16 @@ impl<'a> MetricValueAccessor<'a> for SumMetricValue<'_> {
     fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Object(MetricValuePairs {
             elements: [
-                (
-                    &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
-                ),
-                (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
+                (&"value" as &dyn ToString, &self.value as &dyn IntoValue),
                 (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
                 ),
                 (&"unit" as &dyn ToString, &self.unit as &dyn IntoValue),
                 (
-                    &"attributes" as &dyn ToString,
-                    &self.attributes as &dyn IntoValue,
-                ),
-                (
                     &"exemplars" as &dyn ToString,
                     &self.exemplars as &dyn IntoValue,
                 ),
-                (&"value" as &dyn ToString, &self.value as &dyn IntoValue),
                 (
                     &"start_time_unix_nano" as &dyn ToString,
                     &self.start_time_unix_nano as &dyn IntoValue,
@@ -233,12 +244,58 @@ impl<'a> MetricValueAccessor<'a> for SumMetricValue<'_> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct HistogramMetricValue<'a> {
+pub struct SumMetricMetadata<'a> {
     pub resource: ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
+    pub attributes: OpenTelemetryKeyValue<'a>,
+}
+
+impl<'a> SumMetricMetadata<'a> {
+    fn new(
+        sum_metric: NumberDataPoint<'a>,
+        resource: ResourceMetricValue<'a>,
+        scope: ScopeMetricValue<'a>,
+    ) -> Self {
+        SumMetricMetadata {
+            resource,
+            scope,
+            attributes: OpenTelemetryKeyValue {
+                attributes: sum_metric.attributes,
+            },
+        }
+    }
+}
+
+impl<'a> MetricValueAccessor<'a> for SumMetricMetadata<'_> {
+    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+
+    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
+        None
+    }
+
+    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+        MetricValueSerializable::Object(MetricValuePairs {
+            elements: [
+                (
+                    &"resource" as &dyn ToString,
+                    &self.resource as &dyn IntoValue,
+                ),
+                (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
+                (
+                    &"attributes" as &dyn ToString,
+                    &self.attributes as &dyn IntoValue,
+                ),
+            ]
+            .into_iter(),
+        })
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct HistogramMetricValue<'a> {
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub attributes: OpenTelemetryKeyValue<'a>,
     pub exemplars: ExemplarsMetricValue<'a>,
     pub start_time_unix_nano: u64,
     pub time_unix_nano: u64,
@@ -255,20 +312,13 @@ pub struct HistogramMetricValue<'a> {
 impl<'a> HistogramMetricValue<'a> {
     fn new(
         histogram_metric: HistogramDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
-        scope: ScopeMetricValue<'a>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
         aggregation_temporality: AggregationTemporality,
     ) -> Self {
         HistogramMetricValue {
-            resource,
-            scope,
             description,
             unit,
-            attributes: OpenTelemetryKeyValue {
-                attributes: histogram_metric.attributes,
-            },
             exemplars: ExemplarsMetricValue {
                 exemplars: histogram_metric.exemplars,
             },
@@ -298,7 +348,7 @@ impl<'a> HistogramMetricValue<'a> {
 
 impl<'a> MetricValueAccessor<'a> for HistogramMetricValue<'_> {
     type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 16>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 13>;
 
     fn metric_type(&'a self) -> Option<Cow<'a, str>> {
         Some(Cow::from("histogram"))
@@ -308,19 +358,10 @@ impl<'a> MetricValueAccessor<'a> for HistogramMetricValue<'_> {
         MetricValueSerializable::Object(MetricValuePairs {
             elements: [
                 (
-                    &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
-                ),
-                (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
-                (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
                 ),
                 (&"unit" as &dyn ToString, &self.unit as &dyn IntoValue),
-                (
-                    &"attributes" as &dyn ToString,
-                    &self.attributes as &dyn IntoValue,
-                ),
                 (
                     &"exemplars" as &dyn ToString,
                     &self.exemplars as &dyn IntoValue,
@@ -357,12 +398,58 @@ impl<'a> MetricValueAccessor<'a> for HistogramMetricValue<'_> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct ExponentialHistogramMetricValue<'a> {
+pub struct HistogramMetricMetadata<'a> {
     pub resource: ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
+    pub attributes: OpenTelemetryKeyValue<'a>,
+}
+
+impl<'a> HistogramMetricMetadata<'a> {
+    fn new(
+        histogram_metric: HistogramDataPoint<'a>,
+        resource: ResourceMetricValue<'a>,
+        scope: ScopeMetricValue<'a>,
+    ) -> Self {
+        HistogramMetricMetadata {
+            resource,
+            scope,
+            attributes: OpenTelemetryKeyValue {
+                attributes: histogram_metric.attributes,
+            },
+        }
+    }
+}
+
+impl<'a> MetricValueAccessor<'a> for HistogramMetricMetadata<'_> {
+    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+
+    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
+        None
+    }
+
+    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+        MetricValueSerializable::Object(MetricValuePairs {
+            elements: [
+                (
+                    &"resource" as &dyn ToString,
+                    &self.resource as &dyn IntoValue,
+                ),
+                (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
+                (
+                    &"attributes" as &dyn ToString,
+                    &self.attributes as &dyn IntoValue,
+                ),
+            ]
+            .into_iter(),
+        })
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct ExponentialHistogramMetricValue<'a> {
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub attributes: OpenTelemetryKeyValue<'a>,
     pub exemplars: ExemplarsMetricValue<'a>,
     pub start_time_unix_nano: u64,
     pub time_unix_nano: u64,
@@ -382,20 +469,13 @@ pub struct ExponentialHistogramMetricValue<'a> {
 impl<'a> ExponentialHistogramMetricValue<'a> {
     fn new(
         exp_histogram_metric: ExponentialHistogramDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
-        scope: ScopeMetricValue<'a>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
         aggregation_temporality: AggregationTemporality,
     ) -> Self {
         ExponentialHistogramMetricValue {
-            resource,
-            scope,
             description,
             unit,
-            attributes: OpenTelemetryKeyValue {
-                attributes: exp_histogram_metric.attributes,
-            },
             exemplars: ExemplarsMetricValue {
                 exemplars: exp_histogram_metric.exemplars,
             },
@@ -428,7 +508,7 @@ impl<'a> ExponentialHistogramMetricValue<'a> {
 
 impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricValue<'_> {
     type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 19>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 16>;
 
     fn metric_type(&'a self) -> Option<Cow<'a, str>> {
         Some(Cow::from("exponential_histogram"))
@@ -438,19 +518,10 @@ impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricValue<'_> {
         MetricValueSerializable::Object(MetricValuePairs {
             elements: [
                 (
-                    &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
-                ),
-                (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
-                (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
                 ),
                 (&"unit" as &dyn ToString, &self.unit as &dyn IntoValue),
-                (
-                    &"attributes" as &dyn ToString,
-                    &self.attributes as &dyn IntoValue,
-                ),
                 (
                     &"exemplars" as &dyn ToString,
                     &self.exemplars as &dyn IntoValue,
@@ -496,12 +567,58 @@ impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricValue<'_> {
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct SummaryMetricValue<'a> {
+pub struct ExponentialHistogramMetricMetadata<'a> {
     pub resource: ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
+    pub attributes: OpenTelemetryKeyValue<'a>,
+}
+
+impl<'a> ExponentialHistogramMetricMetadata<'a> {
+    fn new(
+        exp_histogram_metric: ExponentialHistogramDataPoint<'a>,
+        resource: ResourceMetricValue<'a>,
+        scope: ScopeMetricValue<'a>,
+    ) -> Self {
+        ExponentialHistogramMetricMetadata {
+            resource,
+            scope,
+            attributes: OpenTelemetryKeyValue {
+                attributes: exp_histogram_metric.attributes,
+            },
+        }
+    }
+}
+
+impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricMetadata<'_> {
+    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+
+    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
+        None
+    }
+
+    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+        MetricValueSerializable::Object(MetricValuePairs {
+            elements: [
+                (
+                    &"resource" as &dyn ToString,
+                    &self.resource as &dyn IntoValue,
+                ),
+                (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
+                (
+                    &"attributes" as &dyn ToString,
+                    &self.attributes as &dyn IntoValue,
+                ),
+            ]
+            .into_iter(),
+        })
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct SummaryMetricValue<'a> {
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub attributes: OpenTelemetryKeyValue<'a>,
     pub start_time_unix_nano: u64,
     pub time_unix_nano: u64,
     pub count: u64,
@@ -513,19 +630,12 @@ pub struct SummaryMetricValue<'a> {
 impl<'a> SummaryMetricValue<'a> {
     fn new(
         summary_metric: SummaryDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
-        scope: ScopeMetricValue<'a>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
     ) -> Self {
         SummaryMetricValue {
-            resource,
-            scope,
             description,
             unit,
-            attributes: OpenTelemetryKeyValue {
-                attributes: summary_metric.attributes,
-            },
             start_time_unix_nano: summary_metric.start_time_unix_nano,
             time_unix_nano: summary_metric.time_unix_nano,
             count: summary_metric.count,
@@ -544,7 +654,7 @@ impl<'a> SummaryMetricValue<'a> {
 
 impl<'a> MetricValueAccessor<'a> for SummaryMetricValue<'_> {
     type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 11>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 8>;
 
     fn metric_type(&'a self) -> Option<Cow<'a, str>> {
         Some(Cow::from("summary"))
@@ -554,19 +664,10 @@ impl<'a> MetricValueAccessor<'a> for SummaryMetricValue<'_> {
         MetricValueSerializable::Object(MetricValuePairs {
             elements: [
                 (
-                    &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
-                ),
-                (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
-                (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
                 ),
                 (&"unit" as &dyn ToString, &self.unit as &dyn IntoValue),
-                (
-                    &"attributes" as &dyn ToString,
-                    &self.attributes as &dyn IntoValue,
-                ),
                 (
                     &"start_time_unix_nano" as &dyn ToString,
                     &self.start_time_unix_nano as &dyn IntoValue,
@@ -582,6 +683,55 @@ impl<'a> MetricValueAccessor<'a> for SummaryMetricValue<'_> {
                     &self.quantile_values as &dyn IntoValue,
                 ),
                 (&"flags" as &dyn ToString, &self.flags as &dyn IntoValue),
+            ]
+            .into_iter(),
+        })
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct SummaryMetricMetadata<'a> {
+    pub resource: ResourceMetricValue<'a>,
+    pub scope: ScopeMetricValue<'a>,
+    pub attributes: OpenTelemetryKeyValue<'a>,
+}
+
+impl<'a> SummaryMetricMetadata<'a> {
+    fn new(
+        summary_metric: SummaryDataPoint<'a>,
+        resource: ResourceMetricValue<'a>,
+        scope: ScopeMetricValue<'a>,
+    ) -> Self {
+        SummaryMetricMetadata {
+            resource,
+            scope,
+            attributes: OpenTelemetryKeyValue {
+                attributes: summary_metric.attributes,
+            },
+        }
+    }
+}
+
+impl<'a> MetricValueAccessor<'a> for SummaryMetricMetadata<'_> {
+    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+
+    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
+        None
+    }
+
+    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+        MetricValueSerializable::Object(MetricValuePairs {
+            elements: [
+                (
+                    &"resource" as &dyn ToString,
+                    &self.resource as &dyn IntoValue,
+                ),
+                (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
+                (
+                    &"attributes" as &dyn ToString,
+                    &self.attributes as &dyn IntoValue,
+                ),
             ]
             .into_iter(),
         })
@@ -866,12 +1016,16 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                         .data_points
                         .iter()
                         .map(|data_point| {
-                            let value = GaugeMetricValue::new(
+                            let metric_value = GaugeMetricValue::new(
+                                data_point.clone(),
+                                metric.description.clone(),
+                                metric.unit.clone(),
+                            );
+
+                            let metric_metadata = GaugeMetricMetadata::new(
                                 data_point.clone(),
                                 ResourceMetricValue::new(resource_metric.resource.clone()),
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
-                                metric.description.clone(),
-                                metric.unit.clone(),
                             );
 
                             out.push(make_event(
@@ -879,9 +1033,10 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                     MezmoMetric {
                                         name: metric.name.clone(),
                                         namespace: None,
-                                        kind: value.kind(),
+                                        kind: metric_value.kind(),
                                         tags: Some(&tags),
-                                        value: &value,
+                                        user_metadata: Some(&metric_metadata),
+                                        value: &metric_value,
                                     }
                                 }
                                 .to_log_event(),
@@ -892,14 +1047,18 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                         .data_points
                         .iter()
                         .map(|data_point| {
-                            let value = SumMetricValue::new(
+                            let metric_value = SumMetricValue::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
-                                ScopeMetricValue::new(scope_metric.scope.clone()),
                                 metric.description.clone(),
                                 metric.unit.clone(),
                                 sum.aggregation_temporality,
                                 sum.is_monotonic,
+                            );
+
+                            let metric_metadata = SumMetricMetadata::new(
+                                data_point.clone(),
+                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
 
                             out.push(make_event(
@@ -907,9 +1066,10 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                     MezmoMetric {
                                         name: metric.name.clone(),
                                         namespace: None,
-                                        kind: value.kind(),
+                                        kind: metric_value.kind(),
                                         tags: Some(&tags),
-                                        value: &value,
+                                        user_metadata: Some(&metric_metadata),
+                                        value: &metric_value,
                                     }
                                 }
                                 .to_log_event(),
@@ -920,13 +1080,17 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                         .data_points
                         .iter()
                         .map(|data_point| {
-                            let value = HistogramMetricValue::new(
+                            let metric_value = HistogramMetricValue::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
-                                ScopeMetricValue::new(scope_metric.scope.clone()),
                                 metric.description.clone(),
                                 metric.unit.clone(),
                                 histogram.aggregation_temporality,
+                            );
+
+                            let metric_metadata = HistogramMetricMetadata::new(
+                                data_point.clone(),
+                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
 
                             out.push(make_event(
@@ -934,9 +1098,10 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                     MezmoMetric {
                                         name: metric.name.clone(),
                                         namespace: None,
-                                        kind: value.kind(),
+                                        kind: metric_value.kind(),
                                         tags: Some(&tags),
-                                        value: &value,
+                                        user_metadata: Some(&metric_metadata),
+                                        value: &metric_value,
                                     }
                                 }
                                 .to_log_event(),
@@ -947,13 +1112,17 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                         .data_points
                         .iter()
                         .map(|data_point| {
-                            let value = ExponentialHistogramMetricValue::new(
+                            let metric_value = ExponentialHistogramMetricValue::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
-                                ScopeMetricValue::new(scope_metric.scope.clone()),
                                 metric.description.clone(),
                                 metric.unit.clone(),
                                 exp_histogram.aggregation_temporality,
+                            );
+
+                            let metric_metadata = ExponentialHistogramMetricMetadata::new(
+                                data_point.clone(),
+                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
 
                             out.push(make_event(
@@ -961,9 +1130,10 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                     MezmoMetric {
                                         name: metric.name.clone(),
                                         namespace: None,
-                                        kind: value.kind(),
+                                        kind: metric_value.kind(),
                                         tags: Some(&tags),
-                                        value: &value,
+                                        user_metadata: Some(&metric_metadata),
+                                        value: &metric_value,
                                     }
                                 }
                                 .to_log_event(),
@@ -974,12 +1144,16 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                         .data_points
                         .iter()
                         .map(|data_point| {
-                            let value = SummaryMetricValue::new(
+                            let metric_value = SummaryMetricValue::new(
+                                data_point.clone(),
+                                metric.description.clone(),
+                                metric.unit.clone(),
+                            );
+
+                            let metric_metadata = SummaryMetricMetadata::new(
                                 data_point.clone(),
                                 ResourceMetricValue::new(resource_metric.resource.clone()),
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
-                                metric.description.clone(),
-                                metric.unit.clone(),
                             );
 
                             out.push(make_event(
@@ -987,9 +1161,10 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                     MezmoMetric {
                                         name: metric.name.clone(),
                                         namespace: None,
-                                        kind: value.kind(),
+                                        kind: metric_value.kind(),
                                         tags: Some(&tags),
-                                        value: &value,
+                                        user_metadata: Some(&metric_metadata),
+                                        value: &metric_value,
                                     }
                                 }
                                 .to_log_event(),
@@ -1039,7 +1214,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn otlp_deserialize_gauge_metrics() {
+    fn otlp_metrics_deserialize_gauge() {
         use opentelemetry_rs::opentelemetry::metrics::{
             Exemplar, ExemplarOneOfvalue, Gauge, InstrumentationScope, NumberDataPoint,
             NumberDataPointOneOfvalue, Resource, ResourceMetrics, ScopeMetrics,
@@ -1116,42 +1291,9 @@ mod tests {
                         (
                             "value".into(),
                             Value::Object(BTreeMap::from([
+                                ("value".into(), Value::Integer(10)),
                                 ("description".into(), "test_description".into()),
-                                (
-                                    "resource".into(),
-                                    Value::Object(BTreeMap::from([
-                                        (
-                                            "attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
-                                        ),
-                                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                                    ]))
-                                ),
-                                (
-                                    "scope".into(),
-                                    Value::Object(BTreeMap::from([
-                                        (
-                                            "attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
-                                        ),
-                                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                                        ("name".into(), "test_name".into()),
-                                        ("version".into(), "1.2.3".into()),
-                                    ]))
-                                ),
                                 ("unit".into(), "123.[psi]".into()),
-                                (
-                                    "attributes".into(),
-                                    Value::Object(BTreeMap::from(
-                                        [("test".into(), "test".into()),]
-                                    ))
-                                ),
                                 (
                                     "exemplars".into(),
                                     Value::Array(Vec::from([Value::Object(BTreeMap::from([
@@ -1180,10 +1322,47 @@ mod tests {
                                     "time_unix_nano".into(),
                                     Value::Integer(1_579_134_612_000_000_011)
                                 ),
-                                ("value".into(), Value::Integer(10))
                             ]))
                         ),
                     ]))
+                ),
+            ]))
+        );
+
+        assert_eq!(
+            *metrics[0]
+                .clone()
+                .into_log()
+                .value()
+                .get("metadata")
+                .unwrap()
+                .deref(),
+            Value::Object(BTreeMap::from([
+                (
+                    "resource".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                    ]))
+                ),
+                (
+                    "scope".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("name".into(), "test_name".into()),
+                        ("version".into(), "1.2.3".into()),
+                    ]))
+                ),
+                (
+                    "attributes".into(),
+                    Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
                 ),
             ]))
         );
@@ -1191,7 +1370,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn otlp_deserialize_sum_metrics() {
+    fn otlp_metrics_deserialize_sum() {
         use opentelemetry_rs::opentelemetry::metrics::{
             AggregationTemporality, Exemplar, ExemplarOneOfvalue, InstrumentationScope,
             NumberDataPoint, NumberDataPointOneOfvalue, Resource, ResourceMetrics, ScopeMetrics,
@@ -1273,41 +1452,7 @@ mod tests {
                             "value".into(),
                             Value::Object(BTreeMap::from([
                                 ("description".into(), "test_description".into()),
-                                (
-                                    "resource".into(),
-                                    Value::Object(BTreeMap::from([
-                                        (
-                                            "attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
-                                        ),
-                                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                                    ]))
-                                ),
-                                (
-                                    "scope".into(),
-                                    Value::Object(BTreeMap::from([
-                                        (
-                                            "attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
-                                        ),
-                                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                                        ("name".into(), "test_name".into()),
-                                        ("version".into(), "1.2.3".into()),
-                                    ]))
-                                ),
                                 ("unit".into(), "123.[psi]".into()),
-                                (
-                                    "attributes".into(),
-                                    Value::Object(BTreeMap::from(
-                                        [("test".into(), "test".into()),]
-                                    ))
-                                ),
                                 (
                                     "exemplars".into(),
                                     Value::Array(Vec::from([Value::Object(BTreeMap::from([
@@ -1345,11 +1490,49 @@ mod tests {
                 ),
             ]))
         );
+
+        assert_eq!(
+            *metrics[0]
+                .clone()
+                .into_log()
+                .value()
+                .get("metadata")
+                .unwrap()
+                .deref(),
+            Value::Object(BTreeMap::from([
+                (
+                    "resource".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                    ]))
+                ),
+                (
+                    "scope".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("name".into(), "test_name".into()),
+                        ("version".into(), "1.2.3".into()),
+                    ]))
+                ),
+                (
+                    "attributes".into(),
+                    Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                ),
+            ]))
+        );
     }
 
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn otlp_deserialize_histogram_metrics() {
+    fn otlp_metrics_deserialize_histogram() {
         use opentelemetry_rs::opentelemetry::metrics::{
             AggregationTemporality, Exemplar, ExemplarOneOfvalue, Histogram, HistogramDataPoint,
             InstrumentationScope, Resource, ResourceMetrics, ScopeMetrics,
@@ -1434,41 +1617,7 @@ mod tests {
                             "value".into(),
                             Value::Object(BTreeMap::from([
                                 ("description".into(), "test_description".into()),
-                                (
-                                    "resource".into(),
-                                    Value::Object(BTreeMap::from([
-                                        (
-                                            "attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
-                                        ),
-                                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                                    ]))
-                                ),
-                                (
-                                    "scope".into(),
-                                    Value::Object(BTreeMap::from([
-                                        (
-                                            "attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
-                                        ),
-                                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                                        ("name".into(), "test_name".into()),
-                                        ("version".into(), "1.2.3".into()),
-                                    ]))
-                                ),
                                 ("unit".into(), "123.[psi]".into()),
-                                (
-                                    "attributes".into(),
-                                    Value::Object(BTreeMap::from(
-                                        [("test".into(), "test".into()),]
-                                    ))
-                                ),
                                 (
                                     "bucket_counts".into(),
                                     Value::Array(Vec::from([
@@ -1523,11 +1672,49 @@ mod tests {
                 ),
             ]))
         );
+
+        assert_eq!(
+            *metrics[0]
+                .clone()
+                .into_log()
+                .value()
+                .get("metadata")
+                .unwrap()
+                .deref(),
+            Value::Object(BTreeMap::from([
+                (
+                    "resource".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                    ]))
+                ),
+                (
+                    "scope".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("name".into(), "test_name".into()),
+                        ("version".into(), "1.2.3".into()),
+                    ]))
+                ),
+                (
+                    "attributes".into(),
+                    Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                ),
+            ]))
+        );
     }
 
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn otlp_deserialize_exponential_histogram_metrics() {
+    fn otlp_metrics_deserialize_exponential_histogram() {
         use opentelemetry_rs::opentelemetry::metrics::{
             AggregationTemporality, Exemplar, ExemplarOneOfvalue, ExponentialHistogram,
             ExponentialHistogramDataPoint, ExponentialHistogramDataPointBuckets,
@@ -1629,41 +1816,7 @@ mod tests {
                             "value".into(),
                             Value::Object(BTreeMap::from([
                                 ("description".into(), "test_description".into()),
-                                (
-                                    "resource".into(),
-                                    Value::Object(BTreeMap::from([
-                                        (
-                                            "attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
-                                        ),
-                                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                                    ]))
-                                ),
-                                (
-                                    "scope".into(),
-                                    Value::Object(BTreeMap::from([
-                                        (
-                                            "attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
-                                        ),
-                                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                                        ("name".into(), "test_name".into()),
-                                        ("version".into(), "1.2.3".into()),
-                                    ]))
-                                ),
                                 ("unit".into(), "123.[psi]".into()),
-                                (
-                                    "attributes".into(),
-                                    Value::Object(BTreeMap::from(
-                                        [("test".into(), "test".into()),]
-                                    ))
-                                ),
                                 ("count".into(), Value::Integer(10)),
                                 (
                                     "exemplars".into(),
@@ -1734,11 +1887,49 @@ mod tests {
                 ),
             ]))
         );
+
+        assert_eq!(
+            *metrics[0]
+                .clone()
+                .into_log()
+                .value()
+                .get("metadata")
+                .unwrap()
+                .deref(),
+            Value::Object(BTreeMap::from([
+                (
+                    "resource".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                    ]))
+                ),
+                (
+                    "scope".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("name".into(), "test_name".into()),
+                        ("version".into(), "1.2.3".into()),
+                    ]))
+                ),
+                (
+                    "attributes".into(),
+                    Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                ),
+            ]))
+        );
     }
 
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn otlp_deserialize_summary_metrics() {
+    fn otlp_metrics_deserialize_summary() {
         use opentelemetry_rs::opentelemetry::metrics::{
             ExportMetricsServiceRequest, InstrumentationScope, Resource, ResourceMetrics,
             ScopeMetrics, Summary, SummaryDataPoint, SummaryDataPointValueAtQuantile,
@@ -1814,41 +2005,7 @@ mod tests {
                             "value".into(),
                             Value::Object(BTreeMap::from([
                                 ("description".into(), "test_description".into()),
-                                (
-                                    "resource".into(),
-                                    Value::Object(BTreeMap::from([
-                                        (
-                                            "attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
-                                        ),
-                                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                                    ]))
-                                ),
-                                (
-                                    "scope".into(),
-                                    Value::Object(BTreeMap::from([
-                                        (
-                                            "attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
-                                        ),
-                                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                                        ("name".into(), "test_name".into()),
-                                        ("version".into(), "1.2.3".into()),
-                                    ]))
-                                ),
                                 ("unit".into(), "123.[psi]".into()),
-                                (
-                                    "attributes".into(),
-                                    Value::Object(BTreeMap::from(
-                                        [("test".into(), "test".into()),]
-                                    ))
-                                ),
                                 ("count".into(), Value::Integer(10)),
                                 ("flags".into(), Value::Integer(1)),
                                 (
@@ -1873,10 +2030,48 @@ mod tests {
                 ),
             ]))
         );
+
+        assert_eq!(
+            *metrics[0]
+                .clone()
+                .into_log()
+                .value()
+                .get("metadata")
+                .unwrap()
+                .deref(),
+            Value::Object(BTreeMap::from([
+                (
+                    "resource".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                    ]))
+                ),
+                (
+                    "scope".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("name".into(), "test_name".into()),
+                        ("version".into(), "1.2.3".into()),
+                    ]))
+                ),
+                (
+                    "attributes".into(),
+                    Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                ),
+            ]))
+        );
     }
 
     #[test]
-    fn otlp_protobuf_deserialize() {
+    fn otlp_metrics_deserialize_parse_request() {
         let out: &[u8] = b"\n\xa7\x02\n\xb8\x01\n)\n\x11service.namespace\x12\x14\n\x12opentelemetry-demo\n!\n\x0cservice.name\x12\x11\n\x0fcurrencyservice\n \n\x15telemetry.sdk.version\x12\x07\n\x051.8.2\n%\n\x12telemetry.sdk.name\x12\x0f\n\ropentelemetry\n\x1f\n\x16telemetry.sdk.language\x12\x05\n\x03cpp\x12j\n\x15\n\x0capp_currency\x12\x051.3.0\x12Q\n\x14app_currency_counter:9\n3\x11\xdc\xf9\0xl\x18W\x17\x19\xb7\xa2\xa1\xb3l\x18W\x171\x02\0\0\0\0\0\0\0:\x16\n\rcurrency_code\x12\x05\n\x03USD\x10\x01\x18\x01";
 
         let metrics = parse_metrics_request(out).expect("Failed to parse");
