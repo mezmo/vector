@@ -1,3 +1,15 @@
+# [1.26.0](https://github.com/answerbook/vector/compare/v1.25.7...v1.26.0) (2023-12-07)
+
+
+### Chores
+
+* **deps**: Bump warp and async-graphql-warp versions [d5626b0](https://github.com/answerbook/vector/commit/d5626b0edfaec01863cb8386eeae284486a4eaac) - Dan Hable [LOG-18567](https://logdna.atlassian.net/browse/LOG-18567)
+
+
+### Features
+
+* **transform**: sliding window aggregator [848037b](https://github.com/answerbook/vector/commit/848037b459d37a51786cda96d026a5d0ddc395a5) - Dan Hable [LOG-18567](https://logdna.atlassian.net/browse/LOG-18567)
+
 ## [1.25.7](https://github.com/answerbook/vector/compare/v1.25.6...v1.25.7) (2023-12-04)
 
 
