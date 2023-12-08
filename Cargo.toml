@@ -716,6 +716,7 @@ sinks-logs-mezmo = [
   "sinks-azure_blob",
   "sinks-blackhole",
   "sinks-console",
+  "sinks-clickhouse",
   "sinks-datadog_logs",
   "sinks-elasticsearch",
   "sinks-file",
