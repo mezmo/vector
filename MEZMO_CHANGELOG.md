@@ -1,3 +1,15 @@
+# [1.27.0](https://github.com/answerbook/vector/compare/v1.26.0...v1.27.0) (2023-12-08)
+
+
+### Features
+
+* **clickhouse**: enable clickhouse feature [ee4b606](https://github.com/answerbook/vector/commit/ee4b6063231eba92b0029a0cff2ea128c364f7e0) - Mike Del Tito [LOG-18821](https://logdna.atlassian.net/browse/LOG-18821)
+
+
+### Miscellaneous
+
+* Merge pull request #362 from answerbook/mdeltito/LOG-18821 [8f8d258](https://github.com/answerbook/vector/commit/8f8d258f202ec62aa1da8a02660cf9e2f1b00bbe) - GitHub [LOG-18821](https://logdna.atlassian.net/browse/LOG-18821)
+
 # [1.26.0](https://github.com/answerbook/vector/compare/v1.25.7...v1.26.0) (2023-12-07)
 
 
