@@ -1,3 +1,10 @@
+## [1.27.1](https://github.com/answerbook/vector/compare/v1.27.0...v1.27.1) (2023-12-11)
+
+
+### Bug Fixes
+
+* **log_clustering**: Always set the current node [e41e152](https://github.com/answerbook/vector/commit/e41e1528a217d8ba16c8c30a75d5f050e1068bce) - Jorge Bay [LOG-18799](https://logdna.atlassian.net/browse/LOG-18799)
+
 # [1.27.0](https://github.com/answerbook/vector/compare/v1.26.0...v1.27.0) (2023-12-08)
 
 
