@@ -240,11 +240,11 @@ impl LogClassification {
                 Value::Integer(1),
             );
             log.insert(
-                (classification_path.clone() + ".event_types").as_str(),
+                (classification_path + ".event_types").as_str(),
                 Value::Object(
                     matches
                         .into_iter()
-                        .map(|m| (m.to_string(), Value::Integer(1)))
+                        .map(|m| (m, Value::Integer(1)))
                         .collect(),
                 ),
             );
@@ -308,7 +308,7 @@ mod tests {
         annotations.insert("message_key".to_string(), Value::Bytes(message_key.into()));
         annotations.insert("classification".to_string(), Value::Object(btreemap!(
             "event_count" => Value::Integer(1),
-            "event_types" => Value::Object(matches.into_iter().map(|m| (m.to_string(), Value::Integer(1))).collect()),
+            "event_types" => Value::Object(matches.into_iter().map(|m| (m, Value::Integer(1))).collect()),
             "total_bytes" => Value::Integer(value_size(message) as i64),
         )));
         Value::Object(annotations)

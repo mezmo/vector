@@ -67,6 +67,7 @@ pub struct LuaConfig {
     /// If not specified, the modules are looked up in the configuration directories.
     #[serde(default = "default_config_paths")]
     #[configurable(metadata(docs::examples = "/etc/vector/lua"))]
+    #[configurable(metadata(docs::human_name = "Search Directories"))]
     search_dirs: Vec<PathBuf>,
 
     #[configurable(derived)]
@@ -155,6 +156,7 @@ struct HooksConfig {
 struct TimerConfig {
     /// The interval to execute the handler, in seconds.
     #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    #[configurable(metadata(docs::human_name = "Interval"))]
     interval_seconds: Duration,
 
     /// The handler function which is called when the timer ticks.
@@ -952,9 +954,12 @@ mod tests {
                     MetricValue::Counter { value: 1.0 },
                 );
 
-                let expected = metric
+                let mut expected = metric
                     .clone()
                     .with_value(MetricValue::Counter { value: 2.0 });
+                expected
+                    .metadata_mut()
+                    .set_upstream_id(Arc::new(OutputId::from("transform")));
 
                 tx.send(metric.into()).await.unwrap();
 

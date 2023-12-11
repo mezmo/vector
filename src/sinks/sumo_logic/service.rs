@@ -14,9 +14,7 @@ use hyper::Body;
 use tower::Service;
 use vector_common::{
     finalization::{EventStatus, Finalizable},
-    internal_event::CountByteSize,
-    request_metadata::MetaDescriptive,
-    request_metadata::RequestMetadata,
+    request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata},
 };
 use vector_core::{event::EventFinalizers, stream::DriverResponse};
 
@@ -43,8 +41,11 @@ impl Finalizable for SumoLogicApiRequest {
 }
 
 impl MetaDescriptive for SumoLogicApiRequest {
-    fn get_metadata(&self) -> RequestMetadata {
-        self.metadata
+    fn get_metadata(&self) -> &RequestMetadata {
+        &self.metadata
+    }
+    fn metadata_mut(&mut self) -> &mut RequestMetadata {
+        &mut self.metadata
     }
 }
 
@@ -52,6 +53,7 @@ impl MetaDescriptive for SumoLogicApiRequest {
 pub struct SumoLogicApiResponse {
     event_status: EventStatus,
     metadata: RequestMetadata,
+    events_byte_size: GroupedCountByteSize,
 }
 
 impl DriverResponse for SumoLogicApiResponse {
@@ -59,11 +61,8 @@ impl DriverResponse for SumoLogicApiResponse {
         self.event_status
     }
 
-    fn events_sent(&self) -> CountByteSize {
-        CountByteSize(
-            self.metadata.event_count(),
-            self.metadata.events_estimated_json_encoded_byte_size(),
-        )
+    fn events_sent(&self) -> &GroupedCountByteSize {
+        &self.events_byte_size
     }
 
     fn bytes_sent(&self) -> Option<usize> {
@@ -87,15 +86,17 @@ impl Service<SumoLogicApiRequest> for SumoLogicService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, request: SumoLogicApiRequest) -> Self::Future {
+    fn call(&mut self, mut request: SumoLogicApiRequest) -> Self::Future {
         let mut client = self.client.clone();
         let uri = request
             .credentials
             .build_uri()
             .expect("error building sumo logic endpoint");
 
-        let metadata = request.get_metadata();
-
+        let metadata = std::mem::take(request.metadata_mut());
+        let events_byte_size = metadata
+            .clone()
+            .into_events_estimated_json_encoded_byte_size();
         let http_request = Request::post(&uri);
 
         let http_request = match request.model {
@@ -123,7 +124,8 @@ impl Service<SumoLogicApiRequest> for SumoLogicService {
             match client.call(http_request).await {
                 Ok(_) => Ok(SumoLogicApiResponse {
                     event_status: EventStatus::Delivered,
-                    metadata,
+                    metadata: metadata.clone(),
+                    events_byte_size,
                 }),
                 Err(error) => Err(SumoLogicSinkError::new(&format!(
                     "HTTP request error: {}",

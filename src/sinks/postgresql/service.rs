@@ -16,18 +16,23 @@ use vector_common::finalization::{EventFinalizers, Finalizable};
 use vector_common::internal_event::{
     ByteSize, BytesSent, InternalEventHandle, Protocol, Registered,
 };
-use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
-use vector_core::{internal_event::CountByteSize, stream::DriverResponse};
+use vector_common::request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata};
+use vector_core::stream::DriverResponse;
 use vrl::value::Value;
 
 pub struct PostgreSQLRequest {
     data: Vec<Value>,
     finalizers: EventFinalizers,
+    metadata: RequestMetadata,
 }
 
 impl PostgreSQLRequest {
     pub(crate) fn new(data: Vec<Value>, finalizers: EventFinalizers) -> Self {
-        Self { data, finalizers }
+        Self {
+            data,
+            finalizers,
+            metadata: RequestMetadata::new(0, 0, 0, 0, GroupedCountByteSize::new_untagged()),
+        }
     }
 }
 
@@ -38,15 +43,18 @@ impl Finalizable for PostgreSQLRequest {
 }
 
 impl MetaDescriptive for PostgreSQLRequest {
-    fn get_metadata(&self) -> RequestMetadata {
+    fn get_metadata(&self) -> &RequestMetadata {
         // RequestMetadata is not relevant for the output of this sink, but
         // is required by the trait bounds of service driver
-        RequestMetadata::new(0, 0, 0, 0, 0)
+        &self.metadata
+    }
+    fn metadata_mut(&mut self) -> &mut RequestMetadata {
+        &mut self.metadata
     }
 }
 
 pub struct PostgreSQLResponse {
-    bytes_sent: usize,
+    events_byte_size: GroupedCountByteSize,
 }
 
 impl DriverResponse for PostgreSQLResponse {
@@ -54,8 +62,8 @@ impl DriverResponse for PostgreSQLResponse {
         EventStatus::Delivered
     }
 
-    fn events_sent(&self) -> CountByteSize {
-        CountByteSize(1, self.bytes_sent)
+    fn events_sent(&self) -> &GroupedCountByteSize {
+        &self.events_byte_size
     }
 }
 
@@ -118,7 +126,9 @@ impl Service<PostgreSQLRequest> for PostgreSQLService {
 
             debug!("postgres execute successful; {res} rows modified");
             bytes_sent_handle.emit(ByteSize(bytes_sent));
-            Ok(PostgreSQLResponse { bytes_sent })
+            Ok(PostgreSQLResponse {
+                events_byte_size: req.metadata.into_events_estimated_json_encoded_byte_size(),
+            })
         })
     }
 }

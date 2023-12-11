@@ -301,9 +301,7 @@ impl From<S3CannedAcl> for ObjectCannedAcl {
             S3CannedAcl::AuthenticatedRead => ObjectCannedAcl::AuthenticatedRead,
             S3CannedAcl::BucketOwnerRead => ObjectCannedAcl::BucketOwnerRead,
             S3CannedAcl::BucketOwnerFullControl => ObjectCannedAcl::BucketOwnerFullControl,
-            S3CannedAcl::LogDeliveryWrite => {
-                ObjectCannedAcl::Unknown("log-delivery-write".to_string())
-            }
+            S3CannedAcl::LogDeliveryWrite => ObjectCannedAcl::from("log-delivery-write"),
         }
     }
 }
@@ -346,8 +344,8 @@ pub fn build_healthcheck(
         match req {
             Ok(_) => Ok(()),
             Err(error) => Err(match error {
-                SdkError::ServiceError { err: _, raw } => {
-                    let status = raw.http().status();
+                SdkError::ServiceError(err) => {
+                    let status = err.raw().http().status();
                     let msg = Value::from(format!(
                         "Error returned from destination with status code: {}",
                         status
@@ -377,7 +375,7 @@ pub async fn create_service(
     proxy: &ProxyConfig,
     tls_options: &Option<TlsConfig>,
 ) -> crate::Result<S3Service> {
-    let endpoint = region.endpoint()?;
+    let endpoint = region.endpoint();
     let region = region.region();
     let client =
         create_client::<S3ClientBuilder>(auth, region.clone(), endpoint, proxy, tls_options, true)

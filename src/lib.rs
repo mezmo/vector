@@ -18,17 +18,9 @@
 #![deny(clippy::disallowed_methods)] // [nursery] mark some functions as verboten
 #![deny(clippy::missing_const_for_fn)] // [nursery] valuable to the optimizer, but may produce false positives
 #![allow(
-    clippy::arc_with_non_send_sync,
-    clippy::default_constructed_unit_structs,
     clippy::explicit_iter_loop,
-    clippy::incorrect_clone_impl_on_copy_type,
-    clippy::manual_range_patterns,
-    clippy::missing_fields_in_debug,
     clippy::missing_panics_doc,
     clippy::needless_lifetimes,
-    clippy::needless_pub_self,
-    clippy::needless_raw_string_hashes,
-    clippy::non_minimal_cfg,
     clippy::redundant_closure_call,
     clippy::redundant_pattern_matching,
     clippy::useless_conversion,
@@ -100,6 +92,7 @@ pub mod line_agg;
 pub mod list;
 #[cfg(any(feature = "sources-nats", feature = "sinks-nats"))]
 pub(crate) mod nats;
+pub mod net;
 #[allow(unreachable_pub)]
 pub(crate) mod proto;
 pub mod providers;
@@ -129,7 +122,6 @@ pub mod trace;
 #[allow(unreachable_pub)]
 pub mod transforms;
 pub mod types;
-pub mod udp;
 pub mod unit_test;
 pub(crate) mod utilization;
 pub mod validate;

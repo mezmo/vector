@@ -1,11 +1,6 @@
 use std::task::Poll;
 
-use crate::{
-    event::{EventFinalizers, EventStatus, Finalizable},
-    gcp::GcpAuthenticator,
-    http::{get_http_scheme_from_uri, HttpClient, HttpError},
-    mezmo::user_trace::UserLoggingResponse,
-};
+use crate::{http::get_http_scheme_from_uri, mezmo::user_trace::UserLoggingResponse};
 use bytes::Bytes;
 use futures::future;
 use futures::future::BoxFuture;
@@ -15,9 +10,15 @@ use http::{
 };
 use hyper::Body;
 use tower::Service;
-use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
-use vector_core::{internal_event::CountByteSize, stream::DriverResponse};
+use vector_common::request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata};
+use vector_core::stream::DriverResponse;
 use vrl::value::Value;
+
+use crate::{
+    event::{EventFinalizers, EventStatus, Finalizable},
+    gcp::GcpAuthenticator,
+    http::{HttpClient, HttpError},
+};
 
 #[derive(Debug, Clone)]
 pub struct GcsService {
@@ -56,8 +57,12 @@ impl Finalizable for GcsRequest {
 }
 
 impl MetaDescriptive for GcsRequest {
-    fn get_metadata(&self) -> RequestMetadata {
-        self.metadata
+    fn get_metadata(&self) -> &RequestMetadata {
+        &self.metadata
+    }
+
+    fn metadata_mut(&mut self) -> &mut RequestMetadata {
+        &mut self.metadata
     }
 }
 
@@ -96,11 +101,8 @@ impl DriverResponse for GcsResponse {
         }
     }
 
-    fn events_sent(&self) -> CountByteSize {
-        CountByteSize(
-            self.metadata.event_count(),
-            self.metadata.events_estimated_json_encoded_byte_size(),
-        )
+    fn events_sent(&self) -> &GroupedCountByteSize {
+        self.metadata.events_estimated_json_encoded_byte_size()
     }
 
     fn bytes_sent(&self) -> Option<usize> {

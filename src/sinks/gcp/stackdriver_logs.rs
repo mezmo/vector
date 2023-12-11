@@ -39,7 +39,10 @@ enum HealthcheckError {
 }
 
 /// Configuration for the `gcp_stackdriver_logs` sink.
-#[configurable_component(sink("gcp_stackdriver_logs"))]
+#[configurable_component(sink(
+    "gcp_stackdriver_logs",
+    "Deliver logs to GCP's Cloud Operations suite."
+))]
 #[derive(Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct StackdriverConfig {
@@ -205,6 +208,7 @@ fn label_examples() -> HashMap<String, String> {
 impl_generate_config_from_default!(StackdriverConfig);
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "gcp_stackdriver_logs")]
 impl SinkConfig for StackdriverConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         // Unlike Vector's upstream behavior, if the initial `auth` result is an error
@@ -250,6 +254,7 @@ impl SinkConfig for StackdriverConfig {
         )
         .sink_map_err(|error| error!(message = "Fatal gcp_stackdriver_logs sink error.", %error));
 
+        #[allow(deprecated)]
         Ok((VectorSink::from_event_sink(sink), healthcheck))
     }
 
@@ -462,7 +467,7 @@ mod tests {
         config.auth.api_key = Some("fake".to_string().into());
         config.endpoint = mock_endpoint.to_string();
 
-        let context = SinkContext::new_test();
+        let context = SinkContext::default();
         let (sink, _healthcheck) = config.build(context).await.unwrap();
 
         let event = Event::Log(LogEvent::from("simple message"));

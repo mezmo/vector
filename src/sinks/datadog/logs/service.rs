@@ -14,10 +14,9 @@ use hyper::Body;
 use indexmap::IndexMap;
 use tower::Service;
 use tracing::Instrument;
-use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
+use vector_common::request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata};
 use vector_core::{
     event::{EventFinalizers, EventStatus, Finalizable},
-    internal_event::CountByteSize,
     stream::DriverResponse,
 };
 
@@ -57,16 +56,19 @@ impl Finalizable for LogApiRequest {
 }
 
 impl MetaDescriptive for LogApiRequest {
-    fn get_metadata(&self) -> RequestMetadata {
-        self.metadata
+    fn get_metadata(&self) -> &RequestMetadata {
+        &self.metadata
+    }
+
+    fn metadata_mut(&mut self) -> &mut RequestMetadata {
+        &mut self.metadata
     }
 }
 
 #[derive(Debug)]
 pub struct LogApiResponse {
     event_status: EventStatus,
-    count: usize,
-    events_byte_size: usize,
+    events_byte_size: GroupedCountByteSize,
     raw_byte_size: usize,
 }
 
@@ -75,8 +77,8 @@ impl DriverResponse for LogApiResponse {
         self.event_status
     }
 
-    fn events_sent(&self) -> CountByteSize {
-        CountByteSize(self.count, self.events_byte_size)
+    fn events_sent(&self) -> &GroupedCountByteSize {
+        &self.events_byte_size
     }
 
     fn bytes_sent(&self) -> Option<usize> {
@@ -125,7 +127,7 @@ impl Service<LogApiRequest> for LogApiService {
     }
 
     // Emission of Error internal event is handled upstream by the caller
-    fn call(&mut self, request: LogApiRequest) -> Self::Future {
+    fn call(&mut self, mut request: LogApiRequest) -> Self::Future {
         let mut client = self.client.clone();
         let http_request = Request::post(&self.uri)
             .header(CONTENT_TYPE, "application/json")
@@ -139,8 +141,8 @@ impl Service<LogApiRequest> for LogApiService {
             http_request
         };
 
-        let count = request.get_metadata().event_count();
-        let events_byte_size = request.get_metadata().events_byte_size();
+        let metadata = std::mem::take(request.metadata_mut());
+        let events_byte_size = metadata.into_events_estimated_json_encoded_byte_size();
         let raw_byte_size = request.uncompressed_size;
 
         let mut http_request = http_request.header(CONTENT_LENGTH, request.body.len());
@@ -160,7 +162,6 @@ impl Service<LogApiRequest> for LogApiService {
             DatadogApiError::from_result(client.call(http_request).in_current_span().await).map(
                 |_| LogApiResponse {
                     event_status: EventStatus::Delivered,
-                    count,
                     events_byte_size,
                     raw_byte_size,
                 },

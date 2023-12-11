@@ -1,11 +1,8 @@
 use crate::{
-    codecs::EncodingConfig,
-    config::{AcknowledgementsConfig, GenerateConfig, Input, SinkConfig, SinkContext},
-    mezmo::user_trace::MezmoUserLog,
     schema,
     sinks::{
+        prelude::*,
         pulsar::sink::{healthcheck, PulsarSink},
-        Healthcheck, VectorSink,
     },
     template::Template,
     user_log_error,
@@ -23,13 +20,12 @@ use pulsar::{
 use pulsar::{error::AuthenticationError, OperationRetryOptions};
 use snafu::ResultExt;
 use vector_common::sensitive_string::SensitiveString;
-use vector_config::configurable_component;
 use vector_core::config::DataType;
 use vrl::value::Kind;
 use vrl::value::Value;
 
 /// Configuration for the `pulsar` sink.
-#[configurable_component(sink("pulsar"))]
+#[configurable_component(sink("pulsar", "Publish observability events to Apache Pulsar topics."))]
 #[derive(Clone, Debug)]
 pub struct PulsarSinkConfig {
     /// The endpoint to which the Pulsar client should connect to.
@@ -90,13 +86,17 @@ pub struct PulsarSinkConfig {
 #[configurable_component]
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct PulsarBatchConfig {
-    /// The maximum size of a batch before it is flushed.
+    /// The maximum amount of events in a batch before it is flushed.
     ///
     /// Note this is an unsigned 32 bit integer which is a smaller capacity than
     /// many of the other sink batch settings.
     #[configurable(metadata(docs::type_unit = "events"))]
     #[configurable(metadata(docs::examples = 1000))]
     pub max_events: Option<u32>,
+
+    /// The maximum size of a batch before it is flushed.
+    #[configurable(metadata(docs::type_unit = "bytes"))]
+    pub max_bytes: Option<usize>,
 }
 
 /// Authentication configuration.
@@ -238,6 +238,7 @@ impl PulsarSinkConfig {
             metadata: Default::default(),
             schema: None,
             batch_size: self.batch.max_events,
+            batch_byte_size: self.batch.max_bytes,
             compression: None,
         };
 
@@ -283,6 +284,7 @@ impl GenerateConfig for PulsarSinkConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "pulsar")]
 impl SinkConfig for PulsarSinkConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let mezmo_ctx = cx.mezmo_ctx.clone();

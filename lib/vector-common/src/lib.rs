@@ -11,19 +11,15 @@
 #![deny(unused_extern_crates)]
 #![deny(unused_assignments)]
 #![deny(unused_comparisons)]
-#![allow(clippy::default_constructed_unit_structs)]
-#![allow(
-    clippy::default_constructed_unit_structs,
-    clippy::explicit_iter_loop,
-    clippy::needless_pub_self,
-    clippy::useless_conversion
-)]
+#![allow(clippy::explicit_iter_loop, clippy::useless_conversion)]
 
 #[cfg(feature = "btreemap")]
-pub use vrl::value::btreemap;
+pub use vrl::btreemap;
 
 #[cfg(feature = "byte_size_of")]
 pub mod byte_size_of;
+
+pub mod json_size;
 
 pub mod config;
 

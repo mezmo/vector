@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::{collections::HashMap, fmt, num::NonZeroUsize};
 
 use bitmask_enum::bitmask;
@@ -8,6 +9,7 @@ mod global_options;
 mod log_schema;
 pub mod output_id;
 pub mod proxy;
+mod telemetry;
 
 use crate::event::LogEvent;
 pub use global_options::GlobalOptions;
@@ -15,6 +17,7 @@ pub use log_schema::{init_log_schema, log_schema, LogSchema};
 use lookup::{lookup_v2::ValuePath, path, PathPrefix};
 pub use output_id::OutputId;
 use serde::{Deserialize, Serialize};
+pub use telemetry::{init_telemetry, telemetry, Tags, Telemetry};
 pub use vector_common::config::ComponentKey;
 use vector_config::configurable_component;
 use vrl::value::Value;
@@ -109,7 +112,7 @@ pub struct SourceOutput {
     // NOTE: schema definitions are only implemented/supported for log-type events. There is no
     // inherent blocker to support other types as well, but it'll require additional work to add
     // the relevant schemas, and store them separately in this type.
-    pub schema_definition: Option<schema::Definition>,
+    pub schema_definition: Option<Arc<schema::Definition>>,
 }
 
 impl SourceOutput {
@@ -127,7 +130,7 @@ impl SourceOutput {
         Self {
             port: None,
             ty,
-            schema_definition: Some(schema_definition),
+            schema_definition: Some(Arc::new(schema_definition)),
         }
     }
 
@@ -166,17 +169,15 @@ impl SourceOutput {
     /// Schema enabled is set in the users configuration.
     #[must_use]
     pub fn schema_definition(&self, schema_enabled: bool) -> Option<schema::Definition> {
+        use std::ops::Deref;
+
         self.schema_definition.as_ref().map(|definition| {
             if schema_enabled {
-                definition.clone()
+                definition.deref().clone()
             } else {
                 let mut new_definition =
                     schema::Definition::default_for_namespace(definition.log_namespaces());
-
-                if definition.log_namespaces().contains(&LogNamespace::Vector) {
-                    new_definition.add_meanings(definition.meanings());
-                }
-
+                new_definition.add_meanings(definition.meanings());
                 new_definition
             }
         })
@@ -201,7 +202,7 @@ pub struct TransformOutput {
     /// enabled, at least one definition  should be output. If the transform
     /// has multiple connected sources, it is possible to have multiple output
     /// definitions - one for each input.
-    log_schema_definitions: HashMap<OutputId, schema::Definition>,
+    pub log_schema_definitions: HashMap<OutputId, schema::Definition>,
 }
 
 impl TransformOutput {
@@ -243,11 +244,7 @@ impl TransformOutput {
                 .map(|(output, definition)| {
                     let mut new_definition =
                         schema::Definition::default_for_namespace(definition.log_namespaces());
-
-                    if definition.log_namespaces().contains(&LogNamespace::Vector) {
-                        new_definition.add_meanings(definition.meanings());
-                    }
-
+                    new_definition.add_meanings(definition.meanings());
                     (output.clone(), new_definition)
                 })
                 .collect()
@@ -549,10 +546,12 @@ impl LogNamespace {
 
 #[cfg(test)]
 mod test {
-    use crate::config::{init_log_schema, LogNamespace, LogSchema};
+    use super::*;
     use crate::event::LogEvent;
     use chrono::Utc;
-    use lookup::event_path;
+    use lookup::{event_path, owned_value_path, OwnedTargetPath};
+    use vector_common::btreemap;
+    use vrl::value::Kind;
 
     #[test]
     fn test_insert_standard_vector_source_metadata() {
@@ -567,5 +566,111 @@ mod test {
         namespace.insert_standard_vector_source_metadata(&mut event, "source", Utc::now());
 
         assert!(event.get(event_path!("a", "b", "c", "d")).is_some());
+    }
+
+    #[test]
+    fn test_source_definitions_legacy() {
+        let definition = schema::Definition::empty_legacy_namespace()
+            .with_event_field(&owned_value_path!("zork"), Kind::bytes(), Some("zork"))
+            .with_event_field(&owned_value_path!("nork"), Kind::integer(), None);
+        let output = SourceOutput::new_logs(DataType::Log, definition);
+
+        let valid_event = LogEvent::from(Value::from(btreemap! {
+            "zork" => "norknoog",
+            "nork" => 32
+        }))
+        .into();
+
+        let invalid_event = LogEvent::from(Value::from(btreemap! {
+            "nork" => 32
+        }))
+        .into();
+
+        // Get a definition with schema enabled.
+        let new_definition = output.schema_definition(true).unwrap();
+
+        // Meanings should still exist.
+        assert_eq!(
+            Some(&OwnedTargetPath::event(owned_value_path!("zork"))),
+            new_definition.meaning_path("zork")
+        );
+
+        // Events should have the schema validated.
+        new_definition.assert_valid_for_event(&valid_event);
+        new_definition.assert_invalid_for_event(&invalid_event);
+
+        // There should be the default legacy definition without schemas enabled.
+        assert_eq!(
+            Some(
+                schema::Definition::default_legacy_namespace()
+                    .with_meaning(OwnedTargetPath::event(owned_value_path!("zork")), "zork")
+            ),
+            output.schema_definition(false)
+        );
+    }
+
+    #[test]
+    fn test_source_definitons_vector() {
+        let definition = schema::Definition::default_for_namespace(&[LogNamespace::Vector].into())
+            .with_metadata_field(
+                &owned_value_path!("vector", "zork"),
+                Kind::integer(),
+                Some("zork"),
+            )
+            .with_event_field(&owned_value_path!("nork"), Kind::integer(), None);
+
+        let output = SourceOutput::new_logs(DataType::Log, definition);
+
+        let mut valid_event = LogEvent::from(Value::from(btreemap! {
+            "nork" => 32
+        }));
+
+        valid_event
+            .metadata_mut()
+            .value_mut()
+            .insert(path!("vector").concat("zork"), 32);
+
+        let valid_event = valid_event.into();
+
+        let mut invalid_event = LogEvent::from(Value::from(btreemap! {
+            "nork" => 32
+        }));
+
+        invalid_event
+            .metadata_mut()
+            .value_mut()
+            .insert(path!("vector").concat("zork"), "noog");
+
+        let invalid_event = invalid_event.into();
+
+        // Get a definition with schema enabled.
+        let new_definition = output.schema_definition(true).unwrap();
+
+        // Meanings should still exist.
+        assert_eq!(
+            Some(&OwnedTargetPath::metadata(owned_value_path!(
+                "vector", "zork"
+            ))),
+            new_definition.meaning_path("zork")
+        );
+
+        // Events should have the schema validated.
+        new_definition.assert_valid_for_event(&valid_event);
+        new_definition.assert_invalid_for_event(&invalid_event);
+
+        // Get a definition without schema enabled.
+        let new_definition = output.schema_definition(false).unwrap();
+
+        // Meanings should still exist.
+        assert_eq!(
+            Some(&OwnedTargetPath::metadata(owned_value_path!(
+                "vector", "zork"
+            ))),
+            new_definition.meaning_path("zork")
+        );
+
+        // Events should not have the schema validated.
+        new_definition.assert_valid_for_event(&valid_event);
+        new_definition.assert_valid_for_event(&invalid_event);
     }
 }

@@ -35,7 +35,7 @@ const ENV_KEY: &str = "env";
 const DEFAULT_VALUE: Value = Value::Null;
 
 /// Configuration for the `logdna` sink.
-#[configurable_component(sink("logdna"))]
+#[configurable_component(sink("logdna", "Deliver log event data to LogDNA."))]
 #[configurable(metadata(
     deprecated = "The `logdna` sink has been renamed. Please use `mezmo` instead."
 ))]
@@ -49,6 +49,7 @@ impl GenerateConfig for LogdnaConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "logdna")]
 impl SinkConfig for LogdnaConfig {
     async fn build(
         &self,
@@ -68,7 +69,7 @@ impl SinkConfig for LogdnaConfig {
 }
 
 /// Configuration for the `mezmo` (formerly `logdna`) sink.
-#[configurable_component(sink("mezmo"))]
+#[configurable_component(sink("mezmo", "Deliver log event data to Mezmo."))]
 #[derive(Clone, Debug)]
 pub struct MezmoConfig {
     /// Connection config
@@ -120,13 +121,21 @@ pub struct MezmoConfig {
     #[configurable(metadata(docs::examples = "my-local-machine"))]
     hostname: Template,
 
+    /// Template used for MAC addressing
+    mac_template: Option<Template>,
+
     /// The MAC address that will be attached to each batch of events.
     #[configurable(metadata(docs::examples = "my-mac-address"))]
-    mac_template: Option<Template>,
+    #[configurable(metadata(docs::human_name = "MAC Address"))]
+    mac: Option<String>,
+
+    /// Templating used for IP addressing
+    ip_template: Option<Template>,
 
     /// The IP address that will be attached to each batch of events.
     #[configurable(metadata(docs::examples = "0.0.0.0"))]
-    ip_template: Option<Template>,
+    #[configurable(metadata(docs::human_name = "IP Address"))]
+    ip: Option<String>,
 
     /// The tags that are attached to each batch of events.
     #[configurable(metadata(docs::examples = "tag1"))]
@@ -193,6 +202,7 @@ impl GenerateConfig for MezmoConfig {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "mezmo")]
 impl SinkConfig for MezmoConfig {
     async fn build(
         &self,
@@ -225,17 +235,19 @@ impl SinkConfig for MezmoConfig {
             cfg: self.clone(),
         };
 
-        let healthcheck = healthcheck(mezmo_sink.build_uri(""), client.clone()).boxed();
         let sink = PartitionHttpSink::new(
             mezmo_sink,
             PartitionBuffer::new(JsonArrayBuffer::new(batch_settings.size)),
             request_settings,
             batch_settings.timeout,
-            client,
+            client.clone(),
             cx,
         )
         .sink_map_err(|error| error!(message = "Fatal mezmo sink error.", %error));
 
+        let healthcheck = healthcheck(self.clone(), client).boxed();
+
+        #[allow(deprecated)]
         Ok((super::VectorSink::from_event_sink(sink), healthcheck))
     }
 
@@ -597,7 +609,7 @@ impl HttpSink for MezmoSink {
         .unwrap()
         .freeze();
 
-        let uri = self.build_uri(&query);
+        let uri = self.cfg.build_uri(&query);
 
         let mut request = Request::builder()
             .uri(uri)
@@ -618,9 +630,9 @@ impl HttpSink for MezmoSink {
     }
 }
 
-impl MezmoSink {
+impl MezmoConfig {
     fn build_uri(&self, query: &str) -> Uri {
-        let host = &self.cfg.endpoint.uri;
+        let host = &self.endpoint.uri;
 
         let uri = format!("{}{}?{}", host, PATH, query);
 
@@ -629,7 +641,8 @@ impl MezmoSink {
     }
 }
 
-async fn healthcheck(uri: Uri, client: HttpClient) -> crate::Result<()> {
+async fn healthcheck(config: MezmoConfig, client: HttpClient) -> crate::Result<()> {
+    let uri = config.build_uri("");
     let req = Request::post(uri).body(hyper::Body::empty()).unwrap();
 
     let res = client.send(req).await?;

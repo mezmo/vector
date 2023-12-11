@@ -342,8 +342,9 @@ mod test {
         time::{timeout, Duration, Instant},
     };
     use vector_core::event::EventContainer;
-    use vrl::value::value;
-    use vrl::value::{btreemap, Value};
+    use vrl::btreemap;
+    use vrl::value;
+    use vrl::value::Value;
 
     #[cfg(unix)]
     use {
@@ -724,7 +725,7 @@ mod test {
         // shutdown.
         let addr = next_addr();
 
-        let (source_tx, source_rx) = SourceSender::new_with_buffer(10_000);
+        let (source_tx, source_rx) = SourceSender::new_test_sender_with_buffer(10_000);
         let source_key = ComponentKey::from("tcp_shutdown_infinite_stream");
         let (source_cx, mut shutdown) = SourceContext::new_shutdown(&source_key, source_tx);
 
@@ -869,7 +870,7 @@ mod test {
         source_id: &ComponentKey,
         shutdown: &mut SourceShutdownCoordinator,
     ) -> (SocketAddr, JoinHandle<Result<(), ()>>) {
-        let (shutdown_signal, _) = shutdown.register_source(source_id);
+        let (shutdown_signal, _) = shutdown.register_source(source_id, false);
         init_udp_inner(sender, source_id, shutdown_signal, None, false).await
     }
 

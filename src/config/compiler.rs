@@ -61,6 +61,7 @@ pub fn compile(
         tests,
         provider: _,
         secret,
+        graceful_shutdown_duration,
     } = builder;
 
     let graph = match Graph::new(&sources, &transforms, &sinks, schema) {
@@ -118,6 +119,7 @@ pub fn compile(
             transforms,
             tests,
             secret,
+            graceful_shutdown_duration,
         };
 
         config.propagate_acknowledgements()?;

@@ -279,8 +279,8 @@ impl InputHandler {
                         event
                     });
 
-                    if let Err(error) = self.cx.out.send_batch(events).await {
-                        emit!(StreamClosedError { error, count });
+                    if (self.cx.out.send_batch(events).await).is_err() {
+                        emit!(StreamClosedError { count });
                         return Err(());
                     }
                 }
@@ -321,7 +321,7 @@ mod integration_test {
         },
         SourceSender,
     };
-    use vrl::value::value;
+    use vrl::value;
 
     const REDIS_SERVER: &str = "redis://redis:6379/0";
 
