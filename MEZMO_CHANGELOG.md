@@ -1,3 +1,10 @@
+## [1.27.2](https://github.com/answerbook/vector/compare/v1.27.1...v1.27.2) (2023-12-12)
+
+
+### Bug Fixes
+
+* Reference to configmap for data profiling env vars [0349935](https://github.com/answerbook/vector/commit/0349935dde34ac0d7ef68cb57d2371d8fbdc918d) - Jorge Bay [LOG-18636](https://logdna.atlassian.net/browse/LOG-18636)
+
 ## [1.27.1](https://github.com/answerbook/vector/compare/v1.27.0...v1.27.1) (2023-12-11)
 
 
