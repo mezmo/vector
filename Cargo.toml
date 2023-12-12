@@ -518,10 +518,12 @@ sources-logs-mezmo = [
   "sources-aws_s3",
   "sources-mezmo_demo_logs",
   "sources-exec",
+  "sources-fluent",
   "sources-http_server",
   "sources-http_client",
   "sources-mezmo_user_logs",
   "sources-kafka",
+  "sources-kubernetes_logs",
   "sources-stdin",
   "sources-syslog",
   "sources-splunk_hec",
@@ -540,7 +542,9 @@ sources-metrics = [
   "sources-vector",
 ]
 sources-metrics-mezmo = [
+  "sources-host_metrics",
   "sources-internal_metrics",
+  "sources-prometheus",
 ]
 
 sources-amqp = ["lapin"]
@@ -823,11 +827,11 @@ sinks-webhdfs = ["dep:opendal"]
 
 # Datadog integration
 enterprise = [
-  "sources-host_metrics",
   # Mezmo: disabled in favor of *-mezmo feature lists
   # This feature with the above dependencies is kept for convience of future upstream merges
   # "sinks-datadog_logs",
   # "sinks-datadog_metrics",
+  # "sources-host_metrics",
   # "sources-internal_logs",
   # "sources-internal_metrics",
   # "transforms-remap",
