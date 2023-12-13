@@ -235,11 +235,22 @@ impl FromStr for UsageMetricsKey {
 }
 
 /// A set of annotation keys and values (allow listing).
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct AnnotationSet {
+    #[serde(skip_serializing_if = "Option::is_none")]
     app: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    log_type: Option<String>,
+}
+
+impl AnnotationSet {
+    pub fn is_empty(&self) -> bool {
+        self.app.is_none() && self.host.is_none() && self.level.is_none() && self.log_type.is_none()
+    }
 }
 
 type AnnotationMap = HashMap<AnnotationSet, UsageMetricsValue>;
@@ -505,11 +516,19 @@ fn is_profile_enabled() -> bool {
 pub fn get_annotations(fields: &BTreeMap<String, Value>) -> Option<AnnotationSet> {
     let annotations_field = fields.get(log_schema().annotations_key())?.as_object()?;
 
-    Some(AnnotationSet {
+    let set = AnnotationSet {
         app: get_string_field(annotations_field, "app"),
         host: get_string_field(annotations_field, "host"),
         level: get_string_field(annotations_field, "level"),
-    })
+        log_type: get_log_type(annotations_field),
+    };
+
+    // Annotations can be defined without the relevant properties
+    if set.is_empty() {
+        None
+    } else {
+        Some(set)
+    }
 }
 
 fn get_string_field(fields: &BTreeMap<String, Value>, key: &str) -> Option<String> {
@@ -517,6 +536,15 @@ fn get_string_field(fields: &BTreeMap<String, Value>, key: &str) -> Option<Strin
     std::str::from_utf8(bytes?)
         .map(std::string::ToString::to_string)
         .ok()
+}
+
+fn get_log_type(fields: &BTreeMap<String, Value>) -> Option<String> {
+    // Log type is stored as `classification.event_types = {"MY_LOG_TYPE": 1}`
+    let classification = fields.get("classification")?.as_object()?;
+    let event_types = classification.get("event_types")?.as_object()?;
+    let (log_type, _) = event_types.first_key_value()?;
+
+    Some(log_type.clone())
 }
 
 pub fn value_size(v: &Value) -> usize {
@@ -804,7 +832,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl flusher::MetricsFlusher for MockMetricsFlusher {
+    impl MetricsFlusher for MockMetricsFlusher {
         async fn save_billing_metrics(&self, metrics: HashMap<UsageMetricsKey, UsageMetricsValue>) {
             self.billing_tx.send(metrics).unwrap();
         }
@@ -973,6 +1001,27 @@ mod tests {
     }
 
     #[test]
+    fn get_annotations_empty_annotations_return_none() {
+        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        event_map.insert(
+            log_schema().annotations_key().into(),
+            Value::Object(BTreeMap::new()),
+        );
+        assert!(get_annotations(&event_map).is_none());
+    }
+
+    #[test]
+    fn annotation_set_none_properties_are_not_serialized() {
+        let set = AnnotationSet::default();
+        assert!(set.is_empty());
+        let str_json = serde_json::to_string(&set).unwrap();
+        assert_eq!(
+            str_json, "{}",
+            "Should not include any empty property by default"
+        );
+    }
+
+    #[test]
     fn get_size_and_profile_log_message_number_test() {
         let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
         event_map.insert("this_is_ignored".into(), 1u8.into());
@@ -1058,6 +1107,7 @@ mod tests {
                         app: Some("app1".into()),
                         host: Some("host1".into()),
                         level: None,
+                        log_type: Some("HTTPD_ERRORLOG".into()),
                     },
                     UsageMetricsValue {
                         total_count: 1,
@@ -1079,6 +1129,7 @@ mod tests {
                             app: Some("app1".into()),
                             host: Some("host1".into()),
                             level: None,
+                            log_type: Some("HTTPD_ERRORLOG".into()),
                         },
                         UsageMetricsValue {
                             total_count: 3,
@@ -1090,6 +1141,7 @@ mod tests {
                             app: Some("app2".into()),
                             host: None,
                             level: None,
+                            log_type: None,
                         },
                         UsageMetricsValue {
                             total_count: 1,
@@ -1138,6 +1190,7 @@ mod tests {
                         app: Some("app1".into()),
                         host: Some("host1".into()),
                         level: None,
+                        log_type: Some("HTTPD_ERRORLOG".into()),
                     },
                     UsageMetricsValue {
                         total_count: 4,
@@ -1149,6 +1202,7 @@ mod tests {
                         app: Some("app2".into()),
                         host: None,
                         level: None,
+                        log_type: None,
                     },
                     UsageMetricsValue {
                         total_count: 1,
