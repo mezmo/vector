@@ -1,3 +1,10 @@
+## [1.27.3](https://github.com/answerbook/vector/compare/v1.27.2...v1.27.3) (2023-12-13)
+
+
+### Bug Fixes
+
+* Avoid resetting the log cluster templates [90258ff](https://github.com/answerbook/vector/commit/90258ff44108559c067d1d8a3e696ac5cc6e586e) - Jorge Bay [LOG-18842](https://logdna.atlassian.net/browse/LOG-18842)
+
 ## [1.27.2](https://github.com/answerbook/vector/compare/v1.27.1...v1.27.2) (2023-12-12)
 
 
