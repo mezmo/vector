@@ -266,6 +266,7 @@ mod tests {
             ("flags".to_owned(), Value::Integer(0)),
             ("severity_number".to_owned(), Value::Integer(0)),
             ("severity_text".to_owned(), "ERROR".into()),
+            ("level".to_owned(), "ERROR".into()),
             ("span_id".to_owned(), "".into()),
             ("trace_id".to_owned(), "".into()),
             ("time".to_owned(), Value::Integer(1)),
@@ -373,12 +374,131 @@ mod tests {
             46, 105, 110, 115, 116, 97, 110, 99, 101, 18, 5, 10, 3, 102, 102, 115, 122, 0,
         ];
 
-        let expect_metadata = Value::Object(BTreeMap::from([(
-            "headers".to_owned(),
-            Value::Object(BTreeMap::from([("key".into(), "value".into())])),
-        )]));
+        let expect_metadata_1 = Value::Object(BTreeMap::from([
+            (
+                "headers".to_owned(),
+                Value::Object(BTreeMap::from([("key".into(), "value".into())])),
+            ),
+            (
+                "resource".to_owned(),
+                Value::Object(BTreeMap::from([
+                    (
+                        "attributes".into(),
+                        Value::Object(BTreeMap::from([
+                            (
+                                "process.executable.name".into(),
+                                Value::from("featureflagservice"),
+                            ),
+                            (
+                                "process.runtime.description".into(),
+                                Value::from("Erlang/OTP 23 erts-11.2.2.8"),
+                            ),
+                            ("process.runtime.name".into(), Value::from("BEAM")),
+                            ("process.runtime.version".into(), Value::from("11.2.2.8")),
+                            (
+                                "service.instance.id".into(),
+                                Value::from("featureflagservice@d69d857131ac"),
+                            ),
+                            ("service.name".into(), Value::from("featureflagservice")),
+                            ("telemetry.sdk.language".into(), Value::from("erlang")),
+                            ("telemetry.sdk.name".into(), Value::from("opentelemetry")),
+                            ("telemetry.sdk.version".into(), Value::from("1.2.1")),
+                        ])),
+                    ),
+                    ("dropped_attributes_count".into(), Value::Integer(0)),
+                ])),
+            ),
+            (
+                "scope".to_owned(),
+                Value::Object(BTreeMap::from([
+                    ("attributes".into(), Value::Object(BTreeMap::new())),
+                    ("dropped_attributes_count".into(), Value::Integer(0)),
+                    ("name".into(), Value::from("opentelemetry_phoenix")),
+                    ("version".into(), Value::from("1.0.0")),
+                ])),
+            ),
+            (
+                "attributes".to_owned(),
+                Value::Object(BTreeMap::from([
+                    ("http.client_ip".into(), Value::from("127.0.0.1")),
+                    ("http.flavor".into(), Value::from("1.1")),
+                    ("http.host".into(), Value::from("localhost")),
+                    ("http.method".into(), Value::from("GET")),
+                    ("http.route".into(), Value::from("/")),
+                    ("http.scheme".into(), Value::from("http")),
+                    ("http.status_code".into(), Value::Integer(200)),
+                    ("http.target".into(), Value::from("/")),
+                    ("http.user_agent".into(), Value::from("curl/7.74.0")),
+                    ("net.host.ip".into(), Value::from("127.0.0.1")),
+                    ("net.host.port".into(), Value::Integer(8081)),
+                    ("net.peer.ip".into(), Value::from("127.0.0.1")),
+                    ("net.peer.port".into(), Value::Integer(35890)),
+                    ("net.transport".into(), Value::from("IP.TCP")),
+                    ("phoenix.action".into(), Value::from("index")),
+                    (
+                        "phoenix.plug".into(),
+                        Value::from("Elixir.FeatureflagserviceWeb.PageController"),
+                    ),
+                ])),
+            ),
+            ("level".to_owned(), "trace".into()),
+        ]));
 
-        let event = log_event_from_bytes(traces, &expect_metadata);
+        let expect_metadata_2 = Value::Object(BTreeMap::from([
+            (
+                "headers".to_owned(),
+                Value::Object(BTreeMap::from([("key".into(), "value".into())])),
+            ),
+            (
+                "resource".to_owned(),
+                Value::Object(BTreeMap::from([
+                    (
+                        "attributes".into(),
+                        Value::Object(BTreeMap::from([
+                            ("process.executable.name".into(), Value::from("featureflagservice")),
+                            ("process.runtime.description".into(), Value::from("Erlang/OTP 23 erts-11.2.2.8")),
+                            ("process.runtime.name".into(), Value::from("BEAM")),
+                            ("process.runtime.version".into(), Value::from("11.2.2.8")),
+                            ("service.instance.id".into(), Value::from("featureflagservice@d69d857131ac")),
+                            ("service.name".into(), Value::from("featureflagservice")),
+                            ("telemetry.sdk.language".into(), Value::from("erlang")),
+                            ("telemetry.sdk.name".into(), Value::from("opentelemetry")),
+                            ("telemetry.sdk.version".into(), Value::from("1.2.1")),
+                        ]))
+                    ),
+                    ("dropped_attributes_count".into(), Value::Integer(0)),
+                ]))
+            ),
+            (
+                "scope".to_owned(),
+                Value::Object(BTreeMap::from([
+                    ("attributes".into(), Value::Object(BTreeMap::new())),
+                    ("dropped_attributes_count".into(), Value::Integer(0)),
+                    ("name".into(), Value::from("opentelemetry_ecto")),
+                    ("version".into(), Value::from("1.0.0")),
+                ])),
+            ),
+            (
+                "attributes".to_owned(),
+                Value::Object(BTreeMap::from([
+                    ("db.instance".into(), Value::from("ffs")),
+                    ("db.statement".into(), Value::from("SELECT f0.\"id\", f0.\"description\", f0.\"enabled\", f0.\"name\", f0.\"inserted_at\", f0.\"updated_at\" FROM \"featureflags\" AS f0")),
+                    ("db.type".into(), Value::from("sql")),
+                    ("db.url".into(), Value::from("ecto://ffs_postgres")),
+                    ("decode_time_microseconds".into(), Value::Integer(5)),
+                    ("idle_time_microseconds".into(), Value::Integer(584435)),
+                    ("query_time_microseconds".into(), Value::Integer(489)),
+                    ("queue_time_microseconds".into(), Value::Integer(52)),
+                    ("source".into(), Value::from("featureflags")),
+                    ("total_time_microseconds".into(), Value::Integer(546)),
+
+
+                ])),
+            ),
+            ("level".to_owned(), "trace".into()),
+        ]));
+
+        let event = log_event_from_bytes(traces, &expect_metadata_1);
 
         let result = do_transform(
             event.into(),
@@ -391,11 +511,15 @@ mod tests {
 
         assert_eq!(2, result.len());
 
-        for event in result {
-            let log = &event.into_log();
+        for (i, event) in result.iter().enumerate() {
+            let log = &event.clone().into_log();
             let event_metadata = log.get("metadata").expect("Metadata is empty");
 
-            assert_eq!(*event_metadata, expect_metadata);
+            if i == 0 {
+                assert_eq!(*event_metadata, expect_metadata_1);
+            } else {
+                assert_eq!(*event_metadata, expect_metadata_2);
+            }
         }
     }
 }

@@ -123,59 +123,46 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                 };
 
                 acc.extend(scope_spans.spans.into_iter().map(|span| {
-                    // Assemble metadata
-                    let mut attrs = std::collections::BTreeMap::new();
+                    // Assemble trace message
+                    let mut message = std::collections::BTreeMap::new();
+
+                    message.insert("name".to_string(), span.name.into());
 
                     if let Some(host_name) = &resource_host_name {
-                        attrs.insert("hostname".to_string(), Value::from(host_name.to_string()));
+                        message.insert("hostname".to_string(), Value::from(host_name.to_string()));
                     }
 
-                    attrs.insert("scope".to_string(), scope.clone());
-                    attrs.insert("resource".to_string(), resource.clone());
-                    attrs.insert(
+                    message.insert(
                         "trace.id".to_string(),
                         Value::from(faster_hex::hex_string(&span.trace_id)),
                     );
-                    attrs.insert("trace.state".to_string(), Value::from(span.trace_state));
-                    attrs.insert(
+                    message.insert("trace.state".to_string(), Value::from(span.trace_state));
+                    message.insert(
                         "span.id".to_string(),
                         Value::from(faster_hex::hex_string(&span.span_id)),
                     );
-                    attrs.insert(
+                    message.insert(
                         "span.parent_id".to_string(),
                         Value::from(faster_hex::hex_string(&span.parent_span_id)),
                     );
 
                     let start_time_unix_nano = nano_to_timestamp(span.start_time_unix_nano);
 
-                    attrs.insert(
-                        "start_time_unix_nano".to_string(),
-                        start_time_unix_nano.clone(),
-                    );
+                    message.insert("start_timestamp".to_string(), start_time_unix_nano.clone());
 
-                    attrs.insert(
-                        "end_time_unix_nano".to_string(),
+                    message.insert(
+                        "end_timestamp".to_string(),
                         nano_to_timestamp(span.end_time_unix_nano),
                     );
 
-                    let line = Value::from(span.name);
-                    let app = extract(span.attributes.clone(), "appname");
+                    message.insert("kind".to_string(), Value::from(span.kind as i32));
 
-                    attrs.insert("kind".to_string(), Value::from(span.kind as i32));
-
-                    let filtered_attributes = OpenTelemetryKeyValue {
-                        attributes: span.attributes,
-                    }
-                    .to_value();
-
-                    attrs.insert("attributes".to_string(), filtered_attributes);
-
-                    attrs.insert(
+                    message.insert(
                         "dropped_attributes_count".into(),
                         span.dropped_attributes_count.into(),
                     );
 
-                    attrs.insert(
+                    message.insert(
                         "events".to_string(),
                         Value::Array(
                             span.events
@@ -184,7 +171,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                                     Value::Object(BTreeMap::from([
                                         ("name".into(), event.name.clone().into()),
                                         (
-                                            "time_unix_nano".into(),
+                                            "timestamp".into(),
                                             nano_to_timestamp(event.time_unix_nano),
                                         ),
                                         (
@@ -204,12 +191,12 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                         ),
                     );
 
-                    attrs.insert(
+                    message.insert(
                         "dropped_events_count".into(),
                         span.dropped_events_count.into(),
                     );
 
-                    attrs.insert(
+                    message.insert(
                         "links".to_string(),
                         Value::Array(
                             span.links
@@ -242,13 +229,13 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                         ),
                     );
 
-                    attrs.insert(
+                    message.insert(
                         "dropped_links_count".into(),
                         span.dropped_links_count.into(),
                     );
 
                     if let Some(status) = span.status {
-                        attrs.insert(
+                        message.insert(
                             "status".to_string(),
                             Value::Object(BTreeMap::from([
                                 ("message".into(), Value::from(status.message)),
@@ -257,23 +244,30 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                         );
                     }
 
-                    let mut log_line = std::collections::BTreeMap::from_iter([
-                        ("line".to_string(), line),
-                        ("level".to_string(), "trace".into()),
-                        ("meta".to_string(), Value::from(attrs)),
+                    // Assemble metadata
+                    let mut user_metadata = std::collections::BTreeMap::from_iter([(
+                        "level".to_string(),
+                        "trace".into(),
+                    )]);
+
+                    user_metadata.insert("resource".to_string(), resource.clone());
+                    user_metadata.insert("scope".to_string(), scope.clone());
+
+                    let filtered_attributes = OpenTelemetryKeyValue {
+                        attributes: span.attributes,
+                    }
+                    .to_value();
+                    user_metadata.insert("attributes".to_string(), filtered_attributes);
+
+                    let log_line = BTreeMap::from_iter([
+                        (log_schema().message_key().to_string(), message.into()),
+                        (
+                            log_schema().user_metadata_key().to_string(),
+                            user_metadata.into(),
+                        ),
                     ]);
 
-                    if let Some(app) = app {
-                        log_line.insert("app".to_string(), Value::from(app.to_string()));
-                    }
-
-                    let mut log_event = LogEvent::from_map(
-                        std::collections::BTreeMap::from([(
-                            log_schema().message_key().to_string(),
-                            Value::Object(log_line),
-                        )]),
-                        EventMetadata::default(),
-                    );
+                    let mut log_event = LogEvent::from_map(log_line, EventMetadata::default());
 
                     if let Some(timestamp_key) = log_schema().timestamp_key() {
                         log_event.insert(
@@ -313,7 +307,7 @@ mod tests {
             }),
         };
 
-        let logs_data = ExportTraceServiceRequest {
+        let traces_data = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
                 resource: Some(Resource {
                     attributes: vec![key_value.clone()],
@@ -363,10 +357,10 @@ mod tests {
             }],
         };
 
-        let logs = to_events(logs_data.clone());
+        let traces = to_events(traces_data.clone());
 
         assert_eq!(
-            *logs[0]
+            *traces[0]
                 .clone()
                 .into_log()
                 .value()
@@ -374,98 +368,91 @@ mod tests {
                 .unwrap()
                 .deref(),
             Value::Object(BTreeMap::from([
-                ("level".into(), "trace".into()),
-                ("line".into(), "test_span_name".into()),
+                ("name".into(), "test_span_name".into()),
+                ("trace.id".into(), Value::from("74726163655f6964")),
+                ("trace.state".into(), Value::from("test_state")),
+                ("span.id".into(), Value::from("7370616e5f6964")),
                 (
-                    "meta".into(),
-                    Value::Object(BTreeMap::from([
-                        (
-                            "resource".into(),
-                            Value::Object(BTreeMap::from([
-                                (
-                                    "attributes".into(),
-                                    Value::Object(BTreeMap::from(
-                                        [("test".into(), "test".into()),]
-                                    ))
-                                ),
-                                ("dropped_attributes_count".into(), Value::Integer(10)),
-                            ]))
-                        ),
-                        (
-                            "scope".into(),
-                            Value::Object(BTreeMap::from([
-                                (
-                                    "attributes".into(),
-                                    Value::Object(BTreeMap::from(
-                                        [("test".into(), "test".into()),]
-                                    ))
-                                ),
-                                ("dropped_attributes_count".into(), Value::Integer(10)),
-                                ("name".into(), "test_name".into()),
-                                ("version".into(), "1.2.3".into()),
-                            ]))
-                        ),
+                    "span.parent_id".into(),
+                    Value::from("706172656e745f7370616e5f6964")
+                ),
+                ("start_timestamp".into(), Value::Integer(1_681_339_577_345)),
+                ("dropped_attributes_count".into(), Value::Integer(10)),
+                ("dropped_events_count".into(), Value::Integer(10)),
+                ("dropped_links_count".into(), Value::Integer(10)),
+                ("end_timestamp".into(), Value::Integer(1_681_339_577_345)),
+                (
+                    "events".into(),
+                    Value::Array(Vec::from([Value::Object(BTreeMap::from([
                         (
                             "attributes".into(),
                             Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
                         ),
-                        ("trace.id".into(), Value::from("74726163655f6964")),
-                        ("trace.state".into(), Value::from("test_state")),
-                        ("span.id".into(), Value::from("7370616e5f6964")),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("name".into(), "test_name".into()),
+                        ("timestamp".into(), Value::Integer(1_681_339_577_345)),
+                    ]))]))
+                ),
+                ("kind".into(), Value::Integer(0)),
+                (
+                    "links".into(),
+                    Value::Array(Vec::from([Value::Object(BTreeMap::from([
                         (
-                            "span.parent_id".into(),
-                            Value::from("706172656e745f7370616e5f6964")
-                        ),
-                        (
-                            "start_time_unix_nano".into(),
-                            Value::Integer(1_681_339_577_345)
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
-                        ("dropped_events_count".into(), Value::Integer(10)),
-                        ("dropped_links_count".into(), Value::Integer(10)),
+                        ("span_id".into(), Value::from("6c696e6b5f7370616e5f6964")),
+                        ("trace_id".into(), Value::from("6c696e6b5f74726163655f6964")),
+                        ("trace_state".into(), Value::from("link_test_state")),
+                    ]))]))
+                ),
+                (
+                    "status".into(),
+                    Value::Object(BTreeMap::from([
+                        ("code".into(), Value::Integer(1)),
+                        ("message".into(), Value::from("test_message")),
+                    ]))
+                ),
+            ]))
+        );
+
+        assert_eq!(
+            *traces[0]
+                .clone()
+                .into_log()
+                .value()
+                .get("metadata")
+                .unwrap()
+                .deref(),
+            Value::Object(BTreeMap::from([
+                (
+                    "resource".into(),
+                    Value::Object(BTreeMap::from([
                         (
-                            "end_time_unix_nano".into(),
-                            Value::Integer(1_681_339_577_345)
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
                         ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                    ]))
+                ),
+                (
+                    "scope".into(),
+                    Value::Object(BTreeMap::from([
                         (
-                            "events".into(),
-                            Value::Array(Vec::from([Value::Object(BTreeMap::from([
-                                (
-                                    "attributes".into(),
-                                    Value::Object(BTreeMap::from(
-                                        [("test".into(), "test".into()),]
-                                    ))
-                                ),
-                                ("dropped_attributes_count".into(), Value::Integer(10)),
-                                ("name".into(), "test_name".into()),
-                                ("time_unix_nano".into(), Value::Integer(1_681_339_577_345)),
-                            ]))]))
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
                         ),
-                        ("kind".into(), Value::Integer(0)),
-                        (
-                            "links".into(),
-                            Value::Array(Vec::from([Value::Object(BTreeMap::from([
-                                (
-                                    "attributes".into(),
-                                    Value::Object(BTreeMap::from(
-                                        [("test".into(), "test".into()),]
-                                    ))
-                                ),
-                                ("dropped_attributes_count".into(), Value::Integer(10)),
-                                ("span_id".into(), Value::from("6c696e6b5f7370616e5f6964")),
-                                ("trace_id".into(), Value::from("6c696e6b5f74726163655f6964")),
-                                ("trace_state".into(), Value::from("link_test_state")),
-                            ]))]))
-                        ),
-                        (
-                            "status".into(),
-                            Value::Object(BTreeMap::from([
-                                ("code".into(), Value::Integer(1)),
-                                ("message".into(), Value::from("test_message")),
-                            ]))
-                        ),
-                    ])),
-                )
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("name".into(), "test_name".into()),
+                        ("version".into(), "1.2.3".into()),
+                    ]))
+                ),
+                (
+                    "attributes".into(),
+                    Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                ),
+                ("level".into(), "trace".into()),
             ]))
         );
     }
@@ -557,7 +544,7 @@ mod tests {
 
         let log = metrics[1].clone().into_log();
 
-        let log_line = log.get("message.line").expect("Metric type is missed");
+        let log_line = log.get("message.name").expect("Metric type is missed");
 
         assert_eq!(
             *log_line,

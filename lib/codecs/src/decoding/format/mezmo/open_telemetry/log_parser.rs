@@ -90,7 +90,6 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                 for log_record in scope_logs.log_records.into_iter() {
                     // Assemble metadata
                     let mut metadata = BTreeMap::new();
-                    let mut internal_metadata = BTreeMap::new();
 
                     metadata.insert("resource".to_string(), Value::from(resource_attrs.clone()));
                     metadata.insert("scope".to_string(), Value::from(scope_attrs.clone()));
@@ -118,7 +117,7 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                     let sev = log_record.severity_text;
                     if !sev.is_empty() {
                         metadata.insert("severity_text".to_string(), Value::from(sev.clone()));
-                        internal_metadata.insert(
+                        metadata.insert(
                             "level".to_string(),
                             Value::from(Cow::from(
                                 &sev[..std::cmp::min(sev.len(), MAX_LOG_LEVEL_LEN)],
@@ -164,7 +163,7 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                         None => Value::Null,
                     };
 
-                    let mut log_line = BTreeMap::from_iter([
+                    let log_line = BTreeMap::from_iter([
                         // Add the user metadata
                         (
                             log_schema().user_metadata_key().to_string(),
@@ -173,13 +172,6 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                         // Add the actual line
                         (log_schema().message_key().to_string(), line),
                     ]);
-                    if !internal_metadata.is_empty() {
-                        // Add our metadata
-                        log_line.insert(
-                            log_schema().metadata_key().to_string(),
-                            Value::from(internal_metadata),
-                        );
-                    }
 
                     // Wrap line in mezmo format
                     let mut log_event = LogEvent::from_map(log_line, EventMetadata::default());
@@ -276,6 +268,7 @@ mod tests {
                 ),
                 ("severity_number".into(), 1.into()),
                 ("severity_text".into(), "ERROR".into()),
+                ("level".into(), "ERROR".into()),
                 ("span_id".into(), "74657374".into()),
                 ("trace_id".into(), "74657374".into()),
                 (
