@@ -96,8 +96,15 @@ pub(crate) async fn save_in_loop(
                     aggregated_info.cluster_id = info.cluster_id;
                     aggregated_info.count += 1;
                     aggregated_info.size += info.size;
-                    aggregated_info.template = info.template;
-                    aggregated_info.annotation_set = info.annotation_set;
+
+                    // Template and annotations are conditionally sent
+                    // Make sure we don't blindly overwrite the existing value
+                    if info.template.is_some() {
+                        aggregated_info.template = info.template;
+                    }
+                    if info.annotation_set.is_some() {
+                        aggregated_info.annotation_set = info.annotation_set;
+                    }
 
                     if new_templates > MAX_NEW_TEMPLATES_QUEUED {
                         break;

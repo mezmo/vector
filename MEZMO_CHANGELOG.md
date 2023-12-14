@@ -1,3 +1,55 @@
+## [1.28.1](https://github.com/answerbook/vector/compare/v1.28.0...v1.28.1) (2023-12-14)
+
+
+### Chores
+
+* **classifier**: Use first string line field as message_key [6386d79](https://github.com/answerbook/vector/commit/6386d797720921bce24d4c4cedf0827d37005087) - Jorge Bay [LOG-18851](https://logdna.atlassian.net/browse/LOG-18851)
+
+# [1.28.0](https://github.com/answerbook/vector/compare/v1.27.3...v1.28.0) (2023-12-14)
+
+
+### Bug Fixes
+
+* **test**: increased window size to ensure nothing expires [6fa2fbe](https://github.com/answerbook/vector/commit/6fa2fbe5fc2fd6d8b60b239d3e31321d981e3348) - Dan Hable [LOG-18845](https://logdna.atlassian.net/browse/LOG-18845)
+
+
+### Features
+
+* Capture log type in data profiling [c8d6828](https://github.com/answerbook/vector/commit/c8d6828cc47701786a63548b52b08370df67624d) - Jorge Bay [LOG-18784](https://logdna.atlassian.net/browse/LOG-18784) [LOG-18834](https://logdna.atlassian.net/browse/LOG-18834)
+
+## [1.27.3](https://github.com/answerbook/vector/compare/v1.27.2...v1.27.3) (2023-12-13)
+
+
+### Bug Fixes
+
+* Avoid resetting the log cluster templates [90258ff](https://github.com/answerbook/vector/commit/90258ff44108559c067d1d8a3e696ac5cc6e586e) - Jorge Bay [LOG-18842](https://logdna.atlassian.net/browse/LOG-18842)
+
+## [1.27.2](https://github.com/answerbook/vector/compare/v1.27.1...v1.27.2) (2023-12-12)
+
+
+### Bug Fixes
+
+* Reference to configmap for data profiling env vars [0349935](https://github.com/answerbook/vector/commit/0349935dde34ac0d7ef68cb57d2371d8fbdc918d) - Jorge Bay [LOG-18636](https://logdna.atlassian.net/browse/LOG-18636)
+
+## [1.27.1](https://github.com/answerbook/vector/compare/v1.27.0...v1.27.1) (2023-12-11)
+
+
+### Bug Fixes
+
+* **log_clustering**: Always set the current node [e41e152](https://github.com/answerbook/vector/commit/e41e1528a217d8ba16c8c30a75d5f050e1068bce) - Jorge Bay [LOG-18799](https://logdna.atlassian.net/browse/LOG-18799)
+
+# [1.27.0](https://github.com/answerbook/vector/compare/v1.26.0...v1.27.0) (2023-12-08)
+
+
+### Features
+
+* **clickhouse**: enable clickhouse feature [ee4b606](https://github.com/answerbook/vector/commit/ee4b6063231eba92b0029a0cff2ea128c364f7e0) - Mike Del Tito [LOG-18821](https://logdna.atlassian.net/browse/LOG-18821)
+
+
+### Miscellaneous
+
+* Merge pull request #362 from answerbook/mdeltito/LOG-18821 [8f8d258](https://github.com/answerbook/vector/commit/8f8d258f202ec62aa1da8a02660cf9e2f1b00bbe) - GitHub [LOG-18821](https://logdna.atlassian.net/browse/LOG-18821)
+
 # [1.26.0](https://github.com/answerbook/vector/compare/v1.25.7...v1.26.0) (2023-12-07)
 
 

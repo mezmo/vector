@@ -104,13 +104,21 @@ impl FunctionTransform for ProtobufToLog {
             .and_then(Value::as_bytes)
             .expect("Log event has no message");
 
-        let mut root_metadata = &BTreeMap::new();
-        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
+        let mut root_internal_metadata = &BTreeMap::new();
+        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().metadata_key())) {
             if let Some(root_meta_obj) = metadata.as_object() {
-                root_metadata = root_meta_obj;
+                root_internal_metadata = root_meta_obj;
             }
         }
-        let root_metadata = root_metadata;
+        let root_internal_metadata = root_internal_metadata;
+
+        let mut root_user_metadata = &BTreeMap::new();
+        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
+            if let Some(root_meta_obj) = metadata.as_object() {
+                root_user_metadata = root_meta_obj;
+            }
+        }
+        let root_user_metadata = root_user_metadata;
 
         let deserializer = match self.config.vendor {
             ProtobufVendors::OpenTelemetryLogs => {
@@ -134,31 +142,41 @@ impl FunctionTransform for ProtobufToLog {
                         );
                     }
 
-                    let mut metadata = root_metadata.clone();
+                    let mut user_metadata = root_user_metadata.clone();
 
-                    if let Some(user_metadata) =
+                    if let Some(metadata) =
                         event.get((PathPrefix::Event, log_schema().user_metadata_key()))
                     {
-                        if let Some(user_meta_obj) = user_metadata.as_object() {
+                        if let Some(user_meta_obj) = metadata.as_object() {
                             for entry in user_meta_obj.iter() {
-                                metadata.insert(entry.0.to_string(), entry.1.clone());
+                                user_metadata.insert(entry.0.to_string(), entry.1.clone());
                             }
                         }
                     }
 
-                    if !metadata.is_empty() {
+                    if !user_metadata.is_empty() {
                         log_event.insert(
                             (PathPrefix::Event, log_schema().user_metadata_key()),
-                            metadata,
+                            user_metadata,
                         );
                     }
 
-                    if let Some(internal_metadata) =
+                    let mut internal_metadata = root_internal_metadata.clone();
+
+                    if let Some(metadata) =
                         event.get((PathPrefix::Event, log_schema().metadata_key()))
                     {
+                        if let Some(meta_obj) = metadata.as_object() {
+                            for entry in meta_obj.iter() {
+                                internal_metadata.insert(entry.0.to_string(), entry.1.clone());
+                            }
+                        }
+                    }
+
+                    if !internal_metadata.is_empty() {
                         log_event.insert(
                             (PathPrefix::Event, log_schema().metadata_key()),
-                            internal_metadata.to_owned(),
+                            internal_metadata,
                         );
                     }
 

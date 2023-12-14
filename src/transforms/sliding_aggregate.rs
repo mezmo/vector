@@ -449,9 +449,10 @@ mod test {
 
     #[tokio::test]
     async fn flush_no_expired() {
-        let mut target = SlidingAggregate::new(5, 1, None);
+        // LOG-18845: Use a very large aggregation window in the test so that even when executing on a busy
+        // Jenkins node, nothing should ever become expired.
+        let mut target = SlidingAggregate::new(60_000, 1, None);
         target.record(metric("a", MetricKind::Incremental, None, 3.0));
-        tokio::time::sleep(Duration::from_millis(2)).await;
         target.record(metric("b", MetricKind::Incremental, None, 3.0));
 
         let mut res = vec![];

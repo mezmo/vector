@@ -293,37 +293,38 @@ impl<'a> LogParser<'a> {
                 break;
             }
 
-            if curr_node.children.contains_key(token) {
-                curr_node = curr_node.children.get_mut(token).unwrap();
+            // Set the next node, inserting where necessary
+            curr_node = if curr_node.children.contains_key(token) {
+                curr_node.children.get_mut(token).unwrap()
             } else if self.parameterize_numeric_tokens && token.has_numbers() {
-                curr_node = curr_node
+                curr_node
                     .children
                     .entry(Token::Wildcard)
-                    .or_insert_with(Node::new);
+                    .or_insert_with(Node::new)
             } else if curr_node.children.contains_key(&Token::Wildcard) {
                 if curr_node.children.len() < max_children {
-                    curr_node = curr_node
+                    curr_node
                         .children
                         .entry(token.clone())
-                        .or_insert_with(Node::new);
+                        .or_insert_with(Node::new)
                 } else {
-                    curr_node.children.get_mut(&Token::Wildcard).unwrap();
+                    curr_node.children.get_mut(&Token::Wildcard).unwrap()
                 }
             } else if curr_node.children.len() + 1 < max_children {
                 // We leave space for a final wildcard token
-                curr_node = curr_node
+                curr_node
                     .children
                     .entry(token.clone())
-                    .or_insert_with(Node::new);
+                    .or_insert_with(Node::new)
             } else if curr_node.children.len() + 1 == max_children {
                 // Add a wildcard token as the last child of a cluster group
-                curr_node = curr_node
+                curr_node
                     .children
                     .entry(Token::Wildcard)
-                    .or_insert_with(Node::new);
+                    .or_insert_with(Node::new)
             } else {
                 unreachable!();
-            }
+            };
 
             curr_node_depth += 1;
         }
@@ -547,6 +548,36 @@ mod tests {
         // The following groups got templatized as part of similitude check
         assert_eq!(cluster_map.get(&3).unwrap().len(), 2);
         assert_eq!(cluster_map.get(&4).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn several_wildcards_followed_by_token_test() {
+        let mut parser = LogParser::new(NonZeroUsize::new(100).unwrap())
+            .sim_threshold(0.9)
+            .max_node_depth(8)
+            .max_children(16);
+
+        let lines = vec![
+            "1 x X 0", "1 y Y 0", "1 z Z 0", "1 1 O 0", "1 y Y 0", "1 m M 0", "1 n N 0",
+        ];
+
+        for line in lines.iter() {
+            let (group, _) = parser.add_log_line(line);
+            let _actual = format!("{}", group);
+        }
+        let root = parser.first_level.get(&4).unwrap();
+        let first_wildcard = root.children.get(&Token::Wildcard).unwrap();
+        assert_eq!(
+            first_wildcard.children.len(),
+            4,
+            "Expected 4 children, max at second level"
+        );
+        let second_wildcard = first_wildcard.children.get(&Token::Wildcard).unwrap();
+        assert_eq!(
+            second_wildcard.children.len(),
+            2,
+            "Expected 2 children to contain O, M and N"
+        );
     }
 
     #[test]

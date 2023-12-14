@@ -209,6 +209,23 @@ where
     }
 }
 
+// Blank Metadata Accessor
+struct Metadata<'a> {
+    value: Cow<'a, str>,
+}
+
+impl<'a> MetricValueAccessor<'a> for Metadata<'a> {
+    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+
+    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
+        None
+    }
+    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
+        MetricValueSerializable::Single(&self.value as &dyn IntoValue)
+    }
+}
+
 impl<'a> TypedSampleGroupMap<'a> {
     fn new(kind: GroupedSampleType) -> Self {
         match kind {
@@ -335,6 +352,7 @@ impl<'a> TypedSampleGroupMap<'a> {
                     namespace: None,             // TODO
                     kind: &MetricKind::Absolute, // All prom metrics are Absolute?
                     tags: Some(&tags),
+                    user_metadata: None::<&Metadata>,
                     value: &value,
                 }
                 .to_log_event()

@@ -158,14 +158,14 @@ spec:
 
                 - name: USAGE_METRICS_PROFILE_ENABLED
                   valueFrom:
-                    secretKeyRef:
+                    configMapKeyRef:
                       name: pipeline-env-config
                       key: usage-metrics-profile-enabled
                       optional: true
 
                 - name: USAGE_METRICS_PROFILE_FLUSH_INTERVAL_SECS
                   valueFrom:
-                    secretKeyRef:
+                    configMapKeyRef:
                       name: pipeline-env-config
                       key: usage-metrics-profile-flush-interval-secs
                       optional: true

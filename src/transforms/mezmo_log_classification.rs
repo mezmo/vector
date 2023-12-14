@@ -213,10 +213,14 @@ impl LogClassification {
                             continue;
                         }
 
+                        // We identified a line field that is a string.
+                        // We mark it as the message_key, regardless of whether there's a match in
+                        // the classification
+                        message_key = format!("{message_key}{line_field}");
+
                         let line = value.to_string_lossy();
                         if let Some(event_type) = self.match_event_type(&line) {
                             matches.push(event_type);
-                            message_key = format!("{message_key}{line_field}");
                         }
 
                         break;
@@ -426,7 +430,8 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations = make_expected_annotations(&event, None, vec![]);
+        let expected_line_field = Some(".key1".into()); // First match
+        let annotations = make_expected_annotations(&event, expected_line_field, vec![]);
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
@@ -479,7 +484,7 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations = make_expected_annotations(&event, None, vec![]);
+        let annotations = make_expected_annotations(&event, Some(".foo".into()), vec![]);
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
