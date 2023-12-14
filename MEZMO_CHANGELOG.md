@@ -1,3 +1,10 @@
+## [1.28.1](https://github.com/answerbook/vector/compare/v1.28.0...v1.28.1) (2023-12-14)
+
+
+### Chores
+
+* **classifier**: Use first string line field as message_key [6386d79](https://github.com/answerbook/vector/commit/6386d797720921bce24d4c4cedf0827d37005087) - Jorge Bay [LOG-18851](https://logdna.atlassian.net/browse/LOG-18851)
+
 # [1.28.0](https://github.com/answerbook/vector/compare/v1.27.3...v1.28.0) (2023-12-14)
 
 
