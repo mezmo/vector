@@ -1,3 +1,15 @@
+# [1.28.0](https://github.com/answerbook/vector/compare/v1.27.3...v1.28.0) (2023-12-14)
+
+
+### Bug Fixes
+
+* **test**: increased window size to ensure nothing expires [6fa2fbe](https://github.com/answerbook/vector/commit/6fa2fbe5fc2fd6d8b60b239d3e31321d981e3348) - Dan Hable [LOG-18845](https://logdna.atlassian.net/browse/LOG-18845)
+
+
+### Features
+
+* Capture log type in data profiling [c8d6828](https://github.com/answerbook/vector/commit/c8d6828cc47701786a63548b52b08370df67624d) - Jorge Bay [LOG-18784](https://logdna.atlassian.net/browse/LOG-18784) [LOG-18834](https://logdna.atlassian.net/browse/LOG-18834)
+
 ## [1.27.3](https://github.com/answerbook/vector/compare/v1.27.2...v1.27.3) (2023-12-13)
 
 
