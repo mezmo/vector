@@ -1,5 +1,6 @@
 mod vector;
 
+use crate::config::log_schema;
 use opentelemetry_rs::opentelemetry::common::AnyValueOneOfvalue as OpenTelemetryMetricAnyValue;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -21,12 +22,13 @@ pub fn from_f64_or_zero(value: f64) -> Value {
 }
 
 #[derive(Debug)]
-pub struct MezmoMetric<'a, 'b, 'c, 'd, 'e, T, U, V> {
+pub struct MezmoMetric<'a, 'b, 'c, 'd, 'e, 'f, T, U, V, M> {
     pub name: Cow<'a, str>,
     pub namespace: Option<Cow<'b, str>>,
     pub kind: &'c T,
     pub tags: Option<&'d U>,
     pub value: &'e V,
+    pub user_metadata: Option<&'f M>,
 }
 
 pub trait MetricKindAccessor {
@@ -333,11 +335,13 @@ pub trait MetricToLogEvent {
     fn to_log_event(&self) -> LogEvent;
 }
 
-impl<'a, 'b, 'c, 'd, 'e, T, U, V> MetricToLogEvent for MezmoMetric<'a, 'b, 'c, 'd, 'e, T, U, V>
+impl<'a, 'b, 'c, 'd, 'e, 'f, T, U, V, M> MetricToLogEvent
+    for MezmoMetric<'a, 'b, 'c, 'd, 'e, 'f, T, U, V, M>
 where
     T: MetricKindAccessor,
     U: MetricTagsAccessor<'d>,
     V: MetricValueAccessor<'e>,
+    M: MetricValueAccessor<'f>,
 {
     fn to_log_event(&self) -> LogEvent {
         let value = match self.value.value() {
@@ -367,6 +371,7 @@ where
         if let Some(namespace) = &self.namespace {
             values.insert("namespace".to_owned(), namespace.clone().into());
         }
+
         if let Some(kind) = self.kind.kind() {
             values.insert(
                 "kind".to_owned(),
@@ -377,15 +382,28 @@ where
                 .into(),
             );
         };
+
         if let Some(tags) = self.tags {
             values.insert("tags".to_owned(), tags.tags().to_value());
         }
+
         values.insert("value".to_owned(), value);
 
-        LogEvent::from_map(
-            BTreeMap::from([("message".to_owned(), Value::Object(values))]),
-            Default::default(),
-        )
+        let mut event = BTreeMap::<String, Value>::new();
+
+        event.insert("message".to_owned(), Value::Object(values));
+
+        if let Some(user_metadata) = self.user_metadata {
+            let value = match user_metadata.value() {
+                MetricValueSerializable::Single(value) => value.to_value(),
+                MetricValueSerializable::Array(value_elements) => value_elements.to_value(),
+                MetricValueSerializable::Object(value_elements) => value_elements.to_value(),
+            };
+
+            event.insert(log_schema().user_metadata_key().to_string(), value);
+        }
+
+        LogEvent::from_map(event, Default::default())
     }
 }
 
@@ -471,6 +489,7 @@ mod tests {
             namespace: Some(Cow::from("ns")),
             kind: &MetricKind::Absolute,
             tags: Some(&tag),
+            user_metadata: Some(&DummyObject { value: "object" }),
             value: &String::new(),
         };
         let log_event = metric.to_log_event();
@@ -486,7 +505,12 @@ mod tests {
                         "type": "str",
                         "value": ""
                      }
-                }
+                },
+                "metadata": {
+                     "complex": "object",
+                     "with": "multiple",
+                     "kv": "pairs"
+                 }
             }"#,
         )
         .unwrap()
@@ -499,6 +523,7 @@ mod tests {
             namespace: Some(Cow::from("ns")),
             kind: &MetricKind::Absolute,
             tags: None::<&String>,
+            user_metadata: None::<&String>,
             value: &DummyObject { value: "object" },
         };
         let log_event = metric.to_log_event();
