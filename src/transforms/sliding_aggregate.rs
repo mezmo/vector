@@ -9,6 +9,8 @@ use futures::{Stream, StreamExt};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ops::Range;
 use std::pin::Pin;
+#[cfg(test)]
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 use tokio::select;
 use vector_config_macros::configurable_component;
@@ -92,10 +94,10 @@ struct AggregateWindow {
 }
 
 impl AggregateWindow {
-    fn new(event: Event, window_size: i64) -> Self {
+    fn new(current_time: i64, event: Event, window_size: i64) -> Self {
         let window_start = match event.as_metric().data().timestamp() {
             Some(timestamp) => timestamp.timestamp_millis(),
-            None => Utc::now().timestamp_millis(),
+            None => current_time,
         };
         let max_window = window_start..window_start + window_size;
         Self {
@@ -108,9 +110,8 @@ impl AggregateWindow {
         Self { size_ms, event }
     }
 
-    fn is_expired(&self) -> bool {
-        let now = Utc::now().timestamp_millis();
-        !self.contains_timestamp(now)
+    fn is_expired(&self, current_time: i64) -> bool {
+        !self.contains_timestamp(current_time)
     }
 
     fn contains_timestamp(&self, value: i64) -> bool {
@@ -127,12 +128,42 @@ impl AggregateWindow {
     }
 }
 
+// Create a simple struct that either returns the time from the system clock,
+// used in prod code paths, or a simple counter, used in automated test paths
+// to avoid depending on CI wonk.
+#[derive(Debug)]
+enum AggregateClock {
+    SystemCall,
+
+    #[cfg(test)]
+    Counter(AtomicI64),
+}
+
+impl AggregateClock {
+    fn now(&self) -> i64 {
+        match self {
+            Self::SystemCall => Utc::now().timestamp_millis(),
+            #[cfg(test)]
+            Self::Counter(val) => val.load(Ordering::Relaxed),
+        }
+    }
+
+    #[cfg(test)]
+    fn increment_by(&self, i: i64) {
+        match self {
+            Self::SystemCall => panic!("cannot increment a system call clock impl"),
+            Self::Counter(val) => val.fetch_add(i, Ordering::Relaxed),
+        };
+    }
+}
+
 #[derive(Debug)]
 pub struct SlidingAggregate {
     data: BTreeMap<MetricSeries, VecDeque<AggregateWindow>>,
     window_size_ms: i64,
     flush_tick_ms: u64,
     flush_condition: Option<Condition>,
+    clock: AggregateClock,
 }
 
 impl SlidingAggregate {
@@ -147,15 +178,32 @@ impl SlidingAggregate {
             window_size_ms,
             flush_tick_ms,
             flush_condition,
+            clock: AggregateClock::SystemCall,
         }
     }
 
+    #[cfg(test)]
+    fn test_new(
+        window_size_ms: i64,
+        flush_tick_ms: u64,
+        flush_condition: Option<Condition>,
+    ) -> Self {
+        let mut s = Self::new(window_size_ms, flush_tick_ms, flush_condition);
+        s.clock = AggregateClock::Counter(AtomicI64::new(1));
+        s
+    }
+
     fn record(&mut self, event: Event) {
+        let current_time = self.clock.now();
         match self.data.get_mut(event.as_metric().series()) {
             None => {
                 let key = event.as_metric().series().clone();
                 let mut windows = VecDeque::new();
-                windows.push_back(AggregateWindow::new(event, self.window_size_ms));
+                windows.push_back(AggregateWindow::new(
+                    current_time,
+                    event,
+                    self.window_size_ms,
+                ));
                 self.data.insert(key, windows); // LOG-18567: should enforce max number of keys in BTreeMap
             }
             Some(entry) => {
@@ -164,7 +212,7 @@ impl SlidingAggregate {
                 // UTC timestamp when fitting it into windows.
                 let event_timestamp = match metric.data().time.timestamp {
                     Some(timestamp) => timestamp.timestamp_millis(),
-                    None => Utc::now().timestamp_millis(),
+                    None => current_time,
                 };
 
                 // Start looking from the back for windows where this event should be rolled
@@ -180,7 +228,7 @@ impl SlidingAggregate {
 
                 // Every new event starts a new window that further points can be rolled up into, aka
                 // the windows slide to the next event.
-                let new_window = AggregateWindow::new(event, self.window_size_ms);
+                let new_window = AggregateWindow::new(current_time, event, self.window_size_ms);
                 entry.push_back(new_window); // LOG-18567: should enforce max number of windows in VecDeque
             }
         }
@@ -190,6 +238,8 @@ impl SlidingAggregate {
     /// entries will be drained from the active collection and then produced as values
     /// to emit as output.
     fn flush_finalized(&mut self, output: &mut Vec<Event>) {
+        let current_time = self.clock.now();
+
         // To comply with rust's borrow checker, this method needs to take ownership of the currently
         // allocated BTreeMap and replace it with a new, empty allocated BTreeMap.
         let data = std::mem::take(&mut self.data);
@@ -203,7 +253,7 @@ impl SlidingAggregate {
             let mut new_window_list = VecDeque::with_capacity(windows.capacity());
             for (i, window) in windows.into_iter().enumerate() {
                 let mut should_flush = false;
-                let is_expired = window.is_expired();
+                let is_expired = window.is_expired(current_time);
 
                 let AggregateWindow {
                     size_ms, mut event, ..
@@ -314,7 +364,7 @@ mod test {
 
     #[test]
     fn record_single_metric() {
-        let mut target = SlidingAggregate::new(5, 1, None);
+        let mut target = SlidingAggregate::test_new(5, 1, None);
         target.record(metric("a", MetricKind::Incremental, None, 10.0));
         assert_eq!(target.data.len(), 1);
 
@@ -332,9 +382,9 @@ mod test {
 
     #[tokio::test]
     async fn record_overlapping_windows() {
-        let mut target = SlidingAggregate::new(5, 1, None);
+        let mut target = SlidingAggregate::test_new(5, 1, None);
         target.record(metric("a", MetricKind::Incremental, None, 3.0));
-        tokio::time::sleep(Duration::from_millis(2)).await;
+        target.clock.increment_by(2);
         target.record(metric("a", MetricKind::Incremental, None, 4.0));
         assert_eq!(
             target.data.len(),
@@ -361,9 +411,9 @@ mod test {
 
     #[tokio::test]
     async fn record_nonoverlapping_windows() {
-        let mut target = SlidingAggregate::new(5, 1, None);
+        let mut target = SlidingAggregate::test_new(5, 1, None);
         target.record(metric("a", MetricKind::Incremental, None, 3.0));
-        tokio::time::sleep(Duration::from_millis(15)).await;
+        target.clock.increment_by(15);
         target.record(metric("a", MetricKind::Incremental, None, 4.0));
         assert_eq!(
             target.data.len(),
@@ -390,7 +440,7 @@ mod test {
 
     #[test]
     fn record_group_by_tags() {
-        let mut target = SlidingAggregate::new(5, 1, None);
+        let mut target = SlidingAggregate::test_new(5, 1, None);
         target.record(metric(
             "a",
             MetricKind::Incremental,
@@ -440,7 +490,7 @@ mod test {
 
     #[test]
     fn flush_when_empty() {
-        let mut target = SlidingAggregate::new(5, 1, None);
+        let mut target = SlidingAggregate::test_new(5, 1, None);
         let mut res = vec![];
         target.flush_finalized(&mut res);
         assert!(res.is_empty());
@@ -450,7 +500,7 @@ mod test {
     async fn flush_no_expired() {
         // LOG-18845: Use a very large aggregation window in the test so that even when executing on a busy
         // Jenkins node, nothing should ever become expired.
-        let mut target = SlidingAggregate::new(60_000, 1, None);
+        let mut target = SlidingAggregate::test_new(60_000, 1, None);
         target.record(metric("a", MetricKind::Incremental, None, 3.0));
         target.record(metric("b", MetricKind::Incremental, None, 3.0));
 
@@ -461,10 +511,10 @@ mod test {
 
     #[tokio::test]
     async fn flush_only_expired() {
-        let mut target = SlidingAggregate::new(5, 1, None);
+        let mut target = SlidingAggregate::test_new(5, 1, None);
         target.record(metric("a", MetricKind::Incremental, None, 3.0));
         target.record(metric("b", MetricKind::Absolute, None, 3.0));
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        target.clock.increment_by(10);
         target.record(metric("a", MetricKind::Incremental, None, 3.0));
 
         let mut res = vec![];
@@ -496,7 +546,7 @@ mod test {
             .map_err(|err| panic!("{err}"))
             .ok();
 
-        let mut target = SlidingAggregate::new(5, 1, more_than_five);
+        let mut target = SlidingAggregate::test_new(5, 1, more_than_five);
         target.record(metric("a", MetricKind::Incremental, None, 3.0));
         target.record(metric("b", MetricKind::Incremental, None, 3.0));
         target.record(metric("a", MetricKind::Incremental, None, 3.0));
@@ -517,7 +567,7 @@ mod test {
             .build(&table_registry, None)
             .ok();
 
-        let mut target = SlidingAggregate::new(5, 1, tag_condition);
+        let mut target = SlidingAggregate::test_new(5, 1, tag_condition);
         target.record(metric(
             "a",
             MetricKind::Incremental,
