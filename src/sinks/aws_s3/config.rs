@@ -33,6 +33,12 @@ use crate::{
     tls::TlsConfig,
 };
 
+// MEZMO: added dependencies for s3-sink file consolidation
+use crate::sinks::aws_s3::file_consolidator_async::{
+    FileConsolidationConfig, FileConsolidatorAsync,
+};
+use gethostname::gethostname;
+
 /// Configuration for the `aws_s3` sink.
 #[configurable_component(sink("aws_s3"))]
 #[derive(Clone, Debug)]
@@ -133,6 +139,11 @@ pub struct S3SinkConfig {
         skip_serializing_if = "crate::serde::skip_serializing_if_default"
     )]
     pub acknowledgements: AcknowledgementsConfig,
+
+    // MEZMO: added configuration for s3-sink file consolidation
+    #[configurable(derived)]
+    #[serde(default)]
+    pub file_consolidation_config: FileConsolidationConfig,
 }
 
 pub(super) fn default_key_prefix() -> String {
@@ -160,6 +171,7 @@ impl GenerateConfig for S3SinkConfig {
             tls: Some(TlsConfig::default()),
             auth: AwsAuthentication::default(),
             acknowledgements: Default::default(),
+            file_consolidation_config: Default::default(),
         })
         .unwrap()
     }
@@ -228,7 +240,15 @@ impl S3SinkConfig {
             compression: self.compression,
         };
 
-        let sink = S3Sink::new(service, request_options, partitioner, batch_settings);
+        // MEZMO: added new file consolidation process for S3 sinks
+        let consolidation_process = self.build_consolidation_process(cx.proxy);
+        let sink = S3Sink::new(
+            service,
+            request_options,
+            partitioner,
+            batch_settings,
+            consolidation_process,
+        );
 
         Ok(VectorSink::from_event_streamsink(sink))
     }
@@ -243,6 +263,45 @@ impl S3SinkConfig {
 
     pub async fn create_service(&self, proxy: &ProxyConfig) -> crate::Result<S3Service> {
         s3_common::config::create_service(&self.region, &self.auth, proxy, &self.tls).await
+    }
+
+    // MEZMO: added process to define setup for s3-sink file consolidation
+    fn build_consolidation_process(&self, proxy: ProxyConfig) -> Option<FileConsolidatorAsync> {
+        // we can perform consolidation assuming that the process itself is requested via the configuration
+        // we only want to handle this process on the primary instance of the statefulset
+        // so we don't have to worry about contention between instances of sinks
+        let host_name = gethostname().into_string().unwrap();
+        if !host_name.ends_with("-0") || !self.file_consolidation_config.enabled {
+            info!(
+                message = "S3 sink file consolidation process disabled",
+                host_name,
+                config.enabled = self.file_consolidation_config.enabled,
+            );
+            return None;
+        } else {
+            info!(
+                message = "S3 sink file consolidation enabled",
+                host_name,
+                config.enabled = self.file_consolidation_config.enabled,
+            );
+        }
+
+        // build the S3 client and config so we can return a new FileConsolidator
+        let region_or_endpoint = &self.region;
+        let endpoint = region_or_endpoint.endpoint().unwrap_or_default();
+        let region = region_or_endpoint.region();
+
+        let consolidator = FileConsolidatorAsync::new(
+            self.auth.clone(),
+            region.clone(),
+            endpoint.clone(),
+            proxy.clone(),
+            self.tls.clone(),
+            self.file_consolidation_config,
+            self.bucket.clone(),
+            self.key_prefix.clone(),
+        );
+        Some(consolidator)
     }
 }
 
