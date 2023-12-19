@@ -1,3 +1,262 @@
+# [1.30.0](https://github.com/answerbook/vector/compare/v1.29.2...v1.30.0) (2023-12-19)
+
+
+### Bug Fixes
+
+* `aws_ec2_metadata` transform when using log namespacing (#17819) [4786743](https://github.com/answerbook/vector/commit/4786743dcaa73e16781e8b43ce0a1ce0315a55d1) - GitHub
+* **auth**: Vector does not put the Proxy-Authorization header on the wire (#17353) (#17363) [6705bdd](https://github.com/answerbook/vector/commit/6705bdde058b1a532eda9398c9610dff46bb783b) - GitHub
+* **buffers**: deadlock when seeking after entire write fails to be flushed (#17657) [37a662a](https://github.com/answerbook/vector/commit/37a662a9c2e388dc1699f90288c5d856381d15d4) - GitHub
+* **ci**: add missing env var (#17872) [4f67695](https://github.com/answerbook/vector/commit/4f67695942c7f44f807cc92a43c6d6456fcebd92) - Jesse Szwedko
+* **ci**: add missing logic to mark required checks failed (#17543) [3b87e00](https://github.com/answerbook/vector/commit/3b87e00f3a62be93f55a89df676b47a8fad22201) - GitHub
+* **ci**: change command to find baseline sha from issue comment trigger (#17622) [5791083](https://github.com/answerbook/vector/commit/579108353e50546081b830d4e5788be7bb76a892) - GitHub
+* **ci**: checkout a greater depth in regression workflow (#17604) [baa04e5](https://github.com/answerbook/vector/commit/baa04e59d9b234c4e71f8545a6ad8fdb2517f805) - GitHub
+* **ci**: post failed status to PR and isolate branch checkout on comment trigger (#17544) [e2c0255](https://github.com/answerbook/vector/commit/e2c025591c572efdd04728fac301b2e025596516) - GitHub
+* **ci**: reg workflow alt approach to getting baseline sha (#17645) [f1e1ae3](https://github.com/answerbook/vector/commit/f1e1ae36ec4f244a03cbc7084cde64ea2d9631fa) - GitHub
+* **ci**: use correct ID for Triage in Gardener Board (#17647) [2638cca](https://github.com/answerbook/vector/commit/2638cca6cbf5103f71944383255b3e335d7f5790) - GitHub
+* **ci**: use correct secret for gardener board comment (#17605) [9395eba](https://github.com/answerbook/vector/commit/9395eba89ed10488914ac042aabba068356bb84b) - GitHub
+* **config**: Fix preloading log_schema (#17759) [659e1e6](https://github.com/answerbook/vector/commit/659e1e69f56d32939871bc097c6eeb0b950012db) - GitHub
+* **databend sink**: use get for page request (#17373) [c7d7cf8](https://github.com/answerbook/vector/commit/c7d7cf8e36b9de6de7cd963e472d33b792c24413) - GitHub
+* **datadog_agent source**: remove duplicate internal metrics emission (#17720) [48ec2e8](https://github.com/answerbook/vector/commit/48ec2e8bc51f3f4f68566a64e6fe7d7327a73591) - GitHub
+* **distribution**: Fix architecture detection for ARMv7 (#17484) [78fb469](https://github.com/answerbook/vector/commit/78fb4694c26d061314e8a01236a67633d8035d5c) - GitHub
+* **docs**: fix copy-paste issue in component spec (#17616) [b400acc](https://github.com/answerbook/vector/commit/b400acced6bd61d5927ab75bb82643b5927c0cbd) - GitHub
+* **file source**: Fix tailing problem when source number greater than 512 (#17717) [23a3e0e](https://github.com/answerbook/vector/commit/23a3e0ebf44fd8efa46a6861aa91404806be3831) - GitHub
+* **fluent source**: fix ack message format (#17407) [d194992](https://github.com/answerbook/vector/commit/d1949921a81181e2eeb1780d7e081d767f758f5e) - GitHub
+* **http_client source**: adapt int test to use breaking change of dep (#17583) [d7df520](https://github.com/answerbook/vector/commit/d7df52055152d9f85a6e48082d385e84c45f1501) - GitHub
+* **http_client source**: remove utf8 lossy conversion (#17655) [59e2cbf](https://github.com/answerbook/vector/commit/59e2cbff7bce014209813369d2a33a25ac193bb3) - GitHub
+* **install.sh**: Correctly `shift` all parsed arguments (#17684) [f883575](https://github.com/answerbook/vector/commit/f88357515c12240ae2a594324253e7f203ea27f9) - GitHub
+* **loki sink, observability**: Drop non-fatal template render errors to warnings (#17746) [4ebc3e1](https://github.com/answerbook/vector/commit/4ebc3e1171cba4f00023f0ef860a6b66c98763a9) - GitHub
+* **loki sink**: use json size of unencoded event (#17572) [25e7699](https://github.com/answerbook/vector/commit/25e7699bb505e1856d04634ed6571eb22631b140) - GitHub
+* **observability**: correct emitted metrics (#17562) [7a4f1f7](https://github.com/answerbook/vector/commit/7a4f1f77470fbc804299e2c1be867b193052d275) - GitHub
+* **observability**: issues with event_cache PR (#17768) [fdf02d9](https://github.com/answerbook/vector/commit/fdf02d954286288f435c84395bc9b9be13806899) - GitHub
+* remap behavior for root types when using the `Vector` namespace (#17807) [c19938c](https://github.com/answerbook/vector/commit/c19938c9213539da6b4ca6d50554557c87d6fde4) - GitHub
+* **sinks**: Add missing component span for sink building (#17765) [219883e](https://github.com/answerbook/vector/commit/219883eb2fc6fb7020b38d9e62d1a4ae0c2ba9e7) - GitHub
+
+
+### Chores
+
+* Add docker config to dependabot (#17696) [079d895](https://github.com/answerbook/vector/commit/079d895ebffeb62cf51cb11144b17fd481292510) - GitHub
+* add sink prelude (#17595) [da939ca](https://github.com/answerbook/vector/commit/da939ca645e49cd02cbd739cddcdfe00dcb88a55) - GitHub
+* Add submodules to all checkouts (#17770) [7196622](https://github.com/answerbook/vector/commit/719662280205d47ce9497646368911c8f5c28b0d) - GitHub
+* **administration**: add domain label for vdev (#17748) [c35ebd1](https://github.com/answerbook/vector/commit/c35ebd167b029eb0fb6c180301e8ff911f938f9f) - GitHub
+* **aws_s3 sink**: Update metadata to match the editorial review for the schema. (#17475) [c1262cd](https://github.com/answerbook/vector/commit/c1262cd162e04550b69913877d6b97037aceaea4) - GitHub
+* Bump version to 0.31.0 (#17466) [78bbfbc](https://github.com/answerbook/vector/commit/78bbfbc0205d97b401b5ba3084fe71e2bfdd7f33) - GitHub
+* **ci**: Add apt retries to cross builds (#17683) [ab1169b](https://github.com/answerbook/vector/commit/ab1169bd40ff7f1fa8cf1e77d24cd779112b2178) - GitHub
+* **ci**: Add schedule to component features workflow conditional check (#17816) [708b7f6](https://github.com/answerbook/vector/commit/708b7f6088c14180945d80e2a8f13ed471ded77a) - GitHub
+* **ci**: Bump aws-actions/configure-aws-credentials from 2.0.0 to 2.1.0 (#17565) [8a741d5](https://github.com/answerbook/vector/commit/8a741d55b8bfe361d6c5449cab4fd3728e1dae8d) - GitHub
+* **ci**: Bump aws-actions/configure-aws-credentials from 2.1.0 to 2.2.0 (#17697) [12bc4a7](https://github.com/answerbook/vector/commit/12bc4a7d116273cda322fccf41b4e3ea6c333be3) - GitHub
+* **ci**: Bump docker/build-push-action from 4.0.0 to 4.1.0 (#17656) [cb9a3a5](https://github.com/answerbook/vector/commit/cb9a3a548877b222afb14159393b8bc7bc3f8518) - GitHub
+* **ci**: Bump docker/build-push-action from 4.1.0 to 4.1.1 (#17687) [bce5e65](https://github.com/answerbook/vector/commit/bce5e65d9562983f0094f1b7359775cf17043285) - GitHub
+* **ci**: Bump docker/metadata-action from 4.4.0 to 4.5.0 (#17624) [a54a12f](https://github.com/answerbook/vector/commit/a54a12faae72ee64f4ba842746837a4787af5dc2) - GitHub
+* **ci**: Bump docker/metadata-action from 4.5.0 to 4.6.0 (#17686) [71273df](https://github.com/answerbook/vector/commit/71273dfc64206dd66290426fe7d65a68afb13d51) - GitHub
+* **ci**: Bump docker/setup-buildx-action from 2.5.0 to 2.6.0 (#17625) [15bc42a](https://github.com/answerbook/vector/commit/15bc42a21bed188819da4d12e38d108f2e840202) - GitHub
+* **ci**: Bump docker/setup-buildx-action from 2.6.0 to 2.7.0 (#17685) [8006987](https://github.com/answerbook/vector/commit/80069871df7d0809411053435486c604b7b8c15d) - GitHub
+* **ci**: Bump docker/setup-buildx-action from 2.7.0 to 2.8.0 (#17786) [dbdff9e](https://github.com/answerbook/vector/commit/dbdff9e8b1df36dd45fb8ef2181926224b5dd294) - GitHub
+* **ci**: Bump docker/setup-qemu-action from 2.1.0 to 2.2.0 (#17623) [3005141](https://github.com/answerbook/vector/commit/3005141f2097169a05af418e5f80765468645700) - GitHub
+* **ci**: bump myrotvorets/set-commit-status-action from 1.1.6 to 1.1.7 (#17460) [bca45eb](https://github.com/answerbook/vector/commit/bca45eb32bff27429a6beb3cf1d7b241d6de8c70) - GitHub
+* **ci**: Bump up OSX runners for release builds (#17823) [fe730ad](https://github.com/answerbook/vector/commit/fe730adee64c45bc9a0737838a8aaa2bd8ef61d8) - GitHub
+* **ci**: bump xt0rted/pull-request-comment-branch from 1 to 2 (#17461) [c425006](https://github.com/answerbook/vector/commit/c425006f299c7a5f91509f7bdb18963f4da0748f) - GitHub
+* **ci**: correctly validate comment author in k8s e2e job (#17818) [b8e3dbe](https://github.com/answerbook/vector/commit/b8e3dbe1cf55e4d117023531e19891fc8c19ccf9) - GitHub
+* **ci**: Drop VRL license exceptions (#17529) [aa01452](https://github.com/answerbook/vector/commit/aa014528ca83bd3f1d17604d8c138ac2d0484074) - GitHub
+* **ci**: fix a few logic bugs and more strict comment parsing (#17502) [bf372fd](https://github.com/answerbook/vector/commit/bf372fd7cdef40704205e5fb5bf10bc50e002d94) - GitHub
+* **ci**: fix comment author validation (#17794) [75ae967](https://github.com/answerbook/vector/commit/75ae967ebed2231a93b62e2c7a5a08685fa7d654) - GitHub
+* **ci**: fix failure notify job conditional in publish workflow (#17468) [3699842](https://github.com/answerbook/vector/commit/36998428099da9b3ce4bcf0fd6f8787be1920363) - GitHub
+* **ci**: fix gardener issues comment workflow (#17825) [47c3da1](https://github.com/answerbook/vector/commit/47c3da1f21d3cc3d4af09d321ae3754972e0a150) - GitHub
+* **ci**: fix team membership action (#17791) [13c3c78](https://github.com/answerbook/vector/commit/13c3c788e2225ba25ca49500ebde270915c2e7bc) - GitHub
+* **ci**: int test yaml file detection (#17590) [fa8a553](https://github.com/answerbook/vector/commit/fa8a55385dd391aa2429c3f2e9821198c364c6a0) - GitHub
+* **ci**: minor fixes to workflows post merge queue enabling  (#17462) [9f6f6ec](https://github.com/answerbook/vector/commit/9f6f6ecde0db3ffdd7b904647f490511433836b5) - GitHub
+* **ci**: move component features check out of merge queue (#17773) [e6e776d](https://github.com/answerbook/vector/commit/e6e776ddb7c93db243f989413581d9116275939e) - GitHub
+* **ci**: Move most CI checks to merge queue (#17340) [060399a](https://github.com/answerbook/vector/commit/060399a4bbef4280d1cea7c04304ed1308504ca0) - GitHub
+* **ci**: reduce runner sizing to 4 core and free tier (#17785) [53a575f](https://github.com/answerbook/vector/commit/53a575f21d65bc188324ad3bcd2e89d03bbf548c) - GitHub
+* **ci**: remove /ci-run-install comment trigger (#17803) [a3770d8](https://github.com/answerbook/vector/commit/a3770d872708d7f28a1f834d31baa142f1f11ea4) - GitHub
+* **ci**: Remove remaining Discord notification (#17805) [ed59f37](https://github.com/answerbook/vector/commit/ed59f37e006d63130413e7a4ed21042f4b90dd0e) - GitHub
+* **ci**: Remove upload of config schema (#17740) [ff6a1b4](https://github.com/answerbook/vector/commit/ff6a1b4f06b1e32f3192f2bc391e8ab59f466993) - GitHub
+* **ci**: Retry `make check-component-docs` check (#17718) [e8e7e04](https://github.com/answerbook/vector/commit/e8e7e0448f51ed9646c484123fd4953442545c86) - GitHub
+* **ci**: revert fix gardener issues comment workflow (#17829) [ee10b8c](https://github.com/answerbook/vector/commit/ee10b8cbae51b9c0bade8d8bd8273a8dbeb3bb58) - GitHub
+* **ci**: Set HOMEBREW_NO_INSTALL_FROM_API in CI (#17867) [00cc584](https://github.com/answerbook/vector/commit/00cc584aa43d6e975a118667badd20be4030bb84) - Jesse Szwedko
+* **ci**: temporarily disable comment_trigger workflow (#17480) [58d7f3d](https://github.com/answerbook/vector/commit/58d7f3dfb0b57445db931604c6f72d93015da505) - GitHub
+* **ci**: temporarily disable flakey `aws_s3` integration test case `handles_errored_status`  (#17455) [8e40b68](https://github.com/answerbook/vector/commit/8e40b6850a57f874476f071d4ec98d699a99a65e) - GitHub
+* **ci**: update comment_trigger note about concurrency groups (#17491) [7699f4d](https://github.com/answerbook/vector/commit/7699f4ded19e520258adddd4c628a7a309c52c4e) - GitHub
+* **ci**: Update publish workflow test Ubuntu versions (#17781) [20d62f1](https://github.com/answerbook/vector/commit/20d62f11f9bd255185fadd58c79891d730997768) - GitHub
+* **clickhouse sink**: refactor to new style (#17723) [77ac63c](https://github.com/answerbook/vector/commit/77ac63c5bd87309b1ddd54e55b933072b40e34ea) - GitHub
+* **codecs**: consolidate enum types (#17688) [9c45394](https://github.com/answerbook/vector/commit/9c4539436ecbbf48dc0dd454ea25230d539b2c9b) - GitHub
+* Codify flag naming including sentinel values (#17569) [134578d](https://github.com/answerbook/vector/commit/134578db2165b4b522013d0e7d6ac974f9e4e744) - GitHub
+* Codify the use of abbreviate time units in config option names (#17582) [8823561](https://github.com/answerbook/vector/commit/8823561a8ad544b4acd29273b466b1a5bd606cc2) - GitHub
+* **config**: Convert top-level sinks enum to typetag (#17710) [9cd5404](https://github.com/answerbook/vector/commit/9cd54043fab1e82722adaeeaee290d7084074439) - GitHub
+* **config**: Make config schema output ordered (#17694) [9606353](https://github.com/answerbook/vector/commit/960635387235ea270d748038a3a0ddd615813f29) - GitHub
+* **config**: Update field labels for commonly used sources and transforms  (#17517) [f523f70](https://github.com/answerbook/vector/commit/f523f70d12053bd8d1d5ceee41c7c843780ded84) - GitHub
+* **config**: Update field labels for sinks (#17560) [e1ddd0e](https://github.com/answerbook/vector/commit/e1ddd0e99c0290a645a484c45cc42a391803c6c0) - GitHub
+* **config**: Update field labels for the rest of the sources and transforms fields (#17564) [6e45477](https://github.com/answerbook/vector/commit/6e45477ddc27147887346c8d09dd077225ea2ef3) - GitHub
+* **datadog_archives sink**: Remove this component (#17749) [53f8bff](https://github.com/answerbook/vector/commit/53f8bff371cdfa96770c03be38ae3c83a497043f) - GitHub
+* **datadog_metrics sink**: incrementally encode sketches (#17764) [3f6df61](https://github.com/answerbook/vector/commit/3f6df61c4d90ed9d587c2935d188b5ada2f9ff02) - GitHub
+* **datadog_traces sink**: Add additional warning around APM stats for `peer.service` (#17733) [9a899c5](https://github.com/answerbook/vector/commit/9a899c5d7c40a271b17eafec2f840c1bfd082b04) - GitHub
+* **deps, releasing**: Update to Alpine 3.18 (#17695) [2263756](https://github.com/answerbook/vector/commit/2263756d0a39cb99d62a826ff0993f461ae80937) - GitHub
+* **deps**: Bump async-graphql from 5.0.8 to 5.0.9 (#17486) [077a294](https://github.com/answerbook/vector/commit/077a294d10412552e80c41429f23bd6a4f47724b) - GitHub
+* **deps**: Bump async-graphql from 5.0.9 to 5.0.10 (#17619) [2931542](https://github.com/answerbook/vector/commit/29315428b2c93ae0a5682ddb1fb25137b5eb3931) - GitHub
+* **deps**: Bump async-graphql-warp from 5.0.8 to 5.0.9 (#17489) [ac81fc1](https://github.com/answerbook/vector/commit/ac81fc1318b229e2b9c6bbcd080af7438afde85a) - GitHub
+* **deps**: Bump async-graphql-warp from 5.0.9 to 5.0.10 (#17642) [b3885f6](https://github.com/answerbook/vector/commit/b3885f693ebbdddd338b72bfd594e164d4fa361d) - GitHub
+* **deps**: bump aws-sigv4 from 0.55.1 to 0.55.3 (#17481) [2ad5b47](https://github.com/answerbook/vector/commit/2ad5b478f8948d0c3d92197f90100148cebda237) - GitHub
+* **deps**: bump base64 from 0.21.0 to 0.21.1 (#17451) [95cbba9](https://github.com/answerbook/vector/commit/95cbba9116f12e1aa3665f89050132a28f9a0327) - GitHub
+* **deps**: Bump base64 from 0.21.1 to 0.21.2 (#17488) [f261781](https://github.com/answerbook/vector/commit/f261781b5ce4389fb23017a2d4892c7f16753ad9) - GitHub
+* **deps**: bump bstr from 1.4.0 to 1.5.0 (#17453) [7554d9c](https://github.com/answerbook/vector/commit/7554d9c8cc7b9b7134c7879dc941f8f55bc837e2) - GitHub
+* **deps**: Bump cached from 0.43.0 to 0.44.0 (#17599) [7a55210](https://github.com/answerbook/vector/commit/7a55210ed814e0c47618905a299eba0d896a0646) - GitHub
+* **deps**: Bump chrono to 0.4.26 (#17537) [0dfa09c](https://github.com/answerbook/vector/commit/0dfa09c4a9b7e753802a4fa0700557752e2fc945) - GitHub
+* **deps**: Bump chrono-tz from 0.8.2 to 0.8.3 (#17789) [f79947c](https://github.com/answerbook/vector/commit/f79947cf0125468b141ff8bc09d1c2bc6366780e) - GitHub
+* **deps**: bump clap_complete from 4.2.3 to 4.3.0 (#17447) [05bf262](https://github.com/answerbook/vector/commit/05bf262536031d199c06d980f47be317c97520ea) - GitHub
+* **deps**: Bump clap_complete from 4.3.0 to 4.3.1 (#17586) [8549809](https://github.com/answerbook/vector/commit/854980945e685485388bda2dd8f9cd9ad040029e) - GitHub
+* **deps**: bump criterion from 0.4.0 to 0.5.0 (#17477) [84f0ada](https://github.com/answerbook/vector/commit/84f0adac7a8e6306e12eaf13dc8c28f23e33f867) - GitHub
+* **deps**: Bump criterion from 0.5.0 to 0.5.1 (#17500) [da7bc95](https://github.com/answerbook/vector/commit/da7bc951c450c1274fa37abb2d19b83dd3f965ab) - GitHub
+* **deps**: Bump crossbeam-utils from 0.8.15 to 0.8.16 (#17674) [714ccf8](https://github.com/answerbook/vector/commit/714ccf8e77426b916ab88121c45a611106ebd6fe) - GitHub
+* **deps**: Bump csv from 1.2.1 to 1.2.2 (#17555) [bcc5b6c](https://github.com/answerbook/vector/commit/bcc5b6c5c883e16bd959b610890f67ffc0405860) - GitHub
+* **deps**: bump data-encoding from 2.3.3 to 2.4.0 (#17452) [9aaf864](https://github.com/answerbook/vector/commit/9aaf864254bb05a92504533cd3d072341dbcb7e9) - GitHub
+* **deps**: Bump getrandom from 0.2.9 to 0.2.10 (#17613) [bd880f5](https://github.com/answerbook/vector/commit/bd880f55d2d8605733297acb4f96a8100a60dad4) - GitHub
+* **deps**: Bump gloo-utils from 0.1.6 to 0.1.7 (#17707) [53e1785](https://github.com/answerbook/vector/commit/53e178570b5b87bc2124f4299865cbb00916fe20) - GitHub
+* **deps**: Bump graphql_client from 0.12.0 to 0.13.0 (#17541) [ecb707a](https://github.com/answerbook/vector/commit/ecb707a633020bca8c805d5764b85302b74ca477) - GitHub
+* **deps**: Bump h2 from 0.3.19 to 0.3.20 (#17767) [ac3bc72](https://github.com/answerbook/vector/commit/ac3bc72bb5e0fd905e2680d4046a2984de5d07b8) - GitHub
+* **deps**: Bump hashbrown from 0.13.2 to 0.14.0 (#17609) [154e393](https://github.com/answerbook/vector/commit/154e39382f4e80998814a693f9d6bb5c89ebebf7) - GitHub
+* **deps**: Bump hyper from 0.14.26 to 0.14.27 (#17766) [a2a3609](https://github.com/answerbook/vector/commit/a2a3609c58287240631c409172c4b1944bc7864f) - GitHub
+* **deps**: Bump indexmap from 1.9.3 to 2.0.0 (#17755) [248ccb8](https://github.com/answerbook/vector/commit/248ccb8d8252fff386d1b67c17424cd263361cb3) - GitHub
+* **deps**: Bump indicatif from 0.17.3 to 0.17.4 (#17532) [1565985](https://github.com/answerbook/vector/commit/1565985746868265a1582a1b33b4eb56cc046c26) - GitHub
+* **deps**: Bump indicatif from 0.17.4 to 0.17.5 (#17597) [a164952](https://github.com/answerbook/vector/commit/a164952a145109d95c465645bf08b387a61e408a) - GitHub
+* **deps**: Bump infer from 0.13.0 to 0.14.0 (#17737) [326ad08](https://github.com/answerbook/vector/commit/326ad0861215f22c83f681e725abb88b33107e2e) - GitHub
+* **deps**: Bump itertools from 0.10.5 to 0.11.0 (#17736) [6e1878b](https://github.com/answerbook/vector/commit/6e1878b1c151a19d7a99fd6c8c8a847cc69db3c8) - GitHub
+* **deps**: Bump lalrpop to 0.19.12 (#17457) [1f54415](https://github.com/answerbook/vector/commit/1f54415cb3fd4dc8f3f1b5989aa8d051cbe1faa5) - GitHub
+* **deps**: bump lapin from 2.1.1 to 2.1.2 (#17439) [a8b7899](https://github.com/answerbook/vector/commit/a8b7899bea771e6f2ca2e7c78c5a1c578f03d78f) - GitHub
+* **deps**: bump lapin from 2.1.2 to 2.2.0 (#17443) [b639422](https://github.com/answerbook/vector/commit/b6394228d53508f22c6a65c69961baff19457c05) - GitHub
+* **deps**: bump lapin from 2.2.0 to 2.2.1 (#17448) [618379a](https://github.com/answerbook/vector/commit/618379a27583f6233a76c5b788616816b74bee03) - GitHub
+* **deps**: Bump libc from 0.2.144 to 0.2.146 (#17615) [10cfd0a](https://github.com/answerbook/vector/commit/10cfd0aec905c605248ad9d36abb312d4bfc1a5b) - GitHub
+* **deps**: Bump libc from 0.2.146 to 0.2.147 (#17753) [1a75ec6](https://github.com/answerbook/vector/commit/1a75ec6656cc194068fb98f3d18e14705ef32c91) - GitHub
+* **deps**: Bump log from 0.4.17 to 0.4.18 (#17526) [5a2fea1](https://github.com/answerbook/vector/commit/5a2fea10da7eaa04b7e51af84cdea87ab6e8326b) - GitHub
+* **deps**: Bump log from 0.4.18 to 0.4.19 (#17662) [e1b3357](https://github.com/answerbook/vector/commit/e1b335748ef3b1345db9f5b9af11b5df2f24868a) - GitHub
+* **deps**: Bump lru from 0.10.0 to 0.10.1 (#17810) [96e68f7](https://github.com/answerbook/vector/commit/96e68f76efe2208a8899b3f8961125ba5424a9ba) - GitHub
+* **deps**: bump memmap2 from 0.6.1 to 0.6.2 (#17482) [79f7dfb](https://github.com/answerbook/vector/commit/79f7dfb4d4633badf8ee89f0e940fa44f5bd59aa) - GitHub
+* **deps**: Bump memmap2 from 0.6.2 to 0.7.0 (#17641) [593ea1b](https://github.com/answerbook/vector/commit/593ea1bc89303f2f2344cca58d7c1aa5de939084) - GitHub
+* **deps**: Bump memmap2 from 0.7.0 to 0.7.1 (#17752) [4236e32](https://github.com/answerbook/vector/commit/4236e32cb1fe514e117fa8737e43f6dd51b937dd) - GitHub
+* **deps**: Bump mock_instant from 0.3.0 to 0.3.1 (#17574) [1c1beb8](https://github.com/answerbook/vector/commit/1c1beb8123e1b0c82537ae3c2e26235bc6c0c43b) - GitHub
+* **deps**: Bump mongodb from 2.5.0 to 2.6.0 (#17726) [c96e3be](https://github.com/answerbook/vector/commit/c96e3be34c239e94a366f9ced8e0e8b69570a562) - GitHub
+* **deps**: Bump notify from 6.0.0 to 6.0.1 (#17700) [cd6d154](https://github.com/answerbook/vector/commit/cd6d1540bf74d13ad6bc9c90fc3fe2affb11e6dc) - GitHub
+* **deps**: Bump once_cell from 1.17.1 to 1.17.2 (#17531) [8e113ad](https://github.com/answerbook/vector/commit/8e113addc48328f3918e6abc7623284d93d4030b) - GitHub
+* **deps**: Bump once_cell from 1.17.2 to 1.18.0 (#17596) [dc6bef2](https://github.com/answerbook/vector/commit/dc6bef2a2e6c47e145c776b4fd91042b112a0890) - GitHub
+* **deps**: bump opendal from 0.34.0 to 0.35.0 (#17471) [ebf958b](https://github.com/answerbook/vector/commit/ebf958b1355b4b729e7c99232bc40e2f7e809abf) - GitHub
+* **deps**: Bump opendal from 0.35.0 to 0.36.0 (#17540) [dbd7151](https://github.com/answerbook/vector/commit/dbd7151aa4128638765e360f3f0f4e6582735041) - GitHub
+* **deps**: Bump opendal from 0.36.0 to 0.37.0 (#17614) [b5bd85f](https://github.com/answerbook/vector/commit/b5bd85f87e39389a2ea3bb9a3d588fcbdfd0e29d) - GitHub
+* **deps**: Bump opendal from 0.37.0 to 0.38.0 (#17777) [ec4785a](https://github.com/answerbook/vector/commit/ec4785a9f2ce948a2d44f777f13e69d1e8b7400c) - GitHub
+* **deps**: Bump openssl from 0.10.52 to 0.10.53 (#17534) [078de66](https://github.com/answerbook/vector/commit/078de661e7146a1924c0c31fed65b8b0ccbb7316) - GitHub
+* **deps**: Bump openssl from 0.10.53 to 0.10.54 (#17573) [4af5e6d](https://github.com/answerbook/vector/commit/4af5e6d8886cfc326209f8d6aa65d27f86f6e579) - GitHub
+* **deps**: Bump openssl from 0.10.54 to 0.10.55 (#17716) [dd2527d](https://github.com/answerbook/vector/commit/dd2527dcea295f4f9f6eb617306a822892e08a59) - GitHub
+* **deps**: Bump percent-encoding from 2.2.0 to 2.3.0 (#17602) [8e04259](https://github.com/answerbook/vector/commit/8e042590117989394f8bc246dc6d7de61d00123a) - GitHub
+* **deps**: Bump pin-project from 1.1.0 to 1.1.1 (#17806) [0b32626](https://github.com/answerbook/vector/commit/0b32626848f5189d6832e6f8ea3c66ebaa553975) - GitHub
+* **deps**: Bump PR limit for Dependabot to 100 (#17459) [85703e7](https://github.com/answerbook/vector/commit/85703e792fe0ff70a466380823cf2d4b14b21603) - GitHub
+* **deps**: bump proc-macro2 from 1.0.57 to 1.0.58 (#17426) [ae656c7](https://github.com/answerbook/vector/commit/ae656c7124b9c148e7a678967f58edc2a32501e5) - GitHub
+* **deps**: Bump proc-macro2 from 1.0.58 to 1.0.59 (#17495) [4ce3278](https://github.com/answerbook/vector/commit/4ce3278ba5c2b92391818ff85c410a01f6b71cbf) - GitHub
+* **deps**: Bump proc-macro2 from 1.0.59 to 1.0.60 (#17643) [f20eb2f](https://github.com/answerbook/vector/commit/f20eb2ff554c0163ea4955c9a5ad1ef0acd9f492) - GitHub
+* **deps**: Bump proc-macro2 from 1.0.60 to 1.0.63 (#17757) [63ba2a9](https://github.com/answerbook/vector/commit/63ba2a95d972bbba11cd9a1f913f2606bb2ba20b) - GitHub
+* **deps**: bump proptest from 1.1.0 to 1.2.0 (#17476) [9235fc2](https://github.com/answerbook/vector/commit/9235fc249f4a0aa34d1119ed7dd334e23e5c3674) - GitHub
+* **deps**: bump pulsar from 5.1.1 to 6.0.0 (#17587) [3395cfd](https://github.com/answerbook/vector/commit/3395cfdb90b165653dda7e9014057aac1dba2d28) - GitHub
+* **deps**: Bump pulsar from 6.0.0 to 6.0.1 (#17673) [8d98bb8](https://github.com/answerbook/vector/commit/8d98bb8c4f4a4dd44e433caf8846aee4df1eec2b) - GitHub
+* **deps**: Bump quanta from 0.11.0 to 0.11.1 (#17524) [2388c2f](https://github.com/answerbook/vector/commit/2388c2f492a4952e48f1c1f8469045378ec60739) - GitHub
+* **deps**: Bump quote from 1.0.27 to 1.0.28 (#17496) [cc30746](https://github.com/answerbook/vector/commit/cc307460df2b45af6f33311d493c6bd7f9d44da5) - GitHub
+* **deps**: Bump quote from 1.0.28 to 1.0.29 (#17798) [cba983e](https://github.com/answerbook/vector/commit/cba983e381af933ac360812aec82d013e7e84fa4) - GitHub
+* **deps**: Bump quote from 1.0.28 to 1.0.29 (#17815) [bf9828d](https://github.com/answerbook/vector/commit/bf9828d03b92a6b7ce0295d3468eb1c139f5a1fc) - GitHub
+* **deps**: bump rdkafka from 0.30.0 to 0.31.0 (#17428) [e7fa8d3](https://github.com/answerbook/vector/commit/e7fa8d373b74117c4d0d90902c3124e620c3c6c3) - GitHub
+* **deps**: Bump rdkafka from 0.31.0 to 0.32.2 (#17664) [ac68a7b](https://github.com/answerbook/vector/commit/ac68a7b8d8238f4d64d5f3850e15dc9931e39349) - GitHub
+* **deps**: bump regex from 1.8.1 to 1.8.2 (#17469) [897e45d](https://github.com/answerbook/vector/commit/897e45d5aa3d9ede6aa9115dae41a90b5a200ffa) - GitHub
+* **deps**: bump regex from 1.8.2 to 1.8.3 (#17494) [5d90cff](https://github.com/answerbook/vector/commit/5d90cff55c04701692dfe2b92416c3cf4ded5a4d) - GitHub
+* **deps**: Bump regex from 1.8.3 to 1.8.4 (#17601) [657758d](https://github.com/answerbook/vector/commit/657758db74496ec9adede09fc8f132bd8bed3bc3) - GitHub
+* **deps**: bump reqwest from 0.11.17 to 0.11.18 (#17420) [2ed8ec7](https://github.com/answerbook/vector/commit/2ed8ec77d6effb6c373f56209aa52d9f6158f571) - GitHub
+* **deps**: bump security-framework from 2.9.0 to 2.9.1 (#17441) [ac0c7e8](https://github.com/answerbook/vector/commit/ac0c7e82fc5877a58a60da872c40ad9b63143953) - GitHub
+* **deps**: Bump serde from 1.0.163 to 1.0.164 (#17632) [e35150e](https://github.com/answerbook/vector/commit/e35150e8b376db1f19b60b828233eb47393bb2dd) - GitHub
+* **deps**: Bump serde_json from 1.0.96 to 1.0.97 (#17701) [25131ef](https://github.com/answerbook/vector/commit/25131efdbe855a8f4d2491bd68fb76c58f7f8ad4) - GitHub
+* **deps**: Bump serde_json from 1.0.97 to 1.0.99 (#17754) [e07158c](https://github.com/answerbook/vector/commit/e07158c7a80352d2d36216eb90141033b863964a) - GitHub
+* **deps**: Bump serde_yaml from 0.9.21 to 0.9.22 (#17756) [e164b36](https://github.com/answerbook/vector/commit/e164b36436b85a332b5a3b4c492caab6b53578d3) - GitHub
+* **deps**: Bump sha2 from 0.10.6 to 0.10.7 (#17698) [d122d32](https://github.com/answerbook/vector/commit/d122d32b8c83133b753c9e31d19be6c6609fb9a5) - GitHub
+* **deps**: Bump tempfile from 3.5.0 to 3.6.0 (#17617) [c55c9ec](https://github.com/answerbook/vector/commit/c55c9ecbf904d9166c88af65a9a3f76f18289f58) - GitHub
+* **deps**: Bump tokio from 1.28.1 to 1.28.2 (#17525) [cc703da](https://github.com/answerbook/vector/commit/cc703da814928b41e0d9c0d7d211181f4aa5758a) - GitHub
+* **deps**: Bump tokio from 1.28.2 to 1.29.0 (#17776) [e26e8b8](https://github.com/answerbook/vector/commit/e26e8b804c7fed0affad156160b65ba5e0df5a6e) - GitHub
+* **deps**: bump toml from 0.7.3 to 0.7.4 (#17440) [91ba052](https://github.com/answerbook/vector/commit/91ba052ba59d920761a02f7999c4b5d8b39d1766) - GitHub
+* **deps**: Bump toml from 0.7.4 to 0.7.5 (#17751) [35c4581](https://github.com/answerbook/vector/commit/35c458163ac11baa4cba73b37dadaf71d41fd13a) - GitHub
+* **deps**: Bump tower-http from 0.4.0 to 0.4.1 (#17711) [e5e6b96](https://github.com/answerbook/vector/commit/e5e6b9635cf3fd13676d845f184ef3a04167ceef) - GitHub
+* **deps**: Bump url from 2.3.1 to 2.4.0 (#17608) [d956092](https://github.com/answerbook/vector/commit/d956092efdcc4ccea718365d9e9ef7bd537563a8) - GitHub
+* **deps**: Bump uuid from 1.3.3 to 1.3.4 (#17682) [c97d619](https://github.com/answerbook/vector/commit/c97d619d47b1171d592dcf55692b5caa01e97992) - GitHub
+* **deps**: Bump uuid from 1.3.4 to 1.4.0 (#17775) [935babf](https://github.com/answerbook/vector/commit/935babf1ab6edcc345960af77a387712ffe36304) - GitHub
+* **deps**: Bump wasm-bindgen from 0.2.86 to 0.2.87 (#17672) [19c4d4f](https://github.com/answerbook/vector/commit/19c4d4f72a4c08fdf51299bd7b3b906f8f8d08c1) - GitHub
+* **deps**: Bump wiremock from 0.5.18 to 0.5.19 (#17618) [460bbc7](https://github.com/answerbook/vector/commit/460bbc7b9e532f93ac015ff871535c16135e4793) - GitHub
+* **deps**: Bump xml-rs from 0.8.4 to 0.8.14 (#17607) [a932489](https://github.com/answerbook/vector/commit/a9324892a289e94214707f1e09ea2931ae27d5e3) - GitHub
+* **deps**: Drop use of `hashlink` crate (#17678) [41ee394](https://github.com/answerbook/vector/commit/41ee39414ea3210c841659f1f41b3295ad8bfd23) - GitHub
+* **deps**: Export more common bits for components (#17788) [062224b](https://github.com/answerbook/vector/commit/062224b485f27193288443cede0ae1c2f5c66196) - GitHub
+* **deps**: Update fs_extra to 1.3.0 (#17458) [299fd6a](https://github.com/answerbook/vector/commit/299fd6ab53b1e818d09ae38f4321c20bdce4f30e) - GitHub
+* **deps**: Upgrade Ruby version to 3.1.4 (#17722) [ddebde9](https://github.com/answerbook/vector/commit/ddebde97bac79eaecb7feb286bfe5a25591e7d13) - GitHub
+* **deps**: Upgrade rust to 1.70.0 (#17585) [6c48565](https://github.com/answerbook/vector/commit/6c4856595410ee77d52d62ceb2cd808b1cdff04e) - GitHub
+* **dev**: Add @dsmith3197 to CODEOWNERS (#17729) [a08443c](https://github.com/answerbook/vector/commit/a08443c890cc0e3223e4d17c71eb267f0305d50c) - GitHub
+* **docs**: Add info about Vector Operator to Kubernetes instalation page (#17432) [54d9c99](https://github.com/answerbook/vector/commit/54d9c99492ec14924994a4857961aaafe3200f9b) - GitHub
+* **docs**: add instructions for regenerating component docs and licenses (#17828) [93ef6c3](https://github.com/answerbook/vector/commit/93ef6c3e9241601253b48e27ee817e73474a89c6) - GitHub
+* **docs**: Add Log Namespacing docs (#16571) [7d098e4](https://github.com/answerbook/vector/commit/7d098e42dfd08ea1f2e63355e2a95c2b38e3b768) - GitHub
+* **docs**: add note about const strings (#17774) [d7bc531](https://github.com/answerbook/vector/commit/d7bc531ee29f563822ed152c97adfc7d7bb0ef81) - GitHub
+* **docs**: Clarify `bytes` framing for streams (#17745) [7d10fc9](https://github.com/answerbook/vector/commit/7d10fc97f32c053f9336d1d69d530f39ef258268) - GitHub
+* **docs**: Clarify when component received and sent bytes events should be emitted (#17464) [547783d](https://github.com/answerbook/vector/commit/547783d17e8d2d3d351213a034e8d38fdcaa3047) - GitHub
+* **docs**: Move CONTRIBUTING.md to top-level (#17744) [7a0dec1](https://github.com/answerbook/vector/commit/7a0dec13537211b4a7e460cdf57b079709649b5f) - GitHub
+* Download submodules in the CI checkouts (#17760) [5417a06](https://github.com/answerbook/vector/commit/5417a06e29f7a6050f916df993edba0149084b57) - GitHub
+* Dropped error field from StreamClosed Error (#17693) [ee480cd](https://github.com/answerbook/vector/commit/ee480cd08a5451bc3f0b83a2b037ba131e38d4b9) - GitHub
+* **enrichment**: avoid importing vector-common in enrichment module (#17653) [45a28f8](https://github.com/answerbook/vector/commit/45a28f88a910c8492872773cc2e86045c8e2f4b6) - GitHub
+* **enterprise**: Extend library functionality for secret scanning (#17483) [541bb00](https://github.com/answerbook/vector/commit/541bb0087eb95b8d67c98547240c8104c5b2a69f) - GitHub
+* **external docs**: fix reference to supported aarch64 architecture (#17553) [247bb80](https://github.com/answerbook/vector/commit/247bb807cae195c5c987a43e3c4e6ab6b885a94b) - GitHub
+* **external docs**: update fluentd link (#17436) [187f142](https://github.com/answerbook/vector/commit/187f142ef5c28dec8e9b1ffbdfe0196acbe45804) - GitHub
+* Fix publish workflow for older OS images (#17787) [ab39c6a](https://github.com/answerbook/vector/commit/ab39c6ac6816c8499cc87050a21945f984638dab) - GitHub
+* **flush on shutdown**: validate s3 sink flushes (#17667) [c21f892](https://github.com/answerbook/vector/commit/c21f892e574579e323742da009f15a39c43555af) - GitHub
+* **kubernetes_logs source**: Add warning about Windows support (#17762) [a53c7a2](https://github.com/answerbook/vector/commit/a53c7a2153960038b8e68e13d6beede09eb1a69a) - GitHub
+* **kubernetes**: Bump k8s manifests to 0.22.0 (#17467) [f547871](https://github.com/answerbook/vector/commit/f54787190119255c1f97b2fe603ea5e65355b1cd) - GitHub
+* **observability**: emit `component_sent` events by `source` and `service` (#17549) [dcf7f9a](https://github.com/answerbook/vector/commit/dcf7f9ae538c821eb7b3baf494d3e8938083832c) - GitHub
+* **observability**: ensure `sent_event` and `received_event` metrics are estimated json size (#17465) [3b2a2be](https://github.com/answerbook/vector/commit/3b2a2be1b075344a92294c1248b09844f895ad72) - GitHub
+* **observability**: Have `tower_limit` use configured log level (#17715) [08099a8](https://github.com/answerbook/vector/commit/08099a8b567663416d907600e2f9c678482af272) - GitHub
+* **observability**: remove deprecated internal metrics + massive cleanup to vector top and graphql API (#17516) [98c54ad](https://github.com/answerbook/vector/commit/98c54ad3a371ac710151367a953252f9eb293548) - GitHub
+* **observability**: remove more deprecated internal metrics (#17542) [b0ed167](https://github.com/answerbook/vector/commit/b0ed167d1ae22b8f0a7a762ad50750c912f0833b) - GitHub
+* **observability**: set source fields to mean service (#17470) [670bdea](https://github.com/answerbook/vector/commit/670bdea00ab7a13921aa3194667068b27f58e35a) - GitHub
+* **releasing**: Prepare v0.30.0 release [af2b2af](https://github.com/answerbook/vector/commit/af2b2afdd95c8ed092beabc443fbd5c5d263a53e) - Jesse Szwedko
+* **releasing**: Prepare v0.31.0 release [0f13b22](https://github.com/answerbook/vector/commit/0f13b22a4cebbba000444bdb45f02bc820730a13) - Jesse Szwedko
+* remove custom async sleep impl (#17493) [b28d915](https://github.com/answerbook/vector/commit/b28d915cb6a48da836bb4736c027f1ca5d623fe2) - GitHub
+* Remove links to roadmap (#17554) [349c718](https://github.com/answerbook/vector/commit/349c7183067f0aa91b05914f34a68ee899fea88b) - GitHub
+* Revert all submodule introductions to fix CI (#17800) [d8d57e5](https://github.com/answerbook/vector/commit/d8d57e55c0c51c6fdb8c41f2fa48b0876ef4d356) - GitHub
+* RFC for Data Volume Insights (#17322) [a551f33](https://github.com/answerbook/vector/commit/a551f33da2b752229bd8139c72af80ce8b149638) - GitHub
+* **sinks**: Drop the custom `SinkContext::default` implementation (#17804) [e66e285](https://github.com/answerbook/vector/commit/e66e285cbd944bcb65b1262fb91bc1913b1885a6) - GitHub
+* **sinks**: mark VectorSink::from_event_sink as deprecated (#17649) [0dc450f](https://github.com/answerbook/vector/commit/0dc450fac14ac0236ca48466fd4fe42630d421ed) - GitHub
+* **statsd sink**: refactor `statsd` sink to stream-based style (#16199) [2a76cac](https://github.com/answerbook/vector/commit/2a76cac4d327eac537996d3409a64633c96f5ac8) - GitHub
+* update `vrl` to `0.4.0` (#17378) [426d660](https://github.com/answerbook/vector/commit/426d6602d22193940ac6e495fc5c175aa3bc8f90) - GitHub
+* Update the NOTICE file (#17430) [9a44e6e](https://github.com/answerbook/vector/commit/9a44e6e8763c5d2bc91de1c24b14662d10d0b434) - GitHub
+* Upgrade aws-smithy and aws-sdk crates (#17731) [6a6b42b](https://github.com/answerbook/vector/commit/6a6b42bedbd27dec0c91e274698785cc73f805df) - GitHub
+* **website**: Fix upgrade guide dates [80de738](https://github.com/answerbook/vector/commit/80de738b8de91c378f1ab7a58a0a02201f4402fd) - Jesse Szwedko
+
+
+### Features
+
+* add metadata support to `set_semantic_meaning` (#17730) [44be378](https://github.com/answerbook/vector/commit/44be37843c0599abb64073fe737ce146e30b3aa5) - GitHub
+* **codecs**: add lossy option to `gelf`, `native_json`, and `syslog` deserializers (#17680) [2dfa850](https://github.com/answerbook/vector/commit/2dfa8509bcdb4220d32e3d91f7fdd61c081db5ea) - GitHub
+* **codecs**: Add lossy option to JSON deserializer (#17628) [bf7d796](https://github.com/answerbook/vector/commit/bf7d79623c0b575dd0bb6f851cc12c15cea5eb5f) - GitHub
+* **configurable shutdown duration**: make shutdown duration configurable (#17479) [23ed0e3](https://github.com/answerbook/vector/commit/23ed0e3adbffdd770a257635c3d6720a3bf072e7) - GitHub
+* **error code when shutdown fails**: set exit flag to non-zero when shutdown times out (#17676) [cc52c0e](https://github.com/answerbook/vector/commit/cc52c0ea99e03f451c24c165b24430c045ff365d) - GitHub
+* **internal telemetry at shutdown**: close internal sources after external ones (#17741) [812929b](https://github.com/answerbook/vector/commit/812929b1761355e2209ce33b3fc439d9b8b0d182) - GitHub
+* **journald source**: add journal_namespace option (#17648) [a324a07](https://github.com/answerbook/vector/commit/a324a07ba1b62baac08d74b287595846b787b887) - GitHub
+* **kinesis sinks**: implement full retry of partial failures in firehose/streams (#17535) [bebac21](https://github.com/answerbook/vector/commit/bebac21cb699be64d1b009d3619d5af5c5be20ec) - GitHub
+* **prometheus**: add more compression algorithms to Prometheus Remote Write (#17334) [380d7ad](https://github.com/answerbook/vector/commit/380d7adb72a02e8da0af35fd3d80ecb1d8b0b541) - GitHub
+* track runtime schema definitions for log events (#17692) [6eecda5](https://github.com/answerbook/vector/commit/6eecda55020214364fda844cf8ed16a9b6cc2a5c) - GitHub
+
+
+### Miscellaneous
+
+* Merge pull request #371 from answerbook/feature/LOG-18200 [491ea31](https://github.com/answerbook/vector/commit/491ea31c9246e2cbfa6bd8f4fd223c1a13ad63d4) - GitHub [LOG-18200](https://logdna.atlassian.net/browse/LOG-18200)
+* Merge pull request #374 from answerbook/dominic/LOG-18535-temp-revert [df87df7](https://github.com/answerbook/vector/commit/df87df78fa1a97b519729e4ecca7bf0d6e656b32) - GitHub [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535) [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+* Revert "Merge pull request #370 from answerbook/dominic/LOG-18535" [73a8b28](https://github.com/answerbook/vector/commit/73a8b289e09f0386c851a79c8a2aa773f208ee66) - dominic-mcallister-logdna [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+* Merge branch 'master' into feature/LOG-18200 [fcd21f3](https://github.com/answerbook/vector/commit/fcd21f3d9eb2254ce01fad69edd7c112e4a36c5e) - Darin Spivey [LOG-18200](https://logdna.atlassian.net/browse/LOG-18200)
+* Merge tag 'v0.31.0' into upstream-0.31.0 [9443fb1](https://github.com/answerbook/vector/commit/9443fb16196cf498024f01dac3bd39492ac820e1) - Darin Spivey
+* Update VRL to `0.5.0` (#17793) [671aa79](https://github.com/answerbook/vector/commit/671aa795136e319889a710986d41fadae9ec980f) - GitHub
+* fix `demo_logs` metadata source name (#17689) [83af7ea](https://github.com/answerbook/vector/commit/83af7ea47f661ff22ba5aae728584390ea80743f) - GitHub
+* enhancement(s3 source) Add minimal support to unwrap an S3-SQS event from an SNS event (#17352) [7a7bc9a](https://github.com/answerbook/vector/commit/7a7bc9a3fe65d04d4e945186b1cbb31517ed8a64) - GitHub
+* Additional notes on proposing new integrations (#17658) [2ad964d](https://github.com/answerbook/vector/commit/2ad964d43b9a47808104eced885cebf6541f4a72) - GitHub
+* **ci**: reduce billable time of Test Suite (#17714) [bc69255](https://github.com/answerbook/vector/commit/bc6925592f8d954212efb99f2f17bcac8a454169) - GitHub
+* **ci**: refactor logic for int test file path changes detection (#17725) [92a36e0](https://github.com/answerbook/vector/commit/92a36e0119e0e1f50b8bfcdcaf1c536018b69d5f) - GitHub
+* **compression**: zstd compression support (#17371) [ced219e](https://github.com/answerbook/vector/commit/ced219e70405c9ed9012444cc04efad8f91d3590) - GitHub
+* **dev**:  move blocked/waiting gardener issues to triage on comment (#17588) [6b34868](https://github.com/answerbook/vector/commit/6b34868e285a4608914405b7701ae1ee82deb536) - GitHub
+* explain how to run tests locally (#17783) [3b67a80](https://github.com/answerbook/vector/commit/3b67a80f44c8abf9ba0e0a9bd77ee19d4a51d91a) - GitHub
+* remove aggregator beta warning (#17750) [94e3f15](https://github.com/answerbook/vector/commit/94e3f1542be0c4ba93f554803973c9e26e7dc566) - GitHub
+
 ## [1.29.2](https://github.com/answerbook/vector/compare/v1.29.1...v1.29.2) (2023-12-19)
 
 
