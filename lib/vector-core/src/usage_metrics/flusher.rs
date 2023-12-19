@@ -17,6 +17,8 @@ use tokio::time::sleep;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::NoTls;
 use uuid::Uuid;
+use vector_common::internal_event::emit;
+use vector_common::internal_event::usage_metrics::InsertFailed;
 
 use super::{get_db_config, AnnotationMap, AnnotationSet, UsageMetricsKey, UsageMetricsValue};
 
@@ -117,7 +119,9 @@ impl DbFlusher {
                             );
                         }
                         Err(error) => {
-                            error!(message = "Usage metrics insert failed", %error);
+                            emit(InsertFailed {
+                                error: error.to_string(),
+                            });
                         }
                     }
                 } else {

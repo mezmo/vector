@@ -1,4 +1,4 @@
-use metrics::gauge;
+use metrics::{counter, gauge};
 
 use super::InternalEvent;
 
@@ -15,5 +15,21 @@ impl InternalEvent for AggregatedProfileChanged {
 
     fn name(&self) -> Option<&'static str> {
         Some("UsageMetricsAggregatedProfilesSize")
+    }
+}
+
+pub struct InsertFailed {
+    pub error: String,
+}
+
+impl InternalEvent for InsertFailed {
+    fn emit(self) {
+        counter!("usage_metrics_insert_failed", 1);
+
+        error!(message = "Usage metrics insert failed", error = self.error);
+    }
+
+    fn name(&self) -> Option<&'static str> {
+        Some("UsageMetricsInsertFailed")
     }
 }
