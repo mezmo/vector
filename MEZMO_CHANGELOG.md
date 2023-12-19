@@ -1,3 +1,20 @@
+# [1.29.0](https://github.com/answerbook/vector/compare/v1.28.2...v1.29.0) (2023-12-19)
+
+
+### Bug Fixes
+
+* **test**: do not use system clock in unit tests [4096793](https://github.com/answerbook/vector/commit/4096793d348a9d74f5ae3e5119e61169e9c0a8b5) - Dan Hable [LOG-18873](https://logdna.atlassian.net/browse/LOG-18873)
+
+
+### Features
+
+* **s3 sink**: add file consolidation [1484d29](https://github.com/answerbook/vector/commit/1484d293035aa5083fd326f5cf5b72f762779a63) - dominic-mcallister-logdna [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
+
+### Miscellaneous
+
+* Merge pull request #370 from answerbook/dominic/LOG-18535 [f67cd9f](https://github.com/answerbook/vector/commit/f67cd9fa4a6cfaf39dfaa99d2c1b7fb3d02c4cd9) - GitHub [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
 ## [1.28.2](https://github.com/answerbook/vector/compare/v1.28.1...v1.28.2) (2023-12-18)
 
 
