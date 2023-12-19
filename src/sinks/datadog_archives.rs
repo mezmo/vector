@@ -395,14 +395,7 @@ impl DatadogArchivesSinkConfig {
             self.encoding.clone(),
         );
 
-        // MEZMO: added file consolidation processing which is optional, so None parameter added
-        let sink = S3Sink::new(
-            service,
-            request_builder,
-            partitioner,
-            batcher_settings,
-            None,
-        );
+        let sink = S3Sink::new(service, request_builder, partitioner, batcher_settings);
 
         Ok(VectorSink::from_event_streamsink(sink))
     }
