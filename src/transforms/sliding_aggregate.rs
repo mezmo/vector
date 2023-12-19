@@ -9,8 +9,6 @@ use futures::{Stream, StreamExt};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ops::Range;
 use std::pin::Pin;
-#[cfg(test)]
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 use tokio::select;
 use vector_config_macros::configurable_component;
@@ -20,6 +18,9 @@ use vector_core::{
     schema::Definition,
     transform::{TaskTransform, Transform},
 };
+
+#[cfg(test)]
+use std::sync::atomic::{AtomicI64, Ordering};
 
 /// Configuration for the `sliding_aggregate` transform.
 #[configurable_component(transform("sliding_aggregate", "Mezmo sliding aggregate"))]
@@ -139,16 +140,23 @@ enum AggregateClock {
     Counter(AtomicI64),
 }
 
+#[cfg(not(test))]
+impl AggregateClock {
+    #[inline(always)]
+    fn now(&self) -> i64 {
+        Utc::now().timestamp_millis()
+    }
+}
+
+#[cfg(test)]
 impl AggregateClock {
     fn now(&self) -> i64 {
         match self {
             Self::SystemCall => Utc::now().timestamp_millis(),
-            #[cfg(test)]
             Self::Counter(val) => val.load(Ordering::Relaxed),
         }
     }
 
-    #[cfg(test)]
     fn increment_by(&self, i: i64) {
         match self {
             Self::SystemCall => panic!("cannot increment a system call clock impl"),
