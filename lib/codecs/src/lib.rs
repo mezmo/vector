@@ -4,15 +4,9 @@
 #![deny(missing_docs)]
 #![deny(warnings)]
 #![allow(
-    clippy::arc_with_non_send_sync,
-    clippy::default_constructed_unit_structs,
     clippy::explicit_iter_loop,
-    clippy::missing_fields_in_debug,
     clippy::missing_panics_doc,
     clippy::needless_lifetimes,
-    clippy::needless_pub_self,
-    clippy::needless_raw_string_hashes,
-    clippy::non_minimal_cfg,
     clippy::redundant_closure_call,
     clippy::redundant_pattern_matching,
     clippy::useless_conversion,

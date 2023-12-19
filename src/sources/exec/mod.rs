@@ -57,7 +57,7 @@ pub struct ExecConfig {
     #[configurable(derived)]
     pub streaming: Option<StreamingConfig>,
 
-    /// The command to be run, plus any arguments required.
+    /// The command to run, plus any arguments required.
     #[configurable(metadata(docs::examples = "echo", docs::examples = "Hello World!"))]
     pub command: Vec<String>,
 
@@ -120,6 +120,7 @@ pub struct StreamingConfig {
 
     /// The amount of time, in seconds, before rerunning a streaming command that exited.
     #[serde(default = "default_respawn_interval_secs")]
+    #[configurable(metadata(docs::human_name = "Respawn Interval"))]
     respawn_interval_secs: u64,
 }
 
@@ -503,8 +504,8 @@ async fn run_command(
                         for event in &mut events {
                             handle_event(&config, &hostname, &Some(stream.to_string()), pid, event, log_namespace);
                         }
-                        if let Err(error) = out.send_batch(events).await {
-                            emit!(StreamClosedError { count, error });
+                        if (out.send_batch(events).await).is_err() {
+                            emit!(StreamClosedError { count });
                             break;
                         }
                     },
@@ -728,7 +729,7 @@ mod tests {
     use bytes::Bytes;
     use std::io::Cursor;
     use vector_core::event::EventMetadata;
-    use vrl::value::value;
+    use vrl::value;
 
     #[cfg(unix)]
     use futures::task::Poll;

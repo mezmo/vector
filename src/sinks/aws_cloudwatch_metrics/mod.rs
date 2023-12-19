@@ -15,7 +15,7 @@ use futures_util::{future, future::BoxFuture};
 use std::task::{Context, Poll};
 use tower::Service;
 use vector_config::configurable_component;
-use vector_core::{sink::VectorSink, EstimatedJsonEncodedSizeOf};
+use vector_core::{sink::VectorSink, ByteSizeOf, EstimatedJsonEncodedSizeOf};
 use vrl::value::Value;
 
 use crate::{
@@ -49,7 +49,10 @@ impl SinkBatchSettings for CloudWatchMetricsDefaultBatchSettings {
 }
 
 /// Configuration for the `aws_cloudwatch_metrics` sink.
-#[configurable_component(sink("aws_cloudwatch_metrics"))]
+#[configurable_component(sink(
+    "aws_cloudwatch_metrics",
+    "Publish metric events to AWS CloudWatch Metrics."
+))]
 #[derive(Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct CloudWatchMetricsSinkConfig {
@@ -123,6 +126,7 @@ impl ClientBuilder for CloudwatchMetricsClientBuilder {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "aws_cloudwatch_metrics")]
 impl SinkConfig for CloudWatchMetricsSinkConfig {
     async fn build(
         &self,
@@ -171,7 +175,7 @@ impl CloudWatchMetricsSinkConfig {
         create_client::<CloudwatchMetricsClientBuilder>(
             &self.auth,
             region,
-            self.region.endpoint()?,
+            self.region.endpoint(),
             proxy,
             &self.tls,
             true,
@@ -221,7 +225,7 @@ type CloudwatchMetricsError = SdkError<PutMetricDataError>;
 impl UserLoggingError for CloudwatchMetricsError {
     fn log_msg(&self) -> Option<Value> {
         match &self {
-            SdkError::ServiceError { err, raw: _ } => err.message().map(Into::into),
+            SdkError::ServiceError(inner) => inner.err().message().map(Into::into),
             _ => None, // Other errors are not user-facing
         }
     }
@@ -256,7 +260,8 @@ impl CloudWatchMetricsSvc {
             .sink_map_err(|error| error!(message = "Fatal CloudwatchMetrics sink error.", %error))
             .with_flat_map(move |event: Event| {
                 stream::iter({
-                    let byte_size = event.estimated_json_encoded_size_of();
+                    let byte_size = event.allocated_bytes();
+                    let json_byte_size = event.estimated_json_encoded_size_of();
                     normalizer.normalize(event.into_metric()).map(|mut metric| {
                         let namespace = metric
                             .take_namespace()
@@ -265,11 +270,13 @@ impl CloudWatchMetricsSvc {
                         Ok(EncodedEvent::new(
                             PartitionInnerBuffer::new(metric, namespace),
                             byte_size,
+                            json_byte_size,
                         ))
                     })
                 })
             });
 
+        #[allow(deprecated)]
         Ok(VectorSink::from_event_sink(sink))
     }
 

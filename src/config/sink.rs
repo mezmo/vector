@@ -1,16 +1,48 @@
 use crate::mezmo::MezmoContext;
+use std::cell::RefCell;
+
 use async_trait::async_trait;
-use enum_dispatch::enum_dispatch;
+use dyn_clone::DynClone;
 use serde::Serialize;
 use vector_buffers::{BufferConfig, BufferType};
-use vector_config::{configurable_component, Configurable, NamedComponent};
+use vector_config::{
+    configurable_component, Configurable, GenerateError, Metadata, NamedComponent,
+};
+use vector_config_common::attributes::CustomAttribute;
+use vector_config_common::schema::{SchemaGenerator, SchemaObject};
 use vector_core::{
     config::{AcknowledgementsConfig, GlobalOptions, Input},
     sink::VectorSink,
 };
 
 use super::{id::Inputs, schema, ComponentKey, ProxyConfig, Resource};
-use crate::sinks::{util::UriSerde, Healthcheck, Sinks};
+use crate::sinks::{util::UriSerde, Healthcheck};
+
+pub type BoxedSink = Box<dyn SinkConfig>;
+
+impl Configurable for BoxedSink {
+    fn referenceable_name() -> Option<&'static str> {
+        Some("vector::sinks::Sinks")
+    }
+
+    fn metadata() -> Metadata {
+        let mut metadata = Metadata::default();
+        metadata.set_description("Configurable sinks in Vector.");
+        metadata.add_custom_attribute(CustomAttribute::kv("docs::enum_tagging", "internal"));
+        metadata.add_custom_attribute(CustomAttribute::kv("docs::enum_tag_field", "type"));
+        metadata
+    }
+
+    fn generate_schema(gen: &RefCell<SchemaGenerator>) -> Result<SchemaObject, GenerateError> {
+        vector_config::component::SinkDescription::generate_schemas(gen)
+    }
+}
+
+impl<T: SinkConfig + 'static> From<T> for BoxedSink {
+    fn from(value: T) -> Self {
+        Box::new(value)
+    }
+}
 
 /// Fully resolved sink component.
 #[configurable_component]
@@ -50,7 +82,7 @@ where
 
     #[serde(flatten)]
     #[configurable(metadata(docs::hidden))]
-    pub inner: Sinks,
+    pub inner: BoxedSink,
 }
 
 impl<T> SinkOuter<T>
@@ -60,7 +92,7 @@ where
     pub fn new<I, IS>(inputs: I, inner: IS) -> SinkOuter<T>
     where
         I: IntoIterator<Item = T>,
-        IS: Into<Sinks>,
+        IS: Into<BoxedSink>,
     {
         SinkOuter {
             inputs: Inputs::from_iter(inputs),
@@ -171,8 +203,8 @@ impl From<UriSerde> for SinkHealthcheckOptions {
 
 /// Generalized interface for describing and building sink components.
 #[async_trait]
-#[enum_dispatch]
-pub trait SinkConfig: NamedComponent + core::fmt::Debug + Send + Sync {
+#[typetag::serde(tag = "type")]
+pub trait SinkConfig: DynClone + NamedComponent + core::fmt::Debug + Send + Sync {
     /// Builds the sink with the given context.
     ///
     /// If the sink is built successfully, `Ok(...)` is returned containing the sink and the sink's
@@ -202,7 +234,9 @@ pub trait SinkConfig: NamedComponent + core::fmt::Debug + Send + Sync {
     fn acknowledgements(&self) -> &AcknowledgementsConfig;
 }
 
-#[derive(Debug, Clone)]
+dyn_clone::clone_trait_object!(SinkConfig);
+
+#[derive(Clone, Debug, Default)]
 pub struct SinkContext {
     pub healthcheck: SinkHealthcheckOptions,
     pub globals: GlobalOptions,

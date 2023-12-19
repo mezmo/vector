@@ -75,11 +75,11 @@ async fn mezmo_user_logs(
     let mut log_stream = subscription.into_stream().take_until(shutdown);
 
     while let Some(mut log) = log_stream.next().await {
-        let byte_size = log.estimated_json_encoded_size_of();
+        let byte_size = log.estimated_json_encoded_size_of().get();
         emit!(InternalLogsBytesReceived { byte_size });
         emit!(InternalLogsEventsReceived {
             count: 1,
-            byte_size,
+            byte_size: byte_size.into(),
         });
 
         log_namespace.insert_standard_vector_source_metadata(
@@ -88,9 +88,9 @@ async fn mezmo_user_logs(
             Utc::now(),
         );
 
-        if let Err(error) = out.send_event(Event::from(log)).await {
+        if let Err(_) = out.send_event(Event::from(log)).await {
             // this wont trigger any infinite loop considering it stops the component
-            emit!(StreamClosedError { error, count: 1 });
+            emit!(StreamClosedError { count: 1 });
             return Err(());
         }
     }

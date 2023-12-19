@@ -25,7 +25,7 @@ pub type KinesisClient = Client;
 impl UserLoggingError for SdkError<KinesisError> {
     fn log_msg(&self) -> Option<Value> {
         match &self {
-            SdkError::ServiceError { err, raw: _ } => err.message().map(Into::into),
+            SdkError::ServiceError(inner) => inner.err().message().map(Into::into),
             _ => None, // Other errors are not user-facing
         }
     }

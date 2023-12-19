@@ -54,9 +54,7 @@ impl PrometheusRemoteWriteDeserializer {
 
     /// Default Stream Framing for the Deserializer
     pub fn default_stream_framing() -> FramingConfig {
-        FramingConfig::NewlineDelimited {
-            newline_delimited: Default::default(),
-        }
+        FramingConfig::NewlineDelimited(Default::default())
     }
 
     /// Content Type expected by Deserializer

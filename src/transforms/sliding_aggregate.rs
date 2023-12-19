@@ -167,6 +167,7 @@ pub struct SlidingAggregate {
 }
 
 impl SlidingAggregate {
+    #[allow(clippy::missing_const_for_fn)]
     pub fn new(
         window_size_ms: i64,
         flush_tick_ms: u64,

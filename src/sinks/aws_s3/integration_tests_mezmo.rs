@@ -4,7 +4,7 @@ use crate::mezmo::reshape_log_event_by_message;
 use assay::assay;
 use bytes::Bytes;
 use codecs::decoding::format::Deserializer;
-use codecs::decoding::format::JsonDeserializerConfig;
+use codecs::decoding::format::{JsonDeserializerConfig, JsonDeserializerOptions};
 use codecs::{encoding::FramingConfig, JsonSerializerConfig, MetricTagValues};
 use futures::Stream;
 use similar_asserts::assert_eq;
@@ -65,7 +65,7 @@ async fn s3_message_objects_are_reshaped() {
 
     let response_lines = get_lines(obj).await;
     let input = Bytes::from(response_lines[0].clone());
-    let deserializer = JsonDeserializerConfig::new().build();
+    let deserializer = JsonDeserializerConfig::new(JsonDeserializerOptions::default()).build();
     let got_events = deserializer.parse(input, LogNamespace::Vector).unwrap();
 
     // Loop to assert results for 2 reasons:
@@ -119,7 +119,7 @@ async fn s3_message_objects_not_reshaped_because_of_env() {
 
     let response_lines = get_lines(obj).await;
     let input = Bytes::from(response_lines[0].clone());
-    let deserializer = JsonDeserializerConfig::new().build();
+    let deserializer = JsonDeserializerConfig::new(JsonDeserializerOptions::default()).build();
     let got_events = deserializer.parse(input, LogNamespace::Vector).unwrap();
 
     // The `message` property should still exist

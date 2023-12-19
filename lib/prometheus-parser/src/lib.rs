@@ -1,11 +1,5 @@
 #![deny(warnings)]
-#![allow(
-    clippy::default_constructed_unit_structs,
-    clippy::explicit_iter_loop,
-    clippy::needless_pub_self,
-    clippy::needless_raw_string_hashes,
-    clippy::useless_conversion
-)]
+#![allow(clippy::explicit_iter_loop, clippy::useless_conversion)]
 
 use std::{collections::BTreeMap, convert::TryFrom};
 

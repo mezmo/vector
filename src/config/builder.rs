@@ -1,23 +1,21 @@
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
 use indexmap::IndexMap;
 use serde_json::Value;
 use vector_config::configurable_component;
 use vector_core::config::GlobalOptions;
 
-use crate::{
-    enrichment_tables::EnrichmentTables, providers::Providers, secrets::SecretBackends,
-    sinks::Sinks,
-};
+use crate::{enrichment_tables::EnrichmentTables, providers::Providers, secrets::SecretBackends};
 
 #[cfg(feature = "api")]
 use super::api;
 #[cfg(feature = "enterprise")]
 use super::enterprise;
 use super::{
-    compiler, schema, BoxedSource, BoxedTransform, ComponentKey, Config, EnrichmentTableOuter,
-    HealthcheckOptions, SinkOuter, SourceOuter, TestDefinition, TransformOuter,
+    compiler, schema, BoxedSink, BoxedSource, BoxedTransform, ComponentKey, Config,
+    EnrichmentTableOuter, HealthcheckOptions, SinkOuter, SourceOuter, TestDefinition,
+    TransformOuter,
 };
 
 /// A complete Vector configuration.
@@ -76,6 +74,13 @@ pub struct ConfigBuilder {
     /// All configured secrets backends.
     #[serde(default)]
     pub secret: IndexMap<ComponentKey, SecretBackends>,
+
+    /// The duration in seconds to wait for graceful shutdown after SIGINT or SIGTERM are received.
+    /// After the duration has passed, Vector will force shutdown. Default value is 60 seconds. This
+    /// value can be set using a [cli arg](crate::cli::RootOpts::graceful_shutdown_limit_secs).
+    #[serde(default, skip)]
+    #[doc(hidden)]
+    pub graceful_shutdown_duration: Option<Duration>,
 }
 
 #[derive(::serde::Serialize)]
@@ -188,6 +193,7 @@ impl From<Config> for ConfigBuilder {
             transforms,
             tests,
             secret,
+            graceful_shutdown_duration,
             hash: _,
         } = config;
 
@@ -218,6 +224,7 @@ impl From<Config> for ConfigBuilder {
             provider: None,
             tests,
             secret,
+            graceful_shutdown_duration,
         }
     }
 }
@@ -259,7 +266,12 @@ impl ConfigBuilder {
             .insert(ComponentKey::from(key.into()), SourceOuter::new(source));
     }
 
-    pub fn add_sink<K: Into<String>, S: Into<Sinks>>(&mut self, key: K, inputs: &[&str], sink: S) {
+    pub fn add_sink<K: Into<String>, S: Into<BoxedSink>>(
+        &mut self,
+        key: K,
+        inputs: &[&str],
+        sink: S,
+    ) {
         let inputs = inputs
             .iter()
             .map(|value| value.to_string())

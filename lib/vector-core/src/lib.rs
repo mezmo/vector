@@ -27,14 +27,8 @@
 #![allow(clippy::unnested_or_patterns)] // nightly-only feature as of 1.51.0
 #![allow(clippy::type_complexity)] // long-types happen, especially in async code
 #![allow(
-    clippy::arc_with_non_send_sync,
-    clippy::default_constructed_unit_structs,
     clippy::explicit_iter_loop,
-    clippy::missing_fields_in_debug,
     clippy::missing_panics_doc,
-    clippy::needless_pub_self,
-    clippy::needless_raw_string_hashes,
-    clippy::non_minimal_cfg,
     clippy::redundant_closure_call,
     clippy::redundant_pattern_matching,
     clippy::useless_conversion,

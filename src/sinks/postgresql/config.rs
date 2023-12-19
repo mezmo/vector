@@ -142,6 +142,7 @@ impl GenerateConfig for PostgreSQLSinkConfig {
 }
 
 #[async_trait]
+#[typetag::serde(name = "postgresql")]
 impl SinkConfig for PostgreSQLSinkConfig {
     async fn build(&self, _cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let sink = PostgreSQLSink::new(self.clone())?;

@@ -215,6 +215,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn counter_test() {
         let event = create_metric_event("go_goroutines", "counter", 1.2, None);
         let metadata = event.metadata().clone();
@@ -233,6 +234,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn gauge_test() {
         let event = create_metric_event(
             "go_memstats_alloc_bytes",
@@ -256,6 +258,7 @@ mod tests {
         );
     }
     #[tokio::test]
+    #[serial]
     async fn summary_test() {
         let map: BTreeMap<String, Value> = serde_json::from_str(
             r#"{
@@ -327,6 +330,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn set_test() {
         let map: BTreeMap<String, Value> =
             serde_json::from_str(r#"{"values": ["a", "b"]}"#).unwrap();
@@ -349,6 +353,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn distribution_test() {
         let map: BTreeMap<String, Value> = serde_json::from_str(
             r#"{
@@ -389,6 +394,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn histogram_test() {
         let map: BTreeMap<String, Value> = serde_json::from_str(
             r#"{

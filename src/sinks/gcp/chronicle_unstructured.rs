@@ -101,7 +101,10 @@ impl SinkBatchSettings for ChronicleUnstructuredDefaultBatchSettings {
 }
 
 /// Configuration for the `gcp_chronicle_unstructured` sink.
-#[configurable_component(sink("gcp_chronicle_unstructured"))]
+#[configurable_component(sink(
+    "gcp_chronicle_unstructured",
+    "Store unstructured log events in Google Chronicle."
+))]
 #[derive(Clone, Debug)]
 pub struct ChronicleUnstructuredConfig {
     /// The endpoint to send data to.
@@ -200,6 +203,7 @@ pub enum ChronicleError {
 }
 
 #[async_trait::async_trait]
+#[typetag::serde(name = "gcp_chronicle_unstructured")]
 impl SinkConfig for ChronicleUnstructuredConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         // Unlike Vector's upstream behavior, if the initial `auth` result is an error
@@ -301,8 +305,12 @@ impl Finalizable for ChronicleRequest {
 }
 
 impl MetaDescriptive for ChronicleRequest {
-    fn get_metadata(&self) -> RequestMetadata {
-        self.metadata
+    fn get_metadata(&self) -> &RequestMetadata {
+        &self.metadata
+    }
+
+    fn metadata_mut(&mut self) -> &mut RequestMetadata {
+        &mut self.metadata
     }
 }
 
@@ -489,7 +497,7 @@ impl Service<ChronicleRequest> for ChronicleService {
             HeaderValue::from_str(&request.body.len().to_string()).unwrap(),
         );
 
-        let metadata = request.get_metadata();
+        let metadata = request.get_metadata().clone();
 
         let mut http_request = builder.body(Body::from(request.body)).unwrap();
 
@@ -565,7 +573,7 @@ mod integration_tests {
         log_type: &str,
         auth_path: &str,
     ) -> crate::Result<(VectorSink, crate::sinks::Healthcheck)> {
-        let cx = SinkContext::new_test();
+        let cx = SinkContext::default();
         config(log_type, auth_path).build(cx).await
     }
 

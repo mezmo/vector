@@ -1,20 +1,13 @@
 use std::marker::PhantomData;
 
-use tower::ServiceBuilder;
-use vector_config::configurable_component;
-use vector_core::{
-    config::{DataType, Input},
-    sink::VectorSink,
-    stream::BatcherSettings,
-};
+use vector_core::stream::BatcherSettings;
 
 use crate::{
     aws::{AwsAuthentication, RegionOrEndpoint},
-    codecs::{Encoder, EncodingConfig},
-    config::{AcknowledgementsConfig, SinkContext},
-    mezmo::user_trace::{MezmoLoggingService, UserLoggingError},
-    sinks::util::{retries::RetryLogic, Compression, ServiceBuilderExt, TowerRequestConfig},
-    tls::TlsConfig,
+    sinks::{
+        prelude::*,
+        util::{retries::RetryLogic, TowerRequestConfig},
+    },
 };
 use aws_sdk_firehose::types::SdkError;
 
@@ -60,6 +53,11 @@ pub struct KinesisSinkBaseConfig {
     #[serde(default)]
     pub auth: AwsAuthentication,
 
+    /// Whether or not to retry successful requests containing partial failures.
+    #[serde(default)]
+    #[configurable(metadata(docs::advanced))]
+    pub request_retry_partial: bool,
+
     #[configurable(derived)]
     #[serde(
         default,
@@ -80,12 +78,13 @@ impl KinesisSinkBaseConfig {
 }
 
 /// Builds an aws_kinesis sink.
-pub async fn build_sink<C, R, RR, E, RT>(
+pub fn build_sink<C, R, RR, E, RT>(
     config: &KinesisSinkBaseConfig,
     partition_key_field: Option<String>,
     batch_settings: BatcherSettings,
     client: C,
     cx: SinkContext,
+    retry_logic: RT,
 ) -> crate::Result<VectorSink>
 where
     C: SendRecord + Clone + Send + Sync + 'static,
@@ -102,7 +101,7 @@ where
 
     let region = config.region.region();
     let service = ServiceBuilder::new()
-        .settings::<RT, BatchKinesisRequest<RR>>(request_limits, RT::default())
+        .settings::<RT, BatchKinesisRequest<RR>>(request_limits, retry_logic)
         .service(MezmoLoggingService::new(
             KinesisService::<C, R, E> {
                 client,

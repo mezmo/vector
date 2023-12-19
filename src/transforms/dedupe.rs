@@ -285,8 +285,10 @@ mod tests {
 
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
+    use vector_common::config::ComponentKey;
     use vector_core::config::OutputId;
 
+    use crate::config::schema::Definition;
     use crate::{
         event::{Event, LogEvent, Value},
         test_util::components::assert_transform_compliance,
@@ -359,7 +361,12 @@ mod tests {
             tx.send(event1.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event1.set_source_id(Arc::new(OutputId::from("in")));
+            event1.set_source_id(Arc::new(ComponentKey::from("in")));
+            event1.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event1
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event1);
 
             // Second event differs in matched field so should be output even though it
@@ -367,7 +374,12 @@ mod tests {
             tx.send(event2.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event2.set_source_id(Arc::new(OutputId::from("in")));
+            event2.set_source_id(Arc::new(ComponentKey::from("in")));
+            event2.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event2
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event2);
 
             // Third event has the same value for "matched" as first event, so it should be dropped.
@@ -409,7 +421,12 @@ mod tests {
             tx.send(event1.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event1.set_source_id(Arc::new(OutputId::from("in")));
+            event1.set_source_id(Arc::new(ComponentKey::from("in")));
+            event1.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event1
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event1);
 
             // Second event has a different matched field name with the same value,
@@ -417,7 +434,12 @@ mod tests {
             tx.send(event2.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event2.set_source_id(Arc::new(OutputId::from("in")));
+            event2.set_source_id(Arc::new(ComponentKey::from("in")));
+            event2.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event2
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event2);
 
             drop(tx);
@@ -462,7 +484,12 @@ mod tests {
             tx.send(event1.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event1.set_source_id(Arc::new(OutputId::from("in")));
+            event1.set_source_id(Arc::new(ComponentKey::from("in")));
+            event1.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event1
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event1);
 
             // Second event is the same just with different field order, so it
@@ -507,7 +534,13 @@ mod tests {
             tx.send(event1.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event1.set_source_id(Arc::new(OutputId::from("in")));
+            event1.set_source_id(Arc::new(ComponentKey::from("in")));
+            event1.set_upstream_id(Arc::new(OutputId::from("transform")));
+
+            // the schema definition is copied from the source for dedupe
+            event1
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event1);
 
             // Second event gets output because it's not a dupe. This causes the first
@@ -515,7 +548,13 @@ mod tests {
             tx.send(event2.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event2.set_source_id(Arc::new(OutputId::from("in")));
+            event2.set_source_id(Arc::new(ComponentKey::from("in")));
+            event2.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event2
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
+
             assert_eq!(new_event, event2);
 
             // Third event is a dupe but gets output anyway because the first
@@ -523,7 +562,7 @@ mod tests {
             tx.send(event1.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event1.set_source_id(Arc::new(OutputId::from("in")));
+            event1.set_source_id(Arc::new(ComponentKey::from("in")));
             assert_eq!(new_event, event1);
 
             drop(tx);
@@ -564,7 +603,12 @@ mod tests {
             tx.send(event1.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event1.set_source_id(Arc::new(OutputId::from("in")));
+            event1.set_source_id(Arc::new(ComponentKey::from("in")));
+            event1.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event1
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event1);
 
             // Second event should also get passed through even though the string
@@ -572,7 +616,12 @@ mod tests {
             tx.send(event2.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event2.set_source_id(Arc::new(OutputId::from("in")));
+            event2.set_source_id(Arc::new(ComponentKey::from("in")));
+            event2.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event2
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event2);
 
             drop(tx);
@@ -617,7 +666,12 @@ mod tests {
             tx.send(event1.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event1.set_source_id(Arc::new(OutputId::from("in")));
+            event1.set_source_id(Arc::new(ComponentKey::from("in")));
+            event1.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event1
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event1);
 
             // Second event should also get passed through even though the string
@@ -625,7 +679,12 @@ mod tests {
             tx.send(event2.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event2.set_source_id(Arc::new(OutputId::from("in")));
+            event2.set_source_id(Arc::new(ComponentKey::from("in")));
+            event2.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event2
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event2);
 
             drop(tx);
@@ -663,7 +722,12 @@ mod tests {
             tx.send(event1.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event1.set_source_id(Arc::new(OutputId::from("in")));
+            event1.set_source_id(Arc::new(ComponentKey::from("in")));
+            event1.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event1
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event1);
 
             // Second event should also get passed through as null is different than
@@ -671,7 +735,12 @@ mod tests {
             tx.send(event2.clone()).await.unwrap();
             let new_event = out.recv().await.unwrap();
 
-            event2.set_source_id(Arc::new(OutputId::from("in")));
+            event2.set_source_id(Arc::new(ComponentKey::from("in")));
+            event2.set_upstream_id(Arc::new(OutputId::from("transform")));
+            // the schema definition is copied from the source for dedupe
+            event2
+                .metadata_mut()
+                .set_schema_definition(&Arc::new(Definition::default_legacy_namespace()));
             assert_eq!(new_event, event2);
 
             drop(tx);

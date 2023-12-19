@@ -172,6 +172,7 @@ impl GenerateConfig for SumoLogicSinkConfig {
 }
 
 #[async_trait]
+#[typetag::serde(name = "sumo_logic")]
 impl SinkConfig for SumoLogicSinkConfig {
     async fn build(&self, ctx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let batcher_settings = self
