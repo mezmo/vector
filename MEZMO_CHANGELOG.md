@@ -1,3 +1,10 @@
+## [1.29.2](https://github.com/answerbook/vector/compare/v1.29.1...v1.29.2) (2023-12-19)
+
+
+### Chores
+
+* Add counter for usage metric insert failure [b3869c1](https://github.com/answerbook/vector/commit/b3869c130dca97df7c128472b8ae1ff4091c34b6) - Jorge Bay [LOG-18638](https://logdna.atlassian.net/browse/LOG-18638)
+
 ## [1.29.1](https://github.com/answerbook/vector/compare/v1.29.0...v1.29.1) (2023-12-19)
 
 
