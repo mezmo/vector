@@ -1,3 +1,15 @@
+## [1.29.1](https://github.com/answerbook/vector/compare/v1.29.0...v1.29.1) (2023-12-19)
+
+
+### Chores
+
+* **otlp traces**: move resource and scope attributes to metadata [f7bfe6c](https://github.com/answerbook/vector/commit/f7bfe6c5f0443933146bc94c26f5bf8e0e6914e9) - Sergey Opria [LOG-18614](https://logdna.atlassian.net/browse/LOG-18614)
+
+
+### Miscellaneous
+
+* Merge pull request #367 from answerbook/sopria/LOG-18614 [25460f4](https://github.com/answerbook/vector/commit/25460f4749b50d8753a4656dc1a487692de34f3d) - GitHub [LOG-18614](https://logdna.atlassian.net/browse/LOG-18614)
+
 # [1.29.0](https://github.com/answerbook/vector/compare/v1.28.2...v1.29.0) (2023-12-19)
 
 
