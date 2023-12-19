@@ -363,7 +363,8 @@ async fn s3_healthchecks_invalid_bucket() {
         .is_err());
 }
 
-async fn client() -> S3Client {
+// MEZMO: upgraded function from private to pub for s3-sink file consolidation
+pub async fn client() -> S3Client {
     let auth = AwsAuthentication::test_auth();
     let region = RegionOrEndpoint::with_both("minio", s3_address());
     let proxy = ProxyConfig::default();
@@ -400,6 +401,7 @@ fn config(bucket: &str, batch_size: usize) -> S3SinkConfig {
         tls: Default::default(),
         auth: Default::default(),
         acknowledgements: Default::default(),
+        file_consolidation_config: Default::default(), //MEZMO: new property for s3-sink file consolidation
     }
 }
 
