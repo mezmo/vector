@@ -19,11 +19,17 @@ use crate::{
 
 use super::partitioner::{S3KeyPartitioner, S3PartitionKey};
 
+// MEZMO: added dependency for s3-sink file consolidation
+use crate::sinks::aws_s3::file_consolidator_async::FileConsolidatorAsync;
+
 pub struct S3Sink<Svc, RB> {
     service: Svc,
     request_builder: RB,
     partitioner: S3KeyPartitioner,
     batcher_settings: BatcherSettings,
+
+    // MEZMO: added property for s3-sink file consolidation
+    file_consolidator: Option<FileConsolidatorAsync>,
 }
 
 impl<Svc, RB> S3Sink<Svc, RB> {
@@ -32,12 +38,14 @@ impl<Svc, RB> S3Sink<Svc, RB> {
         request_builder: RB,
         partitioner: S3KeyPartitioner,
         batcher_settings: BatcherSettings,
+        file_consolidator: Option<FileConsolidatorAsync>,
     ) -> Self {
         Self {
             partitioner,
             service,
             request_builder,
             batcher_settings,
+            file_consolidator,
         }
     }
 }
@@ -59,7 +67,12 @@ where
         let builder_limit = NonZeroUsize::new(64);
         let request_builder = self.request_builder;
 
-        input
+        // MEZMO: added file consolidation processing
+        // initiate the file consolidation process if necessary
+        let mut file_consolidator = self.file_consolidator.unwrap_or_default();
+        file_consolidator.start();
+
+        let result = input
             .batched_partitioned(partitioner, settings)
             .filter_map(|(key, batch)| async move { key.map(move |k| (k, batch)) })
             .request_builder(builder_limit, request_builder)
@@ -74,7 +87,13 @@ where
             })
             .into_driver(self.service)
             .run()
-            .await
+            .await;
+
+        // MEZMO: added file consolidation processing
+        //stop the file consolidation process if necessary
+        file_consolidator.stop();
+
+        result
     }
 }
 
