@@ -1,3 +1,16 @@
+# [1.31.0](https://github.com/answerbook/vector/compare/v1.30.0...v1.31.0) (2023-12-20)
+
+
+### Features
+
+* **edge**: enable more local sources [be66c87](https://github.com/answerbook/vector/commit/be66c87ac0faf9cb28490eee52cd849c90213fe5) - Matt March [LOG-18838](https://logdna.atlassian.net/browse/LOG-18838)
+* **s3 sink**: add file consolidation [e749861](https://github.com/answerbook/vector/commit/e7498613b8fdcc13ad64f08dad4b6dc02dd8c4d6) - dominic-mcallister-logdna [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
+
+### Miscellaneous
+
+* Merge pull request #377 from answerbook/dominic/LOG-18535-after31 [b9a5ad3](https://github.com/answerbook/vector/commit/b9a5ad3afad14a0b6a2332913f9d345fa71c46a2) - GitHub [LOG-18535-after31](https://logdna.atlassian.net/browse/LOG-18535-after31)
+
 # [1.30.0](https://github.com/answerbook/vector/compare/v1.29.2...v1.30.0) (2023-12-19)
 
 
