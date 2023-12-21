@@ -667,7 +667,7 @@ transforms-metrics-mezmo = [
 ]
 
 transforms-aggregate = []
-transforms-sliding_aggregate = []
+transforms-sliding_aggregate = ["transforms-remap"]
 transforms-aws_ec2_metadata = ["dep:arc-swap"]
 transforms-dedupe = ["dep:lru"]
 transforms-filter = []

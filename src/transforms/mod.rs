@@ -40,7 +40,7 @@ pub mod route;
 #[cfg(feature = "transforms-sample")]
 pub mod sample;
 #[cfg(feature = "transforms-sliding_aggregate")]
-mod sliding_aggregate;
+pub mod sliding_aggregate;
 #[cfg(feature = "transforms-tag_cardinality_limit")]
 pub mod tag_cardinality_limit;
 #[cfg(feature = "transforms-throttle")]

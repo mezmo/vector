@@ -135,7 +135,7 @@ pub struct RemapConfig {
 }
 
 impl RemapConfig {
-    fn compile_vrl_program(
+    pub(crate) fn compile_vrl_program(
         &self,
         enrichment_tables: enrichment::TableRegistry,
         merged_schema_definition: schema::Definition,
