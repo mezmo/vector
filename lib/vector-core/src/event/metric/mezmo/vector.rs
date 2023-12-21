@@ -249,13 +249,13 @@ pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
     let metadata = log.metadata().clone();
 
     let root = log
-        .get(log_schema().message_key())
+        .get(log_schema().message_key_target_path().unwrap())
         .ok_or_else(|| TransformError::FieldNotFound {
-            field: log_schema().message_key().into(),
+            field: log_schema().message_key().unwrap().to_string(),
         })?
         .as_object()
         .ok_or_else(|| TransformError::FieldInvalidType {
-            field: log_schema().message_key().into(),
+            field: log_schema().message_key().unwrap().to_string(),
         })?;
 
     let name =

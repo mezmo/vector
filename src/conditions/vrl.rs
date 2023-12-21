@@ -72,6 +72,10 @@ impl ConditionalConfig for VrlConfig {
                 .to_string()
         })?;
 
+        if !program.final_type_info().result.is_boolean() {
+            return Err("VRL conditions must return a boolean.".into());
+        }
+
         if !warnings.is_empty() {
             let warnings = Formatter::new(&self.source, warnings).colored().to_string();
             warn!(message = "VRL compilation warning.", %warnings);
@@ -118,7 +122,7 @@ impl Conditional for Vrl {
         let result = result
             .map(|value| match value {
                 Value::Boolean(boolean) => boolean,
-                _ => false,
+                _ => panic!("VRL condition did not return a boolean type"),
             })
             .unwrap_or_else(|err| {
                 emit!(VrlConditionExecutionError {
@@ -240,6 +244,12 @@ mod test {
                 ),
                 r#".name == "zork" && .tags.host == "zoobub" && .kind == "incremental""#,
                 Ok(()),
+                Ok(()),
+            ),
+            (
+                log_event![],
+                r#""i_return_a_string""#,
+                Err("VRL conditions must return a boolean.".into()),
                 Ok(()),
             ),
         ];

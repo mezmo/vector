@@ -10,6 +10,7 @@ use crate::{
     sinks::{
         splunk_hec::{
             common::{
+                config_host_key,
                 integration_test_helpers::{get_token, splunk_api_address, splunk_hec_address},
                 EndpointTarget,
             },
@@ -87,7 +88,7 @@ async fn config(encoding: EncodingConfig, indexed_fields: Vec<String>) -> HecLog
     HecLogsSinkConfig {
         default_token: get_token().await.into(),
         endpoint: splunk_hec_address(),
-        host_key: "host".into(),
+        host_key: config_host_key(),
         indexed_fields,
         index: None,
         sourcetype: None,

@@ -8,6 +8,7 @@ use futures::StreamExt;
 #[cfg(feature = "enterprise")]
 use futures_util::future::BoxFuture;
 use once_cell::race::OnceNonZeroUsize;
+use openssl::provider::Provider;
 use std::time::Instant;
 use tokio::{
     runtime::{self, Runtime},
@@ -33,7 +34,7 @@ use crate::{
         MezmoConfigCompile, MezmoConfigReload, MezmoConfigReloadSignalReceive,
     },
     mezmo,
-    signal::{SignalHandler, SignalPair, SignalRx, SignalTo},
+    signal::{ShutdownError, SignalHandler, SignalPair, SignalRx, SignalTo},
     topology::{
         self, ReloadOutcome, RunningTopology, SharedTopologyController, TopologyController,
     },
@@ -44,6 +45,7 @@ use crate::{
 use std::os::unix::process::ExitStatusExt;
 #[cfg(windows)]
 use std::os::windows::process::ExitStatusExt;
+use tokio::runtime::Handle;
 
 pub static WORKER_THREADS: OnceNonZeroUsize = OnceNonZeroUsize::new();
 
@@ -54,8 +56,8 @@ use tokio::sync::broadcast::error::RecvError;
 pub struct ApplicationConfig {
     pub config_paths: Vec<config::ConfigPath>,
     pub topology: RunningTopology,
-    pub graceful_crash_sender: mpsc::UnboundedSender<()>,
-    pub graceful_crash_receiver: mpsc::UnboundedReceiver<()>,
+    pub graceful_crash_sender: mpsc::UnboundedSender<ShutdownError>,
+    pub graceful_crash_receiver: mpsc::UnboundedReceiver<ShutdownError>,
     #[cfg(feature = "api")]
     pub api: config::api::Options,
     #[cfg(feature = "enterprise")]
@@ -67,6 +69,7 @@ pub struct Application {
     pub require_healthy: Option<bool>,
     pub config: ApplicationConfig,
     pub signals: SignalPair,
+    pub openssl_providers: Option<Vec<Provider>>,
 }
 
 impl ApplicationConfig {
@@ -136,13 +139,13 @@ impl ApplicationConfig {
 
     /// Configure the API server, if applicable
     #[cfg(feature = "api")]
-    pub fn setup_api(&self, runtime: &Runtime) -> Option<api::Server> {
+    pub fn setup_api(&self, handle: &Handle) -> Option<api::Server> {
         if self.api.enabled {
             match api::Server::start(
                 self.topology.config(),
                 self.topology.watch(),
                 std::sync::Arc::clone(&self.topology.running),
-                runtime,
+                handle,
             ) {
                 Ok(api_server) => {
                     emit!(ApiStarted {
@@ -152,9 +155,12 @@ impl ApplicationConfig {
 
                     Some(api_server)
                 }
-                Err(e) => {
-                    error!("An error occurred that Vector couldn't handle: {}.", e);
-                    _ = self.graceful_crash_sender.send(());
+                Err(error) => {
+                    let error = error.to_string();
+                    error!("An error occurred that Vector couldn't handle: {}.", error);
+                    _ = self
+                        .graceful_crash_sender
+                        .send(ShutdownError::ApiFailed { error });
                     None
                 }
             }
@@ -173,7 +179,8 @@ impl Application {
     }
 
     pub fn prepare_start() -> Result<(Runtime, StartedApplication), ExitCode> {
-        Self::prepare().and_then(|(runtime, app)| app.start(&runtime).map(|app| (runtime, app)))
+        Self::prepare()
+            .and_then(|(runtime, app)| app.start(runtime.handle()).map(|app| (runtime, app)))
     }
 
     pub fn prepare() -> Result<(Runtime, Self), ExitCode> {
@@ -199,6 +206,12 @@ impl Application {
         );
         mezmo::user_trace::init(opts.root.user_log_rate_limit);
 
+        let openssl_providers = opts
+            .root
+            .openssl_legacy_provider
+            .then(load_openssl_legacy_providers)
+            .transpose()?;
+
         let runtime = build_runtime(opts.root.threads, "vector-worker")?;
 
         // Signal handler for OS and provider messages.
@@ -222,27 +235,29 @@ impl Application {
                 require_healthy: opts.root.require_healthy,
                 config,
                 signals,
+                openssl_providers,
             },
         ))
     }
 
-    pub fn start(self, runtime: &Runtime) -> Result<StartedApplication, ExitCode> {
+    pub fn start(self, handle: &Handle) -> Result<StartedApplication, ExitCode> {
         // Any internal_logs sources will have grabbed a copy of the
         // early buffer by this point and set up a subscriber.
         crate::trace::stop_early_buffering();
 
         emit!(VectorStarted);
-        runtime.spawn(heartbeat::heartbeat());
+        handle.spawn(heartbeat::heartbeat());
 
         let Self {
             require_healthy,
             config,
             signals,
+            openssl_providers,
         } = self;
 
         let topology_controller = SharedTopologyController::new(TopologyController {
             #[cfg(feature = "api")]
-            api_server: config.setup_api(runtime),
+            api_server: config.setup_api(handle),
             topology: config.topology,
             config_paths: config.config_paths.clone(),
             require_healthy,
@@ -256,6 +271,7 @@ impl Application {
             signals,
             topology_controller,
             metrics_tx: config.metrics_tx,
+            openssl_providers,
         })
     }
 }
@@ -305,10 +321,11 @@ fn start_remote_task_execution(
 
 pub struct StartedApplication {
     pub config_paths: Vec<ConfigPath>,
-    pub graceful_crash_receiver: mpsc::UnboundedReceiver<()>,
+    pub graceful_crash_receiver: mpsc::UnboundedReceiver<ShutdownError>,
     pub signals: SignalPair,
     pub topology_controller: SharedTopologyController,
     pub metrics_tx: mpsc::UnboundedSender<UsageMetrics>,
+    pub openssl_providers: Option<Vec<Provider>>,
 }
 
 impl StartedApplication {
@@ -323,18 +340,8 @@ impl StartedApplication {
             signals,
             topology_controller,
             metrics_tx,
+            openssl_providers,
         } = self;
-
-        // LOG-17772: Set a maximum amount of time to wait for configuration reloading before
-        // triggering corrective action. By default, this will wait for 150 seconds / 2.5 minutes.
-        let config_reload_max_sec = std::env::var("CONFIG_RELOAD_MAX_SEC").unwrap_or_else(|_| {
-            warn!("couldn't read value for CONFIG_RELOAD_MAX_SEC env var, default will be used");
-            "150".to_owned()
-        });
-        let config_reload_max_sec = config_reload_max_sec.parse::<usize>().unwrap_or_else(|_| {
-            warn!("failed to parse CONFIG_RELOAD_MAX_SEC value {config_reload_max_sec}, default will be used");
-            150
-        });
 
         let mut graceful_crash = UnboundedReceiverStream::new(graceful_crash_receiver);
 
@@ -343,101 +350,20 @@ impl StartedApplication {
 
         let signal = loop {
             tokio::select! {
-                signal = signal_rx.recv() => {
-                    match signal {
-                        Ok(SignalTo::ReloadFromConfigBuilder(config_builder)) => {
-                            emit!(MezmoConfigReloadSignalReceive{});
-                            let start = Instant::now();
-                            let mut topology_controller = topology_controller.lock().await;
-
-                            // We use build_no_validation() to speed up building
-                            // Configs were fully validated when generated and better errors
-                            // won't help us much at this point (as it will blow up anyway)
-                            let new_config = config_builder.build_no_validation().map_err(handle_config_errors).ok();
-                            emit!(MezmoConfigCompile{elapsed: Instant::now() - start});
-                            let mut reload_outcome = ReloadOutcome::NoConfig;
-                            let reload_future = topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone()));
-                            tokio::pin!(reload_future);
-
-                            let mut reload_future_done = false;
-                            for i in 1..=config_reload_max_sec {
-                                tokio::select! {
-                                    _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                                        info!("Waiting for topology to be reloaded after {i} secs")
-                                    },
-                                    outcome = &mut reload_future => {
-                                        reload_outcome = outcome;
-                                        reload_future_done = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            let elapsed = Instant::now() - start;
-
-                            // LOG-17772: If the config reload future doesn't resolve in the allotted
-                            // time, then crash the vector process and allow k8s to respawn the process
-                            // in order to get config reloading to work again. Note that panic! doesn't
-                            // work to terminate the process since the higher level code traps the panic
-                            // and prevents termination.
-                            if !reload_future_done {
-                                emit!(MezmoConfigReload{ elapsed, success: false });
-                                error!("New topology reload future failed to resolved within the limit.");
-                                std::process::abort();
-                            }
-
-                            match reload_outcome {
-                                ReloadOutcome::NoConfig => {
-                                    emit!(MezmoConfigReload{ elapsed, success: false });
-                                    warn!("Config reload resulted in no config");
-                                },
-                                ReloadOutcome::MissingApiKey => {
-                                    emit!(MezmoConfigReload{ elapsed, success: false });
-                                    warn!("Config reload missing API key");
-                                },
-                                ReloadOutcome::Success => {
-                                    emit!(MezmoConfigReload{ elapsed, success: true });
-                                    info!("Config reload succeeded, took {:?}", elapsed);
-                                },
-                                ReloadOutcome::RolledBack => {
-                                    emit!(MezmoConfigReload{ elapsed, success: false });
-                                    warn!("Config reload rolled back");
-                                },
-                                ReloadOutcome::FatalError => {
-                                    emit!(MezmoConfigReload{ elapsed, success: false });
-                                    error!("Config reload fatal error");
-                                    break SignalTo::Shutdown;
-                                },
-                            };
-
-                        },
-                        Ok(SignalTo::ReloadFromDisk) => {
-                            let mut topology_controller = topology_controller.lock().await;
-
-                            // Reload paths
-                            if let Some(paths) = config::process_paths(&config_paths) {
-                                topology_controller.config_paths = paths;
-                            }
-
-                            // Reload config
-                            let new_config = config::load_from_paths_with_provider_and_secrets(&topology_controller.config_paths, &mut signal_handler)
-                                .await
-                                .map_err(handle_config_errors).ok();
-
-                            if let ReloadOutcome::FatalError = topology_controller.reload(new_config).await {
-                                break SignalTo::Shutdown;
-                            }
-                        },
-                        Err(RecvError::Lagged(amt)) => warn!("Overflow, dropped {} signals.", amt),
-                        Err(RecvError::Closed) => break SignalTo::Shutdown,
-                        Ok(signal) => break signal,
-                    }
-                }
+                signal = signal_rx.recv() => if let Some(signal) = handle_signal(
+                    signal,
+                    &topology_controller,
+                    &config_paths,
+                    &mut signal_handler,
+                    &metrics_tx,
+                ).await {
+                    break signal;
+                },
                 // Trigger graceful shutdown if a component crashed, or all sources have ended.
-                _ = graceful_crash.next() => break SignalTo::Shutdown,
+                error = graceful_crash.next() => break SignalTo::Shutdown(error),
                 _ = TopologyController::sources_finished(topology_controller.clone()) => {
                     info!("All sources have finished.");
-                    break SignalTo::Shutdown
+                    break SignalTo::Shutdown(None)
                 } ,
                 else => unreachable!("Signal streams never end"),
             }
@@ -447,7 +373,150 @@ impl StartedApplication {
             signal,
             signal_rx,
             topology_controller,
+            openssl_providers,
         }
+    }
+}
+
+async fn handle_signal(
+    signal: Result<SignalTo, RecvError>,
+    topology_controller: &SharedTopologyController,
+    config_paths: &[ConfigPath],
+    signal_handler: &mut SignalHandler,
+    metrics_tx: &mpsc::UnboundedSender<UsageMetrics>,
+) -> Option<SignalTo> {
+    match signal {
+        Ok(SignalTo::ReloadFromConfigBuilder(config_builder)) => {
+            emit!(MezmoConfigReloadSignalReceive {});
+            let start = Instant::now();
+            let mut topology_controller = topology_controller.lock().await;
+
+            // We use build_no_validation() to speed up building
+            // Configs were fully validated when generated and better errors
+            // won't help us much at this point (as it will blow up anyway)
+            let new_config = config_builder
+                .build_no_validation()
+                .map_err(handle_config_errors)
+                .ok();
+
+            emit!(MezmoConfigCompile {
+                elapsed: Instant::now() - start
+            });
+
+            let mut reload_outcome = ReloadOutcome::NoConfig;
+            let reload_future =
+                topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone()));
+
+            tokio::pin!(reload_future);
+
+            // LOG-17772: Set a maximum amount of time to wait for configuration reloading before
+            // triggering corrective action. By default, this will wait for 150 seconds / 2.5 minutes.
+            let config_reload_max_sec = std::env::var("CONFIG_RELOAD_MAX_SEC").unwrap_or_else(|_| {
+                warn!("couldn't read value for CONFIG_RELOAD_MAX_SEC env var, default will be used");
+                "150".to_owned()
+            });
+            let config_reload_max_sec = config_reload_max_sec.parse::<usize>().unwrap_or_else(|_| {
+                warn!("failed to parse CONFIG_RELOAD_MAX_SEC value {config_reload_max_sec}, default will be used");
+                150
+            });
+            let mut reload_future_done = false;
+            for i in 1..=config_reload_max_sec {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                        info!("Waiting for topology to be reloaded after {i} secs")
+                    },
+                    outcome = &mut reload_future => {
+                        reload_outcome = outcome;
+                        reload_future_done = true;
+                        break;
+                    }
+                }
+            }
+
+            let elapsed = Instant::now() - start;
+
+            // LOG-17772: If the config reload future doesn't resolve in the allotted
+            // time, then crash the vector process and allow k8s to respawn the process
+            // in order to get config reloading to work again. Note that panic! doesn't
+            // work to terminate the process since the higher level code traps the panic
+            // and prevents termination.
+            if !reload_future_done {
+                emit!(MezmoConfigReload {
+                    elapsed,
+                    success: false
+                });
+                error!("New topology reload future failed to resolved within the limit.");
+                std::process::abort();
+            }
+
+            match reload_outcome {
+                ReloadOutcome::NoConfig => {
+                    emit!(MezmoConfigReload {
+                        elapsed,
+                        success: false
+                    });
+                    warn!("Config reload resulted in no config");
+                }
+                ReloadOutcome::MissingApiKey => {
+                    emit!(MezmoConfigReload {
+                        elapsed,
+                        success: false
+                    });
+                    warn!("Config reload missing API key");
+                }
+                ReloadOutcome::Success => {
+                    emit!(MezmoConfigReload {
+                        elapsed,
+                        success: true
+                    });
+                    info!("Config reload succeeded, took {:?}", elapsed);
+                }
+                ReloadOutcome::RolledBack => {
+                    emit!(MezmoConfigReload {
+                        elapsed,
+                        success: false
+                    });
+                    warn!("Config reload rolled back");
+                }
+                ReloadOutcome::FatalError(error) => {
+                    emit!(MezmoConfigReload {
+                        elapsed,
+                        success: false
+                    });
+                    error!("Config reload fatal error");
+                    return Some(SignalTo::Shutdown(Some(error)));
+                }
+            }
+            None
+        }
+        Ok(SignalTo::ReloadFromDisk) => {
+            let mut topology_controller = topology_controller.lock().await;
+
+            // Reload paths
+            if let Some(paths) = config::process_paths(config_paths) {
+                topology_controller.config_paths = paths;
+            }
+
+            // Reload config
+            let new_config = config::load_from_paths_with_provider_and_secrets(
+                &topology_controller.config_paths,
+                signal_handler,
+            )
+            .await
+            .map_err(handle_config_errors)
+            .ok();
+
+            if let ReloadOutcome::FatalError(error) = topology_controller.reload(new_config).await {
+                return Some(SignalTo::Shutdown(Some(error)));
+            }
+            None
+        }
+        Err(RecvError::Lagged(amt)) => {
+            warn!("Overflow, dropped {} signals.", amt);
+            None
+        }
+        Err(RecvError::Closed) => Some(SignalTo::Shutdown(None)),
+        Ok(signal) => Some(signal),
     }
 }
 
@@ -455,14 +524,16 @@ pub struct FinishedApplication {
     pub signal: SignalTo,
     pub signal_rx: SignalRx,
     pub topology_controller: SharedTopologyController,
+    pub openssl_providers: Option<Vec<Provider>>,
 }
 
 impl FinishedApplication {
     pub async fn shutdown(self) -> ExitStatus {
         let FinishedApplication {
             signal,
-            mut signal_rx,
+            signal_rx,
             topology_controller,
+            openssl_providers,
         } = self;
 
         // At this point, we'll have the only reference to the shared topology controller and can
@@ -472,49 +543,41 @@ impl FinishedApplication {
             .expect("fail to unwrap topology controller")
             .into_inner();
 
-        match signal {
-            SignalTo::Shutdown => {
-                emit!(VectorStopped);
-                tokio::select! {
-                    _ = topology_controller.stop() => ExitStatus::from_raw({
-                            #[cfg(windows)]
-                            {
-                                exitcode::OK as u32
-                            }
-                            #[cfg(unix)]
-                            exitcode::OK
-                    }), // Graceful shutdown finished
-                    _ = signal_rx.recv() => {
-                        // It is highly unlikely that this event will exit from topology.
-                        emit!(VectorQuit);
-                        // Dropping the shutdown future will immediately shut the server down
-                        ExitStatus::from_raw({
-                            #[cfg(windows)]
-                            {
-                                exitcode::UNAVAILABLE as u32
-                            }
-                            #[cfg(unix)]
-                            exitcode::OK
-                        })
-                    }
-
-                }
-            }
-            SignalTo::Quit => {
-                // It is highly unlikely that this event will exit from topology.
-                emit!(VectorQuit);
-                drop(topology_controller);
-                ExitStatus::from_raw({
-                    #[cfg(windows)]
-                    {
-                        exitcode::UNAVAILABLE as u32
-                    }
-                    #[cfg(unix)]
-                    exitcode::OK
-                })
-            }
+        let status = match signal {
+            SignalTo::Shutdown(_) => Self::stop(topology_controller, signal_rx).await,
+            SignalTo::Quit => Self::quit(),
             _ => unreachable!(),
+        };
+        drop(openssl_providers);
+        status
+    }
+
+    async fn stop(topology_controller: TopologyController, mut signal_rx: SignalRx) -> ExitStatus {
+        emit!(VectorStopped);
+        tokio::select! {
+            _ = topology_controller.stop() => ExitStatus::from_raw({
+                #[cfg(windows)]
+                {
+                    exitcode::OK as u32
+                }
+                #[cfg(unix)]
+                exitcode::OK
+            }), // Graceful shutdown finished
+            _ = signal_rx.recv() => Self::quit(),
         }
+    }
+
+    fn quit() -> ExitStatus {
+        // It is highly unlikely that this event will exit from topology.
+        emit!(VectorQuit);
+        ExitStatus::from_raw({
+            #[cfg(windows)]
+            {
+                exitcode::UNAVAILABLE as u32
+            }
+            #[cfg(unix)]
+            exitcode::OK
+        })
     }
 }
 
@@ -656,4 +719,23 @@ pub fn init_logging(color: bool, format: LogFormat, log_level: &str, rate: u64) 
         internal_log_rate_secs = rate,
     );
     info!(message = "Log level is enabled.", level = ?level);
+}
+
+/// Load the legacy OpenSSL provider.
+///
+/// The returned [Provider] must stay in scope for the entire lifetime of the application, as it
+/// will be unloaded when it is dropped.
+pub fn load_openssl_legacy_providers() -> Result<Vec<Provider>, ExitCode> {
+    warn!(message = "DEPRECATED The openssl legacy provider provides algorithms and key sizes no longer recommended for use. Set `--openssl-legacy-provider=false` or `VECTOR_OPENSSL_LEGACY_PROVIDER=false` to disable. See https://vector.dev/highlights/2023-08-15-0-32-0-upgrade-guide/#legacy-openssl for details.");
+    ["legacy", "default"].into_iter().map(|provider_name| {
+        Provider::try_load(None, provider_name, true)
+            .map(|provider| {
+                info!(message = "Loaded openssl provider.", provider = provider_name);
+                provider
+            })
+            .map_err(|error| {
+                error!(message = "Failed to load openssl provider.", provider = provider_name, %error);
+                exitcode::UNAVAILABLE
+            })
+    }).collect()
 }

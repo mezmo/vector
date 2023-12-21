@@ -159,7 +159,7 @@ impl TryFrom<String> for MezmoContext {
 /// This function moves whatever is in the LogEvent's `message` property into
 /// the root of a new LogEvent message.
 pub fn reshape_log_event_by_message(log: &mut LogEvent) {
-    let message_key = log_schema().message_key();
+    let message_key = log_schema().message_key_target_path().unwrap();
     if log.get(message_key).is_some() {
         log.rename_key(message_key, ".");
     }
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn reshaping_logevent_works_even_if_message_is_not_an_object() {
-        let message_key = log_schema().message_key();
+        let message_key = log_schema().message_key().unwrap().to_string();
         let mut event = LogEvent::from(btreemap! {
             message_key => "this is not an object event"
         });
@@ -276,7 +276,8 @@ mod tests {
     #[test]
     fn reshaping_successful_reshape_message() {
         let mut event = LogEvent::default();
-        let message_key = log_schema().message_key();
+        let message_key = log_schema().message_key().unwrap().to_string();
+        let message_key_path = log_schema().message_key_target_path().unwrap();
 
         event.insert(format!("{}.one", message_key).as_str(), 1);
         event.insert(format!("{}.two", message_key).as_str(), 2);
@@ -293,13 +294,17 @@ mod tests {
         });
 
         assert_eq!(event, expected, "message payload was reshaped");
-        assert_eq!(event.get(message_key), None, "message property is now gone");
+        assert_eq!(
+            event.get(message_key_path),
+            None,
+            "message property is now gone"
+        );
     }
 
     #[test]
     fn reshaping_successful_and_trashes_other_root_level_properties() {
         let mut event = LogEvent::default();
-        let message_key = log_schema().message_key();
+        let message_key = log_schema().message_key().unwrap().to_string();
 
         event.insert("trash1", "nope");
         event.insert("trash2", true);

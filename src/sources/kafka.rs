@@ -308,7 +308,8 @@ impl SourceConfig for KafkaSourceConfig {
 
         let consumer = create_consumer(self)?;
         let decoder =
-            DecodingConfig::new(self.framing.clone(), self.decoding.clone(), log_namespace).build();
+            DecodingConfig::new(self.framing.clone(), self.decoding.clone(), log_namespace)
+                .build()?;
         let acknowledgements = cx.do_acknowledgements(self.acknowledgements);
 
         Ok(Box::pin(kafka_source(
@@ -615,7 +616,9 @@ impl ReceivedMessage {
                     );
                 }
                 LogNamespace::Legacy => {
-                    log.insert(log_schema().source_type_key(), KafkaSourceConfig::NAME);
+                    if let Some(source_type_key) = log_schema().source_type_key_target_path() {
+                        log.insert(source_type_key, KafkaSourceConfig::NAME);
+                    }
                 }
             }
 
@@ -951,7 +954,7 @@ mod integration_test {
     use tokio::time::sleep;
     use vector_buffers::topology::channel::BufferReceiver;
     use vector_core::event::EventStatus;
-    use vrl::value;
+    use vrl::{event_path, value};
 
     use super::{test::*, *};
     use crate::{
@@ -1080,7 +1083,7 @@ mod integration_test {
         for (i, event) in events.into_iter().enumerate() {
             if let LogNamespace::Legacy = log_namespace {
                 assert_eq!(
-                    event.as_log()[log_schema().message_key()],
+                    event.as_log()[log_schema().message_key().unwrap().to_string()],
                     format!("{} {:03}", TEXT, i).into()
                 );
                 assert_eq!(
@@ -1088,7 +1091,7 @@ mod integration_test {
                     format!("{} {}", KEY, i).into()
                 );
                 assert_eq!(
-                    event.as_log()[log_schema().source_type_key()],
+                    event.as_log()[log_schema().source_type_key().unwrap().to_string()],
                     "kafka".into()
                 );
                 assert_eq!(
@@ -1159,7 +1162,7 @@ mod integration_test {
         let recv = BufferReceiver::new(recv.into()).into_stream();
         let recv = recv.then(move |mut events| async move {
             events.iter_logs_mut().for_each(|log| {
-                log.insert("pipeline_id", id.to_string());
+                log.insert(event_path!("pipeline_id"), id.to_string());
             });
             sleep(delay).await;
             events.iter_events_mut().for_each(|mut event| {
@@ -1186,7 +1189,8 @@ mod integration_test {
             config.decoding.clone(),
             log_namespace,
         )
-        .build();
+        .build()
+        .unwrap();
 
         tokio::spawn(kafka_source(
             config,
@@ -1440,7 +1444,7 @@ mod integration_test {
                         format!("{} {}", KEY, i).into()
                     );
                     assert_eq!(
-                        event.as_log()[log_schema().source_type_key()],
+                        event.as_log()[log_schema().source_type_key().unwrap().to_string()],
                         "kafka".into()
                     );
                     assert_eq!(
@@ -1542,7 +1546,7 @@ mod integration_test {
                         format!("{} {}", KEY, i).into()
                     );
                     assert_eq!(
-                        event.as_log()[log_schema().source_type_key()],
+                        event.as_log()[log_schema().source_type_key().unwrap().to_string()],
                         "kafka".into()
                     );
                     assert_eq!(
@@ -1640,7 +1644,7 @@ mod integration_test {
                         format!("{} {}", KEY, ((i as f32) / 2_f32).floor()).into()
                     );
                     assert_eq!(
-                        event.as_log()[log_schema().source_type_key()],
+                        event.as_log()[log_schema().source_type_key().unwrap().to_string()],
                         "kafka".into()
                     );
                     assert_eq!(

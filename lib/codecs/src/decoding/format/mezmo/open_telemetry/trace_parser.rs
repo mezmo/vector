@@ -260,7 +260,10 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                     user_metadata.insert("attributes".to_string(), filtered_attributes);
 
                     let log_line = BTreeMap::from_iter([
-                        (log_schema().message_key().to_string(), message.into()),
+                        (
+                            log_schema().message_key().unwrap().to_string(),
+                            message.into(),
+                        ),
                         (
                             log_schema().user_metadata_key().to_string(),
                             user_metadata.into(),

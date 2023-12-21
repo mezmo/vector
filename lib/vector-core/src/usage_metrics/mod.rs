@@ -441,7 +441,9 @@ fn get_size_and_profile(array: &EventArray) -> UsageProfileValue {
             for log_event in a {
                 if let Some(fields) = log_event.as_map() {
                     // Account for the value of ".message" and ".meta"
-                    let size = fields.get(log_schema().message_key()).map_or(0, value_size)
+                    let size = fields
+                        .get(&log_schema().message_key().unwrap().to_string())
+                        .map_or(0, value_size)
                         + fields
                             .get(log_schema().user_metadata_key())
                             .map_or(0, value_size);
@@ -1026,7 +1028,7 @@ mod tests {
         let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
         event_map.insert("this_is_ignored".into(), 1u8.into());
         event_map.insert("another_ignored".into(), 1.into());
-        event_map.insert(log_schema().message_key().into(), 9.into());
+        event_map.insert(log_schema().message_key().unwrap().to_string(), 9.into());
         let event: LogEvent = event_map.into();
         let usage_profile = get_size_and_profile(&event.into());
         assert_eq!(
@@ -1039,7 +1041,10 @@ mod tests {
     fn get_size_and_profile_log_message_and_meta_test() {
         let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
         event_map.insert("this_is_ignored".into(), 2.into());
-        event_map.insert(log_schema().message_key().into(), "hello ".into());
+        event_map.insert(
+            log_schema().message_key().unwrap().to_string(),
+            "hello ".into(),
+        );
         event_map.insert(log_schema().user_metadata_key().into(), "world".into());
         let event: LogEvent = event_map.into();
         assert_eq!(
@@ -1057,7 +1062,10 @@ mod tests {
         nested_map.insert("prop2".into(), 1u8.into());
         nested_map.insert("prop3".into(), 1i32.into());
         nested_map.insert("prop4".into(), "abcd".into());
-        event_map.insert(log_schema().message_key().into(), Value::from(nested_map));
+        event_map.insert(
+            log_schema().message_key().unwrap().to_string(),
+            Value::from(nested_map),
+        );
         let event: LogEvent = event_map.into();
         assert_eq!(
             get_size_and_profile(&event.into()).total_size,

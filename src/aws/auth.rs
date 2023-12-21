@@ -79,6 +79,12 @@ pub enum AwsAuthentication {
         #[configurable(metadata(docs::examples = "arn:aws:iam::123456789098:role/my_role"))]
         assume_role: Option<String>,
 
+        /// The optional unique external ID in conjunction with role to assume.
+        ///
+        /// [external_id]: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-user_externalid.html
+        #[configurable(metadata(docs::examples = "randomEXAMPLEidString"))]
+        external_id: Option<String>,
+
         /// The [AWS region][aws_region] to send STS requests to.
         ///
         /// If not set, this will default to the configured region
@@ -114,6 +120,12 @@ pub enum AwsAuthentication {
         /// [iam_role]: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html
         #[configurable(metadata(docs::examples = "arn:aws:iam::123456789098:role/my_role"))]
         assume_role: String,
+
+        /// The optional unique external ID in conjunction with role to assume.
+        ///
+        /// [external_id]: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-user_externalid.html
+        #[configurable(metadata(docs::examples = "randomEXAMPLEidString"))]
+        external_id: Option<String>,
 
         /// Timeout for assuming the role, in seconds.
         ///
@@ -199,6 +211,7 @@ impl AwsAuthentication {
                 access_key_id,
                 secret_access_key,
                 assume_role,
+                external_id,
                 region,
             } => {
                 let provider = SharedCredentialsProvider::new(Credentials::from_keys(
@@ -208,9 +221,15 @@ impl AwsAuthentication {
                 ));
                 if let Some(assume_role) = assume_role {
                     let auth_region = region.clone().map(Region::new).unwrap_or(service_region);
-                    let provider = AssumeRoleProviderBuilder::new(assume_role)
-                        .region(auth_region)
-                        .build(provider);
+                    let mut builder =
+                        AssumeRoleProviderBuilder::new(assume_role).region(auth_region);
+
+                    if let Some(external_id) = external_id {
+                        builder = builder.external_id(external_id)
+                    }
+
+                    let provider = builder.build(provider);
+
                     return Ok(SharedCredentialsProvider::new(provider));
                 }
                 Ok(provider)
@@ -232,14 +251,21 @@ impl AwsAuthentication {
             }
             AwsAuthentication::Role {
                 assume_role,
+                external_id,
                 imds,
                 region,
                 ..
             } => {
                 let auth_region = region.clone().map(Region::new).unwrap_or(service_region);
-                let provider = AssumeRoleProviderBuilder::new(assume_role)
-                    .region(auth_region.clone())
-                    .build(default_credentials_provider(auth_region, *imds).await?);
+                let mut builder =
+                    AssumeRoleProviderBuilder::new(assume_role).region(auth_region.clone());
+
+                if let Some(external_id) = external_id {
+                    builder = builder.external_id(external_id)
+                }
+
+                let provider =
+                    builder.build(default_credentials_provider(auth_region, *imds).await?);
 
                 Ok(SharedCredentialsProvider::new(provider))
             }
@@ -259,6 +285,7 @@ impl AwsAuthentication {
             access_key_id: "dummy".to_string().into(),
             secret_access_key: "dummy".to_string().into(),
             assume_role: None,
+            external_id: None,
             region: None,
         }
     }
@@ -295,6 +322,7 @@ mod tests {
     #[derive(Serialize, Deserialize, Clone, Debug)]
     struct ComponentConfig {
         assume_role: Option<String>,
+        external_id: Option<String>,
         #[serde(default)]
         auth: AwsAuthentication,
     }
@@ -397,6 +425,20 @@ mod tests {
     }
 
     #[test]
+    fn parsing_external_id_with_assume_role() {
+        let config = toml::from_str::<ComponentConfig>(
+            r#"
+            auth.assume_role = "root"
+            auth.external_id = "id"
+            auth.load_timeout_secs = 10
+        "#,
+        )
+        .unwrap();
+
+        assert!(matches!(config.auth, AwsAuthentication::Role { .. }));
+    }
+
+    #[test]
     fn parsing_assume_role_with_imds_client() {
         let config = toml::from_str::<ComponentConfig>(
             r#"
@@ -411,11 +453,13 @@ mod tests {
         match config.auth {
             AwsAuthentication::Role {
                 assume_role,
+                external_id,
                 load_timeout_secs,
                 imds,
                 region,
             } => {
                 assert_eq!(&assume_role, "root");
+                assert_eq!(external_id, None);
                 assert_eq!(load_timeout_secs, None);
                 assert!(matches!(
                     imds,
@@ -446,11 +490,13 @@ mod tests {
         match config.auth {
             AwsAuthentication::Role {
                 assume_role,
+                external_id,
                 load_timeout_secs,
                 imds,
                 region,
             } => {
                 assert_eq!(&assume_role, "auth.root");
+                assert_eq!(external_id, None);
                 assert_eq!(load_timeout_secs, Some(10));
                 assert!(matches!(imds, ImdsAuthentication { .. }));
                 assert_eq!(region.unwrap(), "us-west-2");
@@ -496,6 +542,38 @@ mod tests {
                     &SensitiveString::from("other".to_string())
                 );
                 assert_eq!(&assume_role, &Some("root".to_string()));
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parsing_static_with_assume_role_and_external_id() {
+        let config = toml::from_str::<ComponentConfig>(
+            r#"
+            auth.access_key_id = "key"
+            auth.secret_access_key = "other"
+            auth.assume_role = "root"
+            auth.external_id = "id"
+        "#,
+        )
+        .unwrap();
+
+        match config.auth {
+            AwsAuthentication::AccessKey {
+                access_key_id,
+                secret_access_key,
+                assume_role,
+                external_id,
+                ..
+            } => {
+                assert_eq!(&access_key_id, &SensitiveString::from("key".to_string()));
+                assert_eq!(
+                    &secret_access_key,
+                    &SensitiveString::from("other".to_string())
+                );
+                assert_eq!(&assume_role, &Some("root".to_string()));
+                assert_eq!(&external_id, &Some("id".to_string()));
             }
             _ => panic!(),
         }

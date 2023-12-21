@@ -50,7 +50,7 @@ impl Function for UserLog {
 
     fn compile(
         &self,
-        _state: &TypeState,
+        state: &TypeState,
         ctx: &mut FunctionCompileContext,
         arguments: ArgumentList,
     ) -> Compiled {
@@ -58,7 +58,7 @@ impl Function for UserLog {
         let value = arguments.required("value");
         let valid_levels = vec!["debug".into(), "info".into(), "warn".into(), "error".into()];
         let level = arguments
-            .optional_enum("level", &valid_levels)?
+            .optional_enum("level", &valid_levels, state)?
             .unwrap_or_else(|| "info".into())
             .try_bytes()
             .expect("log level not bytes");

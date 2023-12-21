@@ -1,8 +1,8 @@
 use std::io;
 
-use serde::Serialize;
-
+use crate::sinks::prelude::*;
 use crate::sinks::util::encoding::{as_tracked_write, Encoder};
+use serde::Serialize;
 
 use super::models::{SumoLogicModel, SumoMetricsModel};
 use super::sink::SumoLogicSinkError;
@@ -15,7 +15,7 @@ impl Encoder<Result<SumoLogicModel, SumoLogicSinkError>> for SumoLogicEncoder {
         &self,
         input: Result<SumoLogicModel, SumoLogicSinkError>,
         writer: &mut dyn io::Write,
-    ) -> io::Result<usize> {
+    ) -> io::Result<(usize, GroupedCountByteSize)> {
         let json = match input? {
             SumoLogicModel::Logs(log_model) => to_json(&log_model)?,
             SumoLogicModel::Metrics(metric_model) => metrics_to_utf8(&metric_model)?,
@@ -24,7 +24,12 @@ impl Encoder<Result<SumoLogicModel, SumoLogicSinkError>> for SumoLogicEncoder {
             writer.write_all(json)?;
             Ok(())
         })?;
-        io::Result::Ok(size)
+        io::Result::Ok((
+            size,
+            GroupedCountByteSize::Untagged {
+                size: CountByteSize(size, JsonSize::new(size)),
+            },
+        ))
     }
 }
 
