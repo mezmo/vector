@@ -88,6 +88,11 @@ impl FileConsolidatorAsync {
     }
 
     pub fn start(&mut self) -> bool {
+        // default situation so the config isn't enabled
+        if !self.file_consolidation_config.enabled {
+            return false;
+        }
+
         if self.join_handle.is_some() {
             info!(
                 message =
@@ -192,6 +197,11 @@ impl FileConsolidatorAsync {
     }
 
     pub fn stop(&mut self) -> bool {
+        // default situation so the config isn't enabled
+        if !self.file_consolidation_config.enabled {
+            return false;
+        }
+
         info!(
             message = "Triggering shutdown for S3 file consolidation",
             bucket = self.bucket,
