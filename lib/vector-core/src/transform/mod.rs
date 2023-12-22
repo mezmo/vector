@@ -272,14 +272,16 @@ impl TransformOutputs {
         usage_tracker: &dyn OutputUsageTracker,
     ) -> Result<(), Box<dyn error::Error + Send + Sync>> {
         if let Some(primary) = self.primary_output.as_mut() {
-            let send_buf = buf.primary_buffer.as_mut().expect("mismatched outputs");
-            Self::send_single_buffer(send_buf, primary).await?;
-
+            // Use the reference of the buffer FIRST to get the original value
+            // to calculate counts/sizes
             let usage_profile = buf.primary_buffer.as_ref().map_or(Default::default(), |o| {
                 o.0.iter()
                     .map(|a| usage_tracker.get_size_and_profile(a))
                     .sum()
             });
+
+            let send_buf = buf.primary_buffer.as_mut().expect("mismatched outputs");
+            Self::send_single_buffer(send_buf, primary).await?;
             // We only want to track the primary transform output.
             // Named outputs are for stuff like route/swimlanes that we don't want to track atm.
             // We only want to capture the traffic of the remap transform after the node representing
