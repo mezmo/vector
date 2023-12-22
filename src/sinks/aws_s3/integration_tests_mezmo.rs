@@ -144,7 +144,7 @@ async fn s3_message_objects_not_reshaped_because_of_env() {
 }
 
 #[tokio::test]
-async fn s3_file_consolidator_run() {
+async fn s3_file_consolidator_enabled_run() {
     let _cx = SinkContext::new_test();
     let bucket = uuid::Uuid::new_v4().to_string();
 
@@ -177,6 +177,22 @@ async fn s3_file_consolidator_run() {
 
     let stopped = fc.stop();
     assert_eq!(stopped, true, "stopped true");
+}
+
+#[tokio::test]
+async fn s3_file_consolidator_disabled_run() {
+    let _cx = SinkContext::new_test();
+
+    // testing the default scenario where the consolidator is disabled
+    let mut fc: FileConsolidatorAsync = Default::default();
+
+    let started = fc.start();
+    assert!(!started, "started false");
+
+    thread::sleep(time::Duration::from_millis(1000));
+
+    let stopped = fc.stop();
+    assert!(!stopped, "stopped false");
 }
 
 #[tokio::test]

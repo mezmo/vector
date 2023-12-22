@@ -1,3 +1,22 @@
+## [1.32.1](https://github.com/answerbook/vector/compare/v1.32.0...v1.32.1) (2023-12-22)
+
+
+### Bug Fixes
+
+* Use buffer ref to account for event size in transforms [9842893](https://github.com/answerbook/vector/commit/9842893dd0db567c2604a64c181dee3833fce55b) - Jorge Bay [LOG-18897](https://logdna.atlassian.net/browse/LOG-18897)
+
+# [1.32.0](https://github.com/answerbook/vector/compare/v1.31.0...v1.32.0) (2023-12-21)
+
+
+### Features
+
+* **s3-sink**: file consolidation off default [fb46e73](https://github.com/answerbook/vector/commit/fb46e7359b442466069e1fc89d24254821b2a869) - dominic-mcallister-logdna [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
+
+### Miscellaneous
+
+* Merge pull request #378 from answerbook/dominic/LOG-18535-defaultoff [af67c9e](https://github.com/answerbook/vector/commit/af67c9e1af1bc4bb6d5add3ea88888709f500f38) - GitHub [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
 # [1.31.0](https://github.com/answerbook/vector/compare/v1.30.0...v1.31.0) (2023-12-20)
 
 
