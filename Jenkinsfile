@@ -151,7 +151,9 @@ pipeline {
     }
     stage('Feature build and publish') {
       when {
-        branch pattern: "(feature\\/LOG-\\d+)", comparator: "REGEXP"
+        expression {
+          CURRENT_BRANCH ==~ /feature\/LOG-\d+/
+        }
       }
       steps {
         script {
