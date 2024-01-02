@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::{
     collections::{hash_map, HashMap},
     mem,
+    num::NonZeroUsize,
     pin::Pin,
     sync::{Arc, RwLock},
     time::{Duration, Instant},
@@ -84,6 +85,9 @@ pub struct MezmoReduceConfig {
     /// - Numeric values are summed.
     #[serde(default)]
     pub merge_strategies: IndexMap<String, MergeStrategy>,
+
+    /// The maximum number of events to group together.
+    pub max_events: Option<NonZeroUsize>,
 
     /// A condition used to distinguish the final event of a transaction.
     ///
@@ -194,6 +198,7 @@ struct ReduceState {
     metadata: EventMetadata,
     mezmo_metadata: MezmoMetadata,
     size_estimate: usize,
+    events: usize,
 }
 
 impl ReduceState {
@@ -266,6 +271,7 @@ impl ReduceState {
             metadata, // Contains finalizers from `event`, not `message_event`
             mezmo_metadata,
             size_estimate,
+            events: 1,
         }
     }
 
@@ -349,6 +355,7 @@ impl ReduceState {
                 }
             }
         }
+        self.events += 1;
     }
 
     // Mezmo-specific method. Take the timestamp fields (and their _end counterparts) and
@@ -440,6 +447,7 @@ impl ReduceState {
         }
 
         self.coerce_from_timestamp_if_needed(&mut event);
+        self.events = 0;
         event
     }
 }
@@ -455,6 +463,7 @@ pub struct MezmoReduce {
     mezmo_metadata: MezmoMetadata,
     byte_threshold_per_state: usize,
     byte_threshold_all_states: usize,
+    max_events: Option<usize>,
 }
 
 impl MezmoReduce {
@@ -482,7 +491,7 @@ impl MezmoReduce {
                 None => path,
             })
             .collect();
-
+        let max_events = config.max_events.map(|max| max.into());
         let byte_threshold_per_state = match std::env::var("REDUCE_BYTE_THRESHOLD_PER_STATE") {
             Ok(env_var) => env_var
                 .parse()
@@ -526,6 +535,7 @@ impl MezmoReduce {
             mezmo_metadata: MezmoMetadata::new(date_formats),
             byte_threshold_per_state,
             byte_threshold_all_states,
+            max_events,
         })
     }
 
@@ -670,13 +680,24 @@ impl MezmoReduce {
             None => (false, message_event),
         };
 
-        let (ends_here, message_event) = match &self.ends_when {
+        let (mut ends_here, message_event) = match &self.ends_when {
             Some(condition) => condition.check(message_event),
             None => (false, message_event),
         };
 
         let message_event = message_event.into_log();
         let discriminant = Discriminant::from_log_event(&message_event, &self.group_by);
+
+        if let Some(max_events) = self.max_events {
+            if max_events == 1 {
+                ends_here = true;
+            } else if let Some(entry) = self.reduce_merge_states.get(&discriminant) {
+                // The current event will finish this set
+                if entry.events + 1 == max_events {
+                    ends_here = true;
+                }
+            }
+        }
 
         if starts_here {
             if let Some(state) = self.reduce_merge_states.remove(&discriminant) {
@@ -1343,6 +1364,177 @@ mod test {
         let output_2 = out_stream.next().await.unwrap().into_log();
         assert_eq!(output_2["message.extra_field"], "value1".into());
         assert_eq!(output_2["message.counter"], 7.into());
+    }
+
+    #[tokio::test]
+    async fn max_events_0() {
+        let reduce_config = toml::from_str::<MezmoReduceConfig>(
+            r#"
+group_by = [ "id" ]
+merge_strategies.id = "retain"
+merge_strategies.message = "array"
+max_events = 0
+            "#,
+        );
+
+        match reduce_config {
+            Ok(_conf) => unreachable!("max_events=0 should be rejected."),
+            Err(err) => assert!(err
+                .to_string()
+                .contains("invalid value: integer `0`, expected a nonzero usize")),
+        }
+    }
+
+    #[tokio::test]
+    async fn max_events_1() {
+        let reduce_config = toml::from_str::<MezmoReduceConfig>(
+            r#"
+group_by = [ "id" ]
+merge_strategies.id = "retain"
+merge_strategies.message = "array"
+max_events = 1
+            "#,
+        )
+        .unwrap();
+        assert_transform_compliance(async move {
+            let (tx, rx) = mpsc::channel(1);
+            let (topology, mut out) = create_topology(ReceiverStream::new(rx), reduce_config).await;
+
+            let mut e_1 = LogEvent::default();
+            e_1.insert(
+                "message",
+                BTreeMap::from([("id".to_owned(), Value::from("1"))]),
+            );
+
+            let mut e_2 = LogEvent::default();
+            e_2.insert(
+                "message",
+                BTreeMap::from([("id".to_owned(), Value::from("1"))]),
+            );
+
+            let mut e_3 = LogEvent::default();
+            e_3.insert(
+                "message",
+                BTreeMap::from([("id".to_owned(), Value::from("1"))]),
+            );
+
+            for event in vec![e_1.into(), e_2.into(), e_3.into()] {
+                tx.send(event).await.unwrap();
+            }
+
+            let output_1 = out.recv().await.unwrap().into_log();
+            assert_eq!(output_1["message.id"], "1".into());
+
+            let output_2 = out.recv().await.unwrap().into_log();
+            assert_eq!(output_2["message.id"], "1".into());
+
+            let output_3 = out.recv().await.unwrap().into_log();
+            assert_eq!(output_3["message.id"], "1".into());
+
+            drop(tx);
+            topology.stop().await;
+            assert_eq!(out.recv().await, None);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn max_events_3() {
+        let reduce_config = toml::from_str::<MezmoReduceConfig>(
+            r#"
+group_by = [ "request_id" ]
+merge_strategies.text = "array"
+max_events = 3
+            "#,
+        )
+        .unwrap();
+
+        assert_transform_compliance(async move {
+            let (tx, rx) = mpsc::channel(1);
+            let (topology, mut out) = create_topology(ReceiverStream::new(rx), reduce_config).await;
+
+            let mut e_1 = LogEvent::default();
+            e_1.insert(
+                "message",
+                BTreeMap::from([
+                    ("request_id".to_owned(), Value::from("1")),
+                    ("text".to_owned(), Value::from("test 1")),
+                ]),
+            );
+
+            let mut e_2 = LogEvent::default();
+            e_2.insert(
+                "message",
+                BTreeMap::from([
+                    ("request_id".to_owned(), Value::from("1")),
+                    ("text".to_owned(), Value::from("test 2")),
+                ]),
+            );
+
+            let mut e_3 = LogEvent::default();
+            e_3.insert(
+                "message",
+                BTreeMap::from([
+                    ("request_id".to_owned(), Value::from("1")),
+                    ("text".to_owned(), Value::from("test 3")),
+                ]),
+            );
+
+            let mut e_4 = LogEvent::default();
+            e_4.insert(
+                "message",
+                BTreeMap::from([
+                    ("request_id".to_owned(), Value::from("1")),
+                    ("text".to_owned(), Value::from("test 4")),
+                ]),
+            );
+
+            let mut e_5 = LogEvent::default();
+            e_5.insert(
+                "message",
+                BTreeMap::from([
+                    ("request_id".to_owned(), Value::from("1")),
+                    ("text".to_owned(), Value::from("test 5")),
+                ]),
+            );
+
+            let mut e_6 = LogEvent::default();
+            e_6.insert(
+                "message",
+                BTreeMap::from([
+                    ("request_id".to_owned(), Value::from("1")),
+                    ("text".to_owned(), Value::from("test 6")),
+                ]),
+            );
+
+            for event in vec![
+                e_1.into(),
+                e_2.into(),
+                e_3.into(),
+                e_4.into(),
+                e_5.into(),
+                e_6.into(),
+            ] {
+                tx.send(event).await.unwrap();
+            }
+
+            let output_1 = out.recv().await.unwrap().into_log();
+            assert_eq!(
+                output_1["message.text"],
+                vec!["test 1", "test 2", "test 3"].into()
+            );
+
+            let output_2 = out.recv().await.unwrap().into_log();
+            assert_eq!(
+                output_2["message.text"],
+                vec!["test 4", "test 5", "test 6"].into()
+            );
+
+            drop(tx);
+            topology.stop().await;
+            assert_eq!(out.recv().await, None);
+        })
+        .await
     }
 
     #[tokio::test]
