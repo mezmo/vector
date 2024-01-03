@@ -1,3 +1,15 @@
+# [1.35.0](https://github.com/answerbook/vector/compare/v1.34.0...v1.35.0) (2024-01-03)
+
+
+### Features
+
+* **reduce**:  Add max_events support to the reduce processor [849eb53](https://github.com/answerbook/vector/commit/849eb53a2774932742edf28e3738beb2f592dad8) - Tom Alexander [LOG-18718](https://logdna.atlassian.net/browse/LOG-18718)
+
+
+### Miscellaneous
+
+* Merge pull request #382 from answerbook/talexander/LOG-18718 [0a5e9ad](https://github.com/answerbook/vector/commit/0a5e9ad08f685e26501db220690fc808006d473d) - GitHub [LOG-18718](https://logdna.atlassian.net/browse/LOG-18718)
+
 # [1.34.0](https://github.com/answerbook/vector/compare/v1.33.0...v1.34.0) (2024-01-03)
 
 
