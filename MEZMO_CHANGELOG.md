@@ -1,3 +1,15 @@
+# [1.34.0](https://github.com/answerbook/vector/compare/v1.33.0...v1.34.0) (2024-01-03)
+
+
+### Code Refactoring
+
+* minor optimization to clock enum [b942716](https://github.com/answerbook/vector/commit/b942716320361b93a790539931bb372b117fd5ce) - Dan Hable [LOG-18819](https://logdna.atlassian.net/browse/LOG-18819)
+
+
+### Features
+
+* **transform**: enhance sliding aggregate processor [8c9b793](https://github.com/answerbook/vector/commit/8c9b79370b3cac93fb7adf5074af1e80e74e233f) - Dan Hable [LOG-18819](https://logdna.atlassian.net/browse/LOG-18819)
+
 # [1.33.0](https://github.com/answerbook/vector/compare/v1.32.1...v1.33.0) (2024-01-03)
 
 
