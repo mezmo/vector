@@ -188,9 +188,9 @@ impl LogClassification {
     fn transform_one(&mut self, mut event: Event) -> Option<Event> {
         let log = event.as_mut_log();
 
-        if let Some(message) = log.get(log_schema().message_key()) {
+        if let Some(message) = log.get(log_schema().message_key_target_path().unwrap()) {
             let mut matches = vec![];
-            let mut message_key = log_schema().message_key().to_string();
+            let mut message_key = log_schema().message_key().unwrap().to_string();
             let mut message_size = value_size(message) as i64;
             if message_size.is_negative() {
                 warn!("total_bytes for message exceeded i64 limit, using i64::MAX instead");
@@ -298,15 +298,16 @@ mod tests {
     ) -> Value {
         let mut annotations = BTreeMap::new();
 
-        let msg = log_schema().message_key();
+        let msg_path = log_schema().message_key_target_path().unwrap();
+        let msg_key = log_schema().message_key().unwrap().to_string();
         let message = input_event
             .as_log()
-            .get(msg)
+            .get(msg_path)
             .expect("message always exists in the presence of annotations");
 
         let message_key = match line_field {
-            Some(line_field) => format!("{msg}{line_field}"),
-            None => msg.to_string(),
+            Some(line_field) => format!("{msg_key}{line_field}"),
+            None => msg_key,
         };
 
         annotations.insert("message_key".to_string(), Value::Bytes(message_key.into()));

@@ -21,7 +21,7 @@ impl Log {
     pub fn get_message(&self) -> Option<Cow<'_, str>> {
         Some(
             self.event
-                .get(log_schema().message_key())?
+                .get(log_schema().message_key_target_path().unwrap())?
                 .to_string_lossy(),
         )
     }

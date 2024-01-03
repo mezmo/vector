@@ -1,8 +1,5 @@
 use std::{collections::HashSet, env, fs::File, io::Write, path::Path, process::Command};
 
-#[cfg(feature = "protobuf-build")]
-use std::path::PathBuf;
-
 struct TrackedEnv {
     tracked: HashSet<String>,
 }
@@ -133,7 +130,7 @@ fn main() {
         // in a type-safe way, which is necessary for incrementally building certain payloads, like
         // the ones generated in the `datadog_metrics` sink.
         let protobuf_fds_path =
-            PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR environment variable not set"))
+            Path::new(&std::env::var("OUT_DIR").expect("OUT_DIR environment variable not set"))
                 .join("protobuf-fds.bin");
 
         let mut prost_build = prost_build::Config::new();

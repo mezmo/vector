@@ -1,20 +1,18 @@
-use bloom::{BloomFilter, ASMS};
-use bytes::Bytes;
+use super::config::Mode;
+use crate::event::metric::TagValueSet;
+use bloomy::BloomFilter;
 use std::collections::HashSet;
 use std::fmt;
-
-use super::config::Mode;
 
 /// Container for storing the set of accepted values for a given tag key.
 #[derive(Debug)]
 pub struct AcceptedTagValueSet {
     storage: TagValueSetStorage,
-    num_elements: usize,
 }
 
 enum TagValueSetStorage {
-    Set(HashSet<Bytes>),
-    Bloom(BloomFilter),
+    Set(HashSet<TagValueSet>),
+    Bloom(BloomFilter<TagValueSet>),
 }
 
 impl fmt::Debug for TagValueSetStorage {
@@ -27,40 +25,37 @@ impl fmt::Debug for TagValueSetStorage {
 }
 
 impl AcceptedTagValueSet {
-    pub fn new(value_limit: u32, mode: &Mode) -> Self {
+    pub fn new(value_limit: usize, mode: &Mode) -> Self {
         let storage = match &mode {
-            Mode::Exact => TagValueSetStorage::Set(HashSet::with_capacity(value_limit as usize)),
+            Mode::Exact => TagValueSetStorage::Set(HashSet::with_capacity(value_limit)),
             Mode::Probabilistic(config) => {
-                let num_bits = config.cache_size_per_key * 8; // Convert bytes to bits
-                let num_hashes = bloom::optimal_num_hashes(num_bits, value_limit);
-                TagValueSetStorage::Bloom(BloomFilter::with_size(num_bits, num_hashes))
+                let num_bits = config.cache_size_per_key / 8; // Convert bytes to bits
+                TagValueSetStorage::Bloom(BloomFilter::with_size(num_bits))
             }
         };
-        Self {
-            storage,
-            num_elements: 0,
-        }
+        Self { storage }
     }
 
-    pub fn contains(&self, value: &Bytes) -> bool {
+    pub fn contains(&self, value: &TagValueSet) -> bool {
         match &self.storage {
             TagValueSetStorage::Set(set) => set.contains(value),
             TagValueSetStorage::Bloom(bloom) => bloom.contains(value),
         }
     }
 
-    pub const fn len(&self) -> usize {
-        self.num_elements
+    pub fn len(&self) -> usize {
+        match &self.storage {
+            TagValueSetStorage::Set(set) => set.len(),
+            TagValueSetStorage::Bloom(bloom) => bloom.count(),
+        }
     }
 
-    pub fn insert(&mut self, value: Bytes) -> bool {
-        let inserted = match &mut self.storage {
-            TagValueSetStorage::Set(set) => set.insert(value),
+    pub fn insert(&mut self, value: TagValueSet) {
+        match &mut self.storage {
+            TagValueSetStorage::Set(set) => {
+                set.insert(value);
+            }
             TagValueSetStorage::Bloom(bloom) => bloom.insert(&value),
         };
-        if inserted {
-            self.num_elements += 1
-        }
-        inserted
     }
 }

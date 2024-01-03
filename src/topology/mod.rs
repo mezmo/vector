@@ -38,6 +38,7 @@ use vector_buffers::topology::channel::{BufferReceiverStream, BufferSender};
 use crate::{
     config::{ComponentKey, Config, ConfigDiff, Inputs, OutputId},
     event::EventArray,
+    signal::ShutdownError,
     topology::{builder::Pieces, task::Task},
 };
 
@@ -84,7 +85,10 @@ pub async fn start_validated(
     mut pieces: Pieces,
 ) -> Option<(
     RunningTopology,
-    (mpsc::UnboundedSender<()>, mpsc::UnboundedReceiver<()>),
+    (
+        mpsc::UnboundedSender<ShutdownError>,
+        mpsc::UnboundedReceiver<ShutdownError>,
+    ),
 )> {
     let (abort_tx, abort_rx) = mpsc::unbounded_channel();
 
@@ -156,7 +160,8 @@ pub(super) fn take_healthchecks(
 
 async fn handle_errors(
     task: impl Future<Output = TaskResult>,
-    abort_tx: mpsc::UnboundedSender<()>,
+    abort_tx: mpsc::UnboundedSender<ShutdownError>,
+    error: impl FnOnce(String) -> ShutdownError,
 ) -> TaskResult {
     AssertUnwindSafe(task)
         .catch_unwind()
@@ -165,7 +170,7 @@ async fn handle_errors(
         .and_then(|res| res)
         .map_err(|e| {
             error!("An error occurred that Vector couldn't handle: {}.", e);
-            _ = abort_tx.send(());
+            _ = abort_tx.send(error(e.to_string()));
             e
         })
 }

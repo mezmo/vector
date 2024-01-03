@@ -117,9 +117,11 @@ impl MezmoMetadata {
     fn new(date_formats: HashMap<String, String>) -> Self {
         let date_formats = date_formats
             .into_iter()
-            .map(|(k, v)| match k.strip_prefix(log_schema().message_key()) {
-                Some(stripped) => (stripped.to_string(), v),
-                None => (k, v),
+            .map(|(k, v)| {
+                match k.strip_prefix(log_schema().message_key().unwrap().to_string().as_str()) {
+                    Some(stripped) => (stripped.to_string(), v),
+                    None => (k, v),
+                }
             })
             .collect();
 
@@ -477,9 +479,11 @@ impl MezmoReduce {
             .group_by
             .clone()
             .into_iter()
-            .map(|path| match path.strip_prefix(log_schema().message_key()) {
-                Some(stripped) => stripped.to_string(),
-                None => path,
+            .map(|path| {
+                match path.strip_prefix(log_schema().message_key().unwrap().to_string().as_str()) {
+                    Some(stripped) => stripped.to_string(),
+                    None => path,
+                }
             })
             .collect();
 
@@ -776,7 +780,7 @@ pub fn get_root_property_name_from_path(
                 let mut segments = target_path.path.segments;
                 // Ignore schema prefixes, which are valid VRL but not relevant to reduce
                 if let Some(OwnedSegment::Field(first_element)) = segments.get(0) {
-                    if first_element == log_schema().message_key() {
+                    if first_element == &log_schema().message_key().unwrap().to_string() {
                         segments.remove(0);
                         field_count = segments.len();
                     }
@@ -1605,10 +1609,12 @@ mod test {
 
             let (_topology, mut out_stream) =
                 create_topology(ReceiverStream::new(rx), reduce_config).await;
+            let message_key_path = log_schema().message_key_target_path().unwrap();
+            let message_key = log_schema().message_key().unwrap().to_string();
 
             let mut e_1 = LogEvent::default();
             e_1.insert(
-                log_schema().message_key(),
+                message_key_path,
                 btreemap! {
                     "key1" => "first one",
                     "key2" => "first"
@@ -1616,7 +1622,7 @@ mod test {
             );
             let mut e_2 = LogEvent::default();
             e_2.insert(
-                log_schema().message_key(),
+                message_key_path,
                 btreemap! {
                     "key1" => "second one",
                     "key2" => "NOPE"
@@ -1625,7 +1631,7 @@ mod test {
             let mut e_3 = LogEvent::default();
             e_3.insert(
                 // This will cause the threshold to be exceeded
-                log_schema().message_key(),
+                message_key_path,
                 btreemap! {
                     "key1" => "and now you're too big!",
                     "key2" => "NEIGH"
@@ -1634,7 +1640,7 @@ mod test {
             let mut e_4 = LogEvent::default();
             e_4.insert(
                 // This will be a new event
-                log_schema().message_key(),
+                message_key_path,
                 btreemap! {
                     "key1" => "a new reduce event",
                     "key2" => "yep"
@@ -1651,7 +1657,7 @@ mod test {
             assert_eq!(
                 output_1,
                 LogEvent::from(btreemap! {
-                    log_schema().message_key() => btreemap! {
+                    message_key.as_str() => btreemap! {
                         "key1" => json!(["first one", "second one", "and now you're too big!"]),
                         "key2" => "first",
                     }
@@ -1662,7 +1668,7 @@ mod test {
             assert_eq!(
                 output_2,
                 LogEvent::from(btreemap! {
-                    log_schema().message_key() => btreemap! {
+                    message_key.as_str() => btreemap! {
                         "key1" => json!(["a new reduce event"]),
                         "key2" => "yep",
                     }
@@ -1691,11 +1697,13 @@ mod test {
         .await
         .unwrap();
         let reduce = reduce.into_task();
+        let message_key_path = log_schema().message_key_target_path().unwrap();
+        let message_key = log_schema().message_key().unwrap().to_string();
 
         // Different request ids will cause multiple states since each unique `id` is a discriminant and state
         let mut e_1 = LogEvent::default();
         e_1.insert(
-            log_schema().message_key(),
+            message_key_path,
             btreemap! {
                 "request_id" => "1",
                 "key1" => "one",
@@ -1703,7 +1711,7 @@ mod test {
         );
         let mut e_2 = LogEvent::default();
         e_2.insert(
-            log_schema().message_key(),
+            message_key_path,
             btreemap! {
                 "request_id" => "1",
                 "key1" => "two",
@@ -1711,7 +1719,7 @@ mod test {
         );
         let mut e_3 = LogEvent::default();
         e_3.insert(
-            log_schema().message_key(),
+            message_key_path,
             btreemap! {
                 "request_id" => "2",
                 "key1" => "one",
@@ -1719,7 +1727,7 @@ mod test {
         );
         let mut e_4 = LogEvent::default();
         e_4.insert(
-            log_schema().message_key(),
+            message_key_path,
             btreemap! {
                 "request_id" => "2",
                 "key1" => "two",
@@ -1727,7 +1735,7 @@ mod test {
         );
         let mut e_5 = LogEvent::default();
         e_5.insert(
-            log_schema().message_key(),
+            message_key_path,
             btreemap! {
                 "request_id" => "2",
                 "key1" => "aaaaaaaaaaaand we're way too long now",
@@ -1742,7 +1750,7 @@ mod test {
         assert_eq!(
             output_1,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "key1" => json!(["one", "two"]),
                     "request_id" => "1",
                 }
@@ -1753,7 +1761,7 @@ mod test {
         assert_eq!(
             output_2,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "key1" => json!(["one", "two", "aaaaaaaaaaaand we're way too long now"]),
                     "request_id" => "2",
                 }
@@ -1777,37 +1785,38 @@ mod test {
         .await
         .unwrap();
         let reduce = reduce.into_task();
+        let message_key = log_schema().message_key().unwrap().to_string();
 
         let e_1 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "status" => 1,
                 "method" => "GET",
             },
         });
 
         let e_2 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "status" => 1,
                 "method" => "POST",
             },
         });
 
         let e_3 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "status" => 1,
                 "method" => "POST",
             },
         });
 
         let e_4 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "status" => 2,
                 "method" => "POST",
             },
         });
 
         let e_5 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "status" => 2,
                 "method" => "POST",
             },
@@ -1821,7 +1830,7 @@ mod test {
         assert_eq!(
             output_1,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "status" => 1,
                     "method" => json!(["GET", "POST", "POST"])
                 }
@@ -1832,7 +1841,7 @@ mod test {
         assert_eq!(
             output_2,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "status" => 2,
                     "method" => json!(["POST", "POST"])
                 }
@@ -1857,37 +1866,38 @@ mod test {
         .await
         .unwrap();
         let reduce = reduce.into_task();
+        let message_key = log_schema().message_key().unwrap().to_string();
 
         let e_1 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "status" => 1,
                 "method" => "GET",
             },
         });
 
         let e_2 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "status" => 1,
                 "method" => "POST",
             },
         });
 
         let e_3 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "status" => 1,
                 "method" => "POST",
             },
         });
 
         let e_4 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "status" => 2,
                 "method" => "POST",
             },
         });
 
         let e_5 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "status" => 2,
                 "method" => "POST",
             },
@@ -1901,7 +1911,7 @@ mod test {
         assert_eq!(
             output_1,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "status" => 1,
                     "method" => json!(["GET", "POST", "POST"])
                 }
@@ -1912,7 +1922,7 @@ mod test {
         assert_eq!(
             output_2,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "status" => 2,
                     "method" => json!(["POST", "POST"])
                 }
@@ -1937,37 +1947,38 @@ mod test {
         .await
         .unwrap();
         let reduce = reduce.into_task();
+        let message_key = log_schema().message_key().unwrap().to_string();
 
         let e_1 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "my-status" => 1,
                 "method" => "GET",
             },
         });
 
         let e_2 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "my-status" => 1,
                 "method" => "POST",
             },
         });
 
         let e_3 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "my-status" => 1,
                 "method" => "POST",
             },
         });
 
         let e_4 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "my-status" => 2,
                 "method" => "POST",
             },
         });
 
         let e_5 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "my-status" => 2,
                 "method" => "POST",
             },
@@ -1981,7 +1992,7 @@ mod test {
         assert_eq!(
             output_1,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "my-status" => 1,
                     "method" => json!(["GET", "POST", "POST"])
                 }
@@ -1992,7 +2003,7 @@ mod test {
         assert_eq!(
             output_2,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "my-status" => 2,
                     "method" => json!(["POST", "POST"])
                 }
@@ -2016,9 +2027,10 @@ mod test {
         .await
         .unwrap();
         let reduce = reduce.into_task();
+        let message_key = log_schema().message_key().unwrap().to_string();
 
         let e_1 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "user.data" => btreemap! {
                     "user_ids" => json!([1]),
                     "some_key" => "first",
@@ -2029,7 +2041,7 @@ mod test {
         });
 
         let e_2 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "user.data" => btreemap! {
                     "user_ids" => json!([1]),
                     "some_key" => "second",
@@ -2040,7 +2052,7 @@ mod test {
         });
 
         let e_3 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "user.data" => btreemap! {
                     "user_ids" => json!([1]),
                     "some_key" => "third",
@@ -2051,7 +2063,7 @@ mod test {
         });
 
         let e_4 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "user.data" => btreemap! {
                     "user_ids" => json!([2]),
                     "some_key" => "first",
@@ -2062,7 +2074,7 @@ mod test {
         });
 
         let e_5 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "user.data" => btreemap! {
                     "user_ids" => json!([2]),
                     "some_key" => "second",
@@ -2082,7 +2094,7 @@ mod test {
         assert_eq!(
             output_1,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "user.data" => btreemap! {
                         "user_ids" => json!([1]),
                         "some_key" => "first",
@@ -2097,7 +2109,7 @@ mod test {
         assert_eq!(
             output_2,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "user.data" => btreemap! {
                         "user_ids" => json!([2]),
                         "some_key" => "first",
@@ -2118,9 +2130,10 @@ mod test {
             .await
             .unwrap();
         let reduce = reduce.into_task();
+        let message_key = log_schema().message_key().unwrap().to_string();
 
         let mut e_1 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "num" => 1,
                 "method" => "GET",
             },
@@ -2176,9 +2189,10 @@ mod test {
         .await
         .unwrap();
         let reduce = reduce.into_task();
+        let message_key = log_schema().message_key().unwrap().to_string();
 
         let e_1 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "user.data" => btreemap! {
                     "some_key" => "first",
                     "my_int" => 55
@@ -2188,7 +2202,7 @@ mod test {
         });
 
         let e_2 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "user.data" => btreemap! {
                     "some_key" => "second",
                     "my_int" => 1
@@ -2198,7 +2212,7 @@ mod test {
         });
 
         let e_3 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "user.data" => btreemap! {
                     "some_key" => "third",
                     "my_int" => 2
@@ -2215,7 +2229,7 @@ mod test {
         assert_eq!(
             output_1,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "user.data" => btreemap! {
                         "some_key" => "third",
                         "my_int" => 2
@@ -2245,9 +2259,10 @@ mod test {
         .await
         .unwrap();
         let reduce = reduce.into_task();
+        let message_key = log_schema().message_key().unwrap().to_string();
 
         let e_1 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "user.data" => btreemap! {
                     "id" => 1
                 },
@@ -2258,7 +2273,7 @@ mod test {
         });
 
         let e_2 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "user.data" => btreemap! {
                     "id" => 2
                 },
@@ -2269,7 +2284,7 @@ mod test {
         });
 
         let e_3 = LogEvent::from(btreemap! {
-            log_schema().message_key() => btreemap! {
+            message_key.as_str() => btreemap! {
                 "user.data" => btreemap! {
                     "id" => 1
                 },
@@ -2287,7 +2302,7 @@ mod test {
         assert_eq!(
             output_1,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "user.data" => btreemap! {
                         "id" => 1
                     },
@@ -2304,7 +2319,7 @@ mod test {
         assert_eq!(
             output_2,
             LogEvent::from(btreemap! {
-                log_schema().message_key() => btreemap! {
+                message_key.as_str() => btreemap! {
                     "user.data" => btreemap! {
                         "id" => 2
                     },

@@ -379,10 +379,10 @@ impl MezmoLogClustering {
 
         if field_name.is_none() {
             // Check .message property for backward compatibility
-            let field_name = log_schema().message_key();
-            if let Some(field) = log.get(field_name) {
+            let field_name = log_schema().message_key().unwrap().to_string();
+            if let Some(field) = log.get(log_schema().message_key_target_path().unwrap()) {
                 if field.is_bytes() {
-                    return (Some(Cow::Owned(field_name.to_string())), field.as_str());
+                    return (Some(Cow::Owned(field_name)), field.as_str());
                 }
             }
             return (None, None);

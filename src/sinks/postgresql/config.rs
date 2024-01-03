@@ -26,7 +26,7 @@ impl Default for PostgreSQLFieldConfig {
     fn default() -> Self {
         Self {
             name: "message".to_owned(),
-            path: log_schema().message_key().to_owned(),
+            path: log_schema().message_key().unwrap().to_string(),
         }
     }
 }

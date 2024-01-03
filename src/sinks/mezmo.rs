@@ -379,10 +379,13 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
         mut event: Event,
     ) -> Option<PartitionInnerBuffer<serde_json::Value, PartitionKey>> {
         let key = self.render_key(&event)?;
-        let message_key = crate::config::log_schema().message_key();
+        let message_key = crate::config::log_schema()
+            .message_key_target_path()
+            .unwrap();
 
         self.transformer.transform(&mut event);
         let mut log = event.into_log();
+
         let mut map = serde_json::map::Map::new();
 
         if self.use_message_as_line.unwrap_or(false) {

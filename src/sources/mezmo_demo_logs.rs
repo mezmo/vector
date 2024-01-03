@@ -370,7 +370,7 @@ impl SourceConfig for MezmoDemoLogsConfig {
             self.interval,
             self.count,
             self.format.clone(),
-            decoder,
+            decoder.unwrap(),
             state,
             cx.shutdown,
             cx.out,
@@ -446,7 +446,7 @@ mod tests {
                 config.interval,
                 config.count,
                 config.format,
-                decoder,
+                decoder.unwrap(),
                 state,
                 ShutdownSignal::noop(),
                 tx,
@@ -480,7 +480,7 @@ mod tests {
 
     #[tokio::test]
     async fn shuffle_demo_logs_copies_lines() {
-        let message_key = log_schema().message_key();
+        let message_key = log_schema().message_key().unwrap().to_string();
         let mut rx = runit(
             r#"format = "shuffle"
                lines = ["one", "two", "three", "four"]
@@ -520,7 +520,7 @@ mod tests {
 
     #[tokio::test]
     async fn shuffle_demo_logs_adds_sequence() {
-        let message_key = log_schema().message_key();
+        let message_key = log_schema().message_key().unwrap().to_string();
         let mut rx = runit(
             r#"format = "shuffle"
                lines = ["one", "two"]

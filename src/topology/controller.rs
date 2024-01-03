@@ -15,7 +15,8 @@ use crate::config::enterprise::{
 use crate::internal_events::{
     VectorConfigLoadError, VectorRecoveryError, VectorReloadError, VectorReloaded,
 };
-use crate::{config, topology::RunningTopology};
+
+use crate::{config, signal::ShutdownError, topology::RunningTopology};
 
 #[derive(Clone, Debug)]
 pub struct SharedTopologyController(Arc<Mutex<TopologyController>>);
@@ -53,12 +54,13 @@ impl std::fmt::Debug for TopologyController {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum ReloadOutcome {
     NoConfig,
     MissingApiKey,
     Success,
     RolledBack,
-    FatalError,
+    FatalError(ShutdownError),
 }
 
 impl TopologyController {
@@ -127,7 +129,7 @@ impl TopologyController {
             Err(()) => {
                 emit!(VectorReloadError);
                 emit!(VectorRecoveryError);
-                ReloadOutcome::FatalError
+                ReloadOutcome::FatalError(ShutdownError::ReloadFailedToRestore)
             }
         }
     }

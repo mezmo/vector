@@ -170,7 +170,7 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                             Value::from(metadata),
                         ),
                         // Add the actual line
-                        (log_schema().message_key().to_string(), line),
+                        (log_schema().message_key().unwrap().to_string(), line),
                     ]);
 
                     // Wrap line in mezmo format

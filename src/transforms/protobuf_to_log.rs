@@ -105,7 +105,7 @@ impl FunctionTransform for ProtobufToLog {
             .expect("Log event has no message");
 
         let mut root_internal_metadata = &BTreeMap::new();
-        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().metadata_key())) {
+        if let Some(metadata) = log.get(log_schema().metadata_key_target_path().unwrap()) {
             if let Some(root_meta_obj) = metadata.as_object() {
                 root_internal_metadata = root_meta_obj;
             }
@@ -137,7 +137,7 @@ impl FunctionTransform for ProtobufToLog {
 
                     if let Some(event_message) = event.get_message() {
                         log_event.insert(
-                            (PathPrefix::Event, log_schema().message_key()),
+                            log_schema().message_key_target_path().unwrap(),
                             event_message.to_owned(),
                         );
                     }
@@ -164,7 +164,7 @@ impl FunctionTransform for ProtobufToLog {
                     let mut internal_metadata = root_internal_metadata.clone();
 
                     if let Some(metadata) =
-                        event.get((PathPrefix::Event, log_schema().metadata_key()))
+                        event.get(log_schema().metadata_key_target_path().unwrap())
                     {
                         if let Some(meta_obj) = metadata.as_object() {
                             for entry in meta_obj.iter() {
@@ -175,7 +175,7 @@ impl FunctionTransform for ProtobufToLog {
 
                     if !internal_metadata.is_empty() {
                         log_event.insert(
-                            (PathPrefix::Event, log_schema().metadata_key()),
+                            log_schema().metadata_key_target_path().unwrap(),
                             internal_metadata,
                         );
                     }

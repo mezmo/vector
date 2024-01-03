@@ -13,12 +13,13 @@ use snafu::Snafu;
 use std::io;
 use tokio_util::codec::Encoder as _;
 use tower::{Service, ServiceBuilder};
-use vector_common::request_metadata::{MetaDescriptive, RequestMetadata};
+use vector_common::request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata};
 use vector_config::configurable_component;
 use vector_core::{
-    config::{AcknowledgementsConfig, Input},
+    config::{telemetry, AcknowledgementsConfig, Input},
     event::{Event, EventFinalizers, Finalizable},
     sink::VectorSink,
+    EstimatedJsonEncodedSizeOf,
 };
 use vrl::value::Kind;
 
@@ -326,9 +327,10 @@ impl Encoder<(String, Vec<Event>)> for ChronicleEncoder {
         &self,
         input: (String, Vec<Event>),
         writer: &mut dyn io::Write,
-    ) -> io::Result<usize> {
+    ) -> io::Result<(usize, GroupedCountByteSize)> {
         let (partition_key, events) = input;
         let mut encoder = self.encoder.clone();
+        let mut byte_size = telemetry().create_request_count_byte_size();
         let events = events
             .into_iter()
             .filter_map(|mut event| {
@@ -339,6 +341,9 @@ impl Encoder<(String, Vec<Event>)> for ChronicleEncoder {
                     .cloned();
                 let mut bytes = BytesMut::new();
                 self.transformer.transform(&mut event);
+
+                byte_size.add_event(&event, event.estimated_json_encoded_size_of());
+
                 encoder.encode(event, &mut bytes).ok()?;
 
                 let mut value = json!({
@@ -368,7 +373,7 @@ impl Encoder<(String, Vec<Event>)> for ChronicleEncoder {
             Ok(())
         })?;
 
-        Ok(size)
+        Ok((size, byte_size))
     }
 }
 
@@ -582,12 +587,10 @@ mod integration_tests {
         trace_init();
 
         let log_type = random_string(10);
-        let (sink, healthcheck) = config_build(
-            &log_type,
-            "/home/vector/scripts/integration/chronicle/auth.json",
-        )
-        .await
-        .expect("Building sink failed");
+        let (sink, healthcheck) =
+            config_build(&log_type, "/home/vector/scripts/integration/gcp/auth.json")
+                .await
+                .expect("Building sink failed");
 
         healthcheck.await.expect("Health check failed");
 
@@ -617,11 +620,13 @@ mod integration_tests {
         // Test with an auth file that doesnt match the public key sent to the dummy chronicle server.
         let sink = config_build(
             &log_type,
-            "/home/vector/scripts/integration/chronicle/invalidauth.json",
+            "/home/vector/scripts/integration/gcp/invalidauth.json",
         )
         .await;
 
-        assert!(sink.is_err())
+        // This differs from upstream. `build` is coded to warn on auth errors, but allow the build to continue.
+        // Actual sink errors are left up to the healthcheck.
+        assert!(sink.is_ok())
     }
 
     #[tokio::test]
@@ -631,12 +636,10 @@ mod integration_tests {
         // The chronicle-emulator we are testing against is setup so a `log_type` of "INVALID"
         // will return a `400 BAD_REQUEST`.
         let log_type = "INVALID";
-        let (sink, healthcheck) = config_build(
-            log_type,
-            "/home/vector/scripts/integration/chronicle/auth.json",
-        )
-        .await
-        .expect("Building sink failed");
+        let (sink, healthcheck) =
+            config_build(log_type, "/home/vector/scripts/integration/gcp/auth.json")
+                .await
+                .expect("Building sink failed");
 
         healthcheck.await.expect("Health check failed");
 
