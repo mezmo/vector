@@ -1,3 +1,15 @@
+## [1.35.1](https://github.com/answerbook/vector/compare/v1.35.0...v1.35.1) (2024-01-04)
+
+
+### Bug Fixes
+
+* **filename**: update s3 consolidated filename [1dc3a3e](https://github.com/answerbook/vector/commit/1dc3a3e431f97052f34ffa95b4623e2f589e8d5d) - dominic-mcallister-logdna [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
+
+### Miscellaneous
+
+* Merge pull request #384 from answerbook/dominic/LOG-18535_filesize_consolidatedname [7e83412](https://github.com/answerbook/vector/commit/7e83412ff5efcd28f84d8d50665da3a1ba5d5544) - GitHub [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
 # [1.35.0](https://github.com/answerbook/vector/compare/v1.34.0...v1.35.0) (2024-01-03)
 
 
