@@ -19,7 +19,7 @@ use base64::prelude::{Engine as _, BASE64_STANDARD};
 use md5::Digest;
 
 const TWO_HOURS_IN_SECONDS: u64 = 2 * 60 * 60;
-const MULTIPART_FILE_MIN_MB_I32: i32 = 5 * 1024 * 1024;
+const MULTIPART_FILE_MIN_MB_I64: i64 = 5 * 1024 * 1024;
 const ONE_MEGABYTE_USIZE: usize = 1024 * 1024;
 
 // handles consolidating the small files within AWS into much larger files
@@ -28,7 +28,7 @@ pub struct FileConsolidationProcessor<'a> {
     s3_client: &'a S3Client,
     bucket: String,
     key_prefix: String,
-    requested_size_bytes: i32,
+    requested_size_bytes: i64,
 }
 
 // handles consolidating all the smaller files generated into larger files of the bucket
@@ -42,7 +42,7 @@ impl<'a> FileConsolidationProcessor<'a> {
         s3_client: &'a S3Client,
         bucket: String,
         key_prefix: String,
-        requested_size_bytes: i32,
+        requested_size_bytes: i64,
     ) -> Self {
         FileConsolidationProcessor {
             s3_client,
@@ -101,7 +101,7 @@ impl<'a> FileConsolidationProcessor<'a> {
                     .unwrap()
                     .as_secs();
                 new_file_key =
-                    format!("{}{}_merged.log", self.key_prefix.clone(), time_since_epoch);
+                    format!("{}merged_{}.log", self.key_prefix.clone(), time_since_epoch);
 
                 match self
                     .s3_client
@@ -141,14 +141,14 @@ impl<'a> FileConsolidationProcessor<'a> {
 
             //calculate the size of all the files
             //we make no assumptions about compression here if the file is gzip'd
-            let mut total_bytes_of_all_files: i32 = 0;
+            let mut total_bytes_of_all_files: i64 = 0;
             for record in upload_file_parts.iter() {
                 total_bytes_of_all_files += record.size;
             }
 
             // there is a mimimum size of a multipart upload so we'll just upload a single file
             // if the directory has less than that amount.
-            if total_bytes_of_all_files <= MULTIPART_FILE_MIN_MB_I32 {
+            if total_bytes_of_all_files <= MULTIPART_FILE_MIN_MB_I64 {
                 let bytes = match download_all_files_as_bytes(
                     self.s3_client,
                     self.bucket.clone(),
@@ -257,7 +257,7 @@ impl<'a> FileConsolidationProcessor<'a> {
 
                 for file in &upload_file_parts {
                     // if we've got a plaintext file that meets the multipart min, then we can straight copy it via sdk
-                    if !file.compressed && file.size >= MULTIPART_FILE_MIN_MB_I32 {
+                    if !file.compressed && file.size >= MULTIPART_FILE_MIN_MB_I64 {
                         part_num += 1;
 
                         let source = format!("{}/{}", self.bucket.clone(), file.key.clone());
@@ -336,7 +336,7 @@ impl<'a> FileConsolidationProcessor<'a> {
                     buf_files.push(file.key.clone());
 
                     // if we've got the minimum for a multipart chunk, send it on to the server
-                    if buf.len() as i32 >= MULTIPART_FILE_MIN_MB_I32 {
+                    if buf.len() as i64 >= MULTIPART_FILE_MIN_MB_I64 {
                         part_num += 1;
 
                         // cloning the buffer so its not moved
@@ -527,12 +527,12 @@ impl<'a> FileConsolidationProcessor<'a> {
 #[derive(Debug)]
 pub struct ConsolidationFile {
     pub compressed: bool,
-    pub size: i32,
+    pub size: i64,
     pub key: String,
 }
 
 impl ConsolidationFile {
-    pub const fn new(compressed: bool, size: i32, key: String) -> ConsolidationFile {
+    pub const fn new(compressed: bool, size: i64, key: String) -> ConsolidationFile {
         ConsolidationFile {
             compressed,
             size,
@@ -553,10 +553,10 @@ fn bytes_to_bytestream(buf: Bytes) -> ByteStream {
     @@returns: a vector of consolidation files
 */
 fn splice_files_list(
-    requested_size_bytes: i32,
+    requested_size_bytes: i64,
     files: &mut Vec<ConsolidationFile>,
 ) -> Vec<ConsolidationFile> {
-    let mut total_bytes: i32 = 0;
+    let mut total_bytes: i64 = 0;
     for i in 0..files.len() {
         total_bytes += files[i].size;
 
@@ -650,7 +650,7 @@ pub async fn get_files_to_consolidate(
         {
             Ok(head) => {
                 let compressed = head.content_encoding().unwrap_or_default() == "gzip";
-                let size = head.content_length() as i32;
+                let size = head.content_length();
                 let key = key.to_string();
 
                 files_to_consolidate.push(ConsolidationFile::new(compressed, size, key));
