@@ -29,7 +29,7 @@ pub struct FileConsolidationConfig {
     pub process_every_ms: u64,
 
     /// Indicates the size of the consolidation file that is produced
-    pub requested_size_bytes: i32,
+    pub requested_size_bytes: i64,
 }
 
 impl Default for FileConsolidationConfig {
