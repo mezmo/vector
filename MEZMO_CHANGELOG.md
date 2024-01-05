@@ -1,3 +1,15 @@
+# [1.36.0](https://github.com/answerbook/vector/compare/v1.35.2...v1.36.0) (2024-01-05)
+
+
+### Features
+
+* make http config provider optionally post a heartbeat payload [73f7d95](https://github.com/answerbook/vector/commit/73f7d95a87e0fead63d7c6b1fd32ba511defb6f7) - Adam Holmberg [LOG-18815](https://logdna.atlassian.net/browse/LOG-18815)
+
+
+### Miscellaneous
+
+* Merge pull request #385 from answerbook/holmberg/LOG-18815 [090925e](https://github.com/answerbook/vector/commit/090925eaa4be1560b697c5ea2a68baa1da66d171) - GitHub [LOG-18815](https://logdna.atlassian.net/browse/LOG-18815)
+
 ## [1.35.2](https://github.com/answerbook/vector/compare/v1.35.1...v1.35.2) (2024-01-05)
 
 
