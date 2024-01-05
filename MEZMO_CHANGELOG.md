@@ -1,3 +1,10 @@
+## [1.36.1](https://github.com/answerbook/vector/compare/v1.36.0...v1.36.1) (2024-01-05)
+
+
+### Chores
+
+* Bump vrl dependency [6311551](https://github.com/answerbook/vector/commit/6311551ddbcd3ff4d5bd656ee5e3e6289affc023) - Jorge Bay [LOG-17304](https://logdna.atlassian.net/browse/LOG-17304)
+
 # [1.36.0](https://github.com/answerbook/vector/compare/v1.35.2...v1.36.0) (2024-01-05)
 
 
