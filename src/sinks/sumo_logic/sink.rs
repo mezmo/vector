@@ -166,7 +166,7 @@ where
     S::Error: Debug + Into<crate::Error> + Send,
 {
     async fn run_inner(self: Box<Self>, input: BoxStream<'_, Event>) -> Result<(), ()> {
-        let builder_limit = NonZeroUsize::new(64);
+        let builder_limit = NonZeroUsize::new(64).unwrap();
         let request_builder = SumoLogicRequestBuilder {
             transformer: self.transformer,
             encoder: self.encoder,

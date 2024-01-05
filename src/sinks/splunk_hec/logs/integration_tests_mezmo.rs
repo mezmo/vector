@@ -1,8 +1,3 @@
-use assay::assay;
-use codecs::{JsonSerializerConfig, MetricTagValues};
-use serde_json::Value as JsonValue;
-use tokio::time::{sleep, Duration};
-
 use crate::{
     codecs::EncodingConfig,
     config::{SinkConfig, SinkContext},
@@ -23,6 +18,11 @@ use crate::{
         random_message_object_events_with_stream,
     },
 };
+use assay::assay;
+use codecs::{JsonSerializerConfig, MetricTagValues};
+use lookup::lookup_v2::ConfigValuePath;
+use serde_json::Value as JsonValue;
+use tokio::time::{sleep, Duration};
 
 const USERNAME: &str = "admin";
 const PASSWORD: &str = "password";
@@ -81,7 +81,10 @@ async fn find_entries(events: &[JsonValue]) -> bool {
     found_all
 }
 
-async fn config(encoding: EncodingConfig, indexed_fields: Vec<String>) -> HecLogsSinkConfig {
+async fn config(
+    encoding: EncodingConfig,
+    indexed_fields: Vec<ConfigValuePath>,
+) -> HecLogsSinkConfig {
     let mut batch = BatchConfig::default();
     batch.max_events = Some(5);
 

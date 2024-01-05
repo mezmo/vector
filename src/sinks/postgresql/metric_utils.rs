@@ -80,18 +80,18 @@ pub fn get_from_metric<'a>(metric: &'a Metric, key: impl ValuePath<'a> + Debug) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono;
+    use chrono::{NaiveDate, TimeZone, Utc};
     use std::{collections::BTreeSet, iter, num::NonZeroU32};
     use vector_core::event::MetricKind;
     use vector_core::metric_tags;
     use vrl::value::kind::Kind;
 
     fn new_metric() -> Metric {
-        let ts = chrono::NaiveDate::from_ymd_opt(2022, 10, 1)
+        let ts = NaiveDate::from_ymd_opt(2022, 10, 1)
             .unwrap()
             .and_hms_opt(13, 51, 30)
             .unwrap();
-        let ts = chrono::DateTime::from_utc(ts, chrono::Utc);
+        let ts = Utc.from_utc_datetime(&ts);
 
         Metric::new(
             "component_request_total",

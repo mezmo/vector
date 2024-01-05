@@ -194,7 +194,7 @@ impl Application {
     }
 
     pub fn prepare_from_opts(opts: Opts) -> Result<(Runtime, Self), ExitCode> {
-        init_global();
+        init_global(!opts.root.openssl_no_probe);
 
         let color = opts.root.color.use_color();
 
@@ -205,6 +205,11 @@ impl Application {
             opts.root.internal_log_rate_limit,
         );
         mezmo::user_trace::init(opts.root.user_log_rate_limit);
+
+        // Can only log this after initializing the logging subsystem
+        if opts.root.openssl_no_probe {
+            debug!(message = "Disabled probing and configuration of root certificate locations on the system for OpenSSL.");
+        }
 
         let openssl_providers = opts
             .root
@@ -581,8 +586,10 @@ impl FinishedApplication {
     }
 }
 
-pub fn init_global() {
-    openssl_probe::init_ssl_cert_env_vars();
+pub fn init_global(openssl_probe: bool) {
+    if openssl_probe {
+        openssl_probe::init_ssl_cert_env_vars();
+    }
 
     #[cfg(not(feature = "enterprise-tests"))]
     metrics::init_global().expect("metrics initialization failed");
@@ -621,21 +628,17 @@ pub fn build_runtime(threads: Option<usize>, thread_name: &str) -> Result<Runtim
     rt_builder.max_blocking_threads(20_000);
     rt_builder.enable_all().thread_name(thread_name);
 
-    if let Some(threads) = threads {
-        if threads < 1 {
-            #[allow(clippy::print_stderr)]
-            {
-                eprintln!("The `threads` argument must be greater or equal to 1.");
-            }
-            return Err(exitcode::CONFIG);
-        } else {
-            WORKER_THREADS
-                .set(NonZeroUsize::new(threads).expect("already checked"))
-                .expect("double thread initialization");
-            rt_builder.worker_threads(threads);
-        }
-    }
+    let threads = threads.unwrap_or_else(crate::num_threads);
+    let threads = NonZeroUsize::new(threads).ok_or_else(|| {
+        error!("The `threads` argument must be greater or equal to 1.");
+        exitcode::CONFIG
+    })?;
+    WORKER_THREADS
+        .set(threads)
+        .expect("double thread initialization");
+    rt_builder.worker_threads(threads.get());
 
+    debug!(messaged = "Building runtime.", worker_threads = threads);
     Ok(rt_builder.build().expect("Unable to create async runtime"))
 }
 
@@ -689,6 +692,18 @@ fn build_enterprise(
     config: &mut Config,
     config_paths: Vec<ConfigPath>,
 ) -> Result<Option<EnterpriseReporter<BoxFuture<'static, ()>>>, ExitCode> {
+    use crate::ENTERPRISE_ENABLED;
+
+    ENTERPRISE_ENABLED
+        .set(
+            config
+                .enterprise
+                .as_ref()
+                .map(|e| e.enabled)
+                .unwrap_or_default(),
+        )
+        .expect("double initialization of enterprise enabled flag");
+
     match EnterpriseMetadata::try_from(&*config) {
         Ok(metadata) => {
             let enterprise = EnterpriseReporter::new();

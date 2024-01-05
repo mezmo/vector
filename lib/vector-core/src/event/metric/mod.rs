@@ -594,7 +594,7 @@ pub(crate) fn zip_samples(
 ) -> Vec<Sample> {
     values
         .into_iter()
-        .zip(rates.into_iter())
+        .zip(rates)
         .map(|(value, rate)| Sample { value, rate })
         .collect()
 }
@@ -606,7 +606,7 @@ pub(crate) fn zip_buckets(
 ) -> Vec<Bucket> {
     limits
         .into_iter()
-        .zip(counts.into_iter())
+        .zip(counts)
         .map(|(upper_limit, count)| Bucket { upper_limit, count })
         .collect()
 }
@@ -618,7 +618,7 @@ pub(crate) fn zip_quantiles(
 ) -> Vec<Quantile> {
     quantiles
         .into_iter()
-        .zip(values.into_iter())
+        .zip(values)
         .map(|(quantile, value)| Quantile { quantile, value })
         .collect()
 }

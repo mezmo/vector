@@ -23,7 +23,7 @@ use crate::{
     transforms::{TaskTransform, Transform},
 };
 use async_stream::stream;
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use futures::{stream, Stream, StreamExt};
 use indexmap::IndexMap;
 use lookup::lookup_v2::{parse_target_path, OwnedSegment};
@@ -443,6 +443,9 @@ impl ReduceState {
             // we need to inject its results into the `.message` property, but make it an
             // actual "path" so that special characters are handled.
             let path = owned_value_path!("message", &k).to_string();
+            // BEWARE: Upstream has changed inserts to use `event_path!`, but that stores
+            // flattened keys like `message.thing` which breaks us. We need nested objects,
+            // so do not accept upstream changes to `merge_strategy.rs`.
             if let Err(error) = v.insert_into(path, &mut event) {
                 warn!(message = "Failed to merge values for message field.", %error);
             }
@@ -634,9 +637,11 @@ impl MezmoReduce {
         for (prop, format) in self.mezmo_metadata.date_formats.iter() {
             let prop_str = prop.as_str();
             if let Some(value) = log_event.get(prop_str) {
-                let parse_result = Utc.datetime_from_str(&value.to_string_lossy(), format);
+                let parse_result = NaiveDateTime::parse_from_str(&value.to_string_lossy(), format);
                 match parse_result {
                     Ok(date) => {
+                        // Value::from for dates requires a DateTime<Utc>
+                        let date: DateTime<Utc> = Utc.from_utc_datetime(&date);
                         let value_kind = value.kind_str();
                         debug!(
                             message = "Coercing value into a Timestamp and saving metadata",

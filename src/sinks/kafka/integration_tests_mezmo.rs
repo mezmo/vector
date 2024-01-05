@@ -5,13 +5,6 @@ use assay::assay;
 use serde_json;
 use std::{collections::HashMap, future::ready, thread, time::Duration};
 
-use codecs::{JsonSerializerConfig, MetricTagValues};
-use rdkafka::{
-    consumer::{BaseConsumer, Consumer},
-    Message, Offset, TopicPartitionList,
-};
-use vector_core::event::{BatchNotifier, BatchStatus};
-
 use crate::{
     config::SinkContext,
     kafka::{KafkaAuthConfig, KafkaCompression},
@@ -27,6 +20,13 @@ use crate::{
         random_message_object_events_with_stream, random_string, wait_for,
     },
 };
+use codecs::{JsonSerializerConfig, MetricTagValues};
+use lookup::lookup_v2::ConfigTargetPath;
+use rdkafka::{
+    consumer::{BaseConsumer, Consumer},
+    Message, Offset, TopicPartitionList,
+};
+use vector_core::event::{BatchNotifier, BatchStatus};
 
 fn kafka_host() -> String {
     std::env::var("KAFKA_HOST").unwrap_or_else(|_| "localhost".into())
@@ -47,7 +47,6 @@ async fn kafka_mezmo_does_not_reshape_messages() {
     let server = kafka_address(9091);
 
     let topic = format!("test-{}", random_string(10));
-    let headers_key = "headers_key".to_string();
     let kafka_auth = KafkaAuthConfig {
         sasl: None,
         tls: None,
@@ -63,7 +62,7 @@ async fn kafka_mezmo_does_not_reshape_messages() {
         socket_timeout_ms: Duration::from_millis(60000),
         message_timeout_ms: Duration::from_millis(300000),
         librdkafka_options: HashMap::new(),
-        headers_key: Some(headers_key.clone()),
+        headers_key: Some(ConfigTargetPath::try_from("headers_key".to_owned()).unwrap()),
         acknowledgements: Default::default(),
     };
     let topic = format!("{}-{}", topic, chrono::Utc::now().format("%Y%m%d"));
@@ -156,7 +155,6 @@ async fn kafka_mezmo_reshapes_messages() {
     let server = kafka_address(9091);
 
     let topic = format!("test-{}", random_string(10));
-    let headers_key = "headers_key".to_string();
     let kafka_auth = KafkaAuthConfig {
         sasl: None,
         tls: None,
@@ -172,7 +170,7 @@ async fn kafka_mezmo_reshapes_messages() {
         socket_timeout_ms: Duration::from_millis(60000),
         message_timeout_ms: Duration::from_millis(300000),
         librdkafka_options: HashMap::new(),
-        headers_key: Some(headers_key.clone()),
+        headers_key: Some(ConfigTargetPath::try_from("headers_key".to_owned()).unwrap()),
         acknowledgements: Default::default(),
     };
     let topic = format!("{}-{}", topic, chrono::Utc::now().format("%Y%m%d"));

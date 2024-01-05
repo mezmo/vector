@@ -3,11 +3,10 @@ use super::MezmoContext;
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use futures_util::{future::ready, Stream, StreamExt};
-use once_cell::sync::OnceCell;
 use serde::ser::StdError;
 use std::future::Future;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Instant;
 use tokio::sync::broadcast::{self, Receiver, Sender};
@@ -22,7 +21,7 @@ use crate::http::HttpError;
 use crate::sinks::util::http::HttpBatchService;
 use crate::user_log_error;
 
-static USER_LOG: OnceCell<UserLog> = OnceCell::new();
+static USER_LOG: OnceLock<UserLog> = OnceLock::new();
 
 const DEFAULT_RATE_LIMIT_UNINITIALIZED: u64 = 10; // 10 seconds
 const LOG_CACHE_RATE_LIMIT_MAX_CAPACITY: u64 = 5_000;
