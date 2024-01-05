@@ -3,6 +3,7 @@ use bytes::Buf;
 use futures::Stream;
 use hyper::Body;
 use indexmap::IndexMap;
+use serde_json;
 use tokio::time;
 use url::Url;
 use vector_config::configurable_component;
@@ -23,12 +24,17 @@ pub struct RequestConfig {
     /// HTTP headers to add to the request.
     #[serde(default)]
     pub headers: IndexMap<String, String>,
+
+    /// Payload sent in the request. If present, request is POSTed with uptime_sec included.
+    #[serde(default)]
+    pub payload: Option<String>,
 }
 
 impl Default for RequestConfig {
     fn default() -> Self {
         Self {
             headers: IndexMap::new(),
+            payload: None,
         }
     }
 }
@@ -75,6 +81,7 @@ async fn http_request(
     url: &Url,
     tls_options: &Option<TlsConfig>,
     headers: &IndexMap<String, String>,
+    payload: &Option<String>,
     proxy: &ProxyConfig,
 ) -> Result<bytes::Bytes, String> {
     let tls_settings = TlsSettings::from_options(tls_options).map_err(|_| "Invalid TLS options")?;
@@ -90,9 +97,16 @@ async fn http_request(
         builder = builder.header(header.as_str(), value.as_str());
     }
 
-    let request = builder
-        .body(Body::empty())
-        .map_err(|_| "Couldn't create HTTP request".to_string())?;
+    // If a payload is provided, we're POSTing that to the provider endpoint instead of a basic GET
+    let res = match payload {
+        Some(p) => builder
+            .method("POST")
+            .header("Content-Type", "application/json")
+            .body(p.clone().into()),
+        None => builder.body(Body::empty()),
+    };
+
+    let request = res.map_err(|_| "Couldn't create HTTP request".to_string())?;
 
     debug!(
         message = "Attempting to retrieve configuration.",
@@ -133,9 +147,10 @@ async fn http_request_to_config_builder(
     url: &Url,
     tls_options: &Option<TlsConfig>,
     headers: &IndexMap<String, String>,
+    payload: &Option<String>,
     proxy: &ProxyConfig,
 ) -> BuildResult {
-    let config_str = http_request(url, tls_options, headers, proxy)
+    let config_str = http_request(url, tls_options, headers, payload, proxy)
         .await
         .map_err(|e| vec![e])?;
 
@@ -155,16 +170,19 @@ fn poll_http(
     url: Url,
     tls_options: Option<TlsConfig>,
     headers: IndexMap<String, String>,
+    mut heartbeat: Option<serde_json::Value>,
     proxy: ProxyConfig,
     mut loaded_config_hash: String,
 ) -> impl Stream<Item = signal::SignalTo> {
+    let start_time = time::Instant::now();
     let duration = time::Duration::from_secs(poll_interval_secs);
-    let mut interval = time::interval_at(time::Instant::now() + duration, duration);
+    let mut interval = time::interval_at(start_time + duration, duration);
 
     stream! {
         loop {
             interval.tick().await;
-            match http_request_to_config_builder(&url, &tls_options, &headers, &proxy).await {
+            let uptime_sec = start_time.elapsed().as_secs();
+            match http_request_to_config_builder(&url, &tls_options, &headers, &get_current_heartbeat_payload(&mut heartbeat, uptime_sec), &proxy).await {
                 Ok(config_builder) => {
                     let current_hash = config_builder.sha256_hash();
                     // Make sure we only send the reload signal when the config changed
@@ -200,9 +218,35 @@ impl ProviderConfig for HttpConfig {
         let poll_interval_secs = self.poll_interval_secs;
         let request = self.request.clone();
 
+        let mut heartbeat = match request.payload {
+            Some(p) => match serde_json::from_str::<serde_json::Value>(p.as_str()) {
+                Ok(v) => {
+                    if v.is_object() {
+                        Some(v)
+                    } else {
+                        return Err(vec![format!(
+                            "HTTTP Provider request payload \"{p}\" is not a json object"
+                        )]);
+                    }
+                }
+                Err(e) => {
+                    return Err(vec![format!(
+                        "Error parsing HTTP Provider request payload \"{p}\" as json: {e:?}"
+                    )]);
+                }
+            },
+            None => None,
+        };
+
         let proxy = ProxyConfig::from_env().merge(&self.proxy);
-        let config_builder =
-            http_request_to_config_builder(&url, &tls_options, &request.headers, &proxy).await?;
+        let config_builder = http_request_to_config_builder(
+            &url,
+            &tls_options,
+            &request.headers,
+            &get_current_heartbeat_payload(&mut heartbeat, 0),
+            &proxy,
+        )
+        .await?;
 
         // Poll for changes to remote configuration.
         signal_handler.add(poll_http(
@@ -210,11 +254,27 @@ impl ProviderConfig for HttpConfig {
             url,
             tls_options,
             request.headers.clone(),
+            heartbeat,
             proxy.clone(),
             config_builder.sha256_hash(),
         ));
 
         Ok(config_builder)
+    }
+}
+
+fn get_current_heartbeat_payload(
+    heartbeat: &mut Option<serde_json::Value>,
+    uptime_sec: u64,
+) -> Option<String> {
+    match heartbeat {
+        Some(v) => {
+            v.as_object_mut()
+                .unwrap()
+                .insert("uptime_sec".to_string(), uptime_sec.into());
+            Some(v.to_string())
+        }
+        None => None,
     }
 }
 
