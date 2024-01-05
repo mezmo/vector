@@ -1,3 +1,53 @@
+## [1.36.2](https://github.com/answerbook/vector/compare/v1.36.1...v1.36.2) (2024-01-05)
+
+
+### Bug Fixes
+
+* **prometheus**: surface errors in user logs [4336bd2](https://github.com/answerbook/vector/commit/4336bd2ef4f7feb51cce48df754c734fff570963) - Mike Del Tito [LOG-18946](https://logdna.atlassian.net/browse/LOG-18946)
+
+
+### Miscellaneous
+
+* Merge pull request #388 from answerbook/mdeltito/LOG-18946 [d6aeb96](https://github.com/answerbook/vector/commit/d6aeb96f5ac0ff56aff616ed06b6418cf33d0bac) - GitHub [LOG-18946](https://logdna.atlassian.net/browse/LOG-18946)
+
+## [1.36.1](https://github.com/answerbook/vector/compare/v1.36.0...v1.36.1) (2024-01-05)
+
+
+### Chores
+
+* Bump vrl dependency [6311551](https://github.com/answerbook/vector/commit/6311551ddbcd3ff4d5bd656ee5e3e6289affc023) - Jorge Bay [LOG-17304](https://logdna.atlassian.net/browse/LOG-17304)
+
+# [1.36.0](https://github.com/answerbook/vector/compare/v1.35.2...v1.36.0) (2024-01-05)
+
+
+### Features
+
+* make http config provider optionally post a heartbeat payload [73f7d95](https://github.com/answerbook/vector/commit/73f7d95a87e0fead63d7c6b1fd32ba511defb6f7) - Adam Holmberg [LOG-18815](https://logdna.atlassian.net/browse/LOG-18815)
+
+
+### Miscellaneous
+
+* Merge pull request #385 from answerbook/holmberg/LOG-18815 [090925e](https://github.com/answerbook/vector/commit/090925eaa4be1560b697c5ea2a68baa1da66d171) - GitHub [LOG-18815](https://logdna.atlassian.net/browse/LOG-18815)
+
+## [1.35.2](https://github.com/answerbook/vector/compare/v1.35.1...v1.35.2) (2024-01-05)
+
+
+### Bug Fixes
+
+* **log_clustering**: Store annotations for changed templates [7dc0095](https://github.com/answerbook/vector/commit/7dc009523bb238e3d79f42bbe91805d416f49f42) - Jorge Bay [LOG-18941](https://logdna.atlassian.net/browse/LOG-18941)
+
+## [1.35.1](https://github.com/answerbook/vector/compare/v1.35.0...v1.35.1) (2024-01-04)
+
+
+### Bug Fixes
+
+* **filename**: update s3 consolidated filename [1dc3a3e](https://github.com/answerbook/vector/commit/1dc3a3e431f97052f34ffa95b4623e2f589e8d5d) - dominic-mcallister-logdna [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
+
+### Miscellaneous
+
+* Merge pull request #384 from answerbook/dominic/LOG-18535_filesize_consolidatedname [7e83412](https://github.com/answerbook/vector/commit/7e83412ff5efcd28f84d8d50665da3a1ba5d5544) - GitHub [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
 # [1.35.0](https://github.com/answerbook/vector/compare/v1.34.0...v1.35.0) (2024-01-03)
 
 

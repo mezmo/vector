@@ -172,9 +172,10 @@ impl<'a> Node<'a> {
 type Tokens<'a> = Vec<&'a str>;
 
 #[derive(PartialEq)]
-pub enum LogUpdateStatus {
-    CreatedCluster,
-    ChangedClusterTemplate,
+pub enum LogClusterStatus {
+    /// Determines that the template was created or has changed
+    ChangedTemplate,
+    /// Defines that the log cluster itself was not affected by the event
     None,
 }
 
@@ -230,7 +231,7 @@ impl<'a> LogParser<'a> {
         self
     }
 
-    pub fn add_log_line(&mut self, line: &str) -> (&LogCluster, LogUpdateStatus) {
+    pub fn add_log_line(&mut self, line: &str) -> (&LogCluster, LogClusterStatus) {
         let tokens = tokenize(line, &self.extra_delimiters);
 
         match self.tree_search(&tokens) {
@@ -242,7 +243,7 @@ impl<'a> LogParser<'a> {
                 self.add_seq_to_prefix_tree(&cluster); // Add the node path to the new cluster.
                 (
                     self.clusters.get_or_insert(cluster_id, || cluster),
-                    LogUpdateStatus::CreatedCluster,
+                    LogClusterStatus::ChangedTemplate,
                 )
             }
             Some(cluster_id) => {
@@ -253,9 +254,9 @@ impl<'a> LogParser<'a> {
                 (
                     cluster,
                     if updated {
-                        LogUpdateStatus::ChangedClusterTemplate
+                        LogClusterStatus::ChangedTemplate
                     } else {
-                        LogUpdateStatus::None
+                        LogClusterStatus::None
                     },
                 )
             }

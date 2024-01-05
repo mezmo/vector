@@ -8,6 +8,7 @@ use codecs::decoding::format::Deserializer;
 use codecs::decoding::format::{JsonDeserializerConfig, JsonDeserializerOptions};
 use codecs::{encoding::FramingConfig, JsonSerializerConfig, MetricTagValues};
 use futures::Stream;
+use regex::Regex;
 use similar_asserts::assert_eq;
 use tokio_stream::StreamExt;
 use vector_core::config::proxy::ProxyConfig;
@@ -37,6 +38,11 @@ use aws_sdk_s3::types::ByteStream;
 use flate2::read::GzEncoder;
 use std::io::Read;
 use std::{thread, time};
+
+fn is_merged_file(file: &str) -> bool {
+    let merged_filename_regex: Regex = Regex::new(r"^.*merged_\d+.log$").unwrap();
+    merged_filename_regex.is_match(file)
+}
 
 #[assay(
     env = [
@@ -202,7 +208,7 @@ async fn s3_file_consolidation_process_no_files() {
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
     let key_prefix = "/".to_owned();
-    let requested_size_bytes: i32 = 10 * 1024 * 1024;
+    let requested_size_bytes: i64 = 10 * 1024 * 1024;
 
     create_bucket(&bucket, false).await;
 
@@ -217,7 +223,7 @@ async fn s3_file_consolidation_process_no_tagged_files() {
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
     let key_prefix = "/".to_string();
-    let requested_size_bytes: i32 = 10 * 1024 * 1024;
+    let requested_size_bytes: i64 = 10 * 1024 * 1024;
     let content_type = "text/x-log".to_string();
 
     create_bucket(&bucket, false).await;
@@ -247,7 +253,7 @@ async fn s3_file_consolidation_process_tag_filters() {
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
     let key_prefix = "/".to_string();
-    let requested_size_bytes: i32 = 1024 * 1024;
+    let requested_size_bytes: i64 = 1024 * 1024;
     let content_type = "text/x-log".to_string();
 
     create_bucket(&bucket, false).await;
@@ -360,7 +366,7 @@ async fn s3_file_consolidation_process_tag_filters() {
     assert!(keys.contains(&"/previous_merge.log".to_string()));
 
     // the new file that should contain the text of the docs
-    if let Some(k) = keys.into_iter().find(|s| s.ends_with("_merged.log")) {
+    if let Some(k) = keys.into_iter().find(|s| is_merged_file(s)) {
         let obj = get_object(&bucket, k).await;
         assert_eq!(obj.content_encoding, Some("identity".to_string()));
         assert_eq!(obj.content_type, Some("text/x-log".to_string()));
@@ -382,7 +388,7 @@ async fn s3_file_consolidation_compressed_files() {
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
     let key_prefix = "/".to_string();
-    let requested_size_bytes: i32 = 20 * 1024 * 1024;
+    let requested_size_bytes: i64 = 20 * 1024 * 1024;
     let content_type = "text/x-log".to_string();
 
     create_bucket(&bucket, false).await;
@@ -449,7 +455,7 @@ async fn s3_file_consolidation_compressed_files() {
     assert_eq!(keys.len(), 1);
 
     // the new file that should contain the text of the docs uncompressed
-    if let Some(k) = keys.into_iter().find(|s| s.ends_with("_merged.log")) {
+    if let Some(k) = keys.into_iter().find(|s| is_merged_file(s)) {
         let obj = get_object(&bucket, k).await;
         assert_eq!(obj.content_encoding, Some("identity".to_string()));
         assert_eq!(obj.content_type, Some("text/x-log".to_string()));
@@ -471,7 +477,7 @@ async fn s3_file_consolidation_multiple_consolidated_files() {
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
     let key_prefix = "/".to_string();
-    let requested_size_bytes: i32 = 1024 * 1024;
+    let requested_size_bytes: i64 = 1024 * 1024;
     let content_type = "text/x-log".to_string();
 
     create_bucket(&bucket, false).await;
@@ -525,7 +531,7 @@ async fn s3_file_consolidation_multiple_consolidated_files() {
 
     let mut i = 0;
     for k in keys.iter() {
-        assert!(k.ends_with("_merged.log"));
+        assert!(is_merged_file(k));
 
         let obj = get_object(&bucket, k.to_string()).await;
         assert_eq!(obj.content_encoding, Some("identity".to_string()));
@@ -548,8 +554,8 @@ async fn s3_file_consolidation_large_files() {
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
-    let key_prefix = "/".to_string();
-    let requested_size_bytes: i32 = 20 * 1024 * 1024;
+    let key_prefix = "unit-test/".to_string();
+    let requested_size_bytes: i64 = 100 * 1024 * 1024;
     let content_type = "text/x-log".to_string();
 
     create_bucket(&bucket, false).await;
@@ -591,9 +597,9 @@ async fn s3_file_consolidation_large_files() {
         compress_text(&str)
     };
 
-    // create a 6 MB file to go over the threshold and use the upload_copy_part
+    // create a 60 MB file to go over the threshold and use the upload_copy_part
     let mut six_megs_uncompressed = BytesMut::new();
-    for _i in 0..60000 {
+    for _i in 0..600000 {
         six_megs_uncompressed.extend_from_slice(hundred_bytes.as_bytes());
         six_megs_uncompressed.extend_from_slice(b"\n");
     }
@@ -638,7 +644,7 @@ async fn s3_file_consolidation_large_files() {
     assert_eq!(keys.len(), 1);
 
     // the new file that should contain the text of the docs
-    if let Some(k) = keys.into_iter().find(|s| s.ends_with("_merged.log")) {
+    if let Some(k) = keys.into_iter().find(|s| is_merged_file(s)) {
         let obj = get_object(&bucket, k).await;
         assert_eq!(obj.content_encoding, Some("identity".to_string()));
         assert_eq!(obj.content_type, Some("text/x-log".to_string()));
@@ -648,7 +654,72 @@ async fn s3_file_consolidation_large_files() {
         // 1 file of 60000 lines
         // newlines between each added file
         let response_lines = get_lines(obj).await;
-        assert_eq!(response_lines.len(), 135026);
+        assert_eq!(response_lines.len(), 675026);
+    } else {
+        panic!("did not find the merged file as expected");
+    }
+}
+
+#[tokio::test]
+async fn s3_file_consolidation_lots_of_10mb_files() {
+    let _cx = SinkContext::new_test();
+
+    let s3_client = client().await;
+    let bucket = uuid::Uuid::new_v4().to_string();
+    let key_prefix = "unit-test/".to_string();
+    let requested_size_bytes: i64 = 5_000_000_000;
+    let content_type = "text/x-log".to_string();
+
+    create_bucket(&bucket, false).await;
+
+    let hundred_bytes = "ozsggnwocqbrtuzwzudhakpibrkfnewnnuoeyopbmshpgcjicrmgasucmizjqycsvjladptmhtygwwystocxsphnyckeijpyfbvy";
+    for i in 0..15 {
+        let mut ten_megs_uncompressed = BytesMut::new();
+        for _i in 0..100_000 {
+            ten_megs_uncompressed.extend_from_slice(hundred_bytes.as_bytes());
+            ten_megs_uncompressed.extend_from_slice(b"\n");
+        }
+
+        let mezmo_pipeline_s3_type_text_tags =
+            generate_tags("mezmo_pipeline_s3_type".to_string(), "text".to_string());
+        let filename = format!("10MB_{}_generated.log", i);
+        put_file(
+            filename,
+            Bytes::from(ten_megs_uncompressed.to_vec()),
+            key_prefix.clone(),
+            bucket.clone(),
+            content_type.clone(),
+            None,
+            mezmo_pipeline_s3_type_text_tags,
+        )
+        .await;
+    }
+
+    let keys = get_keys(&bucket, key_prefix.clone()).await;
+    assert_eq!(keys.len(), 15);
+
+    let fcp = FileConsolidationProcessor::new(
+        &s3_client,
+        bucket.clone(),
+        key_prefix.clone(),
+        requested_size_bytes,
+    );
+    fcp.run().await;
+
+    // validate we're down to 1 file
+    let keys = get_keys(&bucket, key_prefix.clone()).await;
+    assert_eq!(keys.len(), 1);
+
+    // the new file that should contain the text of the docs
+    if let Some(k) = keys.into_iter().find(|s| is_merged_file(s)) {
+        let obj = get_object(&bucket, k).await;
+        assert_eq!(obj.content_encoding, Some("identity".to_string()));
+        assert_eq!(obj.content_type, Some("text/x-log".to_string()));
+        assert_eq!(obj.content_length, 151_500_000);
+
+        // 15 files of 100_000 lines that are all bashed together
+        let response_lines = get_lines(obj).await;
+        assert_eq!(response_lines.len(), 1_500_000);
     } else {
         panic!("did not find the merged file as expected");
     }

@@ -24,7 +24,7 @@ use vector_config::configurable_component;
 use vector_core::config::{log_schema, TransformOutput};
 
 use crate::mezmo::MezmoContext;
-use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogUpdateStatus};
+use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogClusterStatus};
 use crate::transforms::mezmo_log_clustering::store::save_in_loop;
 use vector_core::event::LogEvent;
 use vector_core::usage_metrics::{get_annotations, get_db_config, AnnotationSet};
@@ -323,13 +323,10 @@ impl MezmoLogClustering {
                 key: self.key.as_ref().unwrap().clone(),
             };
 
-            // Send the full cluster information only when it has added/changed
-            if group_status != LogUpdateStatus::None {
+            // Send the full cluster information only when it was added/changed
+            if group_status != LogClusterStatus::None {
                 info.template = Some(format!("{}", group));
-
-                if group_status == LogUpdateStatus::CreatedCluster {
-                    info.annotation_set = log.as_map().and_then(get_annotations);
-                }
+                info.annotation_set = log.as_map().and_then(get_annotations);
             }
 
             if let Err(_) = self.db_tx.as_ref().expect("can't fail").send(info) {

@@ -10589,7 +10589,7 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 [[package]]
 name = "vrl"
 version = "0.7.0"
-source = "git+ssh://git@github.com/answerbook/vrl.git?rev=next#c569498adf5577d2bf5f01fa463ae6f5fa7218ca"
+source = "git+ssh://git@github.com/answerbook/vrl.git?rev=v0.10.0#ca66d3cda79f8210bbdc7054ec665ca2bebde3a1"
 dependencies = [
  "aes",
  "ansi_term",
