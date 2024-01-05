@@ -63,7 +63,7 @@ jobs:
           # - test: 'mongodb'
           # - test: 'nats'
           # - test: 'nginx'
-          # - test: 'prometheus'
+          - test: 'prometheus'
           # - test: 'pulsar'
           # - test: 'redis'
           # - test: 'shutdown'

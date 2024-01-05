@@ -12,14 +12,17 @@ use snafu::{ResultExt, Snafu};
 use tower::Service;
 use vector_config::configurable_component;
 use vector_core::{ByteSizeOf, EstimatedJsonEncodedSizeOf};
+use vrl::value::Value;
 
 use super::collector::{self, MetricCollector as _};
+use crate::config::SinkContext;
 use crate::{
     aws::RegionOrEndpoint,
     config::{self, AcknowledgementsConfig, Input, SinkConfig},
     event::{Event, Metric},
     http::{Auth, HttpClient},
     internal_events::{EndpointBytesSent, TemplateRenderingError},
+    mezmo::user_trace::MezmoUserLog,
     sinks::{
         self,
         prometheus::PrometheusRemoteWriteAuth,
@@ -33,6 +36,7 @@ use crate::{
     },
     template::Template,
     tls::{TlsConfig, TlsSettings},
+    user_log_error,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -219,7 +223,12 @@ impl SinkConfig for RemoteWriteConfig {
             compression: self.compression,
         });
 
-        let healthcheck = healthcheck(client.clone(), Arc::clone(&http_request_builder)).boxed();
+        let healthcheck = healthcheck(
+            client.clone(),
+            Arc::clone(&http_request_builder),
+            cx.clone(),
+        )
+        .boxed();
         let service = RemoteWriteService {
             default_namespace: self.default_namespace.clone(),
             client,
@@ -227,6 +236,7 @@ impl SinkConfig for RemoteWriteConfig {
             quantiles,
             http_request_builder,
             compression: self.compression,
+            cx,
         };
 
         let sink = {
@@ -286,12 +296,26 @@ struct PartitionKey {
 async fn healthcheck(
     client: HttpClient,
     http_request_builder: Arc<HttpRequestBuilder>,
+    cx: config::SinkContext,
 ) -> crate::Result<()> {
     let body = bytes::Bytes::new();
     let request = http_request_builder
         .build_request(http::Method::GET, body.into(), None)
         .await?;
-    let response = client.send(request).await?;
+    let response = client.send(request).await.map_err(|err| {
+        let msg = Value::from(format!("Error returned from destination: {}", err));
+        user_log_error!(cx.mezmo_ctx, msg);
+        err
+    })?;
+
+    let status = response.status();
+    if status.is_client_error() || status.is_server_error() {
+        let msg = Value::from(format!(
+            "Error returned from destination with status code: {}",
+            status
+        ));
+        user_log_error!(cx.mezmo_ctx, msg);
+    }
 
     match response.status() {
         http::StatusCode::OK => Ok(()),
@@ -316,6 +340,7 @@ struct RemoteWriteService {
     quantiles: Vec<f64>,
     http_request_builder: Arc<HttpRequestBuilder>,
     compression: Compression,
+    cx: SinkContext,
 }
 
 impl RemoteWriteService {
@@ -356,15 +381,27 @@ impl Service<PartitionInnerBuffer<Vec<Metric>, PartitionKey>> for RemoteWriteSer
         let client = self.client.clone();
         let request_builder = Arc::clone(&self.http_request_builder);
 
+        let mezmo_ctx = self.cx.mezmo_ctx.clone();
         Box::pin(async move {
             let request = request_builder
                 .build_request(http::Method::POST, body, key.tenant_id)
                 .await?;
 
             let (protocol, endpoint) = uri::protocol_endpoint(request.uri().clone());
+            let response = client.send(request).await.map_err(|err| {
+                let msg = Value::from(format!("Error returned from destination: {}", err));
+                user_log_error!(mezmo_ctx, msg);
+                err
+            })?;
 
-            let response = client.send(request).await?;
             let (parts, body) = response.into_parts();
+            if parts.status.is_client_error() || parts.status.is_server_error() {
+                let msg = Value::from(format!(
+                    "Error returned from destination with status code: {}",
+                    parts.status
+                ));
+                user_log_error!(mezmo_ctx, msg);
+            }
             let body = hyper::body::to_bytes(body).await?;
 
             emit!(EndpointBytesSent {
