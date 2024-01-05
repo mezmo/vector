@@ -1,3 +1,10 @@
+## [1.35.2](https://github.com/answerbook/vector/compare/v1.35.1...v1.35.2) (2024-01-05)
+
+
+### Bug Fixes
+
+* **log_clustering**: Store annotations for changed templates [7dc0095](https://github.com/answerbook/vector/commit/7dc009523bb238e3d79f42bbe91805d416f49f42) - Jorge Bay [LOG-18941](https://logdna.atlassian.net/browse/LOG-18941)
+
 ## [1.35.1](https://github.com/answerbook/vector/compare/v1.35.0...v1.35.1) (2024-01-04)
 
 
