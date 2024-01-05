@@ -1,3 +1,15 @@
+## [1.36.2](https://github.com/answerbook/vector/compare/v1.36.1...v1.36.2) (2024-01-05)
+
+
+### Bug Fixes
+
+* **prometheus**: surface errors in user logs [4336bd2](https://github.com/answerbook/vector/commit/4336bd2ef4f7feb51cce48df754c734fff570963) - Mike Del Tito [LOG-18946](https://logdna.atlassian.net/browse/LOG-18946)
+
+
+### Miscellaneous
+
+* Merge pull request #388 from answerbook/mdeltito/LOG-18946 [d6aeb96](https://github.com/answerbook/vector/commit/d6aeb96f5ac0ff56aff616ed06b6418cf33d0bac) - GitHub [LOG-18946](https://logdna.atlassian.net/browse/LOG-18946)
+
 ## [1.36.1](https://github.com/answerbook/vector/compare/v1.36.0...v1.36.1) (2024-01-05)
 
 
