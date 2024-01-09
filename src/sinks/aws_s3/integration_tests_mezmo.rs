@@ -725,6 +725,47 @@ async fn s3_file_consolidation_lots_of_10mb_files() {
     }
 }
 
+#[tokio::test]
+async fn s3_file_consolidation_large_amount_of_files() {
+    let _cx = SinkContext::new_test();
+
+    let s3_client = client().await;
+    let bucket = uuid::Uuid::new_v4().to_string();
+    let key_prefix = "large-amount-of-files/".to_string();
+    let content_type = "text/x-log".to_string();
+
+    create_bucket(&bucket, false).await;
+
+    // default is 1000 records, so make sure we go over to test the continuation
+    // NOTE: this is an expensive test, takes ~45 seconds locally :/
+    for n in 1..1006 {
+        let mezmo_pipeline_s3_type_ndjson_tags =
+            generate_tags("mezmo_pipeline_s3_type".to_string(), "text".to_string());
+
+        let filename = format!("{}.log", n);
+        let data = Bytes::from(format!("This is the content of {}.log", n));
+
+        put_file(
+            filename,
+            data,
+            key_prefix.clone(),
+            bucket.clone(),
+            content_type.clone(),
+            None,
+            mezmo_pipeline_s3_type_ndjson_tags,
+        )
+        .await;
+    }
+
+    // only s3 created files with ndjson and text will be merged
+    match get_files_to_consolidate(&s3_client, bucket.clone(), key_prefix.clone()).await {
+        Ok(files) => {
+            assert_eq!(files.len(), 1005);
+        }
+        Err(err) => panic!("Retrieving files should not error: {}", err),
+    };
+}
+
 async fn put_file(
     file_name: String,
     content: Bytes,
