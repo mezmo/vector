@@ -127,7 +127,7 @@ async fn azure_blob_insert_json_into_blob() {
     );
     let expected = events
         .iter()
-        .map(|event| serde_json::to_string(&event.as_log().all_fields().unwrap()).unwrap())
+        .map(|event| serde_json::to_string(&event.as_log().all_event_fields().unwrap()).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(expected, blob_lines);
 }
@@ -188,7 +188,7 @@ async fn azure_blob_insert_json_into_blob_gzip() {
     );
     let expected = events
         .iter()
-        .map(|event| serde_json::to_string(&event.as_log().all_fields().unwrap()).unwrap())
+        .map(|event| serde_json::to_string(&event.as_log().all_event_fields().unwrap()).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(expected, blob_lines);
 }

@@ -115,7 +115,7 @@ impl<T: Bufferable> LimitedSender<T> {
         self.inner
             .data
             .push((permits, item))
-            .expect("acquired permits but channel reported being full");
+            .unwrap_or_else(|_| unreachable!("acquired permits but channel reported being full"));
         self.inner.read_waker.notify_one();
 
         trace!("Sent item.");
@@ -131,6 +131,10 @@ impl<T: Bufferable> LimitedSender<T> {
     /// `Err(TrySendError::Disconnected)` be returned with the given `item`. If the channel has
     /// insufficient capacity for the item, then `Err(TrySendError::InsufficientCapacity)` will be
     /// returned with the given `item`.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if adding ack amount overflows.
     pub fn try_send(&mut self, item: T) -> Result<(), TrySendError<T>> {
         // Calculate how many permits we need, and try to acquire them all without waiting.
         let permits_required = self.get_required_permits_for_item(&item);
@@ -152,7 +156,7 @@ impl<T: Bufferable> LimitedSender<T> {
         self.inner
             .data
             .push((permits, item))
-            .expect("acquired permits but channel reported being full");
+            .unwrap_or_else(|_| unreachable!("acquired permits but channel reported being full"));
         self.inner.read_waker.notify_one();
 
         trace!("Attempt to send item succeeded.");

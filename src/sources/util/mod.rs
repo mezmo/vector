@@ -15,7 +15,7 @@ pub mod grpc;
     feature = "sources-utils-http-query"
 ))]
 pub mod http;
-#[cfg(any(feature = "sources-http_client", feature = "sources-prometheus"))]
+#[cfg(any(feature = "sources-http_client", feature = "sources-prometheus-scrape",))]
 pub mod http_client;
 #[cfg(any(feature = "sources-aws_sqs", feature = "sources-gcp_pubsub"))]
 mod message_decoding;
@@ -52,7 +52,8 @@ pub use self::body_decoding::Encoding;
 #[cfg(feature = "sources-utils-http-query")]
 pub use self::http::add_query_parameters;
 #[cfg(any(
-    feature = "sources-prometheus",
+    feature = "sources-prometheus-scrape",
+    feature = "sources-prometheus-remote-write",
     feature = "sources-utils-http-encoding"
 ))]
 pub use self::http::decode;

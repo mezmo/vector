@@ -148,6 +148,7 @@ Podcast
 Podkicker
 Positivo
 Prestigio
+pront
 Proscan
 Qmobilevn
 RPZ
@@ -249,6 +250,7 @@ corejs
 coreutils
 curta
 daemonset
+dalek
 databend
 datacenter
 datadog
@@ -403,9 +405,12 @@ rootfs
 roundrobin
 rpmbuild
 rpms
+rstest
 rsyslog
 rsyslogd
+security-tab
 servlet
+sublocation
 snyk
 socketaddr
 solarwinds

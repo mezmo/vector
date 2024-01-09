@@ -236,13 +236,29 @@ pub trait SinkConfig: DynClone + NamedComponent + core::fmt::Debug + Send + Sync
 
 dyn_clone::clone_trait_object!(SinkConfig);
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct SinkContext {
     pub healthcheck: SinkHealthcheckOptions,
     pub globals: GlobalOptions,
     pub proxy: ProxyConfig,
     pub schema: schema::Options,
     pub mezmo_ctx: Option<MezmoContext>,
+    pub app_name: String,
+    pub app_name_slug: String,
+}
+
+impl Default for SinkContext {
+    fn default() -> Self {
+        Self {
+            healthcheck: Default::default(),
+            globals: Default::default(),
+            proxy: Default::default(),
+            schema: Default::default(),
+            mezmo_ctx: None,
+            app_name: crate::get_app_name().to_string(),
+            app_name_slug: crate::get_slugified_app_name(),
+        }
+    }
 }
 
 impl SinkContext {
@@ -254,6 +270,8 @@ impl SinkContext {
             proxy: ProxyConfig::default(),
             schema: schema::Options::default(),
             mezmo_ctx: None,
+            app_name: crate::get_app_name().to_string(),
+            app_name_slug: crate::get_slugified_app_name(),
         }
     }
 

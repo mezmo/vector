@@ -37,6 +37,7 @@ impl Log {
     pub fn get_timestamp(&self) -> Option<&DateTime<Utc>> {
         // Mezmo: this is wrong upstream, it should use the `log_schema` field, but it's
         // not affecting anything since we've settled on the  default
+        // NOTE: DO NOT switch to using `event_path!` as done elsewhere.
         self.event.get("timestamp")?.as_timestamp()
     }
 }
@@ -88,6 +89,7 @@ impl Log {
 
     /// Get JSON field data on the log event, by field name
     async fn json(&self, field: String) -> Option<String> {
+        // NOTE: DO NOT switch to using `event_path!` as done elsewhere. This breaks nested lookups.
         self.event.get(field.as_str()).map(|field| {
             serde_json::to_string(field)
                 .expect("JSON serialization of trace event field failed. Please report.")

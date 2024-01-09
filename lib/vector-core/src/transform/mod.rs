@@ -280,8 +280,13 @@ impl TransformOutputs {
                     .sum()
             });
 
-            let send_buf = buf.primary_buffer.as_mut().expect("mismatched outputs");
+            let send_buf = buf
+                .primary_buffer
+                .as_mut()
+                .unwrap_or_else(|| unreachable!("mismatched outputs"));
+
             Self::send_single_buffer(send_buf, primary).await?;
+
             // We only want to track the primary transform output.
             // Named outputs are for stuff like route/swimlanes that we don't want to track atm.
             // We only want to capture the traffic of the remap transform after the node representing
@@ -289,7 +294,10 @@ impl TransformOutputs {
             usage_tracker.track_output(usage_profile);
         }
         for (key, buf) in &mut buf.named_buffers {
-            let output = self.named_outputs.get_mut(key).expect("unknown output");
+            let output = self
+                .named_outputs
+                .get_mut(key)
+                .unwrap_or_else(|| unreachable!("unknown output"));
             Self::send_single_buffer(buf, output).await?;
 
             // TODO: track named outputs
@@ -370,7 +378,11 @@ impl TransformOutputsBuf {
         }
     }
 
-    /// Adds a new event to the transform output buffer
+    /// Adds a new event to the named output buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is no output with the given name.
     pub fn push(&mut self, name: Option<&str>, event: Event) {
         match name {
             Some(name) => self.named_buffers.get_mut(name),
@@ -380,6 +392,11 @@ impl TransformOutputsBuf {
         .push(event);
     }
 
+    /// Drains the default output buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is no default output.
     #[cfg(any(feature = "test", test))]
     pub fn drain(&mut self) -> impl Iterator<Item = Event> + '_ {
         self.primary_buffer
@@ -388,6 +405,11 @@ impl TransformOutputsBuf {
             .drain()
     }
 
+    /// Drains the named output buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is no output with the given name.
     #[cfg(any(feature = "test", test))]
     pub fn drain_named(&mut self, name: &str) -> impl Iterator<Item = Event> + '_ {
         self.named_buffers
@@ -396,6 +418,11 @@ impl TransformOutputsBuf {
             .drain()
     }
 
+    /// Takes the default output buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is no default output.
     #[cfg(any(feature = "test", test))]
     pub fn take_primary(&mut self) -> OutputBuffer {
         std::mem::take(self.primary_buffer.as_mut().expect("no default output"))

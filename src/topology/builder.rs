@@ -273,6 +273,7 @@ impl<'a> Builder<'a> {
                 let (mut fanout, control) = Fanout::new();
                 let usage_tracker =
                     get_component_usage_tracker(&source_name, &self.metrics_tx.clone());
+                let source_type = source.inner.get_component_name();
                 let source = Arc::new(key.clone());
 
                 let pump = async move {
@@ -281,7 +282,7 @@ impl<'a> Builder<'a> {
                     while let Some(mut array) = rx.next().await {
                         usage_tracker.track(&array);
                         array.set_output_id(&source);
-
+                        array.set_source_type(source_type);
                         fanout.send(array).await.map_err(|e| {
                             debug!("Source pump finished with an error.");
                             TaskError::wrapped(e)
@@ -604,6 +605,8 @@ impl<'a> Builder<'a> {
                 proxy: ProxyConfig::merge_with_env(&self.config.global.proxy, sink.proxy()),
                 schema: self.config.schema,
                 mezmo_ctx,
+                app_name: crate::get_app_name().to_string(),
+                app_name_slug: crate::get_slugified_app_name(),
             };
 
             let (sink, healthcheck) = match sink.inner.build(cx).await {

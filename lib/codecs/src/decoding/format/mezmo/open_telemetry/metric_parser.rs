@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, TimeZone, Utc};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 
@@ -1187,9 +1187,10 @@ fn make_event(mut log_event: LogEvent) -> Event {
                 let ts = ts.as_integer().unwrap();
                 let ms: i64 = ts / NANO_RATIO;
                 let nanos: u32 = (ts % NANO_RATIO) as u32;
-                let ts = NaiveDateTime::from_timestamp_opt(ms, nanos)
-                    .expect("timestamp should be a valid timestamp");
-                DateTime::<Utc>::from_utc(ts, Utc)
+                Utc.from_utc_datetime(
+                    &NaiveDateTime::from_timestamp_opt(ms, nanos)
+                        .expect("timestamp should be a valid timestamp"),
+                )
             }
             None => Utc::now(),
         };

@@ -33,6 +33,10 @@ pub const NUM_GROUPS: usize = 4096;
 // this thread -- the main thread -- ensuring that they see the latest value of TRACK_ALLOCATIONS.
 pub static TRACK_ALLOCATIONS: AtomicBool = AtomicBool::new(false);
 
+pub fn is_allocation_tracing_enabled() -> bool {
+    TRACK_ALLOCATIONS.load(Ordering::Acquire)
+}
+
 /// Track allocations and deallocations separately.
 struct GroupMemStatsStorage {
     allocations: [AtomicU64; NUM_GROUPS],
@@ -213,6 +217,6 @@ pub fn acquire_allocation_group_id(
     // TODO: Technically, `NUM_GROUPS` is lower (128) than the upper bound for the
     // `AllocationGroupId::register` call itself (253), so we can hardcode `NUM_GROUPS` here knowing
     // it's the lower of the two values and will trigger first.. but this may not always be true.
-    info!("Maximum number of registrable allocation group IDs reached ({}). Allocations for component '{}' will be attributed to the root allocation group.", NUM_GROUPS, component_id);
+    warn!("Maximum number of registrable allocation group IDs reached ({}). Allocations for component '{}' will be attributed to the root allocation group.", NUM_GROUPS, component_id);
     AllocationGroupId::ROOT
 }
