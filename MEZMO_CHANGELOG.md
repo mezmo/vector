@@ -1,3 +1,15 @@
+## [2.0.1](https://github.com/answerbook/vector/compare/v2.0.0...v2.0.1) (2024-01-09)
+
+
+### Bug Fixes
+
+* **s3 consolidation**: large file copy source [8df07c0](https://github.com/answerbook/vector/commit/8df07c03171ad37b309772e4fe99daf135e3ed31) - dominic-mcallister-logdna [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
+
+### Miscellaneous
+
+* Merge pull request #389 from answerbook/dominic/LOG-18535 [dec3be9](https://github.com/answerbook/vector/commit/dec3be9a0bc5a69cf4b2e3a84ba2ef78e6bc21cd) - GitHub [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
 # [2.0.0](https://github.com/answerbook/vector/compare/v1.36.2...v2.0.0) (2024-01-09)
 
 
