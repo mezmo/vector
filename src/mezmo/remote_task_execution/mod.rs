@@ -105,7 +105,6 @@ async fn run_task_step(
 struct Task {
     task_id: String,
     task_type: String,
-    pipeline_id: String,
     task_parameters: TaskParameters,
     age_secs: isize,
 }
@@ -205,9 +204,7 @@ async fn post_task_results(
     task: &Task,
     results: &Result<TaskResult, Err>,
 ) -> Result<(), Err> {
-    let endpoint_url = endpoint_url
-        .replace(":task_id", &task.task_id)
-        .replace(":pipeline_id", &task.pipeline_id);
+    let endpoint_url = endpoint_url.replace(":task_id", &task.task_id);
 
     let resp = client
         .post(&endpoint_url)
@@ -331,7 +328,7 @@ mod tests {
     use super::*;
 
     use httptest::{
-        matchers::{all_of, contains, json_decoded, request, url_decoded},
+        matchers::{all_of, json_decoded, request},
         responders::{json_encoded, status_code},
         Expectation, Server,
     };
@@ -340,7 +337,7 @@ mod tests {
     #[tokio::test]
     async fn fetches_tasks_and_reports_errors() {
         let get_path = "/fake/get/url";
-        let post_path = "/fake/post/:task_id/url?pipeline_id=:pipeline_id";
+        let post_path = "/fake/post/:task_id/url";
         let server = Server::run();
         server.expect(
             Expectation::matching(all_of![request::method("GET"), request::path(get_path),])
@@ -349,7 +346,6 @@ mod tests {
                     "data": [{
                         "task_id": "task1",
                         "task_type": "tap",
-                        "pipeline_id": "pip1",
                         "age_secs": 1,
                         "task_parameters": {"component_id": "comp1", "limit": 1, "timeout_ms": 1000},
                     }]
@@ -360,7 +356,6 @@ mod tests {
             Expectation::matching(all_of![
                 request::method("POST"),
                 request::path("/fake/post/task1/url"),
-                request::query(url_decoded(contains(("pipeline_id", "pip1")))),
                 request::body(json_decoded(|v: &serde_json::Value| -> bool {
                     if let Some(errors) = v["errors"].as_array() {
                         // API is not enabled in the test so the graphQL query should fail
