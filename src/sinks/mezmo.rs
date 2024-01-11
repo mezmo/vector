@@ -25,7 +25,7 @@ use crate::{
     template::{Template, TemplateRenderingError},
 };
 
-const PATH: &str = "/logs/ingest";
+const DEFAULT_ROUTE: &str = "logs/ingest";
 const LINE_KEY: &str = "line";
 const META_KEY: &str = "meta";
 const TIMESTAMP_KEY: &str = "timestamp";
@@ -87,6 +87,10 @@ pub struct MezmoConfig {
     #[configurable(metadata(docs::examples = "http://127.0.0.1"))]
     #[configurable(metadata(docs::examples = "http://example.com"))]
     endpoint: UriSerde,
+
+    /// The HTTP route to use for the ingestion endpoint
+    #[serde(default = "default_route")]
+    route: String,
 
     /// Line object config options
     /// Whether or not to use the entire message object as the line,
@@ -185,6 +189,10 @@ fn default_endpoint() -> UriSerde {
 
 fn default_app() -> String {
     "vector".to_owned()
+}
+
+fn default_route() -> String {
+    DEFAULT_ROUTE.to_owned()
 }
 
 fn default_env() -> String {
@@ -637,7 +645,7 @@ impl MezmoConfig {
     fn build_uri(&self, query: &str) -> Uri {
         let host = &self.endpoint.uri;
 
-        let uri = format!("{}{}?{}", host, PATH, query);
+        let uri = format!("{}{}?{}", host, self.route.trim_matches('/'), query);
 
         uri.parse::<http::Uri>()
             .expect("This should be a valid uri")
@@ -1199,6 +1207,7 @@ mod tests {
             ip_template = "127.0.0.1"
             mac_template = "some-mac-addr"
             hostname = "{{ hostname }}"
+            route = "/test"
             tags = ["{{ test }}", "maybeanothertest"]
         "#,
         )
@@ -1268,6 +1277,8 @@ mod tests {
                 let body: serde_json::Value = serde_json::from_slice(&output.1[..]).unwrap();
 
                 let query = request.uri.query().unwrap();
+                let path = request.uri.path().to_string();
+                assert_eq!(path, "/test");
 
                 let (p, _) = hosts
                     .iter()
