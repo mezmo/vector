@@ -391,7 +391,7 @@ struct DefaultComponentTracker {
 
 impl ComponentUsageTracker for DefaultComponentTracker {
     fn track(&self, array: &EventArray) {
-        let usage = get_size_and_profile(array);
+        let usage = get_size_and_profile(array, self.key.is_tracked_for_profiling());
         track_usage(&self.metrics_tx, &self.key, usage);
     }
 }
@@ -407,7 +407,7 @@ impl OutputUsageTracker for DefaultOutputTracker {
     }
 
     fn get_size_and_profile(&self, array: &EventArray) -> UsageProfileValue {
-        get_size_and_profile(array)
+        get_size_and_profile(array, self.target_key.is_tracked_for_profiling())
     }
 }
 
@@ -432,7 +432,7 @@ fn add_annotation_value(
 
 /// Estimates the byte size of a group of events according to Mezmo billing practices, documented in the ADR
 /// <https://github.com/answerbook/pipeline-prototype/blob/main/doc/adr/0018-billing-ingress-egress.md>
-fn get_size_and_profile(array: &EventArray) -> UsageProfileValue {
+fn get_size_and_profile(array: &EventArray, add_annotations: bool) -> UsageProfileValue {
     match array {
         EventArray::Logs(a) => {
             let total_count = array.len();
@@ -450,15 +450,17 @@ fn get_size_and_profile(array: &EventArray) -> UsageProfileValue {
 
                     total_size += size;
 
-                    if let Some(annotation_set) = get_annotations(fields) {
-                        add_annotation_value(
-                            &mut usage_by_annotation,
-                            annotation_set,
-                            &UsageMetricsValue {
-                                total_count: 1,
-                                total_size: size,
-                            },
-                        );
+                    if add_annotations {
+                        if let Some(annotation_set) = get_annotations(fields) {
+                            add_annotation_value(
+                                &mut usage_by_annotation,
+                                annotation_set,
+                                &UsageMetricsValue {
+                                    total_count: 1,
+                                    total_size: size,
+                                },
+                            );
+                        }
                     }
                 }
             }
@@ -970,6 +972,14 @@ mod tests {
             !value.is_tracked_for_billing(),
             "Kafka source should NOT be tracked"
         );
+
+        let value: UsageMetricsKey = "v1:blackhole:internal_sink:no_output_blackhole:shared:shared"
+            .parse()
+            .unwrap();
+        assert!(
+            !value.is_tracked_for_profiling(),
+            "Blackhole source should NOT be tracked"
+        );
     }
 
     #[test]
@@ -1030,7 +1040,7 @@ mod tests {
         event_map.insert("another_ignored".into(), 1.into());
         event_map.insert(log_schema().message_key().unwrap().to_string(), 9.into());
         let event: LogEvent = event_map.into();
-        let usage_profile = get_size_and_profile(&event.into());
+        let usage_profile = get_size_and_profile(&event.into(), true);
         assert_eq!(
             usage_profile.total_size, 8,
             "only accounts for the value of message"
@@ -1048,7 +1058,7 @@ mod tests {
         event_map.insert(log_schema().user_metadata_key().into(), "world".into());
         let event: LogEvent = event_map.into();
         assert_eq!(
-            get_size_and_profile(&event.into()).total_size,
+            get_size_and_profile(&event.into(), false).total_size,
             "hello world".len(),
             "value of message and meta"
         );
@@ -1068,7 +1078,7 @@ mod tests {
         );
         let event: LogEvent = event_map.into();
         assert_eq!(
-            get_size_and_profile(&event.into()).total_size,
+            get_size_and_profile(&event.into(), false).total_size,
             BASE_BTREE_SIZE + "propX".len() * 4 + 28
         );
     }
