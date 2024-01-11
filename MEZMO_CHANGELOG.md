@@ -1,3 +1,15 @@
+## [2.1.1](https://github.com/answerbook/vector/compare/v2.1.0...v2.1.1) (2024-01-11)
+
+
+### Chores
+
+* pipeline_id is no longer a thing in remote task results [cd867d5](https://github.com/answerbook/vector/commit/cd867d56b79b54945e2a811a7557494ac2546a87) - Adam Holmberg [LOG-18815](https://logdna.atlassian.net/browse/LOG-18815)
+
+
+### Miscellaneous
+
+* Merge pull request #395 from answerbook/holmberg/LOG-18815 [d43a698](https://github.com/answerbook/vector/commit/d43a69811aa5b809dfe18bea38ff3a26086b3e95) - GitHub [LOG-18815](https://logdna.atlassian.net/browse/LOG-18815)
+
 # [2.1.0](https://github.com/answerbook/vector/compare/v2.0.2...v2.1.0) (2024-01-11)
 
 
