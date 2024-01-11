@@ -1,3 +1,15 @@
+# [2.1.0](https://github.com/answerbook/vector/compare/v2.0.2...v2.1.0) (2024-01-11)
+
+
+### Features
+
+* **mezmo-sink**: add config for the LA route [a5df87f](https://github.com/answerbook/vector/commit/a5df87fc75487dc784fe11c6f7fcf4a0f4339b8d) - Mike Del Tito [LOG-19010](https://logdna.atlassian.net/browse/LOG-19010)
+
+
+### Miscellaneous
+
+* Merge pull request #394 from answerbook/mdeltito/LOG-19010 [00dcbad](https://github.com/answerbook/vector/commit/00dcbadf42724eaf0d392d9ca10d9962d185e8b8) - GitHub [LOG-19010](https://logdna.atlassian.net/browse/LOG-19010)
+
 ## [2.0.2](https://github.com/answerbook/vector/compare/v2.0.1...v2.0.2) (2024-01-11)
 
 
