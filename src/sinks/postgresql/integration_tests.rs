@@ -14,10 +14,8 @@ use futures_util::{stream, Stream};
 use std::env;
 use tokio_postgres::{Client, NoTls};
 use vector_common::finalization::BatchNotifier;
-use vector_core::event::{
-    Event, EventArray, LogEvent, Metric, MetricKind, MetricTags, MetricValue,
-};
-use vector_core::sink::VectorSink;
+use vector_lib::event::{Event, EventArray, LogEvent, Metric, MetricKind, MetricTags, MetricValue};
+use vector_lib::sink::VectorSink;
 
 fn connection_string() -> String {
     env::var("PG_URL").unwrap_or_else(|_| {

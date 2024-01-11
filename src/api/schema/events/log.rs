@@ -2,10 +2,11 @@ use std::borrow::Cow;
 
 use async_graphql::Object;
 use chrono::{DateTime, Utc};
-use vector_common::encode_logfmt;
+use vector_lib::encode_logfmt;
 
 use super::EventEncodingType;
-use crate::{config::log_schema, event, topology::TapOutput};
+use crate::topology::TapOutput;
+use vector_lib::{config::log_schema, event};
 
 #[derive(Debug, Clone)]
 pub struct Log {

@@ -7,9 +7,9 @@ use crate::{
     transforms::{TaskTransform, Transform},
 };
 use futures::StreamExt;
-use vector_config::configurable_component;
-use vector_core::{
+use vector_lib::{
     config::{log_schema, TransformOutput},
+    configurable::configurable_component,
     usage_metrics::value_size,
 };
 
@@ -146,7 +146,7 @@ impl TransformConfig for LogClassificationConfig {
 
     fn outputs(
         &self,
-        _: enrichment::TableRegistry,
+        _: vector_lib::enrichment::TableRegistry,
         _: &[(OutputId, Definition)],
         _: LogNamespace,
     ) -> Vec<TransformOutput> {
@@ -278,8 +278,8 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
-    use vector_common::btreemap;
-    use vector_core::event::Value;
+    use vector_lib::btreemap;
+    use vector_lib::event::Value;
 
     use super::*;
     use crate::event::{Event, LogEvent};

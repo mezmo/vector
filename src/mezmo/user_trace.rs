@@ -13,8 +13,8 @@ use tokio::sync::broadcast::{self, Receiver, Sender};
 use tokio_stream::wrappers::BroadcastStream;
 use tower::Service;
 use tracing::log::Level;
-use vector_core::event::metric::mezmo::TransformError;
-use vector_core::{event::LogEvent, ByteSizeOf};
+use vector_lib::event::metric::mezmo::TransformError;
+use vector_lib::{event::LogEvent, ByteSizeOf};
 use vrl::value::Value;
 
 use crate::http::HttpError;

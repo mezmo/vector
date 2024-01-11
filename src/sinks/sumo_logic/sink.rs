@@ -21,12 +21,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::{BoxStream, StreamExt};
 use tower::Service;
-use vector_common::{
+use vector_lib::{
+    event::Value,
     finalization::{EventFinalizers, Finalizable},
     request_metadata::RequestMetadata,
-};
-use vector_core::{
-    event::Value,
     sink::StreamSink,
     stream::{BatcherSettings, DriverResponse},
 };
@@ -183,7 +181,7 @@ where
         );
 
         input
-            .batched(self.batcher_settings.into_byte_size_config())
+            .batched(self.batcher_settings.as_byte_size_config())
             .request_builder(builder_limit, request_builder)
             .filter_map(
                 |request: Result<SumoLogicApiRequest, SumoLogicSinkError>| async move {

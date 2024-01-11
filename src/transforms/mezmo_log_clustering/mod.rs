@@ -20,14 +20,14 @@ use futures::StreamExt;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, OnceCell};
 use uuid::Uuid;
-use vector_config::configurable_component;
-use vector_core::config::{log_schema, TransformOutput};
+use vector_lib::config::{log_schema, TransformOutput};
+use vector_lib::configurable::configurable_component;
 
 use crate::mezmo::MezmoContext;
 use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogClusterStatus};
 use crate::transforms::mezmo_log_clustering::store::save_in_loop;
-use vector_core::event::LogEvent;
-use vector_core::usage_metrics::{get_annotations, get_db_config, AnnotationSet};
+use vector_lib::event::LogEvent;
+use vector_lib::usage_metrics::{get_annotations, get_db_config, AnnotationSet};
 use vrl::value::Value;
 
 mod drain;
@@ -157,7 +157,7 @@ impl TransformConfig for MezmoLogClusteringConfig {
 
     fn outputs(
         &self,
-        _: enrichment::TableRegistry,
+        _: vector_lib::enrichment::TableRegistry,
         _: &[(OutputId, Definition)],
         _: LogNamespace,
     ) -> Vec<TransformOutput> {

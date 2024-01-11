@@ -6,14 +6,14 @@ use std::{
     path::PathBuf,
 };
 
-use codecs::MetricTagValues;
-use lookup::{metadata_path, owned_value_path, PathPrefix};
 use snafu::{ResultExt, Snafu};
-use vector_common::TimeZone;
-use vector_config::configurable_component;
-use vector_core::compile_vrl;
-use vector_core::config::{LogNamespace, OutputId, TransformOutput};
-use vector_core::schema::Definition;
+use vector_lib::codecs::MetricTagValues;
+use vector_lib::compile_vrl;
+use vector_lib::config::{LogNamespace, OutputId, TransformOutput};
+use vector_lib::configurable::configurable_component;
+use vector_lib::lookup::{metadata_path, owned_value_path, PathPrefix};
+use vector_lib::schema::Definition;
+use vector_lib::TimeZone;
 use vector_vrl_functions::set_semantic_meaning::MeaningList;
 use vrl::compiler::runtime::{Runtime, Terminate};
 use vrl::compiler::state::ExternalEnv;
@@ -137,7 +137,7 @@ pub struct RemapConfig {
 impl RemapConfig {
     pub(crate) fn compile_vrl_program(
         &self,
-        enrichment_tables: enrichment::TableRegistry,
+        enrichment_tables: vector_lib::enrichment::TableRegistry,
         merged_schema_definition: schema::Definition,
         mezmo_ctx: Option<MezmoContext>,
     ) -> Result<(Program, String, Vec<Box<dyn Function>>, CompileConfig)> {
@@ -157,7 +157,7 @@ impl RemapConfig {
         };
 
         let mut functions = vrl::stdlib::all();
-        functions.append(&mut enrichment::vrl_functions());
+        functions.append(&mut vector_lib::enrichment::vrl_functions());
         functions.append(&mut vector_vrl_functions::all());
         functions.append(&mut mezmo_vrl_functions::vrl_functions());
 
@@ -224,7 +224,7 @@ impl TransformConfig for RemapConfig {
 
     fn outputs(
         &self,
-        _: enrichment::TableRegistry,
+        _enrichment_tables: vector_lib::enrichment::TableRegistry,
         input_definitions: &[(OutputId, schema::Definition)],
         _: LogNamespace,
     ) -> Vec<TransformOutput> {
@@ -576,7 +576,8 @@ mod tests {
     use std::sync::Arc;
 
     use indoc::{formatdoc, indoc};
-    use vector_core::{config::GlobalOptions, event::EventMetadata, metric_tags};
+    use vector_lib::{config::GlobalOptions, event::EventMetadata, metric_tags};
+    // use vrl::value::kind::Collection;
     use vrl::{btreemap, event_path};
 
     use super::*;
@@ -594,9 +595,9 @@ mod tests {
         transforms::OutputBuffer,
     };
     use chrono::DateTime;
-    use enrichment::TableRegistry;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
+    use vector_lib::enrichment::TableRegistry;
 
     fn test_default_schema_definition() -> schema::Definition {
         schema::Definition::empty_legacy_namespace().with_event_field(
@@ -1415,13 +1416,20 @@ mod tests {
 
         // assert_eq!(
         //     conf.outputs(
-        //         &schema::Definition::new_with_default_metadata(
-        //             Kind::any_object(),
-        //             [LogNamespace::Legacy]
-        //         ),
+        //         vector_lib::enrichment::TableRegistry::default(),
+        //         &[(
+        //             "test".into(),
+        //             schema::Definition::new_with_default_metadata(
+        //                 Kind::any_object(),
+        //                 [LogNamespace::Legacy]
+        //             )
+        //         )],
         //         LogNamespace::Legacy
         //     ),
-        //     vec![Output::default(DataType::all()).with_schema_definition(schema_definition)]
+        //     vec![TransformOutput::new(
+        //         DataType::all(),
+        //         [("test".into(), schema_definition)].into()
+        //     )]
         // );
 
         let context = TransformContext {
@@ -1824,7 +1832,7 @@ mod tests {
             ..Default::default()
         };
 
-        let enrichment_tables = enrichment::TableRegistry::default();
+        let enrichment_tables = vector_lib::enrichment::TableRegistry::default();
 
         let outputs1 = transform1.outputs(
             enrichment_tables,

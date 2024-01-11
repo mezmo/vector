@@ -4,7 +4,7 @@ use hyper::Body;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use url::Url;
-use vector_core::{
+use vector_lib::{
     config::proxy::ProxyConfig,
     tls::{TlsConfig, TlsSettings},
 };

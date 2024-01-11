@@ -62,6 +62,7 @@ pub fn compile(
         provider: _,
         secret,
         graceful_shutdown_duration,
+        allow_empty: _,
     } = builder;
 
     let graph = match Graph::new(&sources, &transforms, &sinks, schema) {
@@ -237,7 +238,7 @@ const fn is_glob_reserved_char(c: char) -> bool {
 mod test {
     use super::*;
     use crate::test_util::mock::{basic_sink, basic_source, basic_transform};
-    use vector_core::config::ComponentKey;
+    use vector_lib::config::ComponentKey;
 
     #[test]
     fn glob_expansion() {

@@ -13,7 +13,7 @@ use std::{
 };
 use tokio::time::sleep;
 use url::Url;
-use vector_api_client::{
+use vector_lib::api_client::{
     connect_subscription_client,
     gql::{
         output_events_by_component_id_patterns_subscription::OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns,

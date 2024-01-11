@@ -4,7 +4,7 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt as _;
 use tokio::sync::{mpsc, Mutex, MutexGuard};
-use vector_core::usage_metrics::UsageMetrics;
+use vector_lib::usage_metrics::UsageMetrics;
 
 #[cfg(feature = "api")]
 use crate::api;

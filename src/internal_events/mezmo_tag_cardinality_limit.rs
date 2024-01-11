@@ -1,6 +1,8 @@
-use crate::emit;
 use metrics::counter;
-use vector_core::internal_event::{ComponentEventsDropped, InternalEvent, INTENTIONAL};
+use vector_lib::{
+    emit,
+    internal_event::{ComponentEventsDropped, InternalEvent, INTENTIONAL},
+};
 
 pub struct MezmoTagCardinalityLimitRejectingEvent<'a> {
     pub tag_key: &'a str,

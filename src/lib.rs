@@ -33,6 +33,8 @@
 extern crate tracing;
 #[macro_use]
 extern crate derivative;
+#[macro_use]
+extern crate vector_lib;
 
 #[cfg(all(feature = "tikv-jemallocator", not(feature = "allocation-tracing")))]
 #[global_allocator]
@@ -132,8 +134,8 @@ pub mod vector_windows;
 pub mod mezmo;
 
 pub use source_sender::SourceSender;
-pub use vector_common::{shutdown, Error, Result};
-pub use vector_core::{event, metrics, schema, tcp, tls};
+pub use vector_lib::{event, metrics, schema, tcp, tls};
+pub use vector_lib::{shutdown, Error, Result};
 
 static APP_NAME_SLUG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -234,7 +236,10 @@ where
     T: Send + 'static,
 {
     #[cfg(tokio_unstable)]
-    return tokio::task::Builder::new().name(_name).spawn(task);
+    return tokio::task::Builder::new()
+        .name(_name)
+        .spawn(task)
+        .expect("tokio task should spawn");
 
     #[cfg(not(tokio_unstable))]
     tokio::spawn(task)

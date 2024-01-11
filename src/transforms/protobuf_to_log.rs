@@ -1,8 +1,11 @@
 use std::collections::BTreeMap;
-use vector_config::configurable_component;
-use vector_core::{config::LogNamespace, event::Value};
-
-use codecs::decoding::MezmoDeserializer;
+use vector_lib::{
+    codecs::decoding::MezmoDeserializer,
+    config::{log_schema, LogNamespace, TransformOutput},
+    configurable::configurable_component,
+    event::Value,
+    lookup::PathPrefix,
+};
 
 use crate::mezmo::user_trace::handle_deserializer_error;
 
@@ -13,9 +16,6 @@ use crate::{
     schema,
     transforms::{FunctionTransform, OutputBuffer, Transform},
 };
-
-use lookup::PathPrefix;
-use vector_core::config::{log_schema, TransformOutput};
 
 /// The Enum to choose a protobuf vendor.
 #[configurable_component]
@@ -74,7 +74,7 @@ impl TransformConfig for ProtobufToLogConfig {
 
     fn outputs(
         &self,
-        _: enrichment::TableRegistry,
+        _: vector_lib::enrichment::TableRegistry,
         _: &[(OutputId, schema::Definition)],
         _: LogNamespace,
     ) -> Vec<TransformOutput> {
@@ -205,7 +205,7 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
-    use vector_core::event::Value;
+    use vector_lib::event::Value;
 
     use crate::event::{Event, LogEvent};
     use crate::test_util::components::assert_transform_compliance;

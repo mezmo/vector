@@ -6,12 +6,12 @@ use std::{
 
 use async_stream::stream;
 use futures::{Stream, StreamExt};
-use vector_config::configurable_component;
-use vector_core::{
+use vector_lib::configurable::configurable_component;
+use vector_lib::{
     config::LogNamespace,
     event::{metric::mezmo::to_metric, Metric},
 };
-use vector_core::{
+use vector_lib::{
     config::{OutputId, TransformOutput},
     event::metric::mezmo::from_metric,
 };
@@ -58,7 +58,7 @@ impl TransformConfig for AggregateConfig {
 
     fn outputs(
         &self,
-        _: enrichment::TableRegistry,
+        _: vector_lib::enrichment::TableRegistry,
         _: &[(OutputId, schema::Definition)],
         _: LogNamespace,
     ) -> Vec<TransformOutput> {
@@ -183,7 +183,7 @@ mod tests {
     use futures::stream;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
-    use vector_core::event::{
+    use vector_lib::event::{
         metric::{Bucket, Quantile, Sample},
         StatisticKind,
     };

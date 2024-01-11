@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use crate::config::{DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext};
 use crate::schema;
 use crate::transforms::Transform;
-use vector_config::configurable_component;
-use vector_core::config::{LogNamespace, TransformOutput};
+use vector_lib::config::{LogNamespace, TransformOutput};
+use vector_lib::configurable::configurable_component;
 
 use super::TagCardinalityLimit;
 
@@ -133,7 +133,7 @@ impl TransformConfig for TagCardinalityLimitConfig {
 
     fn outputs(
         &self,
-        _: enrichment::TableRegistry,
+        _: vector_lib::enrichment::TableRegistry,
         _: &[(OutputId, schema::Definition)],
         _: LogNamespace,
     ) -> Vec<TransformOutput> {

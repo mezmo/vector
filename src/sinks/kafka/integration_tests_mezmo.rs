@@ -20,13 +20,13 @@ use crate::{
         random_message_object_events_with_stream, random_string, wait_for,
     },
 };
-use codecs::{JsonSerializerConfig, MetricTagValues};
-use lookup::lookup_v2::ConfigTargetPath;
 use rdkafka::{
     consumer::{BaseConsumer, Consumer},
     Message, Offset, TopicPartitionList,
 };
-use vector_core::event::{BatchNotifier, BatchStatus};
+use vector_lib::codecs::{JsonSerializerConfig, MetricTagValues};
+use vector_lib::event::{BatchNotifier, BatchStatus};
+use vector_lib::lookup::lookup_v2::ConfigTargetPath;
 
 fn kafka_host() -> String {
     std::env::var("KAFKA_HOST").unwrap_or_else(|_| "localhost".into())

@@ -5,7 +5,7 @@
 use assay::assay;
 use futures::{future::ready, stream};
 use serde_json::{json, Value};
-use vector_core::event::{BatchNotifier, BatchStatus, Event, LogEvent};
+use vector_lib::event::{BatchNotifier, BatchStatus, Event, LogEvent};
 
 // Shared integration testing structures (made `pub` by Mezmo devs)
 use super::integration_tests::{batch_settings, flush, gen_index, http_server};

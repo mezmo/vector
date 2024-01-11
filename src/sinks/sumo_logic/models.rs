@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use vector_core::event::{Event, Value};
+use vector_lib::event::{Event, Value};
 
 use crate::sinks::prometheus::collector::{MetricCollector, StringCollector};
 

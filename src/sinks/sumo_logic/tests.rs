@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use vector_buffers::EventCount;
-use vector_core::event::{Event, LogEvent};
+use vector_lib::buffers::EventCount;
+use vector_lib::event::{Event, LogEvent};
 use vrl::value::Value;
 
 use super::{

@@ -1,5 +1,5 @@
 use indoc::indoc;
-use vector_common::finalization::{BatchNotifier, BatchStatus};
+use vector_lib::finalization::{BatchNotifier, BatchStatus};
 
 use crate::{
     config::SinkConfig,

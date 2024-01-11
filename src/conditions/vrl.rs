@@ -1,6 +1,5 @@
-use vector_common::TimeZone;
-use vector_config::configurable_component;
-use vector_core::compile_vrl;
+use vector_lib::configurable::configurable_component;
+use vector_lib::{compile_vrl, emit, TimeZone};
 use vrl::compiler::runtime::{Runtime, RuntimeResult, Terminate};
 use vrl::compiler::{CompilationResult, CompileConfig, Program, TypeState, VrlRuntime};
 use vrl::diagnostic::Formatter;
@@ -10,7 +9,6 @@ use crate::config::LogNamespace;
 use crate::event::TargetEvents;
 use crate::{
     conditions::{Condition, Conditional, ConditionalConfig},
-    emit,
     event::{Event, VrlTarget},
     internal_events::VrlConditionExecutionError,
     mezmo::{vrl as mezmo_vrl_functions, MezmoContext},
@@ -33,7 +31,7 @@ impl_generate_config_from_default!(VrlConfig);
 impl ConditionalConfig for VrlConfig {
     fn build(
         &self,
-        enrichment_tables: &enrichment::TableRegistry,
+        enrichment_tables: &vector_lib::enrichment::TableRegistry,
         mezmo_ctx: Option<MezmoContext>,
     ) -> crate::Result<Condition> {
         // TODO(jean): re-add this to VRL
@@ -48,7 +46,7 @@ impl ConditionalConfig for VrlConfig {
 
         let functions = vrl::stdlib::all()
             .into_iter()
-            .chain(enrichment::vrl_functions())
+            .chain(vector_lib::enrichment::vrl_functions())
             .chain(vector_vrl_functions::all())
             .chain(mezmo_vrl_functions::vrl_functions())
             .collect::<Vec<_>>();
@@ -179,7 +177,7 @@ impl Conditional for Vrl {
 
 #[cfg(test)]
 mod test {
-    use vector_core::metric_tags;
+    use vector_lib::metric_tags;
 
     use super::*;
     use crate::{

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use http::StatusCode;
 use metrics::{counter, gauge, histogram};
-use vector_core::internal_event::InternalEvent;
+use vector_lib::internal_event::InternalEvent;
 
 #[derive(Debug)]
 pub struct MezmoGenerateConfigError {

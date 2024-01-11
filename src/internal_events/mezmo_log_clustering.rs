@@ -1,6 +1,6 @@
 use metrics::histogram;
 use std::time::Duration;
-use vector_core::internal_event::InternalEvent;
+use vector_lib::internal_event::InternalEvent;
 
 pub struct MezmoLogClusteringStore {
     pub elapsed: Duration,

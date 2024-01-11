@@ -1,8 +1,4 @@
 use chrono::Utc;
-use codecs::{
-    decoding::{DeserializerConfig, FramingConfig},
-    StreamDecodingError,
-};
 use fakedata::mezmo::access_log::json_access_log_line;
 use fakedata::mezmo::error_log::apache_error_log_line;
 use fakedata::mezmo::metrics;
@@ -19,12 +15,16 @@ use std::task::Poll;
 use tokio::sync::OnceCell;
 use tokio::time::{self, Duration};
 use tokio_util::codec::FramedRead;
-use vector_common::internal_event::{
-    ByteSize, BytesReceived, CountByteSize, InternalEvent, InternalEventHandle as _, Protocol,
-};
-use vector_config::configurable_component;
-use vector_core::{
+use vector_lib::{
+    codecs::{
+        decoding::{DeserializerConfig, FramingConfig},
+        StreamDecodingError,
+    },
     config::{LogNamespace, SourceOutput},
+    configurable::configurable_component,
+    internal_event::{
+        ByteSize, BytesReceived, CountByteSize, InternalEvent, InternalEventHandle as _, Protocol,
+    },
     EstimatedJsonEncodedSizeOf,
 };
 

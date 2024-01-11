@@ -9,12 +9,14 @@ use futures::future::BoxFuture;
 use http::{Response, Uri};
 use hyper::{service::Service, Body, Request};
 use tower::ServiceExt;
-use vector_common::{
+use vector_lib::stream::DriverResponse;
+use vector_lib::ByteSizeOf;
+use vector_lib::{
     json_size::JsonSize,
     request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata},
 };
-use vector_core::{stream::DriverResponse, ByteSizeOf};
 
+use super::{ElasticsearchCommon, ElasticsearchConfig};
 use crate::{
     config::SinkContext,
     event::{EventFinalizers, EventStatus, Finalizable},
@@ -26,8 +28,6 @@ use crate::{
         Compression, ElementCount,
     },
 };
-
-use super::{ElasticsearchCommon, ElasticsearchConfig};
 
 #[derive(Clone, Debug)]
 pub struct ElasticsearchRequest {

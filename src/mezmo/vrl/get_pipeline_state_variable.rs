@@ -1,5 +1,5 @@
 use crate::mezmo::MezmoContext;
-use enrichment::{
+use vector_lib::enrichment::{
     vrl_util::Error as EnrichmentTableError, Case, Condition, TableRegistry, TableSearch,
 };
 use vrl::prelude::*;

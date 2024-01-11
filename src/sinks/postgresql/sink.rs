@@ -19,7 +19,7 @@ use futures::{future, stream::BoxStream, StreamExt};
 use std::string::FromUtf8Error;
 use tokio_postgres::NoTls;
 use url::Url;
-use vector_common::finalization::Finalizable;
+use vector_lib::finalization::Finalizable;
 
 pub struct PostgreSQLSink {
     schema_config: PostgreSQLSchemaConfig,

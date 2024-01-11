@@ -7,7 +7,7 @@ use futures::Stream;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tokio::time::{self, Instant};
-use vector_config::configurable_component;
+use vector_lib::configurable::configurable_component;
 
 use crate::{
     config::{
@@ -451,7 +451,7 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
     let mut failures = Vec::new();
     if let Ok(config) = config_builder.clone().build_no_validation() {
         let mut definition_cache = HashMap::default();
-        let enrichment_tables = enrichment::tables::TableRegistry::default();
+        let enrichment_tables = vector_lib::enrichment::tables::TableRegistry::default();
 
         for (key, transform) in config.transforms() {
             let schema_definitions = HashMap::from([(
@@ -1061,7 +1061,7 @@ mod tests {
             .expect("to build config successfully");
 
         let diff = config::ConfigDiff::initial(&config);
-        topology::builder::build_pieces(&config, &diff, None, HashMap::new())
+        topology::builder::TopologyPieces::build(&config, &diff, None, HashMap::new())
             .await
             .map(|_| ())
     }

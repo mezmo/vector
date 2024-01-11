@@ -1,5 +1,5 @@
 #![allow(missing_docs)]
-use vector_config::configurable_component;
+use vector_lib::configurable::configurable_component;
 
 use crate::{event::Event, mezmo::MezmoContext};
 
@@ -118,7 +118,7 @@ pub enum ConditionConfig {
 impl ConditionConfig {
     pub fn build(
         &self,
-        enrichment_tables: &enrichment::TableRegistry,
+        enrichment_tables: &vector_lib::enrichment::TableRegistry,
         mezmo_ctx: Option<MezmoContext>,
     ) -> crate::Result<Condition> {
         match self {
@@ -154,7 +154,7 @@ pub trait Conditional: std::fmt::Debug {
 pub trait ConditionalConfig: std::fmt::Debug + Send + Sync + dyn_clone::DynClone {
     fn build(
         &self,
-        enrichment_tables: &enrichment::TableRegistry,
+        enrichment_tables: &vector_lib::enrichment::TableRegistry,
         mezmo_ctx: Option<MezmoContext>,
     ) -> crate::Result<Condition>;
 }
@@ -194,7 +194,7 @@ pub enum AnyCondition {
 impl AnyCondition {
     pub fn build(
         &self,
-        enrichment_tables: &enrichment::TableRegistry,
+        enrichment_tables: &vector_lib::enrichment::TableRegistry,
         mezmo_ctx: Option<MezmoContext>,
     ) -> crate::Result<Condition> {
         match self {

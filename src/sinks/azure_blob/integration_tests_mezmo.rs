@@ -5,7 +5,7 @@
 use crate::template::Template;
 use crate::test_util::{random_message_object_events_with_stream, random_string};
 use assay::assay;
-use codecs::{JsonSerializerConfig, MetricTagValues, NewlineDelimitedEncoderConfig};
+use vector_lib::codecs::{JsonSerializerConfig, MetricTagValues, NewlineDelimitedEncoderConfig};
 
 // Use THEIR implementation - reduces code copying
 use super::integration_tests::AzureBlobSinkConfig;

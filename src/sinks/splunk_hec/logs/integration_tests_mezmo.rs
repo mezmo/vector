@@ -19,10 +19,10 @@ use crate::{
     },
 };
 use assay::assay;
-use codecs::{JsonSerializerConfig, MetricTagValues};
-use lookup::lookup_v2::ConfigValuePath;
 use serde_json::Value as JsonValue;
 use tokio::time::{sleep, Duration};
+use vector_lib::codecs::{JsonSerializerConfig, MetricTagValues};
+use vector_lib::lookup::lookup_v2::ConfigValuePath;
 
 const USERNAME: &str = "admin";
 const PASSWORD: &str = "password";

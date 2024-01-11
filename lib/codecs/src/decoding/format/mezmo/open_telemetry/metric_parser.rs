@@ -1182,7 +1182,8 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
 fn make_event(mut log_event: LogEvent) -> Event {
     if let Some(timestamp_key) = log_schema().timestamp_key() {
-        let timestamp = match log_event.get(METRIC_TIMESTAMP_KEY) {
+        let metric_timestamp_target = (lookup::PathPrefix::Event, METRIC_TIMESTAMP_KEY);
+        let timestamp = match log_event.get(metric_timestamp_target) {
             Some(ts) => {
                 let ts = ts.as_integer().unwrap();
                 let ms: i64 = ts / NANO_RATIO;

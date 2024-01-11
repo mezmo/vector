@@ -1,9 +1,8 @@
-use vector_config::configurable_component;
-
 use crate::aws::AwsAuthentication;
 use crate::config::ProxyConfig;
 use crate::tls::TlsConfig;
 use aws_types::region::Region;
+use vector_lib::configurable::configurable_component;
 
 use crate::sinks::aws_s3::file_consolidation_processor::FileConsolidationProcessor;
 use crate::{aws::create_client, common::s3::S3ClientBuilder};
