@@ -1,3 +1,10 @@
+## [2.0.2](https://github.com/answerbook/vector/compare/v2.0.1...v2.0.2) (2024-01-11)
+
+
+### Bug Fixes
+
+* **data_profiling**: Only track components in the analysis phase [f18ac9d](https://github.com/answerbook/vector/commit/f18ac9ddc6c71dc4e24565ad32b14368c21680ec) - Jorge Bay [LOG-18984](https://logdna.atlassian.net/browse/LOG-18984)
+
 ## [2.0.1](https://github.com/answerbook/vector/compare/v2.0.0...v2.0.1) (2024-01-09)
 
 
