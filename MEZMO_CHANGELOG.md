@@ -1,3 +1,15 @@
+## [2.1.2](https://github.com/answerbook/vector/compare/v2.1.1...v2.1.2) (2024-01-12)
+
+
+### Bug Fixes
+
+* **data_profiling**: Revert only track components in the analysis phase [4cec56c](https://github.com/answerbook/vector/commit/4cec56cc8024c3d833d3088c7b197446e3adfb52) - Jorge Bay [LOG-18984](https://logdna.atlassian.net/browse/LOG-18984)
+
+
+### Miscellaneous
+
+* Merge pull request #397 from answerbook/LOG-18984-revert [80f3cd4](https://github.com/answerbook/vector/commit/80f3cd4dfe5dde6d5b708de02791d8efb9fa0dbd) - GitHub [LOG-18984](https://logdna.atlassian.net/browse/LOG-18984)
+
 ## [2.1.1](https://github.com/answerbook/vector/compare/v2.1.0...v2.1.1) (2024-01-11)
 
 
