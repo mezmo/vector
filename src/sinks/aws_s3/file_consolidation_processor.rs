@@ -21,6 +21,7 @@ use md5::Digest;
 const TWO_HOURS_IN_SECONDS: u64 = 2 * 60 * 60;
 const MULTIPART_FILE_MIN_MB_I64: i64 = 5 * 1024 * 1024;
 const ONE_MEGABYTE_USIZE: usize = 1024 * 1024;
+const MAX_PARTS_MULTIPART_FILE: i32 = 10_000;
 
 // handles consolidating the small files within AWS into much larger files
 #[derive(Debug)]
@@ -256,66 +257,14 @@ impl<'a> FileConsolidationProcessor<'a> {
                 let mut buf_files: Vec<String> = Vec::new();
 
                 for file in &upload_file_parts {
-                    // if we've got a plaintext file that meets the multipart min, then we can straight copy it via sdk
-                    if !file.compressed && file.size >= MULTIPART_FILE_MIN_MB_I64 {
-                        part_num += 1;
-
-                        let source = format!("{}/{}", self.bucket.clone(), file.key.clone());
-                        let encoded_source = urlencoding::encode(&source);
-                        let range = format!("0-{}", file.size);
-
-                        let copy = match self
-                            .s3_client
-                            .upload_part_copy()
-                            .bucket(self.bucket.clone())
-                            .key(new_file_key.clone())
-                            .upload_id(upload_id.clone())
-                            .copy_source(encoded_source)
-                            .copy_source_range(range)
-                            .part_number(part_num)
-                            .request_payer(RequestPayer::Requester)
-                            .send()
-                            .await
-                        {
-                            Ok(c) => {
-                                info!(
-                                    "bucket={}, upload_id={}, Copied part={} ({}) for file={}",
-                                    self.bucket.clone(),
-                                    upload_id.clone(),
-                                    part_num,
-                                    file.key.clone(),
-                                    new_file_key.clone()
-                                );
-                                c
-                            }
-                            Err(e) => {
-                                error!(
-                                    ?e,
-                                    "bucket={}, upload_id={}, Failed to put copy part file={}",
-                                    self.bucket.clone(),
-                                    upload_id.clone(),
-                                    file.key.clone(),
-                                );
-                                part_num -= 1;
-                                continue;
-                            }
-                        };
-
-                        // keep track of the part for completion and deletion
-                        completed_parts.push(
-                            CompletedPart::builder()
-                                .e_tag(copy.copy_part_result().unwrap().e_tag().unwrap())
-                                .part_number(part_num)
-                                .build(),
-                        );
-
-                        files_to_delete.push(file.key.clone());
-                        continue;
+                    // make sure to not go over the max parts and leave
+                    // one slot for any buffer that hasn't been pushed
+                    if (part_num + 1) >= MAX_PARTS_MULTIPART_FILE {
+                        break;
                     }
 
                     // if the file is compressed, we need to pull and decompress it
                     // so we can join it with other files
-                    // if its less than 5 megs, we need to pull it too to consolidate with other files
                     let vector =
                         match download_file_as_vec(self.s3_client, self.bucket.clone(), file).await
                         {
