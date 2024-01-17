@@ -315,6 +315,7 @@ impl SubCommand {
             Self::Vrl(s) => {
                 let mut functions = vrl::stdlib::all();
                 functions.extend(vector_vrl_functions::all());
+                functions.extend(crate::mezmo::vrl::cli_vrl_functions());
                 vrl::cli::cmd::cmd(s, functions)
             }
         }
