@@ -8,8 +8,7 @@ use crate::{
 use async_trait::async_trait;
 use futures::FutureExt;
 use typetag::serde;
-use vector_config::configurable_component;
-use vector_core::config::log_schema;
+use vector_lib::{config::log_schema, configurable::configurable_component};
 
 /// Column/Event field mapping.
 #[configurable_component]

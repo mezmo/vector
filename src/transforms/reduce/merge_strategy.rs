@@ -4,10 +4,10 @@ use std::mem::size_of;
 use bytes::{Bytes, BytesMut};
 use chrono::{DateTime, Utc};
 use ordered_float::NotNan;
-use vector_config::configurable_component;
+use vector_lib::configurable::configurable_component;
 
 use crate::event::{LogEvent, Value};
-use vector_core::usage_metrics::value_size;
+use vector_lib::usage_metrics::value_size;
 
 /// Strategies for merging events.
 #[configurable_component]

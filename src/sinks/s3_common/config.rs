@@ -1,15 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use super::service::{S3Response, S3Service};
-use crate::{
-    aws::{create_client, is_retriable_error, AwsAuthentication, RegionOrEndpoint},
-    common::s3::S3ClientBuilder,
-    config::{ProxyConfig, SinkContext},
-    mezmo::user_trace::MezmoUserLog,
-    sinks::{util::retries::RetryLogic, Healthcheck},
-    tls::TlsConfig,
-    user_log_error,
-};
+use crate::{config::SinkContext, mezmo::user_trace::MezmoUserLog, user_log_error};
 use aws_sdk_s3::{
     error::PutObjectError,
     model::{ObjectCannedAcl, ServerSideEncryption, StorageClass},
@@ -19,8 +10,17 @@ use aws_smithy_client::SdkError;
 use futures::FutureExt;
 use http::StatusCode;
 use snafu::Snafu;
-use vector_config::configurable_component;
+use vector_lib::configurable::configurable_component;
 use vrl::value::Value;
+
+use super::service::{S3Response, S3Service};
+use crate::{
+    aws::{create_client, is_retriable_error, AwsAuthentication, RegionOrEndpoint},
+    common::s3::S3ClientBuilder,
+    config::ProxyConfig,
+    sinks::{util::retries::RetryLogic, Healthcheck},
+    tls::TlsConfig,
+};
 
 /// Per-operation configuration when writing objects to S3.
 #[configurable_component]

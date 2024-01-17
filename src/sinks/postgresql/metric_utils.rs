@@ -1,9 +1,9 @@
-use lookup::lookup_v2::{BorrowedSegment, ValuePath};
 use ordered_float::NotNan;
 use rand_distr::num_traits::FromPrimitive;
 use std::fmt::Debug;
-use vector_core::event::metric::MetricTags;
-use vector_core::event::{Metric, MetricValue};
+use vector_lib::event::metric::MetricTags;
+use vector_lib::event::{Metric, MetricValue};
+use vector_lib::lookup::lookup_v2::{BorrowedSegment, ValuePath};
 use vrl::value::Value;
 
 fn get_tag_value<'a>(
@@ -82,8 +82,8 @@ mod tests {
     use super::*;
     use chrono::{NaiveDate, TimeZone, Utc};
     use std::{collections::BTreeSet, iter, num::NonZeroU32};
-    use vector_core::event::MetricKind;
-    use vector_core::metric_tags;
+    use vector_lib::event::MetricKind;
+    use vector_lib::metric_tags;
     use vrl::value::kind::Kind;
 
     fn new_metric() -> Metric {

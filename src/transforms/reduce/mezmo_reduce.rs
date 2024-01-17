@@ -26,15 +26,15 @@ use async_stream::stream;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use futures::{stream, Stream, StreamExt};
 use indexmap::IndexMap;
-use lookup::lookup_v2::{parse_target_path, OwnedSegment};
-use lookup::owned_value_path;
 use serde_with::serde_as;
-use vector_config::configurable_component;
-use vector_core::config::{log_schema, OutputId, TransformOutput};
-use vector_core::schema::Definition;
+use vector_lib::config::{log_schema, OutputId, TransformOutput};
+use vector_lib::configurable::configurable_component;
+use vector_lib::lookup::lookup_v2::{parse_target_path, OwnedSegment};
+use vector_lib::lookup::owned_value_path;
+use vector_lib::schema::Definition;
 
 use crate::event::Value;
-use vector_core::config::LogNamespace;
+use vector_lib::config::LogNamespace;
 
 /// Configuration for the `mezmo_reduce` transform.
 #[serde_as]
@@ -184,7 +184,7 @@ impl TransformConfig for MezmoReduceConfig {
 
     fn outputs(
         &self,
-        _: enrichment::TableRegistry,
+        _: vector_lib::enrichment::TableRegistry,
         _: &[(OutputId, Definition)],
         _: LogNamespace,
     ) -> Vec<TransformOutput> {
@@ -854,11 +854,9 @@ mod test {
     use tokio::sync::mpsc;
     use tokio::time::sleep;
     use tokio_stream::wrappers::ReceiverStream;
-    use vector_common::btreemap;
-    use vector_common::finalization::{
-        BatchNotifier, BatchStatus, EventFinalizer, EventFinalizers,
-    };
-    use vector_core::config::log_schema;
+    use vector_lib::btreemap;
+    use vector_lib::config::log_schema;
+    use vector_lib::finalization::{BatchNotifier, BatchStatus, EventFinalizer, EventFinalizers};
 
     #[test]
     fn generate_config() {

@@ -2,7 +2,7 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use hashbrown::HashMap;
 use std::{collections::BTreeMap, future::ready, pin::Pin};
-use vector_core::{
+use vector_lib::{
     config::log_schema,
     event::{metric::mezmo::TransformError, LogEvent},
 };

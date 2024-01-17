@@ -5,7 +5,6 @@ use crate::{
 };
 use async_stream::stream;
 use chrono::Utc;
-use enrichment::TableRegistry;
 use futures::{Stream, StreamExt};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
@@ -14,8 +13,9 @@ use std::ops::Range;
 use std::pin::Pin;
 use std::time::Duration;
 use tokio::select;
-use vector_config_macros::configurable_component;
-use vector_core::{
+use vector_lib::configurable::configurable_component;
+use vector_lib::enrichment::TableRegistry;
+use vector_lib::{
     config::{clone_input_definitions, DataType, Input, LogNamespace, OutputId, TransformOutput},
     event::{Event, LogEvent, VrlTarget},
     schema::Definition,
@@ -435,7 +435,7 @@ impl TaskTransform<Event> for SlidingAggregate {
 mod test {
     use super::*;
     use std::collections::BTreeMap;
-    use vector_core::event::LogEvent;
+    use vector_lib::event::LogEvent;
     use vrl::btreemap;
 
     async fn new_aggregator(

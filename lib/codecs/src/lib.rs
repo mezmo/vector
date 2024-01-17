@@ -13,6 +13,7 @@
     clippy::useless_vec
 )]
 
+mod common;
 pub mod decoding;
 pub mod encoding;
 pub mod gelf;

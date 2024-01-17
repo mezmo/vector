@@ -1,14 +1,6 @@
 use std::collections::BTreeMap;
 use std::time::SystemTime;
 
-use bytes::Bytes;
-use futures::{FutureExt, SinkExt};
-use http::{Request, StatusCode, Uri};
-use serde_json::json;
-use vector_common::sensitive_string::SensitiveString;
-use vector_config::configurable_component;
-use vrl::value::{Kind, Value};
-
 use crate::user_log_error;
 use crate::{
     codecs::Transformer,
@@ -24,6 +16,14 @@ use crate::{
     },
     template::{Template, TemplateRenderingError},
 };
+use bytes::Bytes;
+use futures::{FutureExt, SinkExt};
+use http::{Request, StatusCode, Uri};
+use serde_json::json;
+use vector_lib::configurable::configurable_component;
+use vector_lib::lookup::PathPrefix;
+use vector_lib::sensitive_string::SensitiveString;
+use vrl::value::{Kind, Value};
 
 const DEFAULT_ROUTE: &str = "logs/ingest";
 const LINE_KEY: &str = "line";
@@ -457,12 +457,10 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
                 }
             } else {
                 let timestamp = match crate::config::log_schema().timestamp_key() {
-                    Some(timestamp_key) => {
-                        match log.remove((lookup::PathPrefix::Event, timestamp_key)) {
-                            Some(timestamp) => timestamp,
-                            None => chrono::Utc::now().into(),
-                        }
-                    }
+                    Some(timestamp_key) => match log.remove((PathPrefix::Event, timestamp_key)) {
+                        Some(timestamp) => timestamp,
+                        None => chrono::Utc::now().into(),
+                    },
                     None => chrono::Utc::now().into(),
                 };
                 map.insert(TIMESTAMP_KEY.to_string(), json!(timestamp));
@@ -676,7 +674,7 @@ mod tests {
     use http::{request::Parts, StatusCode};
     use serde_json::json;
     use temp_env::with_var;
-    use vector_core::event::{BatchNotifier, BatchStatus, Event, LogEvent};
+    use vector_lib::event::{BatchNotifier, BatchStatus, Event, LogEvent};
 
     use super::*;
     use crate::{

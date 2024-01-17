@@ -121,7 +121,7 @@ impl FunctionExpression for UserLogFn {
 //     use super::*;
 //     use std::collections::HashMap;
 //     use vector_common::TimeZone;
-//     use vector_core::event::{LogEvent, VrlTarget};
+//     use vector_lib::event::{LogEvent, VrlTarget};
 //     use vrl::{CompileConfig, ProgramInfo};
 
 //     #[test]

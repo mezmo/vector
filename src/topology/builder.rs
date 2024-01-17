@@ -18,12 +18,12 @@ use tokio::{
     time::{timeout, Duration},
 };
 use tracing::Instrument;
-use vector_common::internal_event::{
+use vector_lib::config::LogNamespace;
+use vector_lib::internal_event::{
     self, CountByteSize, EventsSent, InternalEventHandle as _, Registered,
 };
-use vector_core::config::LogNamespace;
-use vector_core::transform::update_runtime_schema_definition;
-use vector_core::{
+use vector_lib::transform::update_runtime_schema_definition;
+use vector_lib::{
     buffers::{
         topology::{
             builder::TopologyBuilder,
@@ -47,8 +47,8 @@ use super::{
 use crate::mezmo::MezmoContext;
 use crate::{
     config::{
-        ComponentKey, DataType, EnrichmentTableConfig, Input, Inputs, OutputId, ProxyConfig,
-        SinkContext, SourceContext, TransformContext, TransformOuter, TransformOutput,
+        ComponentKey, Config, DataType, EnrichmentTableConfig, Input, Inputs, OutputId,
+        ProxyConfig, SinkContext, SourceContext, TransformContext, TransformOuter, TransformOutput,
     },
     event::{EventArray, EventContainer},
     internal_events::EventsReceived,
@@ -61,8 +61,8 @@ use crate::{
     SourceSender,
 };
 
-static ENRICHMENT_TABLES: Lazy<enrichment::TableRegistry> =
-    Lazy::new(enrichment::TableRegistry::default);
+static ENRICHMENT_TABLES: Lazy<vector_lib::enrichment::TableRegistry> =
+    Lazy::new(vector_lib::enrichment::TableRegistry::default);
 
 pub(crate) static SOURCE_SENDER_BUFFER_SIZE: Lazy<usize> =
     Lazy::new(|| *TRANSFORM_CONCURRENCY_LIMIT * CHUNK_SIZE);
@@ -78,18 +78,6 @@ static TRANSFORM_CONCURRENCY_LIMIT: Lazy<usize> = Lazy::new(|| {
 });
 
 const INTERNAL_SOURCES: [&str; 2] = ["internal_logs", "internal_metrics"];
-
-/// Builds only the new pieces, and doesn't check their topology.
-pub async fn build_pieces(
-    config: &super::Config,
-    diff: &ConfigDiff,
-    metrics_tx: Option<UnboundedSender<UsageMetrics>>,
-    buffers: HashMap<ComponentKey, BuiltBuffer>,
-) -> Result<Pieces, Vec<String>> {
-    Builder::new(config, diff, metrics_tx, buffers)
-        .build()
-        .await
-}
 
 struct Builder<'a> {
     config: &'a super::Config,
@@ -138,7 +126,7 @@ impl<'a> Builder<'a> {
     }
 
     /// Builds the new pieces of the topology found in `self.diff`.
-    async fn build(mut self) -> Result<Pieces, Vec<String>> {
+    async fn build(mut self) -> Result<TopologyPieces, Vec<String>> {
         let enrichment_tables = self.load_enrichment_tables().await;
         let source_tasks = self.build_sources().await;
         self.build_transforms(enrichment_tables).await;
@@ -149,7 +137,7 @@ impl<'a> Builder<'a> {
         enrichment_tables.finish_load();
 
         if self.errors.is_empty() {
-            Ok(Pieces {
+            Ok(TopologyPieces {
                 inputs: self.inputs,
                 outputs: Self::finalize_outputs(self.outputs),
                 tasks: self.tasks,
@@ -180,7 +168,7 @@ impl<'a> Builder<'a> {
 
     /// Loads, or reloads the enrichment tables.
     /// The tables are stored in the `ENRICHMENT_TABLES` global variable.
-    async fn load_enrichment_tables(&mut self) -> &'static enrichment::TableRegistry {
+    async fn load_enrichment_tables(&mut self) -> &'static vector_lib::enrichment::TableRegistry {
         let mut enrichment_tables = HashMap::new();
 
         // Build enrichment tables
@@ -250,8 +238,6 @@ impl<'a> Builder<'a> {
                 component_kind = "source",
                 component_id = %key.id(),
                 component_type = %source.inner.get_component_name(),
-                // maintained for compatibility
-                component_name = %key.id(),
             );
             let _entered_span = span.enter();
 
@@ -428,7 +414,10 @@ impl<'a> Builder<'a> {
         source_tasks
     }
 
-    async fn build_transforms(&mut self, enrichment_tables: &enrichment::TableRegistry) {
+    async fn build_transforms(
+        &mut self,
+        enrichment_tables: &vector_lib::enrichment::TableRegistry,
+    ) {
         let mut definition_cache = HashMap::default();
 
         // Build transforms
@@ -466,8 +455,6 @@ impl<'a> Builder<'a> {
                 component_kind = "transform",
                 component_id = %key.id(),
                 component_type = %transform.inner.get_component_name(),
-                // maintained for compatibility
-                component_name = %key.id(),
             );
 
             // Create a map of the outputs to the list of possible definitions from those outputs.
@@ -536,7 +523,7 @@ impl<'a> Builder<'a> {
         }
     }
 
-    async fn build_sinks(&mut self, enrichment_tables: &enrichment::TableRegistry) {
+    async fn build_sinks(&mut self, enrichment_tables: &vector_lib::enrichment::TableRegistry) {
         for (key, sink) in self
             .config
             .sinks()
@@ -556,8 +543,6 @@ impl<'a> Builder<'a> {
                 component_kind = "sink",
                 component_id = %key.id(),
                 component_type = %sink.inner.get_component_name(),
-                // maintained for compatibility
-                component_name = %key.id(),
             );
             let _entered_span = span.enter();
 
@@ -684,8 +669,6 @@ impl<'a> Builder<'a> {
                                     component_kind = "sink",
                                     component_type = typetag,
                                     component_id = %component_key.id(),
-                                    // maintained for compatibility
-                                    component_name = %component_key.id(),
                                 );
                                 Err(TaskError::wrapped(error))
                             }
@@ -695,8 +678,6 @@ impl<'a> Builder<'a> {
                                     component_kind = "sink",
                                     component_type = typetag,
                                     component_id = %component_key.id(),
-                                    // maintained for compatibility
-                                    component_name = %component_key.id(),
                                 );
                                 Err(TaskError::wrapped(Box::new(e)))
                             }
@@ -718,7 +699,7 @@ impl<'a> Builder<'a> {
     }
 }
 
-pub struct Pieces {
+pub struct TopologyPieces {
     pub(super) inputs: HashMap<ComponentKey, (BufferSender<EventArray>, Inputs<OutputId>)>,
     pub(crate) outputs: HashMap<ComponentKey, HashMap<Option<String>, fanout::ControlChannel>>,
     pub(super) tasks: HashMap<ComponentKey, Task>,
@@ -726,6 +707,37 @@ pub struct Pieces {
     pub(super) healthchecks: HashMap<ComponentKey, Task>,
     pub(crate) shutdown_coordinator: SourceShutdownCoordinator,
     pub(crate) detach_triggers: HashMap<ComponentKey, Trigger>,
+}
+
+impl TopologyPieces {
+    pub async fn build_or_log_errors(
+        config: &Config,
+        diff: &ConfigDiff,
+        metrics_tx: Option<UnboundedSender<UsageMetrics>>,
+        buffers: HashMap<ComponentKey, BuiltBuffer>,
+    ) -> Option<Self> {
+        match TopologyPieces::build(config, diff, metrics_tx, buffers).await {
+            Err(errors) => {
+                for error in errors {
+                    error!(message = "Configuration error.", %error);
+                }
+                None
+            }
+            Ok(new_pieces) => Some(new_pieces),
+        }
+    }
+
+    /// Builds only the new pieces, and doesn't check their topology.
+    pub async fn build(
+        config: &super::Config,
+        diff: &ConfigDiff,
+        metrics_tx: Option<UnboundedSender<UsageMetrics>>,
+        buffers: HashMap<ComponentKey, BuiltBuffer>,
+    ) -> Result<Self, Vec<String>> {
+        Builder::new(config, diff, metrics_tx, buffers)
+            .build()
+            .await
+    }
 }
 
 const fn filter_events_type(events: &EventArray, data_type: DataType) -> bool {
@@ -749,7 +761,7 @@ struct TransformNode {
 impl TransformNode {
     pub fn from_parts(
         key: ComponentKey,
-        enrichment_tables: enrichment::TableRegistry,
+        enrichment_tables: vector_lib::enrichment::TableRegistry,
         transform: &TransformOuter<OutputId>,
         schema_definition: &[(OutputId, Definition)],
         global_log_namespace: LogNamespace,

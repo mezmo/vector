@@ -7,7 +7,7 @@ use bytes::Buf;
 use flate2::read::MultiGzDecoder;
 use futures::stream;
 
-use vector_core::event::{BatchNotifier, BatchStatus};
+use vector_lib::event::{BatchNotifier, BatchStatus};
 
 use crate::{
     mezmo::reshape_log_event_by_message,

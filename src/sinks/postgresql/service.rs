@@ -11,13 +11,11 @@ use std::{
 };
 use tokio_postgres::types::{to_sql_checked, IsNull, ToSql, Type};
 use tower::Service;
-use vector_common::byte_size_of::ByteSizeOf;
-use vector_common::finalization::{EventFinalizers, Finalizable};
-use vector_common::internal_event::{
-    ByteSize, BytesSent, InternalEventHandle, Protocol, Registered,
-};
-use vector_common::request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata};
-use vector_core::stream::DriverResponse;
+use vector_lib::byte_size_of::ByteSizeOf;
+use vector_lib::finalization::{EventFinalizers, Finalizable};
+use vector_lib::internal_event::{ByteSize, BytesSent, InternalEventHandle, Protocol, Registered};
+use vector_lib::request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata};
+use vector_lib::stream::DriverResponse;
 use vrl::value::Value;
 
 pub struct PostgreSQLRequest {

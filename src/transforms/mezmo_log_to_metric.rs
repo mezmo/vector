@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use vector_config::configurable_component;
-use vector_core::config::{LogNamespace, TransformOutput};
-use vector_core::event::metric::mezmo::to_metric;
+use vector_lib::config::{LogNamespace, TransformOutput};
+use vector_lib::configurable::configurable_component;
+use vector_lib::event::metric::mezmo::to_metric;
 
 use crate::mezmo::user_trace::handle_transform_error;
 use crate::{
@@ -50,7 +50,7 @@ impl TransformConfig for LogToMetricConfig {
 
     fn outputs(
         &self,
-        _: enrichment::TableRegistry,
+        _: vector_lib::enrichment::TableRegistry,
         _: &[(OutputId, schema::Definition)],
         _: LogNamespace,
     ) -> Vec<TransformOutput> {
@@ -101,8 +101,8 @@ mod tests {
     use tokio::sync::mpsc;
     use tokio::time::sleep;
     use tokio_stream::wrappers::ReceiverStream;
-    use vector_core::event::metric::{Bucket, Quantile, Sample};
-    use vector_core::event::Value;
+    use vector_lib::event::metric::{Bucket, Quantile, Sample};
+    use vector_lib::event::Value;
 
     use super::*;
     use crate::mezmo::user_trace::UserLogSubscription;
@@ -135,7 +135,7 @@ mod tests {
         log.as_mut_log().insert(key, value);
         log.as_mut_log().insert(
             (
-                lookup::PathPrefix::Event,
+                vector_lib::lookup::PathPrefix::Event,
                 log_schema().timestamp_key().unwrap(),
             ),
             ts(),

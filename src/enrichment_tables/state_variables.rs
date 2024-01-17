@@ -1,6 +1,5 @@
 use crate::config::EnrichmentTableConfig;
 use deadpool_postgres::{Config, Pool, Runtime};
-use enrichment::{Case, Condition, IndexHandle, Table};
 use moka::sync::Cache;
 use snafu::Snafu;
 use std::sync::Arc;
@@ -12,7 +11,8 @@ use std::{
 use tokio::task::JoinHandle;
 use tokio_postgres::NoTls;
 use url::Url;
-use vector_config::configurable_component;
+use vector_lib::configurable::configurable_component;
+use vector_lib::enrichment::{Case, Condition, IndexHandle, Table};
 use vrl::value::Value;
 
 const QUERY_ALL_STATE_VARIABLES: &str =

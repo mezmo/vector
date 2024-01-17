@@ -12,11 +12,11 @@ use http::{
 };
 use hyper::Body;
 use tower::Service;
-use vector_common::{
-    finalization::{EventStatus, Finalizable},
+use vector_lib::{
+    finalization::{EventFinalizers, EventStatus, Finalizable},
     request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata},
+    stream::DriverResponse,
 };
-use vector_core::{event::EventFinalizers, stream::DriverResponse};
 
 use super::{
     config::{SumoLogicCredentials, SumoLogicModelType},

@@ -6,8 +6,8 @@ use std::convert::Infallible;
 use std::str::FromStr;
 use uuid::Uuid;
 
-use vector_core::config::log_schema;
-use vector_core::event::LogEvent;
+use vector_lib::config::log_schema;
+use vector_lib::event::LogEvent;
 
 pub mod callsite;
 pub mod config;
@@ -168,9 +168,9 @@ pub fn reshape_log_event_by_message(log: &mut LogEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vector_common::btreemap;
-    use vector_core::config::log_schema;
-    use vector_core::event::LogEvent;
+    use vector_lib::btreemap;
+    use vector_lib::config::log_schema;
+    use vector_lib::event::LogEvent;
 
     #[test]
     fn test_mezmo_context_try_from_shared_component() {

@@ -34,16 +34,15 @@ use tokio_stream::wrappers::TcpListenerStream;
 #[cfg(unix)]
 use tokio_stream::wrappers::UnixListenerStream;
 use tokio_util::codec::{Encoder, FramedRead, FramedWrite, LinesCodec};
-use vector_buffers::topology::channel::LimitedReceiver;
-use vector_core::config::log_schema;
-use vector_core::event::{BatchNotifier, Event, EventArray, LogEvent};
+use vector_lib::buffers::topology::channel::LimitedReceiver;
+use vector_lib::config::log_schema;
+use vector_lib::event::{BatchNotifier, Event, EventArray, LogEvent};
 #[cfg(test)]
 use zstd::Decoder as ZstdDecoder;
 
 use crate::{
-    config::{Config, ConfigDiff, GenerateConfig},
-    signal::ShutdownError,
-    topology::{self, RunningTopology},
+    config::{Config, GenerateConfig},
+    topology::{RunningTopology, ShutdownErrorReceiver},
     trace,
 };
 
@@ -124,7 +123,10 @@ pub fn next_addr_v6() -> SocketAddr {
 
 pub fn trace_init() {
     #[cfg(unix)]
-    let color = atty::is(atty::Stream::Stdout);
+    let color = {
+        use std::io::IsTerminal;
+        std::io::stdout().is_terminal()
+    };
     // Windows: ANSI colors are not supported by cmd.exe
     // Color is false for everything except unix.
     #[cfg(not(unix))]
@@ -135,7 +137,7 @@ pub fn trace_init() {
     trace::init(color, false, &levels, 10);
 
     // Initialize metrics as well
-    vector_core::metrics::init_test();
+    vector_lib::metrics::init_test();
 }
 
 pub async fn send_lines(
@@ -709,19 +711,9 @@ impl CountReceiver<Event> {
 pub async fn start_topology(
     mut config: Config,
     require_healthy: impl Into<Option<bool>>,
-) -> (
-    RunningTopology,
-    (
-        tokio::sync::mpsc::UnboundedSender<ShutdownError>,
-        tokio::sync::mpsc::UnboundedReceiver<ShutdownError>,
-    ),
-) {
+) -> (RunningTopology, ShutdownErrorReceiver) {
     config.healthchecks.set_require_healthy(require_healthy);
-    let diff = ConfigDiff::initial(&config);
-    let pieces = topology::build_or_log_errors(&config, &diff, None, HashMap::new())
-        .await
-        .unwrap();
-    topology::start_validated(config, diff, pieces)
+    RunningTopology::start_init_validated(config, None)
         .await
         .unwrap()
 }

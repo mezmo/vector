@@ -1,10 +1,10 @@
 use chrono::Utc;
-use codecs::BytesDeserializerConfig;
 use futures::StreamExt;
-use vector_config::configurable_component;
-use vector_core::config::SourceOutput;
-use vector_core::EstimatedJsonEncodedSizeOf;
-use vector_core::{config::LogNamespace, schema::Definition};
+use vector_lib::codecs::BytesDeserializerConfig;
+use vector_lib::config::SourceOutput;
+use vector_lib::configurable::configurable_component;
+use vector_lib::EstimatedJsonEncodedSizeOf;
+use vector_lib::{config::LogNamespace, schema::Definition};
 
 use crate::mezmo::user_trace::UserLogSubscription;
 use crate::{

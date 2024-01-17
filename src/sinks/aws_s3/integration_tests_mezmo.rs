@@ -4,16 +4,18 @@ use crate::mezmo::reshape_log_event_by_message;
 use crate::tls::TlsConfig;
 use assay::assay;
 use bytes::{Bytes, BytesMut};
-use codecs::decoding::format::Deserializer;
-use codecs::decoding::format::{JsonDeserializerConfig, JsonDeserializerOptions};
-use codecs::{encoding::FramingConfig, JsonSerializerConfig, MetricTagValues};
 use futures::Stream;
 use regex::Regex;
 use similar_asserts::assert_eq;
 use tokio_stream::StreamExt;
-use vector_core::config::proxy::ProxyConfig;
-use vector_core::config::LogNamespace;
-use vector_core::event::{BatchNotifier, BatchStatus, BatchStatusReceiver, Event, EventArray};
+use vector_lib::codecs::{
+    decoding::format::{Deserializer, JsonDeserializerConfig, JsonDeserializerOptions},
+    encoding::FramingConfig,
+    JsonSerializerConfig, MetricTagValues,
+};
+use vector_lib::config::proxy::ProxyConfig;
+use vector_lib::config::LogNamespace;
+use vector_lib::event::{BatchNotifier, BatchStatus, BatchStatusReceiver, Event, EventArray};
 
 use super::S3SinkConfig;
 use crate::{

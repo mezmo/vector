@@ -7,13 +7,6 @@ use std::{
 use crate::sinks::prelude::{
     MezmoLoggingService, SinkContext, UserLoggingError, UserLoggingResponse,
 };
-use crate::sinks::{
-    aws_cloudwatch_logs::{
-        config::CloudwatchLogsSinkConfig, request, retry::CloudwatchRetryLogic,
-        sink::BatchCloudwatchRequest, CloudwatchKey,
-    },
-    util::{retries::FixedRetryPolicy, EncodedLength, TowerRequestConfig, TowerRequestSettings},
-};
 use aws_sdk_cloudwatchlogs::error::{
     CreateLogGroupError, CreateLogStreamError, DescribeLogStreamsError, PutLogEventsError,
 };
@@ -32,12 +25,20 @@ use tower::{
     timeout::Timeout,
     Service, ServiceBuilder, ServiceExt,
 };
-use vector_common::{
+use vector_lib::stream::DriverResponse;
+use vector_lib::{
     finalization::EventStatus,
     request_metadata::{GroupedCountByteSize, MetaDescriptive},
 };
-use vector_core::stream::DriverResponse;
 use vrl::value::Value;
+
+use crate::sinks::{
+    aws_cloudwatch_logs::{
+        config::CloudwatchLogsSinkConfig, request, retry::CloudwatchRetryLogic,
+        sink::BatchCloudwatchRequest, CloudwatchKey,
+    },
+    util::{retries::FixedRetryPolicy, EncodedLength, TowerRequestConfig, TowerRequestSettings},
+};
 
 type Svc = Buffer<
     ConcurrencyLimit<
