@@ -1,3 +1,15 @@
+## [3.0.1](https://github.com/answerbook/vector/compare/v3.0.0...v3.0.1) (2024-01-17)
+
+
+### Bug Fixes
+
+* **s3-consolidation**: file copy failure [753bbc1](https://github.com/answerbook/vector/commit/753bbc1808da14800d0446e7c76261314cc748ed) - dominic-mcallister-logdna [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
+
+### Miscellaneous
+
+* Merge pull request #398 from answerbook/dominic/LOG-18535_removecopypart [72ebd31](https://github.com/answerbook/vector/commit/72ebd31362ece5ad56b244b95a349ffa2467d549) - GitHub [LOG-18535](https://logdna.atlassian.net/browse/LOG-18535)
+
 # [3.0.0](https://github.com/answerbook/vector/compare/v2.1.2...v3.0.0) (2024-01-17)
 
 
