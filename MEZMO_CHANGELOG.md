@@ -1,3 +1,10 @@
+# [3.1.0](https://github.com/answerbook/vector/compare/v3.0.1...v3.1.0) (2024-01-17)
+
+
+### Features
+
+* **vrl**: Implement Mezmo VRL functions in CLI [53743bf](https://github.com/answerbook/vector/commit/53743bf631767ec85e0bc1ef392b490432b4d3ce) - Dan Hable [LOG-19051](https://logdna.atlassian.net/browse/LOG-19051)
+
 ## [3.0.1](https://github.com/answerbook/vector/compare/v3.0.0...v3.0.1) (2024-01-17)
 
 
