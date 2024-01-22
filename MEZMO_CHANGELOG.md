@@ -1,3 +1,15 @@
+## [3.1.1](https://github.com/answerbook/vector/compare/v3.1.0...v3.1.1) (2024-01-22)
+
+
+### Bug Fixes
+
+* **otlp**: replace or remove fields with an empty string [db87922](https://github.com/answerbook/vector/commit/db879220fbba21935ed05d2496f49979624193da) - Sergey Opria [LOG-18908](https://logdna.atlassian.net/browse/LOG-18908)
+
+
+### Miscellaneous
+
+* Merge pull request #392 from answerbook/sopria/LOG-18908 [a599fdd](https://github.com/answerbook/vector/commit/a599fddc5a8fd8e0189f229a93c0a8b2aaf34faf) - GitHub [LOG-18908](https://logdna.atlassian.net/browse/LOG-18908)
+
 # [3.1.0](https://github.com/answerbook/vector/compare/v3.0.1...v3.1.0) (2024-01-17)
 
 
