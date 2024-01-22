@@ -3,10 +3,11 @@ use smallvec::SmallVec;
 use std::borrow::Cow;
 
 use opentelemetry_rs::opentelemetry::metrics::{
-    AggregationTemporality, Exemplar, ExemplarOneOfvalue, ExponentialHistogramDataPoint,
-    ExponentialHistogramDataPointBuckets, ExportMetricsServiceRequest, HistogramDataPoint,
-    InstrumentationScope, MetricOneOfdata, NumberDataPoint, NumberDataPointOneOfvalue, Resource,
-    SummaryDataPoint, SummaryDataPointValueAtQuantile, Validate,
+    AggregationTemporality, AnyValue, AnyValueOneOfvalue, Exemplar, ExemplarOneOfvalue,
+    ExponentialHistogramDataPoint, ExponentialHistogramDataPointBuckets,
+    ExportMetricsServiceRequest, HistogramDataPoint, InstrumentationScope, MetricOneOfdata,
+    NumberDataPoint, NumberDataPointOneOfvalue, Resource, SummaryDataPoint,
+    SummaryDataPointValueAtQuantile, Validate,
 };
 
 use opentelemetry_rs::opentelemetry::common::KeyValue;
@@ -771,15 +772,26 @@ impl IntoValue for ScopeMetricValue<'_> {
             attributes: self.attributes.as_ref().unwrap().clone(),
         };
 
+        let name = self.name.as_ref().unwrap().to_string();
+        let version = self.version.as_ref().unwrap().to_string();
+
         Value::Object(
             [
                 (
                     "name".to_owned(),
-                    self.name.as_ref().unwrap().to_string().into(),
+                    if !name.is_empty() {
+                        name.into()
+                    } else {
+                        Value::Null
+                    },
                 ),
                 (
                     "version".to_owned(),
-                    self.version.as_ref().unwrap().to_string().into(),
+                    if !version.is_empty() {
+                        version.into()
+                    } else {
+                        Value::Null
+                    },
                 ),
                 ("attributes".to_owned(), attributes.to_value()),
                 (
@@ -966,20 +978,26 @@ struct MetricTagsWrapper<'a> {
 }
 
 impl<'a> MetricTagsAccessor<'a> for MetricTagsWrapper<'a> {
-    type Iter = std::iter::Map<
+    type Iter = std::iter::FilterMap<
         std::slice::Iter<'a, KeyValue<'a>>,
-        fn(&'a KeyValue<'a>) -> (&'a dyn ToString, &'a dyn IntoTagValue),
+        fn(&'a KeyValue<'a>) -> Option<(&'a dyn ToString, &'a dyn IntoTagValue)>,
     >;
 
     fn tags(&'a self) -> MetricTags<'a, Self::Iter> {
         MetricTags {
-            tags: self.tags.iter().map(|key_value| match &key_value.value {
-                Some(any_value) => (
-                    &key_value.key as &'a dyn ToString,
-                    &any_value.value as &'a dyn IntoTagValue,
-                ),
-                None => todo!(),
-            }),
+            tags: self
+                .tags
+                .iter()
+                .filter_map(|key_value| match &key_value.value {
+                    Some(AnyValue {
+                        value: AnyValueOneOfvalue::string_value(val),
+                    }) if val.is_empty() => None,
+                    Some(ref any_value) => Some((
+                        &key_value.key as &'a dyn ToString,
+                        &any_value.value as &'a dyn IntoTagValue,
+                    )),
+                    None => None,
+                }),
         }
     }
 }
@@ -1222,24 +1240,30 @@ mod tests {
             NumberDataPointOneOfvalue, Resource, ResourceMetrics, ScopeMetrics,
         };
 
-        let key_value = KeyValue {
-            key: Cow::from("test"),
+        let key_value_str = KeyValue {
+            key: Cow::from("foo"),
             value: Some(AnyValue {
-                value: AnyValueOneOfvalue::string_value(Cow::from("test")),
+                value: AnyValueOneOfvalue::string_value(Cow::from("bar")),
+            }),
+        };
+        let key_value_empty_str = KeyValue {
+            key: Cow::from("empty"),
+            value: Some(AnyValue {
+                value: AnyValueOneOfvalue::string_value(Cow::from("")),
             }),
         };
 
         let metrics_data = ExportMetricsServiceRequest {
             resource_metrics: vec![ResourceMetrics {
                 resource: Some(Resource {
-                    attributes: vec![key_value.clone()],
+                    attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                     dropped_attributes_count: 10,
                 }),
                 scope_metrics: vec![ScopeMetrics {
                     scope: Some(InstrumentationScope {
                         name: Cow::from("test_name"),
-                        version: Cow::from("1.2.3"),
-                        attributes: vec![key_value.clone()],
+                        version: Cow::from(""),
+                        attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                         dropped_attributes_count: 10,
                     }),
                     metrics: vec![Metric {
@@ -1248,12 +1272,18 @@ mod tests {
                         unit: Cow::from("123.[psi]"),
                         data: MetricOneOfdata::gauge(Gauge {
                             data_points: vec![NumberDataPoint {
-                                attributes: vec![key_value.clone()],
+                                attributes: vec![
+                                    key_value_str.clone(),
+                                    key_value_empty_str.clone(),
+                                ],
                                 start_time_unix_nano: 1_579_134_612_000_000_011,
                                 time_unix_nano: 1_579_134_612_000_000_011,
                                 value: NumberDataPointOneOfvalue::as_int(10),
                                 exemplars: vec![Exemplar {
-                                    filtered_attributes: vec![key_value.clone()],
+                                    filtered_attributes: vec![
+                                        key_value_str.clone(),
+                                        key_value_empty_str.clone(),
+                                    ],
                                     time_unix_nano: 1_579_134_612_000_000_011,
                                     value: ExemplarOneOfvalue::as_int(10),
                                     span_id: Cow::from("test".as_bytes()),
@@ -1284,7 +1314,7 @@ mod tests {
                 ("name".into(), "test_name".into()),
                 (
                     "tags".into(),
-                    Value::Object(BTreeMap::from([("test".into(), "test".into())]))
+                    Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
                 ),
                 (
                     "value".into(),
@@ -1301,10 +1331,10 @@ mod tests {
                                     Value::Array(Vec::from([Value::Object(BTreeMap::from([
                                         (
                                             "filtered_attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
+                                            Value::Object(BTreeMap::from([
+                                                ("foo".into(), "bar".into()),
+                                                ("empty".into(), Value::Null),
+                                            ]))
                                         ),
                                         ("span_id".into(), "74657374".into()),
                                         (
@@ -1345,7 +1375,10 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         (
                             "attributes".into(),
-                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
                     ]))
@@ -1355,16 +1388,22 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         (
                             "attributes".into(),
-                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
                         ("name".into(), "test_name".into()),
-                        ("version".into(), "1.2.3".into()),
+                        ("version".into(), Value::Null),
                     ]))
                 ),
                 (
                     "attributes".into(),
-                    Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                    Value::Object(BTreeMap::from([
+                        ("foo".into(), "bar".into()),
+                        ("empty".into(), Value::Null),
+                    ]))
                 ),
             ]))
         );
@@ -1379,24 +1418,30 @@ mod tests {
             Sum,
         };
 
-        let key_value = KeyValue {
-            key: Cow::from("test"),
+        let key_value_str = KeyValue {
+            key: Cow::from("foo"),
             value: Some(AnyValue {
-                value: AnyValueOneOfvalue::string_value(Cow::from("test")),
+                value: AnyValueOneOfvalue::string_value(Cow::from("bar")),
+            }),
+        };
+        let key_value_empty_str = KeyValue {
+            key: Cow::from("empty"),
+            value: Some(AnyValue {
+                value: AnyValueOneOfvalue::string_value(Cow::from("")),
             }),
         };
 
         let metrics_data = ExportMetricsServiceRequest {
             resource_metrics: vec![ResourceMetrics {
                 resource: Some(Resource {
-                    attributes: vec![key_value.clone()],
+                    attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                     dropped_attributes_count: 10,
                 }),
                 scope_metrics: vec![ScopeMetrics {
                     scope: Some(InstrumentationScope {
                         name: Cow::from("test_name"),
                         version: Cow::from("1.2.3"),
-                        attributes: vec![key_value.clone()],
+                        attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                         dropped_attributes_count: 10,
                     }),
                     metrics: vec![Metric {
@@ -1405,12 +1450,18 @@ mod tests {
                         unit: Cow::from("123.[psi]"),
                         data: MetricOneOfdata::sum(Sum {
                             data_points: vec![NumberDataPoint {
-                                attributes: vec![key_value.clone()],
+                                attributes: vec![
+                                    key_value_str.clone(),
+                                    key_value_empty_str.clone(),
+                                ],
                                 start_time_unix_nano: 1_579_134_612_000_000_011,
                                 time_unix_nano: 1_579_134_612_000_000_011,
                                 value: NumberDataPointOneOfvalue::as_double(10_f64),
                                 exemplars: vec![Exemplar {
-                                    filtered_attributes: vec![key_value.clone()],
+                                    filtered_attributes: vec![
+                                        key_value_str.clone(),
+                                        key_value_empty_str.clone(),
+                                    ],
                                     time_unix_nano: 1_579_134_612_000_000_011,
                                     value: ExemplarOneOfvalue::as_int(10),
                                     span_id: Cow::from("test".as_bytes()),
@@ -1444,7 +1495,7 @@ mod tests {
                 ("name".into(), "test_name".into()),
                 (
                     "tags".into(),
-                    Value::Object(BTreeMap::from([("test".into(), "test".into())]))
+                    Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
                 ),
                 (
                     "value".into(),
@@ -1460,10 +1511,10 @@ mod tests {
                                     Value::Array(Vec::from([Value::Object(BTreeMap::from([
                                         (
                                             "filtered_attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
+                                            Value::Object(BTreeMap::from([
+                                                ("foo".into(), "bar".into()),
+                                                ("empty".into(), Value::Null),
+                                            ]))
                                         ),
                                         ("span_id".into(), "74657374".into()),
                                         (
@@ -1507,7 +1558,10 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         (
                             "attributes".into(),
-                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
                     ]))
@@ -1517,7 +1571,10 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         (
                             "attributes".into(),
-                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
                         ("name".into(), "test_name".into()),
@@ -1526,7 +1583,10 @@ mod tests {
                 ),
                 (
                     "attributes".into(),
-                    Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                    Value::Object(BTreeMap::from([
+                        ("foo".into(), "bar".into()),
+                        ("empty".into(), Value::Null),
+                    ]))
                 ),
             ]))
         );
@@ -1540,24 +1600,30 @@ mod tests {
             InstrumentationScope, Resource, ResourceMetrics, ScopeMetrics,
         };
 
-        let key_value = KeyValue {
-            key: Cow::from("test"),
+        let key_value_str = KeyValue {
+            key: Cow::from("foo"),
             value: Some(AnyValue {
-                value: AnyValueOneOfvalue::string_value(Cow::from("test")),
+                value: AnyValueOneOfvalue::string_value(Cow::from("bar")),
+            }),
+        };
+        let key_value_empty_str = KeyValue {
+            key: Cow::from("empty"),
+            value: Some(AnyValue {
+                value: AnyValueOneOfvalue::string_value(Cow::from("")),
             }),
         };
 
         let metrics_data = ExportMetricsServiceRequest {
             resource_metrics: vec![ResourceMetrics {
                 resource: Some(Resource {
-                    attributes: vec![key_value.clone()],
+                    attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                     dropped_attributes_count: 10,
                 }),
                 scope_metrics: vec![ScopeMetrics {
                     scope: Some(InstrumentationScope {
                         name: Cow::from("test_name"),
                         version: Cow::from("1.2.3"),
-                        attributes: vec![key_value.clone()],
+                        attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                         dropped_attributes_count: 10,
                     }),
                     metrics: vec![Metric {
@@ -1566,7 +1632,10 @@ mod tests {
                         unit: Cow::from("123.[psi]"),
                         data: MetricOneOfdata::histogram(Histogram {
                             data_points: vec![HistogramDataPoint {
-                                attributes: vec![key_value.clone()],
+                                attributes: vec![
+                                    key_value_str.clone(),
+                                    key_value_empty_str.clone(),
+                                ],
                                 start_time_unix_nano: 1_579_134_612_000_000_011,
                                 time_unix_nano: 1_579_134_612_000_000_011,
                                 count: 10,
@@ -1574,7 +1643,10 @@ mod tests {
                                 bucket_counts: Cow::from(vec![1, 2, 3]),
                                 explicit_bounds: Cow::from(vec![1.3_f64, 5.9_f64]),
                                 exemplars: vec![Exemplar {
-                                    filtered_attributes: vec![key_value.clone()],
+                                    filtered_attributes: vec![
+                                        key_value_str.clone(),
+                                        key_value_empty_str.clone(),
+                                    ],
                                     time_unix_nano: 1_579_134_612_000_000_011,
                                     value: ExemplarOneOfvalue::as_double(10.5_f64),
                                     span_id: Cow::from("test".as_bytes()),
@@ -1609,7 +1681,7 @@ mod tests {
                 ("name".into(), "test_name".into()),
                 (
                     "tags".into(),
-                    Value::Object(BTreeMap::from([("test".into(), "test".into())]))
+                    Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
                 ),
                 (
                     "value".into(),
@@ -1634,10 +1706,10 @@ mod tests {
                                     Value::Array(Vec::from([Value::Object(BTreeMap::from([
                                         (
                                             "filtered_attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
+                                            Value::Object(BTreeMap::from([
+                                                ("foo".into(), "bar".into()),
+                                                ("empty".into(), Value::Null),
+                                            ]))
                                         ),
                                         ("span_id".into(), "74657374".into()),
                                         (
@@ -1689,7 +1761,10 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         (
                             "attributes".into(),
-                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
                     ]))
@@ -1699,7 +1774,10 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         (
                             "attributes".into(),
-                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
                         ("name".into(), "test_name".into()),
@@ -1708,7 +1786,10 @@ mod tests {
                 ),
                 (
                     "attributes".into(),
-                    Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                    Value::Object(BTreeMap::from([
+                        ("foo".into(), "bar".into()),
+                        ("empty".into(), Value::Null),
+                    ]))
                 ),
             ]))
         );
@@ -1724,24 +1805,30 @@ mod tests {
             ScopeMetrics,
         };
 
-        let key_value = KeyValue {
-            key: Cow::from("test"),
+        let key_value_str = KeyValue {
+            key: Cow::from("foo"),
             value: Some(AnyValue {
-                value: AnyValueOneOfvalue::string_value(Cow::from("test")),
+                value: AnyValueOneOfvalue::string_value(Cow::from("bar")),
+            }),
+        };
+        let key_value_empty_str = KeyValue {
+            key: Cow::from("empty"),
+            value: Some(AnyValue {
+                value: AnyValueOneOfvalue::string_value(Cow::from("")),
             }),
         };
 
         let metrics_data = ExportMetricsServiceRequest {
             resource_metrics: vec![ResourceMetrics {
                 resource: Some(Resource {
-                    attributes: vec![key_value.clone()],
+                    attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                     dropped_attributes_count: 10,
                 }),
                 scope_metrics: vec![ScopeMetrics {
                     scope: Some(InstrumentationScope {
                         name: Cow::from("test_name"),
                         version: Cow::from("1.2.3"),
-                        attributes: vec![key_value.clone()],
+                        attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                         dropped_attributes_count: 10,
                     }),
                     metrics: vec![Metric {
@@ -1750,7 +1837,10 @@ mod tests {
                         unit: Cow::from("123.[psi]"),
                         data: MetricOneOfdata::exponential_histogram(ExponentialHistogram {
                             data_points: vec![ExponentialHistogramDataPoint {
-                                attributes: vec![key_value.clone()],
+                                attributes: vec![
+                                    key_value_str.clone(),
+                                    key_value_empty_str.clone(),
+                                ],
                                 start_time_unix_nano: 1_579_134_612_000_000_011,
                                 time_unix_nano: 1_579_134_612_000_000_011,
                                 count: 10,
@@ -1773,7 +1863,10 @@ mod tests {
                                 }),
                                 flags: 1,
                                 exemplars: vec![Exemplar {
-                                    filtered_attributes: vec![key_value.clone()],
+                                    filtered_attributes: vec![
+                                        key_value_str.clone(),
+                                        key_value_empty_str.clone(),
+                                    ],
                                     time_unix_nano: 1_579_134_612_000_000_011,
                                     value: ExemplarOneOfvalue::as_int(10),
                                     span_id: Cow::from("test".as_bytes()),
@@ -1808,7 +1901,7 @@ mod tests {
                 ("name".into(), "test_name".into()),
                 (
                     "tags".into(),
-                    Value::Object(BTreeMap::from([("test".into(), "test".into())]))
+                    Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
                 ),
                 (
                     "value".into(),
@@ -1825,10 +1918,10 @@ mod tests {
                                     Value::Array(Vec::from([Value::Object(BTreeMap::from([
                                         (
                                             "filtered_attributes".into(),
-                                            Value::Object(BTreeMap::from([(
-                                                "test".into(),
-                                                "test".into()
-                                            ),]))
+                                            Value::Object(BTreeMap::from([
+                                                ("foo".into(), "bar".into()),
+                                                ("empty".into(), Value::Null),
+                                            ]))
                                         ),
                                         ("span_id".into(), "74657374".into()),
                                         (
@@ -1904,7 +1997,10 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         (
                             "attributes".into(),
-                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
                     ]))
@@ -1914,7 +2010,10 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         (
                             "attributes".into(),
-                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
                         ("name".into(), "test_name".into()),
@@ -1923,7 +2022,10 @@ mod tests {
                 ),
                 (
                     "attributes".into(),
-                    Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                    Value::Object(BTreeMap::from([
+                        ("foo".into(), "bar".into()),
+                        ("empty".into(), Value::Null),
+                    ]))
                 ),
             ]))
         );
@@ -1937,24 +2039,30 @@ mod tests {
             ScopeMetrics, Summary, SummaryDataPoint, SummaryDataPointValueAtQuantile,
         };
 
-        let key_value = KeyValue {
-            key: Cow::from("test"),
+        let key_value_str = KeyValue {
+            key: Cow::from("foo"),
             value: Some(AnyValue {
-                value: AnyValueOneOfvalue::string_value(Cow::from("test")),
+                value: AnyValueOneOfvalue::string_value(Cow::from("bar")),
+            }),
+        };
+        let key_value_empty_str = KeyValue {
+            key: Cow::from("empty"),
+            value: Some(AnyValue {
+                value: AnyValueOneOfvalue::string_value(Cow::from("")),
             }),
         };
 
         let metrics_data = ExportMetricsServiceRequest {
             resource_metrics: vec![ResourceMetrics {
                 resource: Some(Resource {
-                    attributes: vec![key_value.clone()],
+                    attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                     dropped_attributes_count: 10,
                 }),
                 scope_metrics: vec![ScopeMetrics {
                     scope: Some(InstrumentationScope {
                         name: Cow::from("test_name"),
                         version: Cow::from("1.2.3"),
-                        attributes: vec![key_value.clone()],
+                        attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                         dropped_attributes_count: 10,
                     }),
                     metrics: vec![Metric {
@@ -1963,7 +2071,10 @@ mod tests {
                         unit: Cow::from("123.[psi]"),
                         data: MetricOneOfdata::summary(Summary {
                             data_points: vec![SummaryDataPoint {
-                                attributes: vec![key_value.clone()],
+                                attributes: vec![
+                                    key_value_str.clone(),
+                                    key_value_empty_str.clone(),
+                                ],
                                 start_time_unix_nano: 1_579_134_612_000_000_011,
                                 time_unix_nano: 1_579_134_612_000_000_011,
                                 count: 10,
@@ -1997,7 +2108,7 @@ mod tests {
                 ("name".into(), "test_name".into()),
                 (
                     "tags".into(),
-                    Value::Object(BTreeMap::from([("test".into(), "test".into())]))
+                    Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
                 ),
                 (
                     "value".into(),
@@ -2047,7 +2158,10 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         (
                             "attributes".into(),
-                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
                     ]))
@@ -2057,7 +2171,10 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         (
                             "attributes".into(),
-                            Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
                         ("name".into(), "test_name".into()),
@@ -2066,7 +2183,10 @@ mod tests {
                 ),
                 (
                     "attributes".into(),
-                    Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
+                    Value::Object(BTreeMap::from([
+                        ("foo".into(), "bar".into()),
+                        ("empty".into(), Value::Null),
+                    ]))
                 ),
             ]))
         );

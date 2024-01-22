@@ -4,6 +4,7 @@ mod trace_parser;
 
 use bytes::Bytes;
 use opentelemetry_rs::opentelemetry::common::{AnyValue, AnyValueOneOfvalue, KeyValue};
+use std::borrow::Cow;
 
 use smallvec::SmallVec;
 
@@ -25,6 +26,8 @@ use vrl::value::kind::Collection;
 use vrl::value::Kind;
 
 use opentelemetry_rs::Error as OpenTelemetryError;
+
+const MAX_METADATA_SIZE: usize = 32 * 1024;
 
 /// OpenTelemetry protobuf deserializer error list
 #[derive(Debug, snafu::Snafu)]
@@ -209,7 +212,11 @@ pub struct OpenTelemetryAnyValue<'a> {
 impl IntoValue for OpenTelemetryAnyValue<'_> {
     fn to_value(&self) -> Value {
         match &self.value.value {
-            AnyValueOneOfvalue::string_value(val) => Value::from(val.to_string()),
+            AnyValueOneOfvalue::string_value(val) if val.is_empty() => Value::Null,
+            AnyValueOneOfvalue::string_value(val) => {
+                let length = std::cmp::min(val.len(), MAX_METADATA_SIZE);
+                Value::from(Cow::Borrowed(&val.as_ref()[..length]))
+            }
             AnyValueOneOfvalue::bool_value(val) => Value::Boolean(*val),
             AnyValueOneOfvalue::int_value(val) => Value::Integer(*val),
             AnyValueOneOfvalue::double_value(val) => from_f64_or_zero(*val),

@@ -5,17 +5,16 @@ use vector_core::event::metric::mezmo::IntoValue;
 
 use smallvec::SmallVec;
 
-use opentelemetry_rs::opentelemetry::{
-    common::AnyValueOneOfvalue,
-    logs::{AnyValue, ExportLogsServiceRequest, Validate},
-};
+use opentelemetry_rs::opentelemetry::logs::{ExportLogsServiceRequest, Validate};
 
 use vector_core::{
     config::log_schema,
     event::{Event, EventMetadata, LogEvent, Value},
 };
 
-use crate::decoding::format::mezmo::open_telemetry::{DeserializerError, OpenTelemetryAnyValue};
+use crate::decoding::format::mezmo::open_telemetry::{
+    DeserializerError, OpenTelemetryAnyValue, OpenTelemetryKeyValue,
+};
 
 pub fn parse_logs_request(bytes: &[u8]) -> vector_common::Result<smallvec::SmallVec<[Event; 1]>> {
     let parsed_logs = ExportLogsServiceRequest::try_from(bytes)
@@ -28,7 +27,6 @@ pub fn parse_logs_request(bytes: &[u8]) -> vector_common::Result<smallvec::Small
     Ok(to_events(parsed_logs))
 }
 
-const MAX_METADATA_SIZE: usize = 32 * 1024;
 const MAX_LOG_LEVEL_LEN: usize = 80;
 const NANOS_IN_MILLIS: u64 = 1_000_000;
 
@@ -46,21 +44,12 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
             // process resource
             let resource = resource_logs.resource;
 
-            // Resource attributes
-            let mut resource_attrs = BTreeMap::new();
+            let mut resource_attrs = Value::from(BTreeMap::new());
             if let Some(resource) = &resource {
-                for kv in resource.attributes.iter() {
-                    if let Some(AnyValue {
-                        value: AnyValueOneOfvalue::string_value(v),
-                    }) = kv.value.as_ref()
-                    {
-                        let length = std::cmp::min(v.len(), MAX_METADATA_SIZE);
-                        resource_attrs.insert(
-                            kv.key.to_string(),
-                            Value::from(Cow::Borrowed(&v.as_ref()[..length])),
-                        );
-                    }
-                }
+                resource_attrs = (OpenTelemetryKeyValue {
+                    attributes: resource.attributes.clone(),
+                })
+                .to_value();
             }
 
             // done changing resource_attrs
@@ -68,20 +57,12 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
 
             for scope_logs in resource_logs.scope_logs.into_iter() {
                 // Scope attributes
-                let mut scope_attrs = BTreeMap::new();
+                let mut scope_attrs = Value::from(BTreeMap::new());
                 if let Some(scope) = &scope_logs.scope {
-                    for kv in scope.attributes.iter() {
-                        if let Some(AnyValue {
-                            value: AnyValueOneOfvalue::string_value(v),
-                        }) = kv.value.as_ref()
-                        {
-                            let length = std::cmp::min(v.len(), MAX_METADATA_SIZE);
-                            scope_attrs.insert(
-                                kv.key.to_string(),
-                                Value::from(Cow::Borrowed(&v.as_ref()[..length])),
-                            );
-                        }
-                    }
+                    scope_attrs = (OpenTelemetryKeyValue {
+                        attributes: scope.attributes.clone(),
+                    })
+                    .to_value();
                 }
 
                 // done changing scope_attrs
@@ -91,8 +72,8 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                     // Assemble metadata
                     let mut metadata = BTreeMap::new();
 
-                    metadata.insert("resource".to_string(), Value::from(resource_attrs.clone()));
-                    metadata.insert("scope".to_string(), Value::from(scope_attrs.clone()));
+                    metadata.insert("resource".to_string(), resource_attrs.clone());
+                    metadata.insert("scope".to_string(), scope_attrs.clone());
 
                     // "time":"2023-10-31T13:32:42.240772879-04:00",
                     let time_unix_millis = Value::from(if log_record.time_unix_nano == 0 {
@@ -143,20 +124,10 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                     metadata.insert("flags".to_string(), Value::from(log_record.flags));
 
                     // LogRecord attributes
-                    let mut attributes = BTreeMap::new();
-                    for kv in log_record.attributes.iter() {
-                        if let Some(AnyValue {
-                            value: AnyValueOneOfvalue::string_value(v),
-                        }) = kv.value.as_ref()
-                        {
-                            let length = std::cmp::min(v.len(), MAX_METADATA_SIZE);
-                            attributes.insert(
-                                kv.key.to_string(),
-                                Value::from(Cow::Borrowed(&v.as_ref()[..length])),
-                            );
-                        }
-                    }
-                    metadata.insert("attributes".to_string(), Value::from(attributes));
+                    let attributes = OpenTelemetryKeyValue {
+                        attributes: log_record.attributes,
+                    };
+                    metadata.insert("attributes".to_string(), attributes.to_value());
 
                     let line = match log_record.body {
                         Some(av) => OpenTelemetryAnyValue { value: av }.to_value(),
@@ -199,29 +170,36 @@ mod tests {
     use std::ops::Deref;
 
     use opentelemetry_rs::opentelemetry::{
-        common::{AnyValue, InstrumentationScope, KeyValue},
+        common::{AnyValue, AnyValueOneOfvalue, InstrumentationScope, KeyValue},
         logs::{ExportLogsServiceRequest, LogRecord, Resource, ResourceLogs, ScopeLogs},
     };
 
     #[test]
     fn otlp_logs_deserialize_to_events() {
-        let key_value = KeyValue {
+        let key_value_str = KeyValue {
             key: Cow::from("foo"),
             value: Some(AnyValue {
                 value: AnyValueOneOfvalue::string_value(Cow::from("bar")),
             }),
         };
+        let key_value_empty_str = KeyValue {
+            key: Cow::from("empty"),
+            value: Some(AnyValue {
+                value: AnyValueOneOfvalue::string_value(Cow::from("")),
+            }),
+        };
+
         let logs_data = ExportLogsServiceRequest {
             resource_logs: vec![ResourceLogs {
                 resource: Some(Resource {
-                    attributes: vec![key_value.clone()],
+                    attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                     dropped_attributes_count: 10,
                 }),
                 scope_logs: vec![ScopeLogs {
                     scope: Some(InstrumentationScope {
                         name: Cow::from("test_name"),
                         version: Cow::from("1.2.3"),
-                        attributes: vec![key_value.clone()],
+                        attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                         dropped_attributes_count: 10,
                     }),
                     log_records: vec![LogRecord {
@@ -232,7 +210,7 @@ mod tests {
                         observed_time_unix_nano: 1_579_134_612_000_000_011,
                         span_id: Cow::from("test".as_bytes()),
                         trace_id: Cow::from("test".as_bytes()),
-                        attributes: vec![key_value.clone()],
+                        attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
                         flags: 1,
                         severity_number: 1.into(),
                         severity_text: Cow::Borrowed("ERROR"),
@@ -255,7 +233,10 @@ mod tests {
             Value::Object(BTreeMap::from([
                 (
                     "attributes".into(),
-                    Value::Object(BTreeMap::from([("foo".into(), "bar".into())]))
+                    Value::Object(BTreeMap::from([
+                        ("foo".into(), "bar".into()),
+                        ("empty".into(), Value::Null),
+                    ]))
                 ),
                 ("flags".into(), Value::from(1)),
                 (
@@ -273,11 +254,17 @@ mod tests {
                 ("trace_id".into(), "74657374".into()),
                 (
                     "resource".into(),
-                    Value::Object(BTreeMap::from([("foo".into(), "bar".into())]))
+                    Value::Object(BTreeMap::from([
+                        ("foo".into(), "bar".into()),
+                        ("empty".into(), Value::Null),
+                    ]))
                 ),
                 (
                     "scope".into(),
-                    Value::Object(BTreeMap::from([("foo".into(), "bar".into())]))
+                    Value::Object(BTreeMap::from([
+                        ("foo".into(), "bar".into()),
+                        ("empty".into(), Value::Null),
+                    ]))
                 ),
             ]))
         );

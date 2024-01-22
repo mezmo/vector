@@ -52,6 +52,14 @@ fn extract<'a>(attributes: Vec<KeyValue<'a>>, key_name: &str) -> Option<Cow<'a, 
     out
 }
 
+fn string_to_value(value: String) -> Value {
+    if !value.is_empty() {
+        Value::from(value)
+    } else {
+        Value::Null
+    }
+}
+
 fn nano_to_timestamp(time_unix_nano: u64) -> Value {
     Value::from(if time_unix_nano == 0 {
         SystemTime::now()
@@ -115,8 +123,8 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                             "dropped_attributes_count".into(),
                             scope.dropped_attributes_count.into(),
                         ),
-                        ("name".into(), scope.name.into()),
-                        ("version".into(), scope.version.into()),
+                        ("name".into(), string_to_value(scope.name.into())),
+                        ("version".into(), string_to_value(scope.version.into())),
                     ]))
                 } else {
                     Value::Null
@@ -126,10 +134,13 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                     // Assemble trace message
                     let mut message = std::collections::BTreeMap::new();
 
-                    message.insert("name".to_string(), span.name.into());
+                    message.insert("name".to_string(), string_to_value(span.name.into()));
 
                     if let Some(host_name) = &resource_host_name {
-                        message.insert("hostname".to_string(), Value::from(host_name.to_string()));
+                        message.insert(
+                            "hostname".to_string(),
+                            string_to_value(host_name.to_string()),
+                        );
                     }
 
                     message.insert(
@@ -169,7 +180,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                                 .iter()
                                 .map(|event| {
                                     Value::Object(BTreeMap::from([
-                                        ("name".into(), event.name.clone().into()),
+                                        ("name".into(), string_to_value(event.name.clone().into())),
                                         (
                                             "timestamp".into(),
                                             nano_to_timestamp(event.time_unix_nano),
@@ -238,7 +249,10 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                         message.insert(
                             "status".to_string(),
                             Value::Object(BTreeMap::from([
-                                ("message".into(), Value::from(status.message)),
+                                (
+                                    "message".into(),
+                                    string_to_value(status.message.to_string()),
+                                ),
                                 ("code".into(), Value::from(status.code as i32)),
                             ])),
                         );
