@@ -1,7 +1,10 @@
 use crate::{
     conditions::{AnyCondition, Condition},
     config::{TransformConfig, TransformContext},
+    mezmo::user_trace::MezmoUserLog,
+    mezmo::MezmoContext,
     transforms::remap::RemapConfig,
+    user_log_error,
 };
 use async_stream::stream;
 use chrono::Utc;
@@ -29,6 +32,7 @@ use vrl::{
     },
     path::{parse_target_path, OwnedTargetPath},
     prelude::*,
+    value::Value,
 };
 
 #[cfg(test)]
@@ -48,6 +52,18 @@ pub struct SlidingAggregateConfig {
     /// a flush condition.
     #[serde(default = "default_flush_tick_ms")]
     flush_tick_ms: u64,
+
+    /// Maximum number of keys to maintain in the transform's map
+    #[serde(default = "default_mem_cardinality_limit")]
+    mem_cardinality_limit: u32,
+
+    /// The maximum number of sliding window structs to allow per metric series
+    #[serde(default = "default_mem_window_limit")]
+    mem_window_limit: u32,
+
+    /// The minimum window over which to aggregate data
+    #[serde(default = "default_min_window_size_ms")]
+    min_window_size_ms: u32,
 
     // LOG-18567: Two additional properties that were considered as part of the spike but
     // pushed out of the spike effort. They include:
@@ -77,6 +93,18 @@ const fn default_window_duration_ms() -> u32 {
 
 const fn default_flush_tick_ms() -> u64 {
     5
+}
+
+const fn default_mem_cardinality_limit() -> u32 {
+    2000
+}
+
+const fn default_mem_window_limit() -> u32 {
+    200
+}
+
+const fn default_min_window_size_ms() -> u32 {
+    5000
 }
 
 impl_generate_config_from_default!(SlidingAggregateConfig);
@@ -118,12 +146,18 @@ impl SlidingAggregateConfig {
             .transpose()?;
 
         Ok(SlidingAggregate::new(
-            window_size_ms,
             self.flush_tick_ms,
             event_key_fields,
             program,
             event_timestamp_field,
             flush_condition,
+            ctx.mezmo_ctx.clone(),
+            AggregatorLimits::new(
+                self.mem_window_limit,
+                self.mem_cardinality_limit,
+                self.min_window_size_ms,
+                window_size_ms,
+            ),
         ))
     }
 }
@@ -219,7 +253,6 @@ impl AggregateClock {
 #[derive(Debug)]
 pub struct SlidingAggregate {
     data: HashMap<u64, VecDeque<AggregateWindow>>,
-    window_size_ms: i64,
     flush_tick_ms: u64,
     flush_condition: Option<Condition>,
     event_key_fields: Vec<OwnedTargetPath>,
@@ -227,21 +260,23 @@ pub struct SlidingAggregate {
     event_merge_program: Program,
     vrl_runtime: Runtime,
     clock: AggregateClock,
+    mezmo_ctx: Option<MezmoContext>,
+    aggregator_limits: AggregatorLimits,
 }
 
 impl SlidingAggregate {
     #[allow(clippy::missing_const_for_fn)]
     pub fn new(
-        window_size_ms: i64,
         flush_tick_ms: u64,
         event_key_fields: Vec<OwnedTargetPath>,
         event_merge_program: Program,
         event_timestamp_field: Option<OwnedTargetPath>,
         flush_condition: Option<Condition>,
+        mezmo_ctx: Option<MezmoContext>,
+        aggregator_limits: AggregatorLimits,
     ) -> Self {
         Self {
             data: HashMap::new(),
-            window_size_ms,
             flush_tick_ms,
             flush_condition,
             event_key_fields,
@@ -249,6 +284,8 @@ impl SlidingAggregate {
             event_merge_program,
             vrl_runtime: Runtime::default(),
             clock: AggregateClock::SystemCall,
+            mezmo_ctx,
+            aggregator_limits,
         }
     }
 
@@ -290,32 +327,40 @@ impl SlidingAggregate {
     /// events that are ready to be released/flushed will not be further mutated but remain in memory until the flush
     /// method is called, typically on a polling cycle.
     fn record(&mut self, event: Event) {
+        if self.data.len() >= (self.aggregator_limits.mem_cardinality_limit as usize) {
+            user_log_error!(
+                self.mezmo_ctx,
+                Value::from("Aggregate event dropped; cardinality limit exceeded".to_string())
+            );
+            return;
+        }
+
         let event_key = self.get_event_key(&event);
-        let event_timestamp = self
-            .event_timestamp_field
-            .as_ref()
-            .and_then(|p| event.as_log().get(p));
-        let event_timestamp = match event_timestamp {
-            Some(Value::Timestamp(dt)) => dt.timestamp_millis(),
-            Some(Value::Integer(ts_int)) => *ts_int,
-            _ => self.clock.now(),
-        };
+        let event_timestamp = self.get_event_timestamp(&event);
 
         // Invoking the VRL runtime requires a mutable borrow and since we can't have two mutable
         // borrows against self at the same time, this code needs to remove the entry from the aggregation
         // cache to update the results.
         let mut event_aggregations = self.data.remove(&event_key);
+        // Stores the original timestamp of an existing event before rolling in
+        // new events
+        let mut last_event_timestamp: Option<i64> = None;
         match &mut event_aggregations {
             None => {
                 let mut windows = VecDeque::new();
                 windows.push_back(AggregateWindow::new(
                     event.to_owned(),
                     event_timestamp,
-                    self.window_size_ms,
+                    self.aggregator_limits.window_duration_ms,
                 ));
                 event_aggregations = Some(windows);
             }
             Some(aggregations) => {
+                // Get the timestamp of the most recent window before potential mutations
+                // occur due to calls to run_merge_vrl
+                if let Some(last_window) = aggregations.back() {
+                    last_event_timestamp = Some(self.get_event_timestamp(&last_window.event));
+                }
                 // Start looking from the back for windows where this event should be rolled
                 // up into. Since the windows are stored in order, the loop can stop at the first
                 // window that would not be rolled up into.
@@ -331,16 +376,41 @@ impl SlidingAggregate {
                     }
                 }
 
+                let should_allocate_new_window = match last_event_timestamp {
+                    Some(last_timestamp) => {
+                        event_timestamp
+                            > last_timestamp + (self.aggregator_limits.min_window_size_ms as i64)
+                    }
+                    None => true,
+                };
+
                 // Every new event starts a new window that further points can be rolled up into, aka
                 // the windows slide to the next event.
-                let new_window = AggregateWindow::new(event, event_timestamp, self.window_size_ms);
-                aggregations.push_back(new_window); // LOG-18567: should enforce max number of windows in VecDeque
+                if should_allocate_new_window {
+                    let new_window = AggregateWindow::new(
+                        event,
+                        event_timestamp,
+                        self.aggregator_limits.window_duration_ms,
+                    );
+                    aggregations.push_back(new_window);
+                }
             }
         }
 
         // Put the entry that was removed after the update back into the cache
-        // LOG-18567: should enforce max number of keys in BTreeMap
         self.data.insert(event_key, event_aggregations.unwrap());
+    }
+
+    fn get_event_timestamp(&self, event: &Event) -> i64 {
+        let event_timestamp = self
+            .event_timestamp_field
+            .as_ref()
+            .and_then(|p| event.as_log().get(p));
+        match event_timestamp {
+            Some(Value::Timestamp(dt)) => dt.timestamp_millis(),
+            Some(Value::Integer(ts_int)) => *ts_int,
+            _ => self.clock.now(),
+        }
     }
 
     /// Check windows starting from the front (oldest) for expired entries. All expired
@@ -378,6 +448,13 @@ impl SlidingAggregate {
                 }
 
                 new_window_list.push_back(AggregateWindow::from_parts(size_ms, event));
+            }
+
+            // Flush additional items if the number of windows exceeds memory limit
+            let flush_excess_windows = new_window_list.len() - flush_end
+                > self.aggregator_limits.mem_window_limit as usize;
+            if flush_excess_windows {
+                flush_end = new_window_list.len() - self.aggregator_limits.mem_window_limit as usize
             }
 
             // With upper bound of the flush range known, drain the first elements and push them
@@ -431,16 +508,47 @@ impl TaskTransform<Event> for SlidingAggregate {
     }
 }
 
+#[derive(Debug)]
+pub struct AggregatorLimits {
+    /// The maximum number of sliding window structs to allow per metric series
+    pub mem_window_limit: u32,
+    /// Maximum number of keys to maintain in the transform's map
+    pub mem_cardinality_limit: u32,
+    /// A new window is allocated only if an event's time surpasses the last
+    /// saved window's time by a minimum window size
+    pub min_window_size_ms: u32,
+    /// The size of each sliding window in milliseconds. Arriving events
+    /// aggregate into a window if their timestamp falls within the window
+    pub window_duration_ms: i64,
+}
+
+impl AggregatorLimits {
+    const fn new(
+        mem_window_limit: u32,
+        mem_cardinality_limit: u32,
+        min_window_size_ms: u32,
+        window_duration_ms: i64,
+    ) -> Self {
+        Self {
+            mem_window_limit,
+            mem_cardinality_limit,
+            min_window_size_ms,
+            window_duration_ms,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use serde_json::json;
     use std::collections::BTreeMap;
     use vector_lib::event::LogEvent;
     use vrl::btreemap;
 
     async fn new_aggregator(
-        window_duration_ms: u32,
         flush_condition: Option<&str>,
+        memory_limits: AggregatorLimits,
     ) -> SlidingAggregate {
         let flush_condition = match flush_condition {
             None => "".to_string(),
@@ -453,11 +561,22 @@ mod test {
             ),
         };
 
+        let AggregatorLimits {
+            mem_window_limit,
+            mem_cardinality_limit,
+            min_window_size_ms,
+            window_duration_ms,
+        } = memory_limits;
+
         let config = format!(
             r#"
             window_duration_ms = {window_duration_ms}
+            mem_cardinality_limit = {mem_cardinality_limit}
+            mem_window_limit = {mem_window_limit}
+            min_window_size_ms = {min_window_size_ms}
             flush_tick_ms = 1
             event_id_fields = [".message.name", ".message.tags"]
+            event_timestamp_field = ".metadata.timestamp"
             source = """
                 new_acc = {{ }}
 
@@ -481,6 +600,14 @@ mod test {
         };
         aggregator.clock = AggregateClock::Counter(AtomicI64::new(1));
         aggregator
+    }
+
+    const fn default_aggregator_limits() -> AggregatorLimits {
+        AggregatorLimits::new(200, 2000, 5000, 5)
+    }
+
+    const fn aggregator_limits_custom_window_size(min_window_size: u32) -> AggregatorLimits {
+        AggregatorLimits::new(200, 2000, min_window_size, 5)
     }
 
     fn counter_event(
@@ -512,6 +639,20 @@ mod test {
             .unwrap()
             .into();
         Event::from(log_event)
+    }
+
+    fn counter_event_custom_timestamp(
+        name: impl Into<String>,
+        tags: Option<BTreeMap<String, String>>,
+        value: f64,
+        timestamp: u32,
+    ) -> Event {
+        let mut event = counter_event(name, tags, value);
+        let metadata = json!({
+            "timestamp": timestamp
+        });
+        event.as_mut_log().insert("metadata", metadata);
+        event
     }
 
     fn metric_event_key(name: impl Into<String>, tags: Option<BTreeMap<String, String>>) -> u64 {
@@ -574,7 +715,7 @@ mod test {
 
     #[tokio::test]
     async fn record_single_metric() {
-        let mut target = new_aggregator(5, None).await;
+        let mut target = new_aggregator(None, default_aggregator_limits()).await;
         target.record(counter_event("a", None, 10.0));
         assert_eq!(target.data.len(), 1);
 
@@ -593,10 +734,9 @@ mod test {
 
     #[tokio::test]
     async fn record_overlapping_windows() {
-        let mut target = new_aggregator(5, None).await;
-        target.record(counter_event("a", None, 3.0));
-        target.clock.increment_by(2);
-        target.record(counter_event("a", None, 4.0));
+        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(0)).await;
+        target.record(counter_event_custom_timestamp("a", None, 3.0, 1));
+        target.record(counter_event_custom_timestamp("a", None, 4.0, 3));
         assert_eq!(
             target.data.len(),
             1,
@@ -607,17 +747,19 @@ mod test {
         let actual = target.data.get(&key).unwrap();
         assert_eq!(actual.len(), 2, "number of sliding windows didn't match");
         assert_windows_eq(
-            vec![counter_event("a", None, 7.0), counter_event("a", None, 4.0)],
+            vec![
+                counter_event_custom_timestamp("a", None, 7.0, 1),
+                counter_event_custom_timestamp("a", None, 4.0, 3),
+            ],
             actual,
         );
     }
 
     #[tokio::test]
     async fn record_nonoverlapping_windows() {
-        let mut target = new_aggregator(5, None).await;
+        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10)).await;
         target.record(counter_event("a", None, 3.0));
-        target.clock.increment_by(15);
-        target.record(counter_event("a", None, 4.0));
+        target.record(counter_event_custom_timestamp("a", None, 4.0, 15));
         assert_eq!(
             target.data.len(),
             1,
@@ -628,14 +770,17 @@ mod test {
         let actual = target.data.get(&key).unwrap();
         assert_eq!(actual.len(), 2, "number of sliding windows didn't match");
         assert_windows_eq(
-            vec![counter_event("a", None, 3.0), counter_event("a", None, 4.0)],
+            vec![
+                counter_event("a", None, 3.0),
+                counter_event_custom_timestamp("a", None, 4.0, 15),
+            ],
             actual,
         );
     }
 
     #[tokio::test]
     async fn record_group_by_tags() {
-        let mut target = new_aggregator(5, None).await;
+        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(0)).await;
         target.record(counter_event(
             "a",
             Some(btreemap! { "host" => "host-1"}),
@@ -646,10 +791,11 @@ mod test {
             Some(btreemap! { "host" => "host-2"}),
             2.0,
         ));
-        target.record(counter_event(
+        target.record(counter_event_custom_timestamp(
             "a",
             Some(btreemap! { "host" => "host-1"}),
             4.0,
+            3,
         ));
         assert_eq!(
             target.data.len(),
@@ -662,8 +808,9 @@ mod test {
         let actual_events = target.data.get(&host_1_key).unwrap();
         assert_windows_eq(
             vec![
-                counter_event("a", Some(btreemap! { "host" => "host-1"}), 7.0),
-                counter_event("a", Some(btreemap! { "host" => "host-1"}), 4.0),
+                // timestamp of event 1 is updated after merge with event 2
+                counter_event_custom_timestamp("a", Some(btreemap! { "host" => "host-1"}), 7.0, 3),
+                counter_event_custom_timestamp("a", Some(btreemap! { "host" => "host-1"}), 4.0, 3),
             ],
             actual_events,
         );
@@ -682,8 +829,76 @@ mod test {
     }
 
     #[tokio::test]
+    async fn record_drops_events_when_cardinality_is_exceeded() {
+        let mut target = new_aggregator(None, AggregatorLimits::new(200, 2, 5000, 5)).await;
+        target.record(counter_event("a", None, 3.0));
+        target.record(counter_event("b", None, 5.0));
+        target.record(counter_event("c", None, 6.0));
+        assert_eq!(
+            target.data.len(),
+            2,
+            "number of hashmap records didn't match"
+        );
+
+        let key = metric_event_key("c", None);
+        let actual = target.data.get(&key);
+        assert!(
+            actual.is_none(),
+            "keys were added after exceeding cardinality limit"
+        );
+    }
+
+    #[tokio::test]
+    async fn record_skips_creating_window() {
+        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10)).await;
+        target.record(counter_event("a", None, 3.0));
+        target.record(counter_event("b", None, 7.0));
+        // event overlaps existing window but does not allocate new window
+        target.record(counter_event_custom_timestamp("a", None, 6.0, 4));
+        assert_eq!(
+            target.data.len(),
+            2,
+            "number of hashmap records didn't match"
+        );
+
+        let key = metric_event_key("a", None);
+        let actual = target.data.get(&key).unwrap();
+        assert_eq!(actual.len(), 1, "number of sliding windows didn't match");
+        // timestamp is updated after merge of event metadata
+        assert_windows_eq(
+            vec![counter_event_custom_timestamp("a", None, 9.0, 4)],
+            actual,
+        );
+    }
+
+    #[tokio::test]
+    async fn record_creates_new_windows_when_event_exceeds_min_window() {
+        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10)).await;
+        target.record(counter_event("a", None, 3.0));
+        target.record(counter_event("b", None, 7.0));
+        // use explicit timestamp instead of shared atomic value
+        target.record(counter_event_custom_timestamp("a", None, 6.0, 15));
+        assert_eq!(
+            target.data.len(),
+            2,
+            "number of hashmap records didn't match"
+        );
+
+        let key = metric_event_key("a", None);
+        let actual = target.data.get(&key).unwrap();
+        assert_eq!(actual.len(), 2, "number of sliding windows didn't match");
+        assert_windows_eq(
+            vec![
+                counter_event("a", None, 3.0),
+                counter_event_custom_timestamp("a", None, 6.0, 15),
+            ],
+            actual,
+        );
+    }
+
+    #[tokio::test]
     async fn flush_when_empty() {
-        let mut target = new_aggregator(5, None).await;
+        let mut target = new_aggregator(None, default_aggregator_limits()).await;
         let mut res = vec![];
         target.flush_finalized(&mut res);
         assert!(res.is_empty());
@@ -691,7 +906,7 @@ mod test {
 
     #[tokio::test]
     async fn flush_no_expired() {
-        let mut target = new_aggregator(5, None).await;
+        let mut target = new_aggregator(None, default_aggregator_limits()).await;
         target.record(counter_event("a", None, 3.0));
         target.record(counter_event("b", None, 3.0));
 
@@ -702,7 +917,7 @@ mod test {
 
     #[tokio::test]
     async fn flush_only_expired() {
-        let mut target = new_aggregator(5, None).await;
+        let mut target = new_aggregator(None, default_aggregator_limits()).await;
         target.record(counter_event("a", None, 3.0));
         target.record(counter_event("b", None, 3.0));
         target.clock.increment_by(10);
@@ -719,7 +934,11 @@ mod test {
 
     #[tokio::test]
     async fn flush_on_conditional_value() {
-        let mut target = new_aggregator(5, Some("to_string!(.message.value.value) > \"5\"")).await;
+        let mut target = new_aggregator(
+            Some("to_string!(.message.value.value) > \"5\""),
+            default_aggregator_limits(),
+        )
+        .await;
         target.record(counter_event("a", None, 3.0));
         target.record(counter_event("b", None, 3.0));
         target.record(counter_event("a", None, 3.0));
@@ -732,7 +951,11 @@ mod test {
 
     #[tokio::test]
     async fn flush_on_conditional_tag() {
-        let mut target = new_aggregator(5, Some(".message.tags.region == \"foo\"")).await;
+        let mut target = new_aggregator(
+            Some(".message.tags.region == \"foo\""),
+            default_aggregator_limits(),
+        )
+        .await;
         target.record(counter_event(
             "a",
             Some(btreemap! { "region" => "foo"}),
@@ -758,6 +981,33 @@ mod test {
             vec![
                 counter_event("a", Some(btreemap! { "region" => "foo"}), 2.0),
                 counter_event("b", Some(btreemap! { "region" => "foo"}), 6.0),
+            ],
+            actual_events,
+        );
+    }
+
+    #[tokio::test]
+    async fn flushes_excess_windows_to_stay_within_window_limits() {
+        let mut target = new_aggregator(None, AggregatorLimits::new(2, 5000, 0, 5)).await;
+        target.record(counter_event("a", None, 3.0));
+        target.record(counter_event("b", None, 3.0));
+        // use explicit timestamps to force new window allocations
+        target.record(counter_event_custom_timestamp("a", None, 4.0, 12));
+        target.record(counter_event_custom_timestamp("a", None, 5.0, 13));
+        target.record(counter_event_custom_timestamp("a", None, 6.0, 14));
+        target.record(counter_event_custom_timestamp("a", None, 7.0, 15));
+        // Increment clock such that explicit timestamp counters are not expired
+        target.clock.increment_by(14);
+
+        let mut actual_events = vec![];
+        target.flush_finalized(&mut actual_events);
+        fix_event_ordering(&mut actual_events);
+        assert_events_eq(
+            vec![
+                counter_event("a", None, 3.0),
+                counter_event_custom_timestamp("a", None, 22.0, 12),
+                counter_event_custom_timestamp("a", None, 18.0, 13),
+                counter_event("b", None, 3.0),
             ],
             actual_events,
         );
