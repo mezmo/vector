@@ -1,3 +1,10 @@
+## [3.1.3](https://github.com/answerbook/vector/compare/v3.1.2...v3.1.3) (2024-01-23)
+
+
+### Code Refactoring
+
+* Add memory and window limits to sliding aggregate (#400) [aa050e2](https://github.com/answerbook/vector/commit/aa050e2c94dcb62125710925c8c05becb35c4f00) - GitHub [LOG-18818](https://logdna.atlassian.net/browse/LOG-18818)
+
 ## [3.1.2](https://github.com/answerbook/vector/compare/v3.1.1...v3.1.2) (2024-01-23)
 
 
