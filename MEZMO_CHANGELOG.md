@@ -1,3 +1,15 @@
+## [3.1.2](https://github.com/answerbook/vector/compare/v3.1.1...v3.1.2) (2024-01-23)
+
+
+### Chores
+
+* bump vrl depey to rev=v0.12.0 [6d08598](https://github.com/answerbook/vector/commit/6d085987e7a5aa0d7e5dc9d1c3cfe1e547fc36b4) - dominic-mcallister-logdna [LOG-18993](https://logdna.atlassian.net/browse/LOG-18993) [LOG-18994](https://logdna.atlassian.net/browse/LOG-18994) [LOG-18999](https://logdna.atlassian.net/browse/LOG-18999)
+
+
+### Miscellaneous
+
+* Merge pull request #401 from answerbook/dominic/LOGs-18993_18994_18999-add_groks [edc9090](https://github.com/answerbook/vector/commit/edc909055cbb5067f979085d783204925ff08e8f) - GitHub
+
 ## [3.1.1](https://github.com/answerbook/vector/compare/v3.1.0...v3.1.1) (2024-01-22)
 
 
