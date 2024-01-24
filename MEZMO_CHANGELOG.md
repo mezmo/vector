@@ -1,3 +1,21 @@
+# [3.2.0](https://github.com/answerbook/vector/compare/v3.1.3...v3.2.0) (2024-01-24)
+
+
+### Bug Fixes
+
+* **sources**: `http_server` is not saving query params as key/val [733f3a9](https://github.com/answerbook/vector/commit/733f3a9929cf17ffece9d19aa3200afc45f3d0de) - Darin Spivey [LOG-19104](https://logdna.atlassian.net/browse/LOG-19104)
+
+
+### Features
+
+* **http_server source**: add all headers to the namespace metadata (#18922) [3772b19](https://github.com/answerbook/vector/commit/3772b19deca84d7375cd33e75189309bd1d267ed) - Darin Spivey [LOG-19103](https://logdna.atlassian.net/browse/LOG-19103)
+* **sources**: `http_server` accepts query parameter wildcards [6627a95](https://github.com/answerbook/vector/commit/6627a95fb27365dc37fc6fc3d3c4fd127f10c219) - Darin Spivey [LOG-19105](https://logdna.atlassian.net/browse/LOG-19105)
+
+
+### Miscellaneous
+
+* Merge pull request #403 from answerbook/darinspivey/LOG-19103 [896eaed](https://github.com/answerbook/vector/commit/896eaed03cb80c233121e13cd8b541eb8aee7eaf) - GitHub [LOG-19103](https://logdna.atlassian.net/browse/LOG-19103)
+
 ## [3.1.3](https://github.com/answerbook/vector/compare/v3.1.2...v3.1.3) (2024-01-23)
 
 
