@@ -30,10 +30,7 @@ use crate::{
     event::{Event, Value},
     register_validatable_component,
     serde::{bool_or_struct, default_decoding},
-    sources::util::{
-        http::{add_query_parameters, HttpMethod},
-        Encoding, ErrorMessage, HttpSource, HttpSourceAuthConfig,
-    },
+    sources::util::{http::HttpMethod, Encoding, ErrorMessage, HttpSource, HttpSourceAuthConfig},
     tls::TlsEnableableConfig,
 };
 
@@ -88,10 +85,16 @@ pub struct SimpleHttpConfig {
 
     /// A list of HTTP headers to include in the log event.
     ///
+    /// Accepts the wildcard (`*`) character for headers matching a specified pattern.
+    ///
+    /// Specifying "*" results in all headers included in the log event.
+    ///
     /// These override any values included in the JSON payload with conflicting names.
     #[serde(default)]
     #[configurable(metadata(docs::examples = "User-Agent"))]
     #[configurable(metadata(docs::examples = "X-My-Custom-Header"))]
+    #[configurable(metadata(docs::examples = "X-*"))]
+    #[configurable(metadata(docs::examples = "*"))]
     headers: Vec<String>,
 
     /// A list of URL query parameters to include in the log event.
@@ -323,6 +326,21 @@ fn remove_duplicates(mut list: Vec<String>, list_name: &str) -> Vec<String> {
     list
 }
 
+#[derive(Clone)]
+enum HttpConfigParamKind {
+    Glob(glob::Pattern),
+    Exact(String),
+}
+
+fn build_param_matcher(list: &[String]) -> crate::Result<Vec<HttpConfigParamKind>> {
+    list.iter()
+        .map(|s| match s.contains('*') {
+            true => Ok(HttpConfigParamKind::Glob(glob::Pattern::new(s)?)),
+            false => Ok(HttpConfigParamKind::Exact(s.to_string())),
+        })
+        .collect::<crate::Result<Vec<HttpConfigParamKind>>>()
+}
+
 #[async_trait::async_trait]
 #[typetag::serde(name = "http_server")]
 impl SourceConfig for SimpleHttpConfig {
@@ -331,8 +349,11 @@ impl SourceConfig for SimpleHttpConfig {
         let log_namespace = cx.log_namespace(self.log_namespace);
 
         let source = SimpleHttpSource {
-            headers: remove_duplicates(self.headers.clone(), "headers"),
-            query_parameters: remove_duplicates(self.query_parameters.clone(), "query_parameters"),
+            headers: build_param_matcher(&remove_duplicates(self.headers.clone(), "headers"))?,
+            query_parameters: build_param_matcher(&remove_duplicates(
+                self.query_parameters.clone(),
+                "query_parameters",
+            ))?,
             path_key: self.path_key.clone(),
             decoder,
             log_namespace,
@@ -377,8 +398,8 @@ impl SourceConfig for SimpleHttpConfig {
 
 #[derive(Clone)]
 struct SimpleHttpSource {
-    headers: Vec<String>,
-    query_parameters: Vec<String>,
+    headers: Vec<HttpConfigParamKind>,
+    query_parameters: Vec<HttpConfigParamKind>,
     path_key: OptionalValuePath,
     decoder: Decoder,
     log_namespace: LogNamespace,
@@ -407,17 +428,89 @@ impl HttpSource for SimpleHttpSource {
                         request_path.to_owned(),
                     );
 
-                    // add each header to each event
-                    for header_name in &self.headers {
-                        let value = headers_config.get(header_name).map(HeaderValue::as_bytes);
+                    for h in &self.headers {
+                        match h {
+                            // Add each non-wildcard containing header that was specified
+                            // in the `headers` config option to the event if an exact match
+                            // is found.
+                            HttpConfigParamKind::Exact(header_name) => {
+                                let value =
+                                    headers_config.get(header_name).map(HeaderValue::as_bytes);
 
-                        self.log_namespace.insert_source_metadata(
-                            SimpleHttpConfig::NAME,
-                            log,
-                            Some(LegacyKey::InsertIfEmpty(path!(header_name))),
-                            path!("headers", header_name),
-                            Value::from(value.map(Bytes::copy_from_slice)),
-                        );
+                                self.log_namespace.insert_source_metadata(
+                                    SimpleHttpConfig::NAME,
+                                    log,
+                                    Some(LegacyKey::InsertIfEmpty(path!(header_name))),
+                                    path!("headers", header_name),
+                                    Value::from(value.map(Bytes::copy_from_slice)),
+                                );
+                            }
+                            // Add all headers that match against wildcard pattens specified
+                            // in the `headers` config option to the event.
+                            HttpConfigParamKind::Glob(header_pattern) => {
+                                for header_name in headers_config.keys() {
+                                    if header_pattern.matches_with(
+                                        header_name.as_str(),
+                                        glob::MatchOptions::default(),
+                                    ) {
+                                        let value = headers_config
+                                            .get(header_name)
+                                            .map(HeaderValue::as_bytes);
+
+                                        self.log_namespace.insert_source_metadata(
+                                            SimpleHttpConfig::NAME,
+                                            log,
+                                            Some(LegacyKey::InsertIfEmpty(path!(
+                                                header_name.as_str()
+                                            ))),
+                                            path!("headers", header_name.as_str()),
+                                            Value::from(value.map(Bytes::copy_from_slice)),
+                                        );
+                                    }
+                                }
+                            }
+                        };
+                    }
+
+                    for q in &self.query_parameters {
+                        match q {
+                            // Same as headers, add non-wildcard query parameters if they are found
+                            HttpConfigParamKind::Exact(query_parameter_name) => {
+                                let value = query_parameters.get(query_parameter_name);
+
+                                self.log_namespace.insert_source_metadata(
+                                    SimpleHttpConfig::NAME,
+                                    log,
+                                    Some(LegacyKey::InsertIfEmpty(path!(query_parameter_name))),
+                                    path!("query_parameters", query_parameter_name),
+                                    Value::from(value.map(String::to_owned)),
+                                );
+                            }
+                            // Add all query parameters that match against wildcard pattens specified
+                            HttpConfigParamKind::Glob(query_parameter_pattern) => {
+                                for query_parameter_name in query_parameters.keys() {
+                                    if query_parameter_pattern.matches_with(
+                                        query_parameter_name.as_str(),
+                                        glob::MatchOptions::default(),
+                                    ) {
+                                        let value = query_parameters.get(query_parameter_name);
+
+                                        self.log_namespace.insert_source_metadata(
+                                            SimpleHttpConfig::NAME,
+                                            log,
+                                            Some(LegacyKey::InsertIfEmpty(path!(
+                                                query_parameter_name.as_str()
+                                            ))),
+                                            path!(
+                                                "query_parameters",
+                                                query_parameter_name.as_str()
+                                            ),
+                                            Value::from(value.map(String::to_owned)),
+                                        );
+                                    }
+                                }
+                            }
+                        };
                     }
 
                     self.log_namespace.insert_standard_vector_source_metadata(
@@ -431,14 +524,6 @@ impl HttpSource for SimpleHttpSource {
                 }
             }
         }
-
-        add_query_parameters(
-            events,
-            &self.query_parameters,
-            query_parameters,
-            self.log_namespace,
-            SimpleHttpConfig::NAME,
-        );
     }
 
     fn build_events(
@@ -977,11 +1062,13 @@ mod tests {
             let mut headers = HeaderMap::new();
             headers.insert("User-Agent", "test_client".parse().unwrap());
             headers.insert("Upgrade-Insecure-Requests", "false".parse().unwrap());
+            headers.insert("X-Test-Header", "true".parse().unwrap());
 
             let (rx, addr) = source(
                 vec![
                     "User-Agent".to_string(),
                     "Upgrade-Insecure-Requests".to_string(),
+                    "X-*".to_string(),
                     "AbsentHeader".to_string(),
                 ],
                 vec![],
@@ -1012,7 +1099,49 @@ mod tests {
             assert_eq!(log["key1"], "value1".into());
             assert_eq!(log["\"User-Agent\""], "test_client".into());
             assert_eq!(log["\"Upgrade-Insecure-Requests\""], "false".into());
+            assert_eq!(log["\"x-test-header\""], "true".into());
             assert_eq!(log["AbsentHeader"], Value::Null);
+            assert_event_metadata(log).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn http_headers_wildcard() {
+        let mut events = assert_source_compliance(&HTTP_PUSH_SOURCE_TAGS, async {
+            let mut headers = HeaderMap::new();
+            headers.insert("User-Agent", "test_client".parse().unwrap());
+            headers.insert("X-Case-Sensitive-Value", "CaseSensitive".parse().unwrap());
+
+            let (rx, addr) = source(
+                vec!["*".to_string()],
+                vec![],
+                "http_path",
+                "/",
+                "POST",
+                StatusCode::OK,
+                true,
+                EventStatus::Delivered,
+                true,
+                None,
+                Some(JsonDeserializerConfig::default().into()),
+            )
+            .await;
+
+            spawn_ok_collect_n(
+                send_with_headers(addr, "{\"key1\":\"value1\"}", headers),
+                rx,
+                1,
+            )
+            .await
+        })
+        .await;
+
+        {
+            let event = events.remove(0);
+            let log = event.as_log();
+            assert_eq!(log["key1"], "value1".into());
+            assert_eq!(log["\"user-agent\""], "test_client".into());
+            assert_eq!(log["\"x-case-sensitive-value\""], "CaseSensitive".into());
             assert_event_metadata(log).await;
         }
     }
@@ -1055,6 +1184,89 @@ mod tests {
             assert_eq!(log["source"], "staging".into());
             assert_eq!(log["region"], "gb".into());
             assert_eq!(log["absent"], Value::Null);
+            assert_event_metadata(log).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn http_query_parameters_wildcard_all() {
+        let mut events = assert_source_compliance(&HTTP_PUSH_SOURCE_TAGS, async {
+            let (rx, addr) = source(
+                vec![],
+                vec!["*".to_string()],
+                "http_path",
+                "/",
+                "POST",
+                StatusCode::OK,
+                true,
+                EventStatus::Delivered,
+                true,
+                None,
+                Some(JsonDeserializerConfig::default().into()),
+            )
+            .await;
+
+            spawn_ok_collect_n(
+                send_with_query(
+                    addr,
+                    "{\"key1\":\"value1\"}",
+                    "source=staging&region=gb&status=200",
+                ),
+                rx,
+                1,
+            )
+            .await
+        })
+        .await;
+
+        {
+            let event = events.remove(0);
+            let log = event.as_log();
+            assert_eq!(log["key1"], "value1".into());
+            assert_eq!(log["source"], "staging".into());
+            assert_eq!(log["region"], "gb".into());
+            assert_eq!(log["status"], "200".into());
+            assert_event_metadata(log).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn http_query_parameters_wildcard_some() {
+        let mut events = assert_source_compliance(&HTTP_PUSH_SOURCE_TAGS, async {
+            let (rx, addr) = source(
+                vec![],
+                vec!["s*".to_string()],
+                "http_path",
+                "/",
+                "POST",
+                StatusCode::OK,
+                true,
+                EventStatus::Delivered,
+                true,
+                None,
+                Some(JsonDeserializerConfig::default().into()),
+            )
+            .await;
+
+            spawn_ok_collect_n(
+                send_with_query(
+                    addr,
+                    "{\"key1\":\"value1\"}",
+                    "source=staging&region=gb&status=200",
+                ),
+                rx,
+                1,
+            )
+            .await
+        })
+        .await;
+
+        {
+            let event = events.remove(0);
+            let log = event.as_log();
+            assert_eq!(log["key1"], "value1".into());
+            assert_eq!(log["source"], "staging".into());
+            assert_eq!(log["status"], "200".into());
             assert_event_metadata(log).await;
         }
     }
