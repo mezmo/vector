@@ -40,6 +40,10 @@ enum RocksDBPersistenceError {
         #[snafu(source)]
         source: rocksdb::Error,
     },
+    Conversion {
+        #[snafu(source)]
+        source: std::string::FromUtf8Error,
+    },
     #[snafu(display("Invalid db path: {path:?}"))]
     InvalidPath { path: PathBuf },
     #[snafu(display("Invalid context: {mezmo_ctx:?}"))]
@@ -119,26 +123,17 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
     }
 
     fn get(&self, key: &str) -> Result<Option<String>, Error> {
-        self.db
+        let value = self
+            .db
             .get(namespaced_key(&self.mezmo_ctx, key))
-            .context(RocksDBSnafu)
-            .map_err(Into::into)
-            .map(|bytes| match bytes {
-                Some(bytes) => match String::from_utf8(bytes) {
-                    Ok(v) => Some(v),
-                    Err(err) => {
-                        // We won't ever hit this error since we know a string serialized
-                        // with `serde_json` can always be deserialized in the same manner,
-                        // and this interface is the only writer.
-                        error!(
-                            "Failed to deserialize persisted value: {}; context={:?}",
-                            err, self.mezmo_ctx
-                        );
-                        None
-                    }
-                },
-                None => None,
-            })
+            .context(RocksDBSnafu)?;
+
+        match value {
+            Some(bytes) => String::from_utf8(bytes)
+                .map(|s| Ok(Some(s)))
+                .context(ConversionSnafu)?,
+            None => Ok(None),
+        }
     }
 
     fn set(&self, key: &str, value: &str) -> Result<(), Error> {
