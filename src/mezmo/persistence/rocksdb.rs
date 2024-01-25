@@ -218,7 +218,7 @@ mod tests {
     }
 
     // This test does not pass under CI/Docker, but does pass locally
-    #[ignore]
+    #[cfg(not(ci))]
     #[test]
     fn test_invalid_base_path_exists_but_not_writable() {
         use std::fs::DirBuilder;

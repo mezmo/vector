@@ -159,6 +159,7 @@ define ENVIRONMENT_EXEC
 			--interactive \
 			--env INSIDE_ENVIRONMENT=true \
 			--env GITHUB_TOKEN=$(GITHUB_TOKEN) \
+			--env CI=$(CI) \
 			$(if $(ENVIRONMENT_NETWORK),--network $(ENVIRONMENT_NETWORK),) \
 			--mount type=bind,source=${CURRENT_DIR},target=/git/vectordotdev/vector \
 			--mount type=bind,source=${CURRENT_DIR}/scripts/environment/entrypoint.sh,target=/entrypoint.sh \
