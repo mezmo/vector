@@ -5,6 +5,11 @@ on:
   pull_request:
     branches-ignore:
       - 'dependabot/**'
+    paths-ignore:
+      - 'deployment/**'
+      - 'test/data/**'
+      - 'docs/**'
+
   push:
     branches:
       - master
