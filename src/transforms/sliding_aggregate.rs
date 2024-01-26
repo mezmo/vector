@@ -1,6 +1,7 @@
 use crate::{
     conditions::{AnyCondition, Condition},
     config::{TransformConfig, TransformContext},
+    mezmo::persistence::{PersistenceConnection, RocksDBPersistenceConnection},
     mezmo::user_trace::MezmoUserLog,
     mezmo::MezmoContext,
     transforms::remap::RemapConfig,
@@ -9,6 +10,7 @@ use crate::{
 use async_stream::stream;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
@@ -37,6 +39,10 @@ use vrl::{
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicI64, Ordering};
+
+// The key for the state persistence db. This transform only stores a single value
+// representing the entire "state" of aggregation.
+const STATE_PERSISTENCE_KEY: &str = "state";
 
 /// Configuration for the `sliding_aggregate` transform.
 #[configurable_component(transform("sliding_aggregate", "Mezmo sliding aggregate"))]
@@ -85,6 +91,16 @@ pub struct SlidingAggregateConfig {
     /// The VRL program that produces a new accumulated aggregate event from the prior accumulated
     /// event and the new event.
     source: String,
+
+    /// Sets the base path for the persistence connection.
+    /// NOTE: Leaving this value empty will disable state persistence.
+    #[serde(default = "default_state_persistence_base_path")]
+    state_persistence_base_path: Option<String>,
+
+    /// Set how often the state of this transform will be persisted to the [PersistenceConnection]
+    /// storage backend.
+    #[serde(default = "default_state_persistence_tick_ms")]
+    state_persistence_tick_ms: u64,
 }
 
 const fn default_window_duration_ms() -> u32 {
@@ -105,6 +121,14 @@ const fn default_mem_window_limit() -> u32 {
 
 const fn default_min_window_size_ms() -> u32 {
     5000
+}
+
+const fn default_state_persistence_base_path() -> Option<String> {
+    None
+}
+
+const fn default_state_persistence_tick_ms() -> u64 {
+    30000
 }
 
 impl_generate_config_from_default!(SlidingAggregateConfig);
@@ -145,6 +169,22 @@ impl SlidingAggregateConfig {
             .map(|s| parse_target_path(s.as_str()))
             .transpose()?;
 
+        let state_persistence_tick_ms = self.state_persistence_tick_ms;
+        let state_persistence: Option<Box<dyn PersistenceConnection>> =
+            match (&self.state_persistence_base_path, ctx.mezmo_ctx.clone()) {
+                (Some(base_path), Some(mezmo_ctx)) => Some(Box::new(
+                    RocksDBPersistenceConnection::new(base_path, &mezmo_ctx)?,
+                )),
+                (_, Some(mezmo_ctx)) => {
+                    debug!(
+                        "SlidingAggregate: state persistence not enabled for component {}",
+                        mezmo_ctx.id()
+                    );
+                    None
+                }
+                (_, _) => None,
+            };
+
         Ok(SlidingAggregate::new(
             self.flush_tick_ms,
             event_key_fields,
@@ -158,6 +198,8 @@ impl SlidingAggregateConfig {
                 self.min_window_size_ms,
                 window_size_ms,
             ),
+            state_persistence,
+            state_persistence_tick_ms,
         ))
     }
 }
@@ -186,7 +228,7 @@ impl TransformConfig for SlidingAggregateConfig {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct AggregateWindow {
     size_ms: Range<i64>,
     event: Event,
@@ -262,11 +304,13 @@ pub struct SlidingAggregate {
     clock: AggregateClock,
     mezmo_ctx: Option<MezmoContext>,
     aggregator_limits: AggregatorLimits,
+    state_persistence: Option<Box<dyn PersistenceConnection>>,
+    state_persistence_tick_ms: u64,
 }
 
 impl SlidingAggregate {
-    #[allow(clippy::missing_const_for_fn)]
-    pub fn new(
+    #[allow(clippy::missing_const_for_fn, clippy::too_many_arguments)]
+    pub(crate) fn new(
         flush_tick_ms: u64,
         event_key_fields: Vec<OwnedTargetPath>,
         event_merge_program: Program,
@@ -274,9 +318,16 @@ impl SlidingAggregate {
         flush_condition: Option<Condition>,
         mezmo_ctx: Option<MezmoContext>,
         aggregator_limits: AggregatorLimits,
+        state_persistence: Option<Box<dyn PersistenceConnection>>,
+        state_persistence_tick_ms: u64,
     ) -> Self {
+        let initial_data = match &state_persistence {
+            Some(state_persistence) => load_initial_state(state_persistence),
+            None => HashMap::new(),
+        };
+
         Self {
-            data: HashMap::new(),
+            data: initial_data,
             flush_tick_ms,
             flush_condition,
             event_key_fields,
@@ -286,6 +337,8 @@ impl SlidingAggregate {
             clock: AggregateClock::SystemCall,
             mezmo_ctx,
             aggregator_limits,
+            state_persistence,
+            state_persistence_tick_ms,
         }
     }
 
@@ -470,6 +523,53 @@ impl SlidingAggregate {
             }
         }
     }
+
+    /// Saves the current `data` to persistent storage. This is intended to be called from the
+    /// polling loop on an interval defined by the `state_persistence_tick_ms` field.
+    fn persist_state(&self) {
+        if let Some(state_persistence) = &self.state_persistence {
+            let value = serde_json::to_string(&self.data);
+            if let Err(err) = value {
+                error!("SlidingAggregate: failed to serialize state: {}", err);
+                return;
+            }
+
+            match state_persistence.set(STATE_PERSISTENCE_KEY, &value.unwrap()) {
+                Ok(_) => debug!("SlidingAggregate: state persisted"),
+                Err(err) => error!("SlidingAggregate: failed to persist state: {}", err),
+            }
+        }
+    }
+}
+
+// Handles loading initial state from persistent storage, returning an appropriate
+// default value if the state is not found or cannot be deserialized.
+#[allow(clippy::borrowed_box)]
+fn load_initial_state(
+    state_persistence: &Box<dyn PersistenceConnection>,
+) -> HashMap<u64, VecDeque<AggregateWindow>> {
+    match state_persistence.get("state") {
+        Ok(state) => match state {
+            Some(state) => match serde_json::from_str(&state) {
+                Ok(state) => state,
+                Err(err) => {
+                    error!(
+                        "Failed to deserialize state from persistence: {}, component_id",
+                        err
+                    );
+                    HashMap::new()
+                }
+            },
+            None => HashMap::new(),
+        },
+        Err(err) => {
+            error!(
+                "Failed to load state from persistence: {}, component_id",
+                err
+            );
+            HashMap::new()
+        }
+    }
 }
 
 impl TaskTransform<Event> for SlidingAggregate {
@@ -479,12 +579,21 @@ impl TaskTransform<Event> for SlidingAggregate {
     ) -> Pin<Box<dyn Stream<Item = Event> + Send>> {
         Box::pin(stream! {
             let mut flush_interval = tokio::time::interval(Duration::from_millis(self.flush_tick_ms));
+            let mut state_persistence_interval = tokio::time::interval(Duration::from_millis(self.state_persistence_tick_ms));
             let mut output:Vec<Event> = Vec::new();
             let mut done = false;
+
+            match &self.state_persistence {
+                Some(_) => debug!("SlidingAggregate: state persistence enabled"),
+                None => debug!("SlidingAggregate: state persistence not enabled"),
+            }
             while !done {
                 select! {
                     _ = flush_interval.tick() => {
                         self.flush_finalized(&mut output);
+                    },
+                    _ = state_persistence_interval.tick() => {
+                        self.persist_state()
                     },
                     maybe_event = input_events.next() => {
                         match maybe_event {
@@ -503,12 +612,16 @@ impl TaskTransform<Event> for SlidingAggregate {
                 for event in output.drain(..) {
                     yield event;
                 }
+
+                if done {
+                    self.persist_state()
+                }
             }
         })
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AggregatorLimits {
     /// The maximum number of sliding window structs to allow per metric series
     pub mem_window_limit: u32,
@@ -541,14 +654,27 @@ impl AggregatorLimits {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::mezmo::MezmoContext;
     use serde_json::json;
     use std::collections::BTreeMap;
+    use tempfile::tempdir;
     use vector_lib::event::LogEvent;
     use vrl::btreemap;
+
+    const ACCOUNT_ID: &str = "bea71e55-a1ec-4e5f-a5c0-c0e10b1a571c";
+
+    fn test_mezmo_context() -> MezmoContext {
+        MezmoContext::try_from(format!(
+            "v1:reduce:transform:component_id:pipeline_id:{}",
+            ACCOUNT_ID
+        ))
+        .unwrap()
+    }
 
     async fn new_aggregator(
         flush_condition: Option<&str>,
         memory_limits: AggregatorLimits,
+        state_persistence_base_path: Option<&str>,
     ) -> SlidingAggregate {
         let flush_condition = match flush_condition {
             None => "".to_string(),
@@ -568,6 +694,11 @@ mod test {
             window_duration_ms,
         } = memory_limits;
 
+        let state_persistence_base_path = match state_persistence_base_path {
+            None => "".to_string(),
+            Some(base_path) => format!("state_persistence_base_path = \"{base_path}\""),
+        };
+
         let config = format!(
             r#"
             window_duration_ms = {window_duration_ms}
@@ -577,6 +708,8 @@ mod test {
             flush_tick_ms = 1
             event_id_fields = [".message.name", ".message.tags"]
             event_timestamp_field = ".metadata.timestamp"
+            {state_persistence_base_path}
+            state_persistence_tick_ms = 1
             source = """
                 new_acc = {{ }}
 
@@ -593,7 +726,12 @@ mod test {
         );
 
         let config: SlidingAggregateConfig = toml::from_str(config.as_str()).unwrap();
-        let ctx = TransformContext::default();
+        let mezmo_ctx = test_mezmo_context();
+
+        let ctx = TransformContext {
+            mezmo_ctx: Some(mezmo_ctx),
+            ..Default::default()
+        };
         let mut aggregator = match config.internal_build(&ctx).await {
             Err(e) => panic!("{e}"),
             Ok(aggregator) => aggregator,
@@ -715,7 +853,7 @@ mod test {
 
     #[tokio::test]
     async fn record_single_metric() {
-        let mut target = new_aggregator(None, default_aggregator_limits()).await;
+        let mut target = new_aggregator(None, default_aggregator_limits(), None).await;
         target.record(counter_event("a", None, 10.0));
         assert_eq!(target.data.len(), 1);
 
@@ -734,7 +872,7 @@ mod test {
 
     #[tokio::test]
     async fn record_overlapping_windows() {
-        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(0)).await;
+        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(0), None).await;
         target.record(counter_event_custom_timestamp("a", None, 3.0, 1));
         target.record(counter_event_custom_timestamp("a", None, 4.0, 3));
         assert_eq!(
@@ -757,7 +895,7 @@ mod test {
 
     #[tokio::test]
     async fn record_nonoverlapping_windows() {
-        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10)).await;
+        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10), None).await;
         target.record(counter_event("a", None, 3.0));
         target.record(counter_event_custom_timestamp("a", None, 4.0, 15));
         assert_eq!(
@@ -780,7 +918,7 @@ mod test {
 
     #[tokio::test]
     async fn record_group_by_tags() {
-        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(0)).await;
+        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(0), None).await;
         target.record(counter_event(
             "a",
             Some(btreemap! { "host" => "host-1"}),
@@ -830,7 +968,7 @@ mod test {
 
     #[tokio::test]
     async fn record_drops_events_when_cardinality_is_exceeded() {
-        let mut target = new_aggregator(None, AggregatorLimits::new(200, 2, 5000, 5)).await;
+        let mut target = new_aggregator(None, AggregatorLimits::new(200, 2, 5000, 5), None).await;
         target.record(counter_event("a", None, 3.0));
         target.record(counter_event("b", None, 5.0));
         target.record(counter_event("c", None, 6.0));
@@ -850,7 +988,7 @@ mod test {
 
     #[tokio::test]
     async fn record_skips_creating_window() {
-        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10)).await;
+        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10), None).await;
         target.record(counter_event("a", None, 3.0));
         target.record(counter_event("b", None, 7.0));
         // event overlaps existing window but does not allocate new window
@@ -873,7 +1011,7 @@ mod test {
 
     #[tokio::test]
     async fn record_creates_new_windows_when_event_exceeds_min_window() {
-        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10)).await;
+        let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10), None).await;
         target.record(counter_event("a", None, 3.0));
         target.record(counter_event("b", None, 7.0));
         // use explicit timestamp instead of shared atomic value
@@ -898,7 +1036,7 @@ mod test {
 
     #[tokio::test]
     async fn flush_when_empty() {
-        let mut target = new_aggregator(None, default_aggregator_limits()).await;
+        let mut target = new_aggregator(None, default_aggregator_limits(), None).await;
         let mut res = vec![];
         target.flush_finalized(&mut res);
         assert!(res.is_empty());
@@ -906,7 +1044,7 @@ mod test {
 
     #[tokio::test]
     async fn flush_no_expired() {
-        let mut target = new_aggregator(None, default_aggregator_limits()).await;
+        let mut target = new_aggregator(None, default_aggregator_limits(), None).await;
         target.record(counter_event("a", None, 3.0));
         target.record(counter_event("b", None, 3.0));
 
@@ -917,7 +1055,7 @@ mod test {
 
     #[tokio::test]
     async fn flush_only_expired() {
-        let mut target = new_aggregator(None, default_aggregator_limits()).await;
+        let mut target = new_aggregator(None, default_aggregator_limits(), None).await;
         target.record(counter_event("a", None, 3.0));
         target.record(counter_event("b", None, 3.0));
         target.clock.increment_by(10);
@@ -937,6 +1075,7 @@ mod test {
         let mut target = new_aggregator(
             Some("to_string!(.message.value.value) > \"5\""),
             default_aggregator_limits(),
+            None,
         )
         .await;
         target.record(counter_event("a", None, 3.0));
@@ -954,6 +1093,7 @@ mod test {
         let mut target = new_aggregator(
             Some(".message.tags.region == \"foo\""),
             default_aggregator_limits(),
+            None,
         )
         .await;
         target.record(counter_event(
@@ -988,7 +1128,7 @@ mod test {
 
     #[tokio::test]
     async fn flushes_excess_windows_to_stay_within_window_limits() {
-        let mut target = new_aggregator(None, AggregatorLimits::new(2, 5000, 0, 5)).await;
+        let mut target = new_aggregator(None, AggregatorLimits::new(2, 5000, 0, 5), None).await;
         target.record(counter_event("a", None, 3.0));
         target.record(counter_event("b", None, 3.0));
         // use explicit timestamps to force new window allocations
@@ -1010,6 +1150,43 @@ mod test {
                 counter_event("b", None, 3.0),
             ],
             actual_events,
+        );
+    }
+
+    #[tokio::test]
+    async fn with_initial_state() {
+        let tmp_path = tempdir().expect("Could not create temp dir").into_path();
+        let state_persistence_base_path = tmp_path.to_str();
+        let limits = AggregatorLimits::new(1, 5000, 0, 5);
+
+        let mut target = new_aggregator(None, limits.clone(), state_persistence_base_path).await;
+        target.record(counter_event("a", None, 3.0));
+        target.record(counter_event("b", None, 3.0));
+
+        let mut res = vec![];
+        let initial_data = target.data.clone();
+        target.flush_finalized(&mut res); // no-op, window has not elapsed
+        target.persist_state();
+        assert!(res.is_empty());
+
+        let mut new_target = new_aggregator(None, limits, state_persistence_base_path).await;
+        assert_eq!(
+            new_target.data.len(),
+            initial_data.len(),
+            "initial data state does not match"
+        );
+
+        let mut new_res = vec![];
+        new_target.record(counter_event("a", None, 3.0));
+        new_target.record(counter_event("b", None, 3.0));
+        new_target.clock.increment_by(10);
+        new_target.flush_finalized(&mut new_res);
+        assert!(!new_res.is_empty());
+
+        fix_event_ordering(&mut new_res);
+        assert_events_eq(
+            vec![counter_event("a", None, 6.0), counter_event("b", None, 6.0)],
+            new_res,
         );
     }
 }

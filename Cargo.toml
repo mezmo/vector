@@ -307,6 +307,7 @@ rdkafka = { version = "0.34.0", default-features = false, features = ["tokio", "
 redis = { version = "0.23.3", default-features = false, features = ["connection-manager", "tokio-comp", "tokio-native-tls-comp"], optional = true }
 regex = { version = "1.10.2", default-features = false, features = ["std", "perf"] }
 roaring = { version = "0.10.2", default-features = false, optional = true }
+rocksdb = { version = "0.21", optional = true }
 seahash = { version = "4.1.0", default-features = false }
 semver = { version = "1.0.20", default-features = false, features = ["serde", "std"], optional = true }
 smallvec = { version = "1", default-features = false, features = ["union", "serde"] }
@@ -478,6 +479,9 @@ enrichment-tables = ["enrichment-tables-geoip", "enrichment-tables-state_variabl
 enrichment-tables-geoip = ["dep:maxminddb"]
 enrichment-tables-state_variables = ["dep:tokio-postgres"]
 
+# Component state persistence
+component-persistence = ["dep:rocksdb"]
+
 # Sources (Upstream)
 # sources = ["sources-logs", "sources-metrics"]
 
@@ -639,7 +643,6 @@ transforms-logs-mezmo = [
 ]
 transforms-metrics = [
   "transforms-aggregate",
-  "transforms-sliding_aggregate",
   "transforms-filter",
   "transforms-log_to_metric",
   "transforms-lua",
@@ -662,7 +665,7 @@ transforms-metrics-mezmo = [
 ]
 
 transforms-aggregate = []
-transforms-sliding_aggregate = ["transforms-remap"]
+transforms-sliding_aggregate = ["transforms-remap", "component-persistence"]
 transforms-aws_ec2_metadata = ["dep:arc-swap"]
 transforms-dedupe = ["dep:lru"]
 transforms-filter = []

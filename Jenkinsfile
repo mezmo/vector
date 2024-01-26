@@ -52,6 +52,7 @@ pipeline {
   environment {
     ENVIRONMENT_AUTOBUILD = 'false'
     ENVIRONMENT_TTY = 'false'
+    CI = 'true'
   }
   post {
     always {
