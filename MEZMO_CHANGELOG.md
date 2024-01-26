@@ -1,3 +1,20 @@
+# [3.4.0](https://github.com/answerbook/vector/compare/v3.3.0...v3.4.0) (2024-01-26)
+
+
+### Bug Fixes
+
+* **persistence**: include pod name in db directory [a23107a](https://github.com/answerbook/vector/commit/a23107a7c1908ef84e8df12ebdf786d9ebcea011) - Mike Del Tito [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
+
+### Features
+
+* **persistence**: add pvc/mount for component state storage [ff5929f](https://github.com/answerbook/vector/commit/ff5929f28cd34a7a7755e9678f2fd0ffd6a86ed7) - Mike Del Tito [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
+
+### Miscellaneous
+
+* Merge pull request #404 from answerbook/mdeltito/LOG-19044 [fdeb534](https://github.com/answerbook/vector/commit/fdeb534bc0a0e86a9ccc40b311f74c4739ac5f6e) - GitHub [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
 # [3.3.0](https://github.com/answerbook/vector/compare/v3.2.0...v3.3.0) (2024-01-26)
 
 
