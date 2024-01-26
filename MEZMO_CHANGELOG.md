@@ -1,3 +1,25 @@
+# [3.3.0](https://github.com/answerbook/vector/compare/v3.2.0...v3.3.0) (2024-01-26)
+
+
+### Bug Fixes
+
+* **build**: add libclang-dev dependency to the environment [cfa0321](https://github.com/answerbook/vector/commit/cfa032177b612fbff6e739975c7489d8cc1ce5ac) - Mike Del Tito [LOG-18959](https://logdna.atlassian.net/browse/LOG-18959)
+
+
+### Features
+
+* **persistence**: define persistence trait/impl and wire into aggregate [85e5d1a](https://github.com/answerbook/vector/commit/85e5d1a23fa90825f0ce941ac197032a8d31b84b) - Mike Del Tito [LOG-18959](https://logdna.atlassian.net/browse/LOG-18959)
+
+
+### Miscellaneous
+
+* Merge pull request #402 from answerbook/mdeltito/LOG-18959 [a1ec760](https://github.com/answerbook/vector/commit/a1ec760304e73c022df565fae1be096041b738bf) - GitHub [LOG-18959](https://logdna.atlassian.net/browse/LOG-18959)
+
+
+### Tests
+
+* allow conditional compiling of tests under ci [67d6f7d](https://github.com/answerbook/vector/commit/67d6f7d04f22f4fdd616b52e2ebb53b0306a1557) - Mike Del Tito [LOG-18959](https://logdna.atlassian.net/browse/LOG-18959)
+
 # [3.2.0](https://github.com/answerbook/vector/compare/v3.1.3...v3.2.0) (2024-01-24)
 
 
