@@ -1,3 +1,15 @@
+## [3.4.1](https://github.com/answerbook/vector/compare/v3.4.0...v3.4.1) (2024-01-26)
+
+
+### Bug Fixes
+
+* **deployment**: adjust resource vars and add namespace [8f8aff6](https://github.com/answerbook/vector/commit/8f8aff6afdef52a7111fb52ac290ecfc72e12290) - Mike Del Tito [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
+
+### Miscellaneous
+
+* Merge pull request #405 from answerbook/mdeltito/LOG-19044-fix [c5b3474](https://github.com/answerbook/vector/commit/c5b3474fbdb4fead2b90487e77fc02943bb73c53) - GitHub [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
 # [3.4.0](https://github.com/answerbook/vector/compare/v3.3.0...v3.4.0) (2024-01-26)
 
 
