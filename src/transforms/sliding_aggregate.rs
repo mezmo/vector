@@ -655,6 +655,7 @@ impl AggregatorLimits {
 mod test {
     use super::*;
     use crate::mezmo::MezmoContext;
+    use assay::assay;
     use serde_json::json;
     use std::collections::BTreeMap;
     use tempfile::tempdir;
@@ -1153,7 +1154,7 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
     async fn with_initial_state() {
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let state_persistence_base_path = tmp_path.to_str();
