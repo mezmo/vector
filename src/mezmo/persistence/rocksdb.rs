@@ -11,6 +11,8 @@ use crate::Error;
 
 use super::PersistenceConnection;
 
+const POD_NAME_ENV_VAR: &str = "POD_NAME";
+
 // Minimum allowed blockcache size is 512KB (default 32MB)
 // https://github.com/facebook/rocksdb/wiki/Block-Cache
 const ROCKSDB_BLOCK_CACHE_SIZE: usize = 1024 * 500;
@@ -48,6 +50,8 @@ enum RocksDBPersistenceError {
     InvalidPath { path: PathBuf },
     #[snafu(display("Invalid context: {mezmo_ctx:?}"))]
     InvalidContext { mezmo_ctx: MezmoContext },
+    #[snafu(display("Missing required environment variable: {var}"))]
+    MissingEnvironmentVariable { var: String },
 }
 
 #[derive(Debug)]
@@ -71,8 +75,19 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
             }
         };
 
+        let pod_name = match std::env::var(POD_NAME_ENV_VAR) {
+            Ok(name) => name,
+            Err(_) => {
+                return Err(Box::new(
+                    RocksDBPersistenceError::MissingEnvironmentVariable {
+                        var: POD_NAME_ENV_VAR.to_string(),
+                    },
+                ))
+            }
+        };
+
         let mut path = PathBuf::from(base_path);
-        path.push(format!("{account_id}.db"));
+        path.push(format!("{account_id}.{pod_name}.db"));
 
         let mut registry = ROCKSDB_CONNECTION_REGISTRY
             .lock()
@@ -153,6 +168,7 @@ fn namespaced_key(mezmo_ctx: &MezmoContext, key: &str) -> String {
 mod tests {
     use super::*;
     use crate::assert_downcast_matches;
+    use assay::assay;
     use serde::Serialize;
     use std::{collections::BTreeMap, thread};
     use tempfile::tempdir;
@@ -174,13 +190,13 @@ mod tests {
         serde_json::to_string(value).unwrap()
     }
 
-    #[test]
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_namespaced_key() {
         let ctx = test_mezmo_context();
         assert_eq!(namespaced_key(&ctx, "key"), "component_id:key");
     }
 
-    #[test]
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_invalid_context() {
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let base_path = tmp_path.to_str().unwrap();
@@ -196,7 +212,23 @@ mod tests {
         );
     }
 
-    #[test]
+    #[assay]
+    fn test_missing_pod_name_env() {
+        let tmp_path = tempdir().expect("Could not create temp dir").into_path();
+        let base_path = tmp_path.to_str().unwrap();
+
+        let ctx = test_mezmo_context();
+        let res = RocksDBPersistenceConnection::new(base_path, &ctx);
+
+        assert!(res.is_err());
+        assert_downcast_matches!(
+            res.unwrap_err(),
+            RocksDBPersistenceError,
+            RocksDBPersistenceError::MissingEnvironmentVariable { .. }
+        );
+    }
+
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_invalid_base_path_not_a_directory() {
         let tmp_path = tempdir()
             .expect("Could not create temp dir")
@@ -219,7 +251,7 @@ mod tests {
 
     // This test does not pass under CI/Docker, but does pass locally
     #[cfg(not(ci))]
-    #[test]
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_invalid_base_path_exists_but_not_writable() {
         use std::fs::DirBuilder;
         use std::os::unix::fs::DirBuilderExt;
@@ -258,7 +290,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_set_get_scalar() {
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let base_path = tmp_path.to_str().unwrap();
@@ -283,7 +315,7 @@ mod tests {
         assert_eq!(bool.unwrap(), to_json(&false));
     }
 
-    #[test]
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_set_get_complex() {
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let base_path = tmp_path.to_str().unwrap();
@@ -309,7 +341,7 @@ mod tests {
         assert_eq!(obj_actual.unwrap(), obj_expected);
     }
 
-    #[test]
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_from_multiple_threads_for_the_same_account() {
         let base_path_thread_1 = tempdir().expect("Could not create temp dir").into_path();
         let base_path_thread_2 = base_path_thread_1.clone();

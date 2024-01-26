@@ -53,6 +53,22 @@ spec:
           namespace: pipeline
           key: config-reload-max-sec
 
+    - name: requests_storage
+      default: '20Gi'
+      valueFrom:
+        configMapKeyRef:
+          name: resources
+          namespace: default
+          key: vector-requests_storage
+
+    - name: storage_class
+      default: 'gp3-us-east-1a'
+      valueFrom:
+        configMapKeyRef:
+          name: resources
+          namespace: default
+          key: vector-storage_class
+
   strTemplates:
   - |
 
@@ -206,7 +222,9 @@ spec:
                     cpu: "{{{limits-cpu}}}"
                 volumeMounts:
                   - name: data
-                    mountPath: "/vector-data-dir"
+                    mountPath: "/data/vector"
+                  - name: component-state
+                    mountPath: "/data/component-state"
                   - name: config
                     mountPath: "/etc/vector/"
                     readOnly: true
@@ -280,3 +298,15 @@ spec:
               value: 1
               periodSeconds: 60
     {{/vector-partitions}}
+
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: component-state
+      spec:
+        storageClassName: {{storage_class}}
+        accessModes:
+          - ReadWriteMany
+        resources:
+          requests:
+            storage: {{requests_storage}}
