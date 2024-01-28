@@ -23,6 +23,8 @@ spec:
           "partition-id": "gen0",
           "requests-cpu": 1,
           "requests-memory": "2Gi",
+          "requests-storage": "10Gi",
+          "storage-class": "gp3-us-east-1a",
           "limits-cpu": 8,
           "limits-memory": "16Gi",
           "min-replicas": 2,
@@ -52,24 +54,6 @@ spec:
           name: vector
           namespace: pipeline
           key: config-reload-max-sec
-
-    - name: requests_storage
-      default: '20Gi'
-      optional: true
-      valueFrom:
-        configMapKeyRef:
-          name: resources
-          namespace: default
-          key: vector-requests_storage
-
-    - name: storage_class
-      default: 'gp3-us-east-1a'
-      optional: true
-      valueFrom:
-        configMapKeyRef:
-          name: resources
-          namespace: default
-          key: vector-storage_class
 
   strTemplates:
   - |
@@ -265,6 +249,22 @@ spec:
               operator: Equal
               value: enabled
 
+        volumeClaimTemplates:
+        - metadata:
+            name: vector-component-state
+            annotations:
+              volume.beta.kubernetes.io/storage-class: "{{{storage-class}}}"
+            labels:
+              app: vector
+              partition: "{{{partition-id}}}"
+          spec:
+            accessModes:
+            - ReadWriteOnce
+            storageClassName: "{{{storage-class}}}"
+            resources:
+              requests:
+                storage: "{{{requests-storage}}}"
+
     - apiVersion: autoscaling/v2
       kind: HorizontalPodAutoscaler
       metadata:
@@ -300,16 +300,3 @@ spec:
               value: 1
               periodSeconds: 60
     {{/vector-partitions}}
-
-    - apiVersion: v1
-      kind: PersistentVolumeClaim
-      metadata:
-        name: vector-component-state
-        namespace: pipeline
-      spec:
-        storageClassName: {{storage_class}}
-        accessModes:
-          - ReadWriteMany
-        resources:
-          requests:
-            storage: {{requests_storage}}
