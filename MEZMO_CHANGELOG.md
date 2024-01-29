@@ -1,3 +1,15 @@
+## [3.4.4](https://github.com/answerbook/vector/compare/v3.4.3...v3.4.4) (2024-01-29)
+
+
+### Chores
+
+* ignore paths from integration suite run [0b96fa8](https://github.com/answerbook/vector/commit/0b96fa8a15df0aed53600697cd7d069428bf10c3) - Mike Del Tito
+
+
+### Miscellaneous
+
+* Merge pull request #406 from answerbook/mdeltito/ignore-deployment-changes-actions [8fa9653](https://github.com/answerbook/vector/commit/8fa965370be29429ce424b10834a306e3e351dd7) - GitHub
+
 ## [3.4.3](https://github.com/answerbook/vector/compare/v3.4.2...v3.4.3) (2024-01-29)
 
 
