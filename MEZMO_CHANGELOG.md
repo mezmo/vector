@@ -1,3 +1,10 @@
+## [3.4.3](https://github.com/answerbook/vector/compare/v3.4.2...v3.4.3) (2024-01-29)
+
+
+### Chores
+
+* **build**: Use open source vrl fork [8c68704](https://github.com/answerbook/vector/commit/8c68704487ee339c816757a500c03c50bb280f43) - Dan Hable [LOG-19155](https://logdna.atlassian.net/browse/LOG-19155)
+
 ## [3.4.2](https://github.com/answerbook/vector/compare/v3.4.1...v3.4.2) (2024-01-29)
 
 
