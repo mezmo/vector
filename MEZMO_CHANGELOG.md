@@ -1,3 +1,15 @@
+## [3.4.2](https://github.com/answerbook/vector/compare/v3.4.1...v3.4.2) (2024-01-29)
+
+
+### Bug Fixes
+
+* **persistence**: define pvc per-partition [f4f2b09](https://github.com/answerbook/vector/commit/f4f2b0981824e917ada2059279e75c27ce965e20) - Mike Del Tito [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
+
+### Miscellaneous
+
+* Merge pull request #407 from answerbook/mdeltito/LOG-19044-pvc-by-partition [21dc87a](https://github.com/answerbook/vector/commit/21dc87ae483685e77fe98bf75e74bdacbb9fd38d) - GitHub [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
 ## [3.4.1](https://github.com/answerbook/vector/compare/v3.4.0...v3.4.1) (2024-01-26)
 
 
