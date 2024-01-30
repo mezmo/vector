@@ -10,6 +10,7 @@ use crate::{
 use async_stream::stream;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
@@ -101,6 +102,11 @@ pub struct SlidingAggregateConfig {
     /// storage backend.
     #[serde(default = "default_state_persistence_tick_ms")]
     state_persistence_tick_ms: u64,
+
+    /// The maximum amount of jitter (ms) to add to the `state_persistence_tick_ms`
+    /// flush interval.
+    #[serde(default = "default_state_persistence_max_jitter_ms")]
+    state_persistence_max_jitter_ms: u64,
 }
 
 const fn default_window_duration_ms() -> u32 {
@@ -129,6 +135,10 @@ const fn default_state_persistence_base_path() -> Option<String> {
 
 const fn default_state_persistence_tick_ms() -> u64 {
     30000
+}
+
+const fn default_state_persistence_max_jitter_ms() -> u64 {
+    750
 }
 
 impl_generate_config_from_default!(SlidingAggregateConfig);
@@ -170,6 +180,7 @@ impl SlidingAggregateConfig {
             .transpose()?;
 
         let state_persistence_tick_ms = self.state_persistence_tick_ms;
+        let state_persistence_max_jitter_ms = self.state_persistence_max_jitter_ms;
         let state_persistence: Option<Box<dyn PersistenceConnection>> =
             match (&self.state_persistence_base_path, ctx.mezmo_ctx.clone()) {
                 (Some(base_path), Some(mezmo_ctx)) => Some(Box::new(
@@ -200,6 +211,7 @@ impl SlidingAggregateConfig {
             ),
             state_persistence,
             state_persistence_tick_ms,
+            state_persistence_max_jitter_ms,
         ))
     }
 }
@@ -306,6 +318,7 @@ pub struct SlidingAggregate {
     aggregator_limits: AggregatorLimits,
     state_persistence: Option<Box<dyn PersistenceConnection>>,
     state_persistence_tick_ms: u64,
+    state_persistence_max_jitter_ms: u64,
 }
 
 impl SlidingAggregate {
@@ -320,6 +333,7 @@ impl SlidingAggregate {
         aggregator_limits: AggregatorLimits,
         state_persistence: Option<Box<dyn PersistenceConnection>>,
         state_persistence_tick_ms: u64,
+        state_persistence_max_jitter_ms: u64,
     ) -> Self {
         let initial_data = match &state_persistence {
             Some(state_persistence) => load_initial_state(state_persistence),
@@ -339,6 +353,7 @@ impl SlidingAggregate {
             aggregator_limits,
             state_persistence,
             state_persistence_tick_ms,
+            state_persistence_max_jitter_ms,
         }
     }
 
@@ -593,7 +608,9 @@ impl TaskTransform<Event> for SlidingAggregate {
                         self.flush_finalized(&mut output);
                     },
                     _ = state_persistence_interval.tick() => {
-                        self.persist_state()
+                        let jitter = rand::thread_rng().gen_range(0..=self.state_persistence_max_jitter_ms);
+                        tokio::time::sleep(Duration::from_millis(jitter)).await;
+                        self.persist_state();
                     },
                     maybe_event = input_events.next() => {
                         match maybe_event {
