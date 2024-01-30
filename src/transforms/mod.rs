@@ -20,6 +20,8 @@ pub mod lua;
 pub mod metric_to_log;
 #[cfg(feature = "transforms-mezmo_aggregate")]
 pub mod mezmo_aggregate;
+#[cfg(feature = "transforms-mezmo_aggregate_v2")]
+pub mod mezmo_aggregate_v2;
 #[cfg(feature = "transforms-mezmo_log_classification")]
 pub mod mezmo_log_classification;
 #[cfg(feature = "transforms-mezmo_log_clustering")]
@@ -40,8 +42,6 @@ pub mod remap;
 pub mod route;
 #[cfg(feature = "transforms-sample")]
 pub mod sample;
-#[cfg(feature = "transforms-sliding_aggregate")]
-pub mod sliding_aggregate;
 #[cfg(feature = "transforms-tag_cardinality_limit")]
 pub mod tag_cardinality_limit;
 #[cfg(feature = "transforms-throttle")]

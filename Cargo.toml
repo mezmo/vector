@@ -657,7 +657,7 @@ transforms-metrics-mezmo = [
   "transforms-remap",
   "transforms-throttle",
   "transforms-aggregate",
-  "transforms-sliding_aggregate",
+  "transforms-mezmo_aggregate_v2",
   "transforms-mezmo_aggregate",
   "transforms-mezmo_tag_cardinality_limit",
   "transforms-mezmo_log_to_metric",
@@ -665,7 +665,7 @@ transforms-metrics-mezmo = [
 ]
 
 transforms-aggregate = []
-transforms-sliding_aggregate = ["transforms-remap", "component-persistence"]
+transforms-mezmo_aggregate_v2 = ["transforms-remap", "component-persistence"]
 transforms-aws_ec2_metadata = ["dep:arc-swap"]
 transforms-dedupe = ["dep:lru"]
 transforms-filter = []
