@@ -1,3 +1,15 @@
+## [3.4.5](https://github.com/answerbook/vector/compare/v3.4.4...v3.4.5) (2024-01-30)
+
+
+### Chores
+
+* **tests**: Re-enable splunk tests in Github Actions [00a852a](https://github.com/answerbook/vector/commit/00a852a78f7b40e39047ff592bce16afca9e7708) - Darin Spivey [LOG-18162](https://logdna.atlassian.net/browse/LOG-18162)
+
+
+### Miscellaneous
+
+* Merge pull request #409 from answerbook/darinspivey/LOG-18162 [0ae8b1f](https://github.com/answerbook/vector/commit/0ae8b1ff78fa3b51ad3364a7d41a323e9988042b) - GitHub [LOG-18162](https://logdna.atlassian.net/browse/LOG-18162)
+
 ## [3.4.4](https://github.com/answerbook/vector/compare/v3.4.3...v3.4.4) (2024-01-29)
 
 
