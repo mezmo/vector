@@ -1,3 +1,20 @@
+# [3.5.0](https://github.com/answerbook/vector/compare/v3.4.5...v3.5.0) (2024-01-31)
+
+
+### Code Refactoring
+
+* rename `sliding_aggregate` to `mezmo_aggregate_v2` [0485391](https://github.com/answerbook/vector/commit/0485391488b0869e2930e09f342b6f03481007b9) - Mike Del Tito [LOG-19134](https://logdna.atlassian.net/browse/LOG-19134)
+
+
+### Features
+
+* **persistence**: add jitter to state flush [db3cae3](https://github.com/answerbook/vector/commit/db3cae3556d74ff05e1f10266ef208505e59ad48) - Mike Del Tito [LOG-19171](https://logdna.atlassian.net/browse/LOG-19171)
+
+
+### Miscellaneous
+
+* Merge pull request #410 from answerbook/mdeltito/LOG-19134 [0c71dd0](https://github.com/answerbook/vector/commit/0c71dd068c710ecf722d180b0c6d1c0be6bdd86c) - GitHub [LOG-19134](https://logdna.atlassian.net/browse/LOG-19134)
+
 ## [3.4.5](https://github.com/answerbook/vector/compare/v3.4.4...v3.4.5) (2024-01-30)
 
 
