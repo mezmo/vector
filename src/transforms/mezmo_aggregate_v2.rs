@@ -10,6 +10,7 @@ use crate::{
 use async_stream::stream;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
@@ -18,7 +19,7 @@ use std::ops::Range;
 use std::pin::Pin;
 use std::time::Duration;
 use tokio::select;
-use vector_lib::configurable::configurable_component;
+use vector_lib::configurable::{component::GenerateConfig, configurable_component};
 use vector_lib::enrichment::TableRegistry;
 use vector_lib::{
     config::{clone_input_definitions, DataType, Input, LogNamespace, OutputId, TransformOutput},
@@ -45,10 +46,48 @@ use std::sync::atomic::{AtomicI64, Ordering};
 const STATE_PERSISTENCE_KEY: &str = "state";
 
 /// Configuration for the `sliding_aggregate` transform.
+/// The `sliding_aggregate` transform has been renamed. This exists for backwards compatibility.
 #[configurable_component(transform("sliding_aggregate", "Mezmo sliding aggregate"))]
+#[configurable(metadata(
+    deprecated = "The `sliding_aggregate` transform has been renamed. Please use `mezmo_aggregate_v2` instead."
+))]
+#[derive(Clone, Debug)]
+pub struct SlidingAggregateConfig(MezmoAggregateV2Config);
+
+impl GenerateConfig for SlidingAggregateConfig {
+    fn generate_config() -> toml::Value {
+        <MezmoAggregateV2Config as GenerateConfig>::generate_config()
+    }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde(name = "sliding_aggregate")]
+impl TransformConfig for SlidingAggregateConfig {
+    async fn build(&self, ctx: &TransformContext) -> crate::Result<Transform> {
+        warn!("DEPRECATED: The `sliding_aggregate` transform has been renamed. Please use `mezmo_aggregate_v2` instead.");
+        self.0.build(ctx).await
+    }
+
+    fn input(&self) -> Input {
+        self.0.input()
+    }
+
+    fn outputs(
+        &self,
+        enrichment_tables: TableRegistry,
+        input_definitions: &[(OutputId, Definition)],
+        global_log_namespace: LogNamespace,
+    ) -> Vec<TransformOutput> {
+        self.0
+            .outputs(enrichment_tables, input_definitions, global_log_namespace)
+    }
+}
+
+/// Configuration for the `mezmo_aggregate_v2` transform.
+#[configurable_component(transform("mezmo_aggregate_v2", "Mezmo Aggregate V2"))]
 #[derive(Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
-pub struct SlidingAggregateConfig {
+pub struct MezmoAggregateV2Config {
     /// The sliding window duration in milliseconds to use when
     /// determining the aggregate values.
     #[serde(default = "default_window_duration_ms")]
@@ -101,6 +140,11 @@ pub struct SlidingAggregateConfig {
     /// storage backend.
     #[serde(default = "default_state_persistence_tick_ms")]
     state_persistence_tick_ms: u64,
+
+    /// The maximum amount of jitter (ms) to add to the `state_persistence_tick_ms`
+    /// flush interval.
+    #[serde(default = "default_state_persistence_max_jitter_ms")]
+    state_persistence_max_jitter_ms: u64,
 }
 
 const fn default_window_duration_ms() -> u32 {
@@ -131,13 +175,17 @@ const fn default_state_persistence_tick_ms() -> u64 {
     30000
 }
 
-impl_generate_config_from_default!(SlidingAggregateConfig);
+const fn default_state_persistence_max_jitter_ms() -> u64 {
+    750
+}
 
-impl SlidingAggregateConfig {
-    /// This method does all of the work of turning a SlidingAggregateConfig instance into a
-    /// SlidingAggregate instance. It's separate from the build() method so tests get the
-    /// actual SlidingAggregate type and can then reach into the type to target test cases.
-    async fn internal_build(&self, ctx: &TransformContext) -> crate::Result<SlidingAggregate> {
+impl_generate_config_from_default!(MezmoAggregateV2Config);
+
+impl MezmoAggregateV2Config {
+    /// This method does all of the work of turning a MezmoAggregateV2Config instance into a
+    /// MezmoAggregateV2 instance. It's separate from the build() method so tests get the
+    /// actual MezmoAggregateV2 type and can then reach into the type to target test cases.
+    async fn internal_build(&self, ctx: &TransformContext) -> crate::Result<MezmoAggregateV2> {
         // Leverage the remap transform to build the VRL program from the string source code. This
         // could be moved into a shared function between the two but this works.
         let remap_config = RemapConfig {
@@ -170,6 +218,7 @@ impl SlidingAggregateConfig {
             .transpose()?;
 
         let state_persistence_tick_ms = self.state_persistence_tick_ms;
+        let state_persistence_max_jitter_ms = self.state_persistence_max_jitter_ms;
         let state_persistence: Option<Box<dyn PersistenceConnection>> =
             match (&self.state_persistence_base_path, ctx.mezmo_ctx.clone()) {
                 (Some(base_path), Some(mezmo_ctx)) => Some(Box::new(
@@ -177,7 +226,7 @@ impl SlidingAggregateConfig {
                 )),
                 (_, Some(mezmo_ctx)) => {
                     debug!(
-                        "SlidingAggregate: state persistence not enabled for component {}",
+                        "MezmoAggregateV2: state persistence not enabled for component {}",
                         mezmo_ctx.id()
                     );
                     None
@@ -185,7 +234,7 @@ impl SlidingAggregateConfig {
                 (_, _) => None,
             };
 
-        Ok(SlidingAggregate::new(
+        Ok(MezmoAggregateV2::new(
             self.flush_tick_ms,
             event_key_fields,
             program,
@@ -200,13 +249,14 @@ impl SlidingAggregateConfig {
             ),
             state_persistence,
             state_persistence_tick_ms,
+            state_persistence_max_jitter_ms,
         ))
     }
 }
 
 #[async_trait::async_trait]
-#[typetag::serde(name = "sliding_aggregate")]
-impl TransformConfig for SlidingAggregateConfig {
+#[typetag::serde(name = "mezmo_aggregate_v2")]
+impl TransformConfig for MezmoAggregateV2Config {
     async fn build(&self, ctx: &TransformContext) -> crate::Result<Transform> {
         self.internal_build(ctx).await.map(Transform::event_task)
     }
@@ -293,7 +343,7 @@ impl AggregateClock {
 }
 
 #[derive(Debug)]
-pub struct SlidingAggregate {
+pub struct MezmoAggregateV2 {
     data: HashMap<u64, VecDeque<AggregateWindow>>,
     flush_tick_ms: u64,
     flush_condition: Option<Condition>,
@@ -306,9 +356,10 @@ pub struct SlidingAggregate {
     aggregator_limits: AggregatorLimits,
     state_persistence: Option<Box<dyn PersistenceConnection>>,
     state_persistence_tick_ms: u64,
+    state_persistence_max_jitter_ms: u64,
 }
 
-impl SlidingAggregate {
+impl MezmoAggregateV2 {
     #[allow(clippy::missing_const_for_fn, clippy::too_many_arguments)]
     pub(crate) fn new(
         flush_tick_ms: u64,
@@ -320,6 +371,7 @@ impl SlidingAggregate {
         aggregator_limits: AggregatorLimits,
         state_persistence: Option<Box<dyn PersistenceConnection>>,
         state_persistence_tick_ms: u64,
+        state_persistence_max_jitter_ms: u64,
     ) -> Self {
         let initial_data = match &state_persistence {
             Some(state_persistence) => load_initial_state(state_persistence),
@@ -339,6 +391,7 @@ impl SlidingAggregate {
             aggregator_limits,
             state_persistence,
             state_persistence_tick_ms,
+            state_persistence_max_jitter_ms,
         }
     }
 
@@ -530,13 +583,13 @@ impl SlidingAggregate {
         if let Some(state_persistence) = &self.state_persistence {
             let value = serde_json::to_string(&self.data);
             if let Err(err) = value {
-                error!("SlidingAggregate: failed to serialize state: {}", err);
+                error!("MezmoAggregateV2: failed to serialize state: {}", err);
                 return;
             }
 
             match state_persistence.set(STATE_PERSISTENCE_KEY, &value.unwrap()) {
-                Ok(_) => debug!("SlidingAggregate: state persisted"),
-                Err(err) => error!("SlidingAggregate: failed to persist state: {}", err),
+                Ok(_) => debug!("MezmoAggregateV2: state persisted"),
+                Err(err) => error!("MezmoAggregateV2: failed to persist state: {}", err),
             }
         }
     }
@@ -572,7 +625,7 @@ fn load_initial_state(
     }
 }
 
-impl TaskTransform<Event> for SlidingAggregate {
+impl TaskTransform<Event> for MezmoAggregateV2 {
     fn transform(
         mut self: Box<Self>,
         mut input_events: Pin<Box<dyn Stream<Item = Event> + Send>>,
@@ -584,8 +637,8 @@ impl TaskTransform<Event> for SlidingAggregate {
             let mut done = false;
 
             match &self.state_persistence {
-                Some(_) => debug!("SlidingAggregate: state persistence enabled"),
-                None => debug!("SlidingAggregate: state persistence not enabled"),
+                Some(_) => debug!("MezmoAggregateV2: state persistence enabled"),
+                None => debug!("MezmoAggregateV2: state persistence not enabled"),
             }
             while !done {
                 select! {
@@ -593,7 +646,9 @@ impl TaskTransform<Event> for SlidingAggregate {
                         self.flush_finalized(&mut output);
                     },
                     _ = state_persistence_interval.tick() => {
-                        self.persist_state()
+                        let jitter = rand::thread_rng().gen_range(0..=self.state_persistence_max_jitter_ms);
+                        tokio::time::sleep(Duration::from_millis(jitter)).await;
+                        self.persist_state();
                     },
                     maybe_event = input_events.next() => {
                         match maybe_event {
@@ -666,7 +721,7 @@ mod test {
 
     fn test_mezmo_context() -> MezmoContext {
         MezmoContext::try_from(format!(
-            "v1:reduce:transform:component_id:pipeline_id:{}",
+            "v1:aggregate-v2:transform:component_id:pipeline_id:{}",
             ACCOUNT_ID
         ))
         .unwrap()
@@ -676,7 +731,7 @@ mod test {
         flush_condition: Option<&str>,
         memory_limits: AggregatorLimits,
         state_persistence_base_path: Option<&str>,
-    ) -> SlidingAggregate {
+    ) -> MezmoAggregateV2 {
         let flush_condition = match flush_condition {
             None => "".to_string(),
             Some(stmt) => format!(
@@ -726,7 +781,7 @@ mod test {
             "#
         );
 
-        let config: SlidingAggregateConfig = toml::from_str(config.as_str()).unwrap();
+        let config: MezmoAggregateV2Config = toml::from_str(config.as_str()).unwrap();
         let mezmo_ctx = test_mezmo_context();
 
         let ctx = TransformContext {
@@ -849,7 +904,7 @@ mod test {
 
     #[test]
     fn generate_config() {
-        crate::test_util::test_generate_config::<SlidingAggregateConfig>();
+        crate::test_util::test_generate_config::<MezmoAggregateV2Config>();
     }
 
     #[tokio::test]
