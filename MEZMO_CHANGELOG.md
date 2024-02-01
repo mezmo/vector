@@ -1,3 +1,15 @@
+## [3.5.1](https://github.com/answerbook/vector/compare/v3.5.0...v3.5.1) (2024-02-01)
+
+
+### Chores
+
+* **version**: bump vrl@0.14.0 [21ee8f0](https://github.com/answerbook/vector/commit/21ee8f0613d89e6e31ba8730f038240788cdcede) - dominic-mcallister-logdna [LOG-18911](https://logdna.atlassian.net/browse/LOG-18911)
+
+
+### Miscellaneous
+
+* Merge pull request #411 from answerbook/dominic/LOG-18911 [7e4e670](https://github.com/answerbook/vector/commit/7e4e6705a8bab8242d06f293c51eb424deb3f7b2) - GitHub [LOG-18911](https://logdna.atlassian.net/browse/LOG-18911)
+
 # [3.5.0](https://github.com/answerbook/vector/compare/v3.4.5...v3.5.0) (2024-01-31)
 
 
