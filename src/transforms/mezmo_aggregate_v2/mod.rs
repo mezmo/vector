@@ -44,36 +44,72 @@ const STATE_PERSISTENCE_KEY: &str = "state";
 struct AggregateWindow {
     size_ms: Range<i64>,
     event: Event,
+
+    // Set to true if the window has been retained in the aggregate list, so it can
+    // be used for flush condition comparisons over prior aggregations. The serde
+    // tags prevent including the field in the JSON persisted form if false, which
+    // is expected to be most of the objects in the list.
+    //
+    // Previously flushed windows should never be flushed from the aggregate component
+    // in the future.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    flushed: bool,
 }
 
 impl AggregateWindow {
     const fn new(event: Event, window_start: i64, window_size: i64) -> Self {
-        let max_window = window_start..window_start + window_size;
+        let size_ms = window_start..window_start + window_size;
         Self {
-            size_ms: max_window,
+            size_ms,
             event,
+            flushed: false,
         }
     }
 
     const fn from_parts(size_ms: Range<i64>, event: Event) -> Self {
-        Self { size_ms, event }
-    }
-
-    fn is_expired(&self, current_time: i64) -> bool {
-        !self.contains_timestamp(current_time)
+        Self {
+            size_ms,
+            event,
+            flushed: false,
+        }
     }
 
     fn contains_timestamp(&self, value: i64) -> bool {
         self.size_ms.contains(&value)
     }
 
-    fn should_flush(self, flush_condition: &Option<Condition>) -> (bool, Self) {
+    fn should_flush(
+        self,
+        current_time: i64,
+        flush_condition: &Option<Condition>,
+        prev_event: Option<Event>,
+    ) -> (bool, Self) {
+        // If already flushed, there is no need to flush this again. Windows can be
+        // allocated and already flushed if they are being retained solely to check
+        // a flush condition against a prior window value.
+        if self.flushed {
+            return (false, self);
+        }
+
+        // If the window is expired, don't bother executing the VRL flush condition.
+        if !self.contains_timestamp(current_time) {
+            return (true, self);
+        }
+
         match flush_condition {
             None => (false, self),
             Some(flush_condition) => {
-                let Self { size_ms, event, .. } = self;
-                let res = flush_condition.check(event);
-                (res.0, Self::from_parts(size_ms, res.1))
+                let Self {
+                    size_ms, mut event, ..
+                } = self;
+                if let Some(Event::Log(prev_event)) = prev_event {
+                    let prev_event = prev_event.value().clone();
+                    event.as_mut_log().insert("%previous", prev_event);
+                }
+                let (should_flush, mut event) = flush_condition.check(event);
+                event.as_mut_log().remove("%previous");
+                (should_flush, Self::from_parts(size_ms, event))
             }
         }
     }
@@ -202,13 +238,18 @@ impl MezmoAggregateV2 {
         Ok(Event::from(LogEvent::from_parts(value, accum_meta)))
     }
 
-    fn should_alloc_new_window(&self, aggregations: &VecDeque<AggregateWindow>, event_timestamp: i64) -> bool {
+    fn should_alloc_new_window(
+        &self,
+        aggregations: &VecDeque<AggregateWindow>,
+        event_timestamp: i64,
+    ) -> bool {
         match aggregations.back() {
-            None => true,
-            Some(last_window) => {
-                let alloc_at = last_window.size_ms.start + (self.aggregator_limits.min_window_size_ms as i64);
+            Some(last_window) if !last_window.flushed => {
+                let alloc_at =
+                    last_window.size_ms.start + (self.aggregator_limits.min_window_size_ms as i64);
                 event_timestamp > alloc_at
-            },
+            }
+            _ => true,
         }
     }
 
@@ -305,12 +346,14 @@ impl MezmoAggregateV2 {
             // needs to thread this way, a new VecDeque is allocated to collect the result in the same
             // order as the input while we find the upper range bound of things to flush.
             let mut new_window_list = VecDeque::with_capacity(windows.capacity());
+            let mut prev_window = None;
             for (i, window) in windows.into_iter().enumerate() {
-                let is_expired = window.is_expired(current_time);
-                let (should_flush, event) = window.should_flush(&self.flush_condition);
-                if is_expired || should_flush {
+                let (should_flush, event) =
+                    window.should_flush(current_time, &self.flush_condition, prev_window);
+                if should_flush {
                     flush_end = i + 1;
                 }
+                prev_window = Some(event.event.clone());
                 new_window_list.push_back(event);
             }
 
@@ -321,14 +364,28 @@ impl MezmoAggregateV2 {
                 flush_end = new_window_list.len() - self.aggregator_limits.mem_window_limit as usize
             }
 
-            // With upper bound of the flush range known, drain the first elements and push them
-            // into the output Vec.
-            for datum in new_window_list.drain(0..flush_end) {
-                output.push(datum.event);
+            // With upper bound of the flush range known, drain windows from the front of the window
+            // list. A copy of the last drained element needs to be added back to the head of the window
+            // list with the drained flag set. If it's not retained, there is no previous window for the
+            // flush_condition check to use when checking the oldest aggregation window.
+            let mut to_flush = new_window_list.drain(0..flush_end);
+            let retained = to_flush.next_back();
+            for datum in to_flush {
+                if !datum.flushed {
+                    output.push(datum.event);
+                }
             }
 
-            // Not everything from the metric series might have been drained so any non-empty windows
-            // need to be inserted back into the transform's struct.
+            if let Some(mut retain) = retained {
+                if !retain.flushed {
+                    output.push(retain.event.clone());
+                    retain.flushed = true;
+                    new_window_list.push_front(retain);
+                }
+            }
+
+            // Not everything from the metric series might have been drained so skip adding back
+            // a series if there are no windows stored.
             if !new_window_list.is_empty() {
                 self.data.insert(series, new_window_list);
             }

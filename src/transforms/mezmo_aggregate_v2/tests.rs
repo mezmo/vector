@@ -1,4 +1,3 @@
-
 use crate::config::TransformContext;
 use crate::mezmo::MezmoContext;
 use crate::transforms::mezmo_aggregate_v2::config::{AggregatorLimits, MezmoAggregateV2Config};
@@ -476,6 +475,89 @@ async fn flush_on_conditional_tag() {
 }
 
 #[tokio::test]
+async fn flush_using_prev_value() {
+    let key = metric_event_key("a", None);
+    let mut target = new_aggregator(
+        Some(
+            r#"
+            res, err = (.message.value.value / %previous.message.value.value) >= 1.5
+            if err != null { false } else { res }
+        "#,
+        ),
+        default_aggregator_limits(),
+        None,
+    )
+    .await;
+    target.record(counter_event("a", None, 1.0));
+    target.clock.increment_by(1);
+    target.record(counter_event("a", None, 1.0));
+
+    // Assert that the internal state of the aggregate windows match what we expect for
+    // two events that have not exceeded the trigger condition nor has the window elapsed.
+    let data_windows = target
+        .data
+        .get(&key)
+        .expect("metric key should have an allocated vecdeque");
+    assert_eq!(1, data_windows.len());
+    assert!(!data_windows.front().unwrap().flushed);
+
+    // Neither of these data points should trigger the flush condition nor is the window
+    // expired therefore nothing should be flushed. (clock = 2)
+    let mut actual_events = vec![];
+    target.flush_finalized(&mut actual_events);
+    assert_eq!(actual_events.len(), 0);
+    let data_windows = target
+        .data
+        .get(&key)
+        .expect("metric key should have an allocated vecdeque");
+    assert_eq!(1, data_windows.len());
+    assert!(!data_windows.front().unwrap().flushed);
+
+    // Now increment the clock past the window expiration. This should then flush the
+    // current window. (clock = 6)
+    target.clock.increment_by(4);
+    target.flush_finalized(&mut actual_events);
+    assert_eq!(actual_events.len(), 1);
+    assert_eq!(
+        *actual_events
+            .get(0)
+            .unwrap()
+            .as_log()
+            .get(".message.value.value")
+            .unwrap(),
+        Value::from(2)
+    );
+    let data_windows = target
+        .data
+        .get(&key)
+        .expect("metric key should have an allocated vecdeque");
+    assert_eq!(1, data_windows.len());
+    assert!(data_windows.front().unwrap().flushed);
+
+    actual_events.clear();
+
+    // Now record a large event that should trigger the flush condition. This should
+    // flush even without the window expiring. (clock = 6)
+    target.record(counter_event("a", None, 100.0));
+    target.flush_finalized(&mut actual_events);
+    assert_eq!(actual_events.len(), 1);
+    let event = actual_events
+        .get(0)
+        .unwrap()
+        .as_log()
+        .get(".message.value.value")
+        .unwrap();
+    assert_eq!(*event, Value::from(100));
+
+    let data_windows = target
+        .data
+        .get(&key)
+        .expect("metric key should have an allocated vecdeque");
+    assert_eq!(1, data_windows.len());
+    assert!(data_windows.front().unwrap().flushed);
+}
+
+#[tokio::test]
 async fn flushes_excess_windows_to_stay_within_window_limits() {
     let mut target = new_aggregator(None, AggregatorLimits::new(2, 5000, 0, 5), None).await;
     target.record(counter_event("a", None, 3.0));
@@ -513,28 +595,35 @@ async fn window_alloc_limit_over_time() {
     assert_eq!(target.data.len(), 1);
     let mut actual = vec![];
     let key = metric_event_key("a", None);
-    for window in target.data.get(&key).expect("event key should exist in map") {
+    for window in target
+        .data
+        .get(&key)
+        .expect("event key should exist in map")
+    {
         actual.push((window.size_ms.clone(), window.event.clone()));
     }
 
     /*
-        Based on the settings, every window should be 5 clock ticks long with a new window allocated 3 ticks after the start
-        of the current (last) window. Since the test simulates events arriving every 2 ticks, the events should:
+       Based on the settings, every window should be 5 clock ticks long with a new window allocated 3 ticks after the start
+       of the current (last) window. Since the test simulates events arriving every 2 ticks, the events should:
 
-        1     2     3     4     5     6     7     8     9     10    11    12    13    14
-        +-----+-----+-----+-----+-----+
-        | 1.0 |     | 1.0 |     | 1.0 |
-        +-----+-----+-----+-----+-----+-----+-----+-----+-----+
-                                | 1.0 |     | 1.0 |     | 1.0 |
-                                +-----+-----+-----+-----+-----+-----+-----+-----+-----+
-                                                        | 1.0 |     | 1.0 |     | --- |
-                                                        +-----+-----+-----+-----+-----+
-     */
-    assert_eq!(vec![
-        (1..6, counter_event("a", None, 3.0)),
-        (5..10, counter_event("a", None, 3.0)),
-        (9..14, counter_event("a", None, 2.0)),
-    ], actual);
+       1     2     3     4     5     6     7     8     9     10    11    12    13    14
+       +-----+-----+-----+-----+-----+
+       | 1.0 |     | 1.0 |     | 1.0 |
+       +-----+-----+-----+-----+-----+-----+-----+-----+-----+
+                               | 1.0 |     | 1.0 |     | 1.0 |
+                               +-----+-----+-----+-----+-----+-----+-----+-----+-----+
+                                                       | 1.0 |     | 1.0 |     | --- |
+                                                       +-----+-----+-----+-----+-----+
+    */
+    assert_eq!(
+        vec![
+            (1..6, counter_event("a", None, 3.0)),
+            (5..10, counter_event("a", None, 3.0)),
+            (9..14, counter_event("a", None, 2.0)),
+        ],
+        actual
+    );
 }
 
 #[assay(env = [("POD_NAME", "vector-test0-0")])]
