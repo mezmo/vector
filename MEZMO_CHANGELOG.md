@@ -1,3 +1,15 @@
+## [3.5.2](https://github.com/answerbook/vector/compare/v3.5.1...v3.5.2) (2024-02-05)
+
+
+### Chores
+
+* **deployment**: added reduce threshold limits into the deployment config [eb244bc](https://github.com/answerbook/vector/commit/eb244bc6e0c80a595bc8dd6f125500831d8f738c) - Sergey Opria [LOG-19194](https://logdna.atlassian.net/browse/LOG-19194)
+
+
+### Miscellaneous
+
+* Merge pull request #414 from answerbook/sopria/LOG-19194 [bcd3d4b](https://github.com/answerbook/vector/commit/bcd3d4bdb66ee24eace89cd5dd3420d77dc27e26) - GitHub [LOG-19194](https://logdna.atlassian.net/browse/LOG-19194)
+
 ## [3.5.1](https://github.com/answerbook/vector/compare/v3.5.0...v3.5.1) (2024-02-01)
 
 
