@@ -55,6 +55,22 @@ spec:
           namespace: pipeline
           key: config-reload-max-sec
 
+    - name: config_reduce_byte_threshold_per_state
+      optional: true
+      valueFrom:
+        configMapKeyRef:
+          name: vector
+          namespace: pipeline
+          key: config-reduce-byte-threshold-per-state
+
+    - name: config_reduce_byte_threshold_all_states
+      optional: true
+      valueFrom:
+        configMapKeyRef:
+          name: vector
+          namespace: pipeline
+          key: config-reduce-byte-threshold-all-states
+
   strTemplates:
   - |
 
@@ -188,6 +204,12 @@ spec:
 
                 - name: CONFIG_RELOAD_MAX_SEC
                   value: "{{{config_reload_max_sec}}}"
+
+                - name: REDUCE_BYTE_THRESHOLD_PER_STATE
+                  value: "{{{config_reduce_byte_threshold_per_state}}}"
+
+                - name: REDUCE_BYTE_THRESHOLD_ALL_STATES
+                  value: "{{{config_reduce_byte_threshold_all_states}}}"
 
                 args:
                   - --config-dir
