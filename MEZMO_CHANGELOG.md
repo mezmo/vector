@@ -1,3 +1,15 @@
+# [3.6.0](https://github.com/answerbook/vector/compare/v3.5.2...v3.6.0) (2024-02-06)
+
+
+### Features
+
+* **mezmo-sink**: include _originating_user_agent [d897521](https://github.com/answerbook/vector/commit/d89752131f870c04974c17a58bcd360eb674157e) - dominic-mcallister-logdna [LOG-19196](https://logdna.atlassian.net/browse/LOG-19196)
+
+
+### Miscellaneous
+
+* Merge pull request #413 from answerbook/dominic/LOG-19196 [78c0c8d](https://github.com/answerbook/vector/commit/78c0c8d5483fbf5ad0d3de158d90ec4ed40e519a) - GitHub [LOG-19196](https://logdna.atlassian.net/browse/LOG-19196)
+
 ## [3.5.2](https://github.com/answerbook/vector/compare/v3.5.1...v3.5.2) (2024-02-05)
 
 
