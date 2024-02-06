@@ -32,6 +32,7 @@ const TIMESTAMP_KEY: &str = "timestamp";
 const APP_KEY: &str = "app";
 const FILE_KEY: &str = "file";
 const ENV_KEY: &str = "env";
+const ORIGINATING_USER_AGENT_KEY: &str = "_originating_user_agent";
 const DEFAULT_VALUE: Value = Value::Null;
 
 /// Configuration for the `logdna` sink.
@@ -118,6 +119,11 @@ pub struct MezmoConfig {
     /// Optional template for the environment the log line came from
     env_template: Option<Template>,
 
+    /// field selector for the originating user agent to forward to Mezmo
+    #[configurable(metadata(docs::examples = ".metadata.headers.\"user-agent\""))]
+    #[serde(default = "default_originating_user_agent_field")]
+    originating_user_agent_field: String,
+
     /// Query config options
 
     /// The hostname that will be attached to each batch of events.
@@ -197,6 +203,10 @@ fn default_route() -> String {
 
 fn default_env() -> String {
     "production".to_owned()
+}
+
+fn default_originating_user_agent_field() -> String {
+    ".metadata.headers.\"user-agent\"".to_owned()
 }
 
 impl GenerateConfig for MezmoConfig {
@@ -297,6 +307,7 @@ pub struct MezmoEventEncoder {
     transformer: Transformer,
     default_app: String,
     default_env: String,
+    originating_user_agent_field: String,
 }
 
 impl MezmoEventEncoder {
@@ -395,6 +406,10 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
         let mut log = event.into_log();
 
         let mut map = serde_json::map::Map::new();
+
+        if let Some(user_agent) = log.get(self.originating_user_agent_field.as_str()) {
+            map.insert(ORIGINATING_USER_AGENT_KEY.to_string(), json!(user_agent));
+        }
 
         if self.use_message_as_line.unwrap_or(false) {
             log.remove(message_key)
@@ -582,6 +597,7 @@ impl HttpSink for MezmoSink {
             transformer: self.cfg.encoding.clone(),
             default_app: self.cfg.default_app.clone(),
             default_env: self.cfg.default_env.clone(),
+            originating_user_agent_field: self.cfg.originating_user_agent_field.clone(),
         }
     }
 
@@ -1189,6 +1205,115 @@ mod tests {
         let event_out = event_out.as_object().unwrap();
         // Template errors on optional params don't stop encoding
         assert_eq!(event_out.get("line"), Some(&json!("hello world")));
+        assert_eq!(event_out.get(ORIGINATING_USER_AGENT_KEY), None);
+    }
+
+    #[test]
+    fn encode_event_from_logdna_agent_default_user_agent_field() {
+        let (config, cx) = load_sink::<MezmoConfig>(
+            r#"
+            api_key = "mylogtoken"
+            hostname = "vector"
+            tags = ["{{ .metadata.query.tags }}"]
+            ip_template = "{{ .metadata.query.ip }}"
+            mac_template = "{{ .metadata.query.mac }}"
+            line_field = ".message.message"
+        "#,
+        )
+        .unwrap();
+        let sink = MezmoSink { cx, cfg: config };
+        let mut encoder = sink.build_encoder();
+
+        let message_object = json!({
+        "message": "hello world",
+        "_file": "log.txt",
+        "env": "staging",
+        "_ts": "1682022085309",
+        "_meta": {
+            "first": "prop"
+        }
+        });
+        let metadata_object = json!({
+            "query": {
+                "app": "la_app"
+            },
+            "headers": {
+                "accept-charset": "utf8",
+                "connection": "keep-alive",
+                "content-length": "572",
+                "content-type": "application/json",
+                "host": "pipeline.use.dev.logdna.net",
+                "user-agent": "logdna-agent/3.9.1 (Linux Mint/20.3)",
+                "x-pipeline-source-type": "mezmo-agent"
+            }
+        });
+        let mut event = Event::Log(LogEvent::from("hello world"));
+        event.as_mut_log().insert(".message", message_object);
+        event.as_mut_log().insert(".metadata", metadata_object);
+
+        let event_out = encoder.encode_event(event).unwrap().into_parts().0;
+        let event_out = event_out.as_object().unwrap();
+
+        assert_eq!(event_out.get("line"), Some(&json!("hello world")));
+        assert_eq!(
+            event_out.get(ORIGINATING_USER_AGENT_KEY),
+            Some(&json!("logdna-agent/3.9.1 (Linux Mint/20.3)"))
+        );
+    }
+
+    #[test]
+    fn encode_event_from_logdna_agent_configured_user_agent_field() {
+        let (config, cx) = load_sink::<MezmoConfig>(
+            r#"
+            api_key = "mylogtoken"
+            hostname = "vector"
+            tags = ["{{ .metadata.query.tags }}"]
+            ip_template = "{{ .metadata.query.ip }}"
+            mac_template = "{{ .metadata.query.mac }}"
+            line_field = ".message.message"
+            originating_user_agent_field = ".metadata.query.user_agent_query"
+        "#,
+        )
+        .unwrap();
+        let sink = MezmoSink { cx, cfg: config };
+        let mut encoder = sink.build_encoder();
+
+        let message_object = json!({
+        "message": "hello world",
+        "_file": "log.txt",
+        "env": "staging",
+        "_ts": "1682022085309",
+        "_meta": {
+            "first": "prop"
+        }
+        });
+        let metadata_object = json!({
+            "query": {
+                "app": "la_app",
+                "user_agent_query": "query-agent"
+            },
+            "headers": {
+                "accept-charset": "utf8",
+                "connection": "keep-alive",
+                "content-length": "572",
+                "content-type": "application/json",
+                "host": "pipeline.use.dev.logdna.net",
+                "user-agent": "logdna-agent/3.9.1 (Linux Mint/20.3)",
+                "x-pipeline-source-type": "mezmo-agent"
+            }
+        });
+        let mut event = Event::Log(LogEvent::from("hello world"));
+        event.as_mut_log().insert(".message", message_object);
+        event.as_mut_log().insert(".metadata", metadata_object);
+
+        let event_out = encoder.encode_event(event).unwrap().into_parts().0;
+        let event_out = event_out.as_object().unwrap();
+
+        assert_eq!(event_out.get("line"), Some(&json!("hello world")));
+        assert_eq!(
+            event_out.get(ORIGINATING_USER_AGENT_KEY),
+            Some(&json!("query-agent"))
+        );
     }
 
     async fn smoke_start(
