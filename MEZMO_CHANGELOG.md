@@ -1,3 +1,10 @@
+## [3.7.1](https://github.com/answerbook/vector/compare/v3.7.0...v3.7.1) (2024-02-07)
+
+
+### Tests
+
+* **aggregate-v2**: Supporting tumbling window config [0d12d6f](https://github.com/answerbook/vector/commit/0d12d6f936810282146f8d8a8e9d397b6ec927e5) - Dan Hable [LOG-18963](https://logdna.atlassian.net/browse/LOG-18963)
+
 # [3.7.0](https://github.com/answerbook/vector/compare/v3.6.0...v3.7.0) (2024-02-07)
 
 
