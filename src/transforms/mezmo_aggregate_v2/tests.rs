@@ -95,6 +95,12 @@ const fn default_aggregator_limits() -> AggregatorLimits {
 const fn aggregator_limits_custom_window_size(min_window_size: u32) -> AggregatorLimits {
     AggregatorLimits::new(200, 2000, min_window_size, 5)
 }
+fn log_event(json_event: impl AsRef<str>) -> Event {
+    let log_event: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(json_event.as_ref())
+        .unwrap()
+        .into();
+    Event::from(log_event)
+}
 
 fn counter_event(
     name: impl Into<String>,
@@ -111,7 +117,7 @@ fn counter_event(
                 "metadata": {{ }},
                 "message": {{
                     "name": "{name}",
-                    "kind": "absolute",
+                    "kind": "incremental",
                     "namespace": "ns",
                     "tags": {tags},
                     "value": {{
@@ -121,10 +127,7 @@ fn counter_event(
                 }}
             }}"#,
     );
-    let log_event: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(counter.as_str())
-        .unwrap()
-        .into();
-    Event::from(log_event)
+    log_event(counter)
 }
 
 fn counter_event_custom_timestamp(
@@ -630,7 +633,7 @@ async fn window_alloc_limit_over_time() {
 async fn with_initial_state() {
     let tmp_path = tempdir().expect("Could not create temp dir").into_path();
     let state_persistence_base_path = tmp_path.to_str();
-    let limits = AggregatorLimits::new(1, 5000, 0, 5);
+    let limits = AggregatorLimits::new(1, 5000, 1, 5);
 
     let mut target = new_aggregator(None, limits.clone(), state_persistence_base_path).await;
     target.record(counter_event("a", None, 3.0));
@@ -660,5 +663,110 @@ async fn with_initial_state() {
     assert_events_eq(
         vec![counter_event("a", None, 6.0), counter_event("b", None, 6.0)],
         new_res,
+    );
+}
+
+#[tokio::test]
+async fn tumbling_aggregate_behavior() {
+    let config = r#"
+        window_duration_ms = 5
+        min_window_size_ms = 5
+        mem_window_limit = 2
+        flush_tick_ms = 1
+        event_id_fields = [".id"]
+        source = """
+            new_accum = {}
+            new_accum.id = .event.id
+            new_accum.value, err = .accum.value + 1
+            . = new_accum
+        """
+    "#;
+    let config: MezmoAggregateV2Config = toml::from_str(config).unwrap();
+    let mezmo_ctx = Some(test_mezmo_context());
+    let ctx = TransformContext {
+        mezmo_ctx,
+        ..Default::default()
+    };
+    let mut target = match config.internal_build(&ctx).await {
+        Err(e) => panic!("{e}"),
+        Ok(mut aggregator) => {
+            aggregator.clock = AggregateClock::Counter(AtomicI64::new(1));
+            aggregator
+        }
+    };
+
+    let event_key = {
+        let mut hasher = DefaultHasher::new();
+        let name = Value::from("a");
+        name.hash(&mut hasher);
+        hasher.finish()
+    };
+
+    let mut flushed_events = vec![];
+
+    // Recording an event on every clock tick should allocate the first aggregate window
+    // only. Every tick should not involve a flush either.
+    for _ in 1..=5 {
+        target.record(log_event(r#"{ "id": "a", "value": 1 }"#));
+        target.flush_finalized(&mut flushed_events);
+        assert!(flushed_events.is_empty());
+        assert_eq!(1, target.data.get(&event_key).unwrap().len());
+        target.clock.increment_by(1);
+    }
+
+    // The clock is now past the end of the window. Recording another event should cause
+    // a new window allocation and the existing allocation to flush. Note that after the
+    // flush the prior window is still retained meaning there are 2 windows.
+    target.record(log_event(r#"{ "id": "a", "value": 1 }"#));
+    assert_eq!(2, target.data.get(&event_key).unwrap().len());
+
+    target.flush_finalized(&mut flushed_events);
+    assert_eq!(1, flushed_events.len());
+    assert_eq!(
+        vec![
+            (1..6, true, log_event(r#"{ "id": "a", "value": 5 }"#)),
+            (6..11, false, log_event(r#"{ "id": "a", "value": 1 }"#))
+        ],
+        target
+            .data
+            .get(&event_key)
+            .unwrap()
+            .iter()
+            .map(|w| (w.size_ms.clone(), w.flushed, w.event.clone()))
+            .collect::<Vec<_>>()
+    );
+
+    flushed_events.clear();
+    target.clock.increment_by(1);
+
+    // Record another 4 events and advance the clock after each event. This should advance the clock
+    // to the end of the second window.
+    for _ in 1..=4 {
+        target.record(log_event(r#"{ "id": "a", "value": 1 }"#));
+        target.flush_finalized(&mut flushed_events);
+        assert!(flushed_events.is_empty());
+        assert_eq!(2, target.data.get(&event_key).unwrap().len()); // has a retained, flushed window
+        target.clock.increment_by(1);
+    }
+
+    // Recording a another event will force another window to be allocated. The second window should
+    // then be flushed, the retained window advanced, etc.
+    target.record(log_event(r#"{ "id": "a", "value": 1 }"#));
+    assert_eq!(3, target.data.get(&event_key).unwrap().len()); // window limit enforced on flush
+
+    target.flush_finalized(&mut flushed_events);
+    assert_eq!(1, flushed_events.len());
+    assert_eq!(
+        vec![
+            (6..11, true, log_event(r#"{ "id": "a", "value": 5 }"#)),
+            (11..16, false, log_event(r#"{ "id": "a", "value": 1 }"#))
+        ],
+        target
+            .data
+            .get(&event_key)
+            .unwrap()
+            .iter()
+            .map(|w| (w.size_ms.clone(), w.flushed, w.event.clone()))
+            .collect::<Vec<_>>()
     );
 }

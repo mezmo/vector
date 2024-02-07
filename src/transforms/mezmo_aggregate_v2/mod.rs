@@ -247,7 +247,7 @@ impl MezmoAggregateV2 {
             Some(last_window) if !last_window.flushed => {
                 let alloc_at =
                     last_window.size_ms.start + (self.aggregator_limits.min_window_size_ms as i64);
-                event_timestamp > alloc_at
+                event_timestamp >= alloc_at
             }
             _ => true,
         }
