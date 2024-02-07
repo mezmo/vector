@@ -1,3 +1,15 @@
+# [3.7.0](https://github.com/answerbook/vector/compare/v3.6.0...v3.7.0) (2024-02-07)
+
+
+### Chores
+
+* refactoring MezmoAggregateV2 [9cb5dbc](https://github.com/answerbook/vector/commit/9cb5dbc9ce8c98f1762bec8d2848aec3c75300fa) - Dan Hable [LOG-19116](https://logdna.atlassian.net/browse/LOG-19116)
+
+
+### Features
+
+* Expose prior aggregate value in flush condition [aff984c](https://github.com/answerbook/vector/commit/aff984cf044e614f3f074c97356977f3fcde8e1b) - Dan Hable [LOG-19116](https://logdna.atlassian.net/browse/LOG-19116)
+
 # [3.6.0](https://github.com/answerbook/vector/compare/v3.5.2...v3.6.0) (2024-02-06)
 
 
