@@ -416,15 +416,20 @@ impl HttpSource for SimpleHttpSource {
         query_parameters: &HashMap<String, String>,
     ) {
         let now = Utc::now();
+        let unused_metadata_path_value = owned_value_path!("not used");
         for event in events.iter_mut() {
             match event {
                 Event::Log(log) => {
                     // add request_path to each event
-                    self.log_namespace.insert_source_metadata(
+                    self.log_namespace.insert_source_metadata_mezmo(
                         SimpleHttpConfig::NAME,
                         log,
                         self.path_key.path.as_ref().map(LegacyKey::InsertIfEmpty),
-                        path!("path"),
+                        // if `legacy_key` is blank, then it won't write to Mezmo metadata, but a value is still needed here to satisfy types
+                        self.path_key
+                            .path
+                            .as_ref()
+                            .unwrap_or(&unused_metadata_path_value),
                         request_path.to_owned(),
                     );
 
@@ -437,7 +442,7 @@ impl HttpSource for SimpleHttpSource {
                                 let value =
                                     headers_config.get(header_name).map(HeaderValue::as_bytes);
 
-                                self.log_namespace.insert_source_metadata(
+                                self.log_namespace.insert_source_metadata_mezmo(
                                     SimpleHttpConfig::NAME,
                                     log,
                                     Some(LegacyKey::InsertIfEmpty(path!(header_name))),
@@ -457,7 +462,7 @@ impl HttpSource for SimpleHttpSource {
                                             .get(header_name)
                                             .map(HeaderValue::as_bytes);
 
-                                        self.log_namespace.insert_source_metadata(
+                                        self.log_namespace.insert_source_metadata_mezmo(
                                             SimpleHttpConfig::NAME,
                                             log,
                                             Some(LegacyKey::InsertIfEmpty(path!(
@@ -477,8 +482,7 @@ impl HttpSource for SimpleHttpSource {
                             // Same as headers, add non-wildcard query parameters if they are found
                             HttpConfigParamKind::Exact(query_parameter_name) => {
                                 let value = query_parameters.get(query_parameter_name);
-
-                                self.log_namespace.insert_source_metadata(
+                                self.log_namespace.insert_source_metadata_mezmo(
                                     SimpleHttpConfig::NAME,
                                     log,
                                     Some(LegacyKey::InsertIfEmpty(path!(query_parameter_name))),
@@ -495,7 +499,7 @@ impl HttpSource for SimpleHttpSource {
                                     ) {
                                         let value = query_parameters.get(query_parameter_name);
 
-                                        self.log_namespace.insert_source_metadata(
+                                        self.log_namespace.insert_source_metadata_mezmo(
                                             SimpleHttpConfig::NAME,
                                             log,
                                             Some(LegacyKey::InsertIfEmpty(path!(
@@ -564,26 +568,6 @@ mod tests {
     use std::str::FromStr;
     use std::{collections::BTreeMap, io::Write, net::SocketAddr};
 
-    use flate2::{
-        write::{GzEncoder, ZlibEncoder},
-        Compression,
-    };
-    use futures::Stream;
-    use http::{HeaderMap, Method, StatusCode};
-    use similar_asserts::assert_eq;
-    use vrl::value::kind::Collection;
-    use vrl::value::Kind;
-
-    use vector_lib::codecs::{
-        decoding::{DeserializerConfig, FramingConfig},
-        BytesDecoderConfig, JsonDeserializerConfig,
-    };
-    use vector_lib::config::LogNamespace;
-    use vector_lib::event::LogEvent;
-    use vector_lib::lookup::lookup_v2::OptionalValuePath;
-    use vector_lib::lookup::{event_path, owned_value_path, OwnedTargetPath, PathPrefix};
-    use vector_lib::schema::Definition;
-
     use crate::sources::http_server::HttpMethod;
     use crate::{
         config::{log_schema, SourceConfig, SourceContext},
@@ -594,6 +578,25 @@ mod tests {
         },
         SourceSender,
     };
+    use flate2::{
+        write::{GzEncoder, ZlibEncoder},
+        Compression,
+    };
+    use futures::Stream;
+    use http::{HeaderMap, Method, StatusCode};
+    use similar_asserts::assert_eq;
+    use vector_lib::codecs::{
+        decoding::{DeserializerConfig, FramingConfig},
+        BytesDecoderConfig, JsonDeserializerConfig,
+    };
+    use vector_lib::config::LogNamespace;
+    use vector_lib::event::LogEvent;
+    use vector_lib::lookup::lookup_v2::OptionalValuePath;
+    use vector_lib::lookup::{event_path, owned_value_path, OwnedTargetPath, PathPrefix};
+    use vector_lib::schema::Definition;
+    use vrl::path;
+    use vrl::value::kind::Collection;
+    use vrl::value::Kind;
 
     use super::{remove_duplicates, SimpleHttpConfig};
 
@@ -619,7 +622,11 @@ mod tests {
         let (sender, recv) = SourceSender::new_test_finalize(status);
         let address = next_addr();
         let path = path.to_owned();
-        let path_key = OptionalValuePath::from(owned_value_path!(path_key));
+        let path_key = if !path_key.is_empty() {
+            OptionalValuePath::from(owned_value_path!(path_key))
+        } else {
+            OptionalValuePath::none()
+        };
         let context = SourceContext::new_test(sender, None);
         let method = match Method::from_str(method).unwrap() {
             Method::GET => HttpMethod::Get,
@@ -766,14 +773,13 @@ mod tests {
                 *log.get_source_type().unwrap(),
                 SimpleHttpConfig::NAME.into()
             );
-            assert_eq!(log["http_path"], "/".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
         {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(*log.get_message().unwrap(), "test body 2".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
     }
 
@@ -806,13 +812,13 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(*log.get_message().unwrap(), "test body".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
         {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(*log.get_message().unwrap(), "test body 2".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
     }
 
@@ -846,7 +852,7 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(*log.get_message().unwrap(), "foo\nbar".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
     }
 
@@ -921,13 +927,13 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key"], "value".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
         {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key2"], "value2".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
     }
 
@@ -1022,29 +1028,29 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key1"], "value1".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
         {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key2"], "value2".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
         {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key1"], "value1".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
         {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key2"], "value2".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
     }
 
-    async fn assert_event_metadata(log: &LogEvent) {
+    async fn assert_event_metadata(log: &LogEvent, path_key: &str) {
         assert!(log.get_timestamp().is_some());
 
         let source_type_key_value = log
@@ -1053,7 +1059,9 @@ mod tests {
             .as_str()
             .unwrap();
         assert_eq!(source_type_key_value, SimpleHttpConfig::NAME);
-        assert_eq!(log["http_path"], "/".into());
+
+        let metadata_path = log.metadata().value().get(path_key).unwrap();
+        assert_eq!(metadata_path, &Value::from("/"));
     }
 
     #[tokio::test]
@@ -1097,11 +1105,22 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key1"], "value1".into());
-            assert_eq!(log["\"User-Agent\""], "test_client".into());
-            assert_eq!(log["\"Upgrade-Insecure-Requests\""], "false".into());
-            assert_eq!(log["\"x-test-header\""], "true".into());
-            assert_eq!(log["AbsentHeader"], Value::Null);
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
+
+            let headers = log.metadata().value().get("headers").unwrap();
+            assert_eq!(
+                headers.get(path!("User-Agent")).unwrap(),
+                &Value::from("test_client")
+            );
+            assert_eq!(
+                headers.get(path!("Upgrade-Insecure-Requests")).unwrap(),
+                &Value::from("false")
+            );
+            assert_eq!(
+                headers.get(path!("x-test-header")).unwrap(),
+                &Value::from("true")
+            );
+            assert_eq!(headers.get(path!("AbsentHeader")).unwrap(), &Value::Null);
         }
     }
 
@@ -1140,9 +1159,17 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key1"], "value1".into());
-            assert_eq!(log["\"user-agent\""], "test_client".into());
-            assert_eq!(log["\"x-case-sensitive-value\""], "CaseSensitive".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
+
+            let headers = log.metadata().value().get("headers").unwrap();
+            assert_eq!(
+                headers.get(path!("user-agent")).unwrap(),
+                &Value::from("test_client")
+            );
+            assert_eq!(
+                headers.get(path!("x-case-sensitive-value")).unwrap(),
+                &Value::from("CaseSensitive")
+            );
         }
     }
 
@@ -1181,10 +1208,12 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key1"], "value1".into());
-            assert_eq!(log["source"], "staging".into());
-            assert_eq!(log["region"], "gb".into());
-            assert_eq!(log["absent"], Value::Null);
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
+
+            let query = log.metadata().value().get("query_parameters").unwrap();
+            assert_eq!(query.get("source").unwrap(), &Value::from("staging"));
+            assert_eq!(query.get("region").unwrap(), &Value::from("gb"));
+            assert_eq!(query.get("absent").unwrap(), &Value::Null);
         }
     }
 
@@ -1223,10 +1252,12 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key1"], "value1".into());
-            assert_eq!(log["source"], "staging".into());
-            assert_eq!(log["region"], "gb".into());
-            assert_eq!(log["status"], "200".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
+
+            let query = log.metadata().value().get("query_parameters").unwrap();
+            assert_eq!(query.get("source").unwrap(), &Value::from("staging"));
+            assert_eq!(query.get("region").unwrap(), &Value::from("gb"));
+            assert_eq!(query.get("status").unwrap(), &Value::from("200"));
         }
     }
 
@@ -1265,9 +1296,11 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key1"], "value1".into());
-            assert_eq!(log["source"], "staging".into());
-            assert_eq!(log["status"], "200".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
+
+            let query = log.metadata().value().get("query_parameters").unwrap();
+            assert_eq!(query.get("source").unwrap(), &Value::from("staging"));
+            assert_eq!(query.get("status").unwrap(), &Value::from("200"));
         }
     }
 
@@ -1310,7 +1343,7 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(*log.get_message().unwrap(), "test body".into());
-            assert_event_metadata(log).await;
+            assert_event_metadata(log, "http_path").await;
         }
     }
 
@@ -1345,12 +1378,55 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key1"], "value1".into());
-            assert_eq!(log["vector_http_path"], "/event/path".into());
             assert!(log.get_timestamp().is_some());
             assert_eq!(
                 *log.get_source_type().unwrap(),
                 SimpleHttpConfig::NAME.into()
             );
+
+            let metadata_path = log.metadata().value().get("vector_http_path").unwrap();
+            assert_eq!(metadata_path, &Value::from("/event/path"));
+        }
+    }
+
+    #[tokio::test]
+    async fn http_path_is_not_saved_if_blank() {
+        let mut events = assert_source_compliance(&HTTP_PUSH_SOURCE_TAGS, async {
+            let (rx, addr) = source(
+                vec![],
+                vec![],
+                "",
+                "/event/path",
+                "POST",
+                StatusCode::OK,
+                true,
+                EventStatus::Delivered,
+                true,
+                None,
+                Some(JsonDeserializerConfig::default().into()),
+            )
+            .await;
+
+            spawn_ok_collect_n(
+                send_with_path(addr, "{\"key1\":\"value1\"}", "/event/path"),
+                rx,
+                1,
+            )
+            .await
+        })
+        .await;
+
+        {
+            let event = events.remove(0);
+            let log = event.as_log();
+            assert_eq!(log["key1"], "value1".into());
+            assert!(log.get_timestamp().is_some());
+            assert_eq!(
+                *log.get_source_type().unwrap(),
+                SimpleHttpConfig::NAME.into()
+            );
+
+            assert!(log.metadata().value().get("path").is_none());
         }
     }
 
@@ -1394,23 +1470,25 @@ mod tests {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key1"], "value1".into());
-            assert_eq!(log["vector_http_path"], "/event/path1".into());
             assert!(log.get_timestamp().is_some());
             assert_eq!(
                 *log.get_source_type().unwrap(),
                 SimpleHttpConfig::NAME.into()
             );
+            let metadata_path = log.metadata().value().get("vector_http_path").unwrap();
+            assert_eq!(metadata_path, &Value::from("/event/path1"));
         }
         {
             let event = events.remove(0);
             let log = event.as_log();
             assert_eq!(log["key2"], "value2".into());
-            assert_eq!(log["vector_http_path"], "/event/path2".into());
             assert!(log.get_timestamp().is_some());
             assert_eq!(
                 *log.get_source_type().unwrap(),
                 SimpleHttpConfig::NAME.into()
             );
+            let metadata_path = log.metadata().value().get("vector_http_path").unwrap();
+            assert_eq!(metadata_path, &Value::from("/event/path2"));
         }
     }
 

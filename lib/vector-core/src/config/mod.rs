@@ -444,6 +444,34 @@ impl LogNamespace {
         }
     }
 
+    /// Mezmo: insert metadata into Vector's `metadata` prefix for Legacy namespaces too. This is
+    /// primarily used in Edge's `http_server` so that a proper `message` envelope can be created
+    /// to include the metadata without polluting the data payload. It also works whether codecs
+    /// are for `Kind::bytes` or `Kind::object` and does not rely on the output to be an object.
+    /// Accessing these saved values is done by using the `%` VRL operator (e.g. %headers).
+    pub fn insert_source_metadata_mezmo<'a>(
+        &self,
+        source_name: &'a str,
+        log: &mut LogEvent,
+        legacy_key: Option<LegacyKey<impl ValuePath<'a>>>,
+        metadata_key: impl ValuePath<'a>,
+        value: impl Into<Value>,
+    ) {
+        match self {
+            LogNamespace::Vector => {
+                log.metadata_mut()
+                    .value_mut()
+                    .insert(path!(source_name).concat(metadata_key), value);
+            }
+            LogNamespace::Legacy => match legacy_key {
+                None => { /* don't insert */ }
+                Some(_key) => {
+                    log.metadata_mut().value_mut().insert(metadata_key, value);
+                }
+            },
+        }
+    }
+
     /// Vector: This is retrieved from the "event metadata", nested under the source name.
     ///
     /// Legacy: This is retrieved from the event.
