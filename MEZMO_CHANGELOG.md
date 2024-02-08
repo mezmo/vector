@@ -1,3 +1,15 @@
+## [3.7.3](https://github.com/answerbook/vector/compare/v3.7.2...v3.7.3) (2024-02-08)
+
+
+### Bug Fixes
+
+* **graphql**: Include `metadata` in remote task execution [2e13c69](https://github.com/answerbook/vector/commit/2e13c69d20ed4c25dcb786b1562a90e5a65f9517) - Darin Spivey [LOG-19261](https://logdna.atlassian.net/browse/LOG-19261)
+
+
+### Miscellaneous
+
+* Merge pull request #419 from answerbook/darinspivey/LOG-19261 [4301694](https://github.com/answerbook/vector/commit/43016946c91a3a57f8b6a84e14e106712a347291) - GitHub [LOG-19261](https://logdna.atlassian.net/browse/LOG-19261)
+
 ## [3.7.2](https://github.com/answerbook/vector/compare/v3.7.1...v3.7.2) (2024-02-08)
 
 
