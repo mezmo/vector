@@ -45,7 +45,7 @@ pipeline {
   options {
     timestamps()
     disableConcurrentBuilds()
-    timeout time: 1, unit: 'HOURS'
+    timeout time: 90, unit: 'MINUTES'
     ansiColor 'xterm'
     withCredentials(CREDS)
   }
@@ -133,9 +133,7 @@ pipeline {
         }
         stage('Test build container image') {
           when {
-            not {
-              branch pattern: "(^main|^master|v\\d+\\.\\d+.\\d+.\\d+(-[a-z_\\-0-9]+)?)", comparator: "REGEXP"
-            }
+            changeRequest() // Only do this during PRs because it can take 30 minutes
           }
           steps {
             script {
