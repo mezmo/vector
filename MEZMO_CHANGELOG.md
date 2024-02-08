@@ -1,3 +1,16 @@
+## [3.7.2](https://github.com/answerbook/vector/compare/v3.7.1...v3.7.2) (2024-02-08)
+
+
+### Bug Fixes
+
+* **ci**: Speed improvements [99a767f](https://github.com/answerbook/vector/commit/99a767f1b642b3d26091e2c46530d3732e244e19) - Darin Spivey [LOG-19242](https://logdna.atlassian.net/browse/LOG-19242)
+* **http_server**: Store request metadata in `PathPrefix::Metadata` [9875ad9](https://github.com/answerbook/vector/commit/9875ad9f438216b570f0b29514fa91ff52d4d153) - Darin Spivey [LOG-19242](https://logdna.atlassian.net/browse/LOG-19242)
+
+
+### Miscellaneous
+
+* Merge pull request #415 from answerbook/darinspivey/LOG-19242 [1b99c75](https://github.com/answerbook/vector/commit/1b99c75355d2044c82aacf35995c0e6af6857fc1) - GitHub [LOG-19242](https://logdna.atlassian.net/browse/LOG-19242)
+
 ## [3.7.1](https://github.com/answerbook/vector/compare/v3.7.0...v3.7.1) (2024-02-07)
 
 
