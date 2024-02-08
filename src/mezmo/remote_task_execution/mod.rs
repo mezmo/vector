@@ -292,6 +292,7 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
                                         ("type".to_string(), "Log".to_string()),
                                         ("timestamp".to_string(), ev.timestamp.unwrap_or_else(Utc::now).to_string()),
                                         ("message".to_string(), ev.mezmo_message.clone().unwrap_or_default()),
+                                        ("metadata".to_string(), ev.mezmo_metadata.clone().unwrap_or_default()),
                                     ]));
                                 },
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::Metric(ev) => {
