@@ -31,6 +31,8 @@
 //! from the sink. A oneshot channel is used to tie them back into the sink to allow
 //! it to notify the consumer that the request has succeeded.
 
+use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt, Sink, Stream, TryFutureExt};
+use pin_project::pin_project;
 use std::{
     collections::HashMap,
     fmt,
@@ -38,14 +40,9 @@ use std::{
     marker::PhantomData,
     pin::Pin,
     task::{ready, Context, Poll},
+    time::{Duration, Instant},
 };
-
-use futures::{future::BoxFuture, stream::FuturesUnordered, FutureExt, Sink, Stream, TryFutureExt};
-use pin_project::pin_project;
-use tokio::{
-    sync::oneshot,
-    time::{sleep, Duration, Sleep},
-};
+use tokio::sync::oneshot;
 use tower::{Service, ServiceBuilder};
 use tracing::Instrument;
 use vector_lib::internal_event::{
@@ -191,7 +188,7 @@ where
     batch: StatefulBatch<FinalizersBatch<B>>,
     partitions: HashMap<K, StatefulBatch<FinalizersBatch<B>>>,
     timeout: Duration,
-    lingers: HashMap<K, Pin<Box<Sleep>>>,
+    lingers: HashMap<K, Instant>,
     in_flight: Option<HashMap<K, BoxFuture<'static, ()>>>,
     closing: bool,
 }
@@ -267,8 +264,8 @@ where
             let batch = self.batch.fresh();
             self.partitions.insert(partition.clone(), batch);
 
-            let delay = sleep(self.timeout);
-            self.lingers.insert(partition.clone(), Box::pin(delay));
+            let deadline = Instant::now() + self.timeout;
+            self.lingers.insert(partition.clone(), deadline);
         };
 
         if let PushResult::Overflow(item) = batch.push(item) {
@@ -290,23 +287,27 @@ where
             let this = self.as_mut().project();
             let mut partitions_ready = vec![];
             for (partition, batch) in this.partitions.iter() {
-                if ((*this.closing && !batch.is_empty())
-                    || batch.was_full()
-                    || matches!(
-                        this.lingers
-                            .get_mut(partition)
-                            .expect("linger should exists for poll_flush")
-                            .poll_unpin(cx),
-                        Poll::Ready(())
-                    ))
-                    && this
-                        .in_flight
-                        .as_mut()
-                        .and_then(|map| map.get_mut(partition))
-                        .map(|req| matches!(req.poll_unpin(cx), Poll::Ready(())))
-                        .unwrap_or(true)
+                let linger_deadline_met = Instant::now()
+                    >= *this
+                        .lingers
+                        .get(partition)
+                        .expect("linger should exist for poll_flush");
+
+                let in_flight_ready = this
+                    .in_flight
+                    .as_mut()
+                    .and_then(|map| map.get_mut(partition))
+                    .map(|req| matches!(req.poll_unpin(cx), Poll::Ready(())))
+                    .unwrap_or(true);
+
+                if ((*this.closing && !batch.is_empty()) || batch.was_full() || linger_deadline_met)
+                    && in_flight_ready
                 {
                     partitions_ready.push(partition.clone());
+                } else if !linger_deadline_met {
+                    // If the deadline is not met, force a wakeup to ensure this partition
+                    // is polled again and the logic above re-evaluated.
+                    cx.waker().wake_by_ref();
                 }
             }
             let mut batch_consumed = false;
@@ -316,6 +317,7 @@ where
                     Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
                     Poll::Pending => false,
                 };
+
                 if service_ready {
                     trace!("Service ready; Sending batch.");
 
@@ -575,7 +577,10 @@ mod tests {
 
     use bytes::Bytes;
     use futures::{future, stream, task::noop_waker_ref, SinkExt, StreamExt};
-    use tokio::{task::yield_now, time::Instant};
+    use tokio::{
+        task::yield_now,
+        time::{sleep, Instant},
+    };
     use vector_lib::{
         finalization::{BatchNotifier, BatchStatus, EventFinalizer, EventFinalizers},
         json_size::JsonSize,

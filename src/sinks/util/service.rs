@@ -38,8 +38,10 @@ mod map;
 pub mod net;
 
 pub type Svc<S, L> = RateLimit<AdaptiveConcurrencyLimit<Retry<FixedRetryPolicy<L>, Timeout<S>>, L>>;
+pub type SvcWithoutArc<S, L> = RateLimit<Retry<FixedRetryPolicy<L>, Timeout<S>>>;
 pub type TowerBatchedSink<S, B, RL> = BatchSink<Svc<S, RL>, B>;
 pub type TowerPartitionSink<S, B, RL, K> = PartitionBatchSink<Svc<S, RL>, B, K>;
+pub type TowerPartitionSinkWithoutArc<S, B, RL, K> = PartitionBatchSink<SvcWithoutArc<S, RL>, B, K>;
 
 // Distributed service types
 pub type DistributedService<S, RL, HL, K, Req> = RateLimit<
@@ -60,6 +62,12 @@ pub trait ServiceBuilderExt<L> {
         settings: TowerRequestSettings,
         retry_logic: RL,
     ) -> ServiceBuilder<Stack<TowerRequestLayer<RL, Request>, L>>;
+
+    fn settings_without_arc<RL, Request>(
+        self,
+        settings: TowerRequestSettings,
+        retry_logic: RL,
+    ) -> ServiceBuilder<Stack<TowerRequestLayerWithoutArc<RL, Request>, L>>;
 }
 
 impl<L> ServiceBuilderExt<L> for ServiceBuilder<L> {
@@ -76,6 +84,18 @@ impl<L> ServiceBuilderExt<L> for ServiceBuilder<L> {
         retry_logic: RL,
     ) -> ServiceBuilder<Stack<TowerRequestLayer<RL, Request>, L>> {
         self.layer(TowerRequestLayer {
+            settings,
+            retry_logic,
+            _pd: std::marker::PhantomData,
+        })
+    }
+
+    fn settings_without_arc<RL, Request>(
+        self,
+        settings: TowerRequestSettings,
+        retry_logic: RL,
+    ) -> ServiceBuilder<Stack<TowerRequestLayerWithoutArc<RL, Request>, L>> {
+        self.layer(TowerRequestLayerWithoutArc {
             settings,
             retry_logic,
             _pd: std::marker::PhantomData,
@@ -316,6 +336,30 @@ impl TowerRequestSettings {
         PartitionBatchSink::new(service, batch, batch_timeout)
     }
 
+    pub fn partition_sink_without_arc<B, RL, S, K>(
+        &self,
+        retry_logic: RL,
+        service: S,
+        batch: B,
+        batch_timeout: Duration,
+    ) -> TowerPartitionSinkWithoutArc<S, B, RL, K>
+    where
+        RL: RetryLogic<Response = S::Response>,
+        S: Service<B::Output> + Clone + Send + 'static,
+        S::Error: Into<crate::Error> + Send + Sync + 'static,
+        S::Response: Send + Response,
+        S::Future: Send + 'static,
+        B: Batch,
+        B::Input: Partition<K>,
+        B::Output: Send + Clone + 'static,
+        K: Hash + Eq + Clone + Send + 'static,
+    {
+        let service = ServiceBuilder::new()
+            .settings_without_arc(self.clone(), retry_logic)
+            .service(service);
+        PartitionBatchSink::new(service, batch, batch_timeout)
+    }
+
     /// Note: This has been deprecated, please do not use when creating new Sinks.
     pub fn batch_sink<B, RL, S>(
         &self,
@@ -425,6 +469,37 @@ where
                 self.settings.adaptive_concurrency,
                 self.retry_logic.clone(),
             ))
+            .retry(policy)
+            .timeout(self.settings.timeout)
+            .service(inner)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TowerRequestLayerWithoutArc<L, Request> {
+    settings: TowerRequestSettings,
+    retry_logic: L,
+    _pd: PhantomData<Request>,
+}
+
+impl<S, RL, Request> Layer<S> for TowerRequestLayerWithoutArc<RL, Request>
+where
+    S: Service<Request> + Send + 'static,
+    S::Response: Send + 'static,
+    S::Error: Into<crate::Error> + Send + Sync + 'static,
+    S::Future: Send + 'static,
+    RL: RetryLogic<Response = S::Response> + Send + 'static,
+    Request: Clone + Send + 'static,
+{
+    type Service = SvcWithoutArc<S, RL>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        let policy = self.settings.retry_policy(self.retry_logic.clone());
+        ServiceBuilder::new()
+            .rate_limit(
+                self.settings.rate_limit_num,
+                self.settings.rate_limit_duration,
+            )
             .retry(policy)
             .timeout(self.settings.timeout)
             .service(inner)
