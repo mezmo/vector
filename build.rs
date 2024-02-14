@@ -114,6 +114,12 @@ fn main() {
     #[cfg(not(feature = "nightly"))]
     println!("cargo:rerun-if-changed=.git/HEAD");
 
+    // expose the CI environment variable as cfg
+    println!("cargo:rerun-if-env-changed=CI");
+    if std::env::var("CI").ok().is_some() {
+        println!("cargo:rustc-cfg=ci");
+    };
+
     #[cfg(feature = "protobuf-build")]
     {
         println!("cargo:rerun-if-changed=proto/dd_trace.proto");

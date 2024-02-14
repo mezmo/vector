@@ -1,3 +1,243 @@
+## [3.7.3](https://github.com/answerbook/vector/compare/v3.7.2...v3.7.3) (2024-02-08)
+
+
+### Bug Fixes
+
+* **graphql**: Include `metadata` in remote task execution [2e13c69](https://github.com/answerbook/vector/commit/2e13c69d20ed4c25dcb786b1562a90e5a65f9517) - Darin Spivey [LOG-19261](https://logdna.atlassian.net/browse/LOG-19261)
+
+
+### Miscellaneous
+
+* Merge pull request #419 from answerbook/darinspivey/LOG-19261 [4301694](https://github.com/answerbook/vector/commit/43016946c91a3a57f8b6a84e14e106712a347291) - GitHub [LOG-19261](https://logdna.atlassian.net/browse/LOG-19261)
+
+## [3.7.2](https://github.com/answerbook/vector/compare/v3.7.1...v3.7.2) (2024-02-08)
+
+
+### Bug Fixes
+
+* **ci**: Speed improvements [99a767f](https://github.com/answerbook/vector/commit/99a767f1b642b3d26091e2c46530d3732e244e19) - Darin Spivey [LOG-19242](https://logdna.atlassian.net/browse/LOG-19242)
+* **http_server**: Store request metadata in `PathPrefix::Metadata` [9875ad9](https://github.com/answerbook/vector/commit/9875ad9f438216b570f0b29514fa91ff52d4d153) - Darin Spivey [LOG-19242](https://logdna.atlassian.net/browse/LOG-19242)
+
+
+### Miscellaneous
+
+* Merge pull request #415 from answerbook/darinspivey/LOG-19242 [1b99c75](https://github.com/answerbook/vector/commit/1b99c75355d2044c82aacf35995c0e6af6857fc1) - GitHub [LOG-19242](https://logdna.atlassian.net/browse/LOG-19242)
+
+## [3.7.1](https://github.com/answerbook/vector/compare/v3.7.0...v3.7.1) (2024-02-07)
+
+
+### Tests
+
+* **aggregate-v2**: Supporting tumbling window config [0d12d6f](https://github.com/answerbook/vector/commit/0d12d6f936810282146f8d8a8e9d397b6ec927e5) - Dan Hable [LOG-18963](https://logdna.atlassian.net/browse/LOG-18963)
+
+# [3.7.0](https://github.com/answerbook/vector/compare/v3.6.0...v3.7.0) (2024-02-07)
+
+
+### Chores
+
+* refactoring MezmoAggregateV2 [9cb5dbc](https://github.com/answerbook/vector/commit/9cb5dbc9ce8c98f1762bec8d2848aec3c75300fa) - Dan Hable [LOG-19116](https://logdna.atlassian.net/browse/LOG-19116)
+
+
+### Features
+
+* Expose prior aggregate value in flush condition [aff984c](https://github.com/answerbook/vector/commit/aff984cf044e614f3f074c97356977f3fcde8e1b) - Dan Hable [LOG-19116](https://logdna.atlassian.net/browse/LOG-19116)
+
+# [3.6.0](https://github.com/answerbook/vector/compare/v3.5.2...v3.6.0) (2024-02-06)
+
+
+### Features
+
+* **mezmo-sink**: include _originating_user_agent [d897521](https://github.com/answerbook/vector/commit/d89752131f870c04974c17a58bcd360eb674157e) - dominic-mcallister-logdna [LOG-19196](https://logdna.atlassian.net/browse/LOG-19196)
+
+
+### Miscellaneous
+
+* Merge pull request #413 from answerbook/dominic/LOG-19196 [78c0c8d](https://github.com/answerbook/vector/commit/78c0c8d5483fbf5ad0d3de158d90ec4ed40e519a) - GitHub [LOG-19196](https://logdna.atlassian.net/browse/LOG-19196)
+
+## [3.5.2](https://github.com/answerbook/vector/compare/v3.5.1...v3.5.2) (2024-02-05)
+
+
+### Chores
+
+* **deployment**: added reduce threshold limits into the deployment config [eb244bc](https://github.com/answerbook/vector/commit/eb244bc6e0c80a595bc8dd6f125500831d8f738c) - Sergey Opria [LOG-19194](https://logdna.atlassian.net/browse/LOG-19194)
+
+
+### Miscellaneous
+
+* Merge pull request #414 from answerbook/sopria/LOG-19194 [bcd3d4b](https://github.com/answerbook/vector/commit/bcd3d4bdb66ee24eace89cd5dd3420d77dc27e26) - GitHub [LOG-19194](https://logdna.atlassian.net/browse/LOG-19194)
+
+## [3.5.1](https://github.com/answerbook/vector/compare/v3.5.0...v3.5.1) (2024-02-01)
+
+
+### Chores
+
+* **version**: bump vrl@0.14.0 [21ee8f0](https://github.com/answerbook/vector/commit/21ee8f0613d89e6e31ba8730f038240788cdcede) - dominic-mcallister-logdna [LOG-18911](https://logdna.atlassian.net/browse/LOG-18911)
+
+
+### Miscellaneous
+
+* Merge pull request #411 from answerbook/dominic/LOG-18911 [7e4e670](https://github.com/answerbook/vector/commit/7e4e6705a8bab8242d06f293c51eb424deb3f7b2) - GitHub [LOG-18911](https://logdna.atlassian.net/browse/LOG-18911)
+
+# [3.5.0](https://github.com/answerbook/vector/compare/v3.4.5...v3.5.0) (2024-01-31)
+
+
+### Code Refactoring
+
+* rename `sliding_aggregate` to `mezmo_aggregate_v2` [0485391](https://github.com/answerbook/vector/commit/0485391488b0869e2930e09f342b6f03481007b9) - Mike Del Tito [LOG-19134](https://logdna.atlassian.net/browse/LOG-19134)
+
+
+### Features
+
+* **persistence**: add jitter to state flush [db3cae3](https://github.com/answerbook/vector/commit/db3cae3556d74ff05e1f10266ef208505e59ad48) - Mike Del Tito [LOG-19171](https://logdna.atlassian.net/browse/LOG-19171)
+
+
+### Miscellaneous
+
+* Merge pull request #410 from answerbook/mdeltito/LOG-19134 [0c71dd0](https://github.com/answerbook/vector/commit/0c71dd068c710ecf722d180b0c6d1c0be6bdd86c) - GitHub [LOG-19134](https://logdna.atlassian.net/browse/LOG-19134)
+
+## [3.4.5](https://github.com/answerbook/vector/compare/v3.4.4...v3.4.5) (2024-01-30)
+
+
+### Chores
+
+* **tests**: Re-enable splunk tests in Github Actions [00a852a](https://github.com/answerbook/vector/commit/00a852a78f7b40e39047ff592bce16afca9e7708) - Darin Spivey [LOG-18162](https://logdna.atlassian.net/browse/LOG-18162)
+
+
+### Miscellaneous
+
+* Merge pull request #409 from answerbook/darinspivey/LOG-18162 [0ae8b1f](https://github.com/answerbook/vector/commit/0ae8b1ff78fa3b51ad3364a7d41a323e9988042b) - GitHub [LOG-18162](https://logdna.atlassian.net/browse/LOG-18162)
+
+## [3.4.4](https://github.com/answerbook/vector/compare/v3.4.3...v3.4.4) (2024-01-29)
+
+
+### Chores
+
+* ignore paths from integration suite run [0b96fa8](https://github.com/answerbook/vector/commit/0b96fa8a15df0aed53600697cd7d069428bf10c3) - Mike Del Tito
+
+
+### Miscellaneous
+
+* Merge pull request #406 from answerbook/mdeltito/ignore-deployment-changes-actions [8fa9653](https://github.com/answerbook/vector/commit/8fa965370be29429ce424b10834a306e3e351dd7) - GitHub
+
+## [3.4.3](https://github.com/answerbook/vector/compare/v3.4.2...v3.4.3) (2024-01-29)
+
+
+### Chores
+
+* **build**: Use open source vrl fork [8c68704](https://github.com/answerbook/vector/commit/8c68704487ee339c816757a500c03c50bb280f43) - Dan Hable [LOG-19155](https://logdna.atlassian.net/browse/LOG-19155)
+
+## [3.4.2](https://github.com/answerbook/vector/compare/v3.4.1...v3.4.2) (2024-01-29)
+
+
+### Bug Fixes
+
+* **persistence**: define pvc per-partition [f4f2b09](https://github.com/answerbook/vector/commit/f4f2b0981824e917ada2059279e75c27ce965e20) - Mike Del Tito [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
+
+### Miscellaneous
+
+* Merge pull request #407 from answerbook/mdeltito/LOG-19044-pvc-by-partition [21dc87a](https://github.com/answerbook/vector/commit/21dc87ae483685e77fe98bf75e74bdacbb9fd38d) - GitHub [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
+## [3.4.1](https://github.com/answerbook/vector/compare/v3.4.0...v3.4.1) (2024-01-26)
+
+
+### Bug Fixes
+
+* **deployment**: adjust resource vars and add namespace [8f8aff6](https://github.com/answerbook/vector/commit/8f8aff6afdef52a7111fb52ac290ecfc72e12290) - Mike Del Tito [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
+
+### Miscellaneous
+
+* Merge pull request #405 from answerbook/mdeltito/LOG-19044-fix [c5b3474](https://github.com/answerbook/vector/commit/c5b3474fbdb4fead2b90487e77fc02943bb73c53) - GitHub [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
+# [3.4.0](https://github.com/answerbook/vector/compare/v3.3.0...v3.4.0) (2024-01-26)
+
+
+### Bug Fixes
+
+* **persistence**: include pod name in db directory [a23107a](https://github.com/answerbook/vector/commit/a23107a7c1908ef84e8df12ebdf786d9ebcea011) - Mike Del Tito [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
+
+### Features
+
+* **persistence**: add pvc/mount for component state storage [ff5929f](https://github.com/answerbook/vector/commit/ff5929f28cd34a7a7755e9678f2fd0ffd6a86ed7) - Mike Del Tito [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
+
+### Miscellaneous
+
+* Merge pull request #404 from answerbook/mdeltito/LOG-19044 [fdeb534](https://github.com/answerbook/vector/commit/fdeb534bc0a0e86a9ccc40b311f74c4739ac5f6e) - GitHub [LOG-19044](https://logdna.atlassian.net/browse/LOG-19044)
+
+# [3.3.0](https://github.com/answerbook/vector/compare/v3.2.0...v3.3.0) (2024-01-26)
+
+
+### Bug Fixes
+
+* **build**: add libclang-dev dependency to the environment [cfa0321](https://github.com/answerbook/vector/commit/cfa032177b612fbff6e739975c7489d8cc1ce5ac) - Mike Del Tito [LOG-18959](https://logdna.atlassian.net/browse/LOG-18959)
+
+
+### Features
+
+* **persistence**: define persistence trait/impl and wire into aggregate [85e5d1a](https://github.com/answerbook/vector/commit/85e5d1a23fa90825f0ce941ac197032a8d31b84b) - Mike Del Tito [LOG-18959](https://logdna.atlassian.net/browse/LOG-18959)
+
+
+### Miscellaneous
+
+* Merge pull request #402 from answerbook/mdeltito/LOG-18959 [a1ec760](https://github.com/answerbook/vector/commit/a1ec760304e73c022df565fae1be096041b738bf) - GitHub [LOG-18959](https://logdna.atlassian.net/browse/LOG-18959)
+
+
+### Tests
+
+* allow conditional compiling of tests under ci [67d6f7d](https://github.com/answerbook/vector/commit/67d6f7d04f22f4fdd616b52e2ebb53b0306a1557) - Mike Del Tito [LOG-18959](https://logdna.atlassian.net/browse/LOG-18959)
+
+# [3.2.0](https://github.com/answerbook/vector/compare/v3.1.3...v3.2.0) (2024-01-24)
+
+
+### Bug Fixes
+
+* **sources**: `http_server` is not saving query params as key/val [733f3a9](https://github.com/answerbook/vector/commit/733f3a9929cf17ffece9d19aa3200afc45f3d0de) - Darin Spivey [LOG-19104](https://logdna.atlassian.net/browse/LOG-19104)
+
+
+### Features
+
+* **http_server source**: add all headers to the namespace metadata (#18922) [3772b19](https://github.com/answerbook/vector/commit/3772b19deca84d7375cd33e75189309bd1d267ed) - Darin Spivey [LOG-19103](https://logdna.atlassian.net/browse/LOG-19103)
+* **sources**: `http_server` accepts query parameter wildcards [6627a95](https://github.com/answerbook/vector/commit/6627a95fb27365dc37fc6fc3d3c4fd127f10c219) - Darin Spivey [LOG-19105](https://logdna.atlassian.net/browse/LOG-19105)
+
+
+### Miscellaneous
+
+* Merge pull request #403 from answerbook/darinspivey/LOG-19103 [896eaed](https://github.com/answerbook/vector/commit/896eaed03cb80c233121e13cd8b541eb8aee7eaf) - GitHub [LOG-19103](https://logdna.atlassian.net/browse/LOG-19103)
+
+## [3.1.3](https://github.com/answerbook/vector/compare/v3.1.2...v3.1.3) (2024-01-23)
+
+
+### Code Refactoring
+
+* Add memory and window limits to sliding aggregate (#400) [aa050e2](https://github.com/answerbook/vector/commit/aa050e2c94dcb62125710925c8c05becb35c4f00) - GitHub [LOG-18818](https://logdna.atlassian.net/browse/LOG-18818)
+
+## [3.1.2](https://github.com/answerbook/vector/compare/v3.1.1...v3.1.2) (2024-01-23)
+
+
+### Chores
+
+* bump vrl depey to rev=v0.12.0 [6d08598](https://github.com/answerbook/vector/commit/6d085987e7a5aa0d7e5dc9d1c3cfe1e547fc36b4) - dominic-mcallister-logdna [LOG-18993](https://logdna.atlassian.net/browse/LOG-18993) [LOG-18994](https://logdna.atlassian.net/browse/LOG-18994) [LOG-18999](https://logdna.atlassian.net/browse/LOG-18999)
+
+
+### Miscellaneous
+
+* Merge pull request #401 from answerbook/dominic/LOGs-18993_18994_18999-add_groks [edc9090](https://github.com/answerbook/vector/commit/edc909055cbb5067f979085d783204925ff08e8f) - GitHub
+
+## [3.1.1](https://github.com/answerbook/vector/compare/v3.1.0...v3.1.1) (2024-01-22)
+
+
+### Bug Fixes
+
+* **otlp**: replace or remove fields with an empty string [db87922](https://github.com/answerbook/vector/commit/db879220fbba21935ed05d2496f49979624193da) - Sergey Opria [LOG-18908](https://logdna.atlassian.net/browse/LOG-18908)
+
+
+### Miscellaneous
+
+* Merge pull request #392 from answerbook/sopria/LOG-18908 [a599fdd](https://github.com/answerbook/vector/commit/a599fddc5a8fd8e0189f229a93c0a8b2aaf34faf) - GitHub [LOG-18908](https://logdna.atlassian.net/browse/LOG-18908)
+
 # [3.1.0](https://github.com/answerbook/vector/compare/v3.0.1...v3.1.0) (2024-01-17)
 
 

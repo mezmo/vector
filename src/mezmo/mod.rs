@@ -12,6 +12,8 @@ use vector_lib::event::LogEvent;
 pub mod callsite;
 pub mod config;
 pub mod macros;
+#[cfg(feature = "component-persistence")]
+pub mod persistence;
 #[cfg(feature = "api-client")]
 pub mod remote_task_execution;
 #[allow(dead_code)]
@@ -85,6 +87,11 @@ pub struct MezmoContext {
 }
 
 impl MezmoContext {
+    /// Gets the full ID of the component.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
     /// Gets the account id, when it's defined in the key (not a shared component)
     pub fn account_id(&self) -> Option<Uuid> {
         match &self.account_id {

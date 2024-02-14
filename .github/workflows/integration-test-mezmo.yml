@@ -5,6 +5,11 @@ on:
   pull_request:
     branches-ignore:
       - 'dependabot/**'
+    paths-ignore:
+      - 'deployment/**'
+      - 'test/data/**'
+      - 'docs/**'
+
   push:
     branches:
       - master
@@ -64,16 +69,12 @@ jobs:
           # - test: 'nats'
           # - test: 'nginx'
           - test: 'prometheus'
+          # - test: 'postgres'
           # - test: 'pulsar'
           # - test: 'redis'
           # - test: 'shutdown'
+          # - test: 'splunk'  This started breaking again for no apparent reason
           # - test: 'sumo-logic'
-          # We should re-enable splunk tests in LOG-18162
-          # - test: 'postgres'
-          # - test: 'splunk'
-          #   env:
-          #     SPLUNK_VERSION: 7.3.9
-          # - test: 'splunk'
     steps:
       - uses: actions/checkout@v3
       - run: git config --global url."https://${GITHUB_TOKEN}@github.com".insteadOf ssh://git@github.com

@@ -3,7 +3,7 @@ FROM rust:1-slim-bullseye as release-builder
 ARG GITHUB_TOKEN
 
 # deps for compiler
-RUN DEPS='gcc g++ make cmake xz-utils locales python libexpat1-dev gettext libz-dev libssl-dev autoconf pkg-config bzip2 protobuf-compiler libsasl2-dev git' \
+RUN DEPS='gcc g++ make cmake xz-utils locales python libexpat1-dev gettext libz-dev libssl-dev autoconf pkg-config bzip2 protobuf-compiler libsasl2-dev git libclang-dev' \
   && apt-get update \
   && apt-get install -y --no-install-recommends $DEPS \
   && echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen \
