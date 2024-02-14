@@ -1,3 +1,15 @@
+## [3.7.4](https://github.com/answerbook/vector/compare/v3.7.3...v3.7.4) (2024-02-14)
+
+
+### Bug Fixes
+
+* **mezmo-sink**: remove ARC, replace sleep timer with manual check [8b74d7f](https://github.com/answerbook/vector/commit/8b74d7f2272ddf561f20d4b93656d27ddc4ece4b) - Mike Del Tito [LOG-19184](https://logdna.atlassian.net/browse/LOG-19184)
+
+
+### Miscellaneous
+
+* Merge pull request #420 from answerbook/feature/LOG-19184 [273f6a5](https://github.com/answerbook/vector/commit/273f6a5f19585db8c1dfde9fe6684b133f2ad917) - GitHub [LOG-19184](https://logdna.atlassian.net/browse/LOG-19184)
+
 ## [3.7.3](https://github.com/answerbook/vector/compare/v3.7.2...v3.7.3) (2024-02-08)
 
 
