@@ -1,3 +1,15 @@
+# [3.8.0](https://github.com/answerbook/vector/compare/v3.7.4...v3.8.0) (2024-02-20)
+
+
+### Features
+
+* spread vector nodes using topo spread constraints [df7f3f6](https://github.com/answerbook/vector/commit/df7f3f6cf9481766f53ab7cb4325693ce84825d4) - Adam Holmberg [LOG-18832](https://logdna.atlassian.net/browse/LOG-18832)
+
+
+### Miscellaneous
+
+* Merge pull request #421 from answerbook/holmberg/LOG-18832 [6aa2489](https://github.com/answerbook/vector/commit/6aa2489a43843266e54881fa869456fe4f46b0d2) - GitHub [LOG-18832](https://logdna.atlassian.net/browse/LOG-18832)
+
 ## [3.7.4](https://github.com/answerbook/vector/compare/v3.7.3...v3.7.4) (2024-02-14)
 
 
