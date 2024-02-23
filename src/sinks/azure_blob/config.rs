@@ -8,6 +8,7 @@ use vector_lib::sensitive_string::SensitiveString;
 use vrl::value::Value;
 
 use super::request_builder::AzureBlobRequestOptions;
+use crate::mezmo::user_trace::MezmoLoggingService;
 use crate::{
     codecs::{Encoder, EncodingConfigWithFraming, SinkType, Transformer},
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
@@ -188,9 +189,9 @@ impl SinkConfig for AzureBlobSinkConfig {
         let healthcheck = azure_common::config::build_healthcheck(
             self.container_name.clone(),
             client.clone(),
-            cx,
+            cx.clone(),
         )?;
-        let sink = self.build_processor(client)?;
+        let sink = self.build_processor(client, cx)?;
         Ok((sink, healthcheck))
     }
 
@@ -211,13 +212,17 @@ impl AzureBlobSinkConfig {
     pub fn build_processor(
         &self,
         client: Option<Arc<ContainerClient>>,
+        cx: SinkContext,
     ) -> crate::Result<VectorSink> {
         let request_limits = self
             .request
             .unwrap_with(&TowerRequestConfig::default().rate_limit_num(250));
         let service = ServiceBuilder::new()
             .settings(request_limits, AzureBlobRetryLogic)
-            .service(AzureBlobService::new(client));
+            .service(MezmoLoggingService::new(
+                AzureBlobService::new(client),
+                cx.mezmo_ctx,
+            ));
 
         // Configure our partitioning/batching.
         let batcher_settings = self.batch.into_batcher_settings()?;

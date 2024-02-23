@@ -15,6 +15,7 @@ use vector_lib::{
 };
 use vrl::value::Value;
 
+use crate::mezmo::user_trace::UserLoggingResponse;
 use crate::{
     config::SinkContext,
     event::{EventFinalizers, EventStatus, Finalizable},
@@ -89,6 +90,8 @@ impl DriverResponse for AzureBlobResponse {
         Some(self.byte_size)
     }
 }
+
+impl UserLoggingResponse for AzureBlobResponse {}
 
 #[derive(Debug, Snafu)]
 pub enum HealthcheckError {

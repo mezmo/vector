@@ -259,7 +259,7 @@ impl AzureBlobSinkConfig {
         )
         .expect("Failed to create client");
 
-        self.build_processor(Some(client))
+        self.build_processor(Some(client), SinkContext::default())
             .expect("Failed to create sink")
     }
 
