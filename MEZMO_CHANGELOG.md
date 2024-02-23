@@ -1,3 +1,15 @@
+## [3.8.1](https://github.com/answerbook/vector/compare/v3.8.0...v3.8.1) (2024-02-23)
+
+
+### Bug Fixes
+
+* **sinks**: Enable user error logging for azure blob (#424) [fc3cd8a](https://github.com/answerbook/vector/commit/fc3cd8a84fe2893fe01e203ee4ece48fb5305047) - GitHub [LOG-19360](https://logdna.atlassian.net/browse/LOG-19360)
+
+
+### Code Refactoring
+
+* **sinks**: Restore healthcheck and response user error logging (#422) [4326471](https://github.com/answerbook/vector/commit/4326471d8ee7a406fe52f8c450c1d2ba8eaaa61b) - GitHub [LOG-19146](https://logdna.atlassian.net/browse/LOG-19146)
+
 # [3.8.0](https://github.com/answerbook/vector/compare/v3.7.4...v3.8.0) (2024-02-20)
 
 
