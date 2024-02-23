@@ -180,12 +180,12 @@ impl SinkConfig for CloudwatchLogsSinkConfig {
                 self.clone(),
                 client.clone(),
                 std::sync::Arc::new(smithy_client),
-                cx,
+                cx.clone(),
             ));
         let transformer = self.encoding.transformer();
         let serializer = self.encoding.build()?;
         let encoder = Encoder::<()>::new(serializer);
-        let healthcheck = healthcheck(self.clone(), client).boxed();
+        let healthcheck = healthcheck(self.clone(), client, cx.clone()).boxed();
 
         let sink = CloudwatchSink {
             batcher_settings,

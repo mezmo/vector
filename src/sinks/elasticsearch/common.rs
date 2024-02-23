@@ -13,18 +13,21 @@ use super::{
     InvalidHostSnafu, Request,
 };
 use crate::{
+    config::SinkContext,
     http::{HttpClient, MaybeAuth},
+    mezmo::user_trace::MezmoUserLog,
     sinks::{
         elasticsearch::{
             ElasticsearchAuthConfig, ElasticsearchCommonMode, ElasticsearchConfig, ParseError,
         },
-        util::auth::Auth,
-        util::{http::RequestConfig, TowerRequestConfig, UriSerde},
+        util::{auth::Auth, http::RequestConfig, TowerRequestConfig, UriSerde},
         HealthcheckError,
     },
     tls::TlsSettings,
     transforms::metric_to_log::MetricToLog,
+    user_log_error,
 };
+use vrl::value::Value;
 
 #[derive(Debug, Clone)]
 pub struct ElasticsearchCommon {
@@ -233,7 +236,7 @@ impl ElasticsearchCommon {
         Ok(commons.remove(0))
     }
 
-    pub async fn healthcheck(self, client: HttpClient) -> crate::Result<()> {
+    pub async fn healthcheck(self, client: HttpClient, cx: SinkContext) -> crate::Result<()> {
         match get(
             &self.base_url,
             &self.auth,
@@ -245,7 +248,16 @@ impl ElasticsearchCommon {
         .status()
         {
             StatusCode::OK => Ok(()),
-            status => Err(HealthcheckError::UnexpectedStatus { status }.into()),
+            status => {
+                user_log_error!(
+                    cx.mezmo_ctx,
+                    Value::from(format!(
+                        "Error returned from destination with status code: {}",
+                        status,
+                    ))
+                );
+                Err(HealthcheckError::UnexpectedStatus { status }.into())
+            }
         }
     }
 }

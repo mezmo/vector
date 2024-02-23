@@ -116,7 +116,7 @@ impl SinkConfig for ClickhouseConfig {
             self.table.clone(),
         );
 
-        let healthcheck = Box::pin(healthcheck(client, endpoint, auth));
+        let healthcheck = Box::pin(healthcheck(client, endpoint, auth, cx));
 
         Ok((VectorSink::from_event_streamsink(sink), healthcheck))
     }
@@ -139,7 +139,12 @@ fn get_healthcheck_uri(endpoint: &Uri) -> String {
     uri
 }
 
-async fn healthcheck(client: HttpClient, endpoint: Uri, auth: Option<Auth>) -> crate::Result<()> {
+async fn healthcheck(
+    client: HttpClient,
+    endpoint: Uri,
+    auth: Option<Auth>,
+    cx: SinkContext,
+) -> crate::Result<()> {
     let uri = get_healthcheck_uri(&endpoint);
     let mut request = Request::get(uri).body(Body::empty()).unwrap();
 
@@ -148,6 +153,15 @@ async fn healthcheck(client: HttpClient, endpoint: Uri, auth: Option<Auth>) -> c
     }
 
     let response = client.send(request).await?;
+    let status = response.status();
+
+    if status.is_client_error() || status.is_server_error() {
+        let msg = Value::from(format!(
+            "Error returned from destination with status code: {}",
+            status
+        ));
+        user_log_error!(cx.mezmo_ctx, msg);
+    }
 
     match response.status() {
         StatusCode::OK => Ok(()),

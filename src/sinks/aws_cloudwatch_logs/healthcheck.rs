@@ -3,7 +3,11 @@ use aws_sdk_cloudwatchlogs::types::SdkError;
 use aws_sdk_cloudwatchlogs::Client as CloudwatchLogsClient;
 use snafu::Snafu;
 
-use crate::sinks::aws_cloudwatch_logs::config::CloudwatchLogsSinkConfig;
+use crate::{
+    config::SinkContext, mezmo::user_trace::MezmoUserLog,
+    sinks::aws_cloudwatch_logs::config::CloudwatchLogsSinkConfig, user_log_error,
+};
+use vrl::value::Value;
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Snafu)]
@@ -23,6 +27,7 @@ enum HealthcheckError {
 pub async fn healthcheck(
     config: CloudwatchLogsSinkConfig,
     client: CloudwatchLogsClient,
+    cx: SinkContext,
 ) -> crate::Result<()> {
     let group_name = config.group_name.get_ref().to_owned();
     let expected_group_name = group_name.clone();
@@ -43,13 +48,18 @@ pub async fn healthcheck(
                     if name == expected_group_name {
                         Ok(())
                     } else {
-                        Err(HealthcheckError::GroupNameMismatch {
+                        let err = HealthcheckError::GroupNameMismatch {
                             expected: expected_group_name,
                             name,
-                        }
-                        .into())
+                        };
+                        user_log_error!(cx.mezmo_ctx, Value::from(format!("{}", err)));
+                        Err(err.into())
                     }
                 } else {
+                    user_log_error!(
+                        cx.mezmo_ctx,
+                        Value::from(format!("{}", HealthcheckError::GroupNameError))
+                    );
                     Err(HealthcheckError::GroupNameError.into())
                 }
             }
@@ -61,10 +71,18 @@ pub async fn healthcheck(
                     info!("Skipping healthcheck log group check: `group_name` will be created if missing.");
                     Ok(())
                 } else {
+                    user_log_error!(
+                        cx.mezmo_ctx,
+                        Value::from(format!("{}", HealthcheckError::NoLogGroup))
+                    );
                     Err(HealthcheckError::NoLogGroup.into())
                 }
             }
         },
-        Err(source) => Err(HealthcheckError::DescribeLogGroupsFailed { source }.into()),
+        Err(source) => {
+            let err = HealthcheckError::DescribeLogGroupsFailed { source };
+            user_log_error!(cx.mezmo_ctx, Value::from(format!("{}", err)));
+            Err(err.into())
+        }
     }
 }

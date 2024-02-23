@@ -215,7 +215,7 @@ impl DatadogTracesConfig {
 impl SinkConfig for DatadogTracesConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let client = self.build_client(&cx.proxy)?;
-        let healthcheck = self.dd_common.build_healthcheck(client.clone())?;
+        let healthcheck = self.dd_common.build_healthcheck(client.clone(), cx)?;
         let sink = self.build_sink(client)?;
 
         Ok((sink, healthcheck))

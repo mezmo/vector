@@ -785,6 +785,32 @@ where
     }
 }
 
+impl UserLoggingResponse for HttpResponse {
+    fn log_msg(&self) -> Option<Value> {
+        if !self.http_response.status().is_success() {
+            Some(
+                format!(
+                    "Error returned from destination with status code: {}",
+                    self.http_response.status()
+                )
+                .into(),
+            )
+        } else {
+            None
+        }
+    }
+}
+
+impl UserLoggingError for crate::Error {
+    fn log_msg(&self) -> Option<Value> {
+        let msg = match self.downcast_ref::<HttpError>() {
+            Some(err) => Value::from(format!("{}", err)),
+            None => Value::from("Request failed".to_string()),
+        };
+        Some(msg)
+    }
+}
+
 #[cfg(test)]
 mod test {
     #![allow(clippy::print_stderr)] //tests

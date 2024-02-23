@@ -175,6 +175,7 @@ impl SinkConfig for RemoteWriteConfig {
             endpoint.clone(),
             self.compression,
             auth.clone(),
+            cx.clone(),
         )
         .boxed();
 
@@ -186,7 +187,7 @@ impl SinkConfig for RemoteWriteConfig {
         };
         let service = ServiceBuilder::new()
             .settings(request_settings, http_response_retry_logic())
-            .service(service);
+            .service(MezmoLoggingService::new(service, cx.mezmo_ctx));
 
         let sink = RemoteWriteSink {
             tenant_id: self.tenant_id.clone(),
@@ -216,13 +217,22 @@ async fn healthcheck(
     endpoint: Uri,
     compression: Compression,
     auth: Option<Auth>,
+    cx: SinkContext,
 ) -> crate::Result<()> {
     let body = bytes::Bytes::new();
     let request =
         build_request(http::Method::GET, &endpoint, compression, body, None, auth).await?;
     let response = client.send(request).await?;
+    let status = response.status();
+    if status.is_client_error() || status.is_server_error() {
+        let msg = Value::from(format!(
+            "Error returned from destination with status code: {}",
+            status
+        ));
+        user_log_error!(cx.mezmo_ctx, msg);
+    }
 
-    match response.status() {
+    match status {
         http::StatusCode::OK => Ok(()),
         other => Err(HealthcheckError::UnexpectedStatus { status: other }.into()),
     }

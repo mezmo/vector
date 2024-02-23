@@ -519,7 +519,7 @@ impl SinkConfig for ElasticsearchConfig {
         let healthcheck = futures::future::select_ok(
             commons
                 .into_iter()
-                .map(move |common| common.healthcheck(client.clone()).boxed()),
+                .map(move |common| common.healthcheck(client.clone(), cx.clone()).boxed()),
         )
         .map_ok(|((), _)| ())
         .boxed();

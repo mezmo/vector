@@ -17,7 +17,7 @@ use crate::{
     config::SinkContext,
     http::HttpClient,
     internal_events::TemplateRenderingError,
-    mezmo::user_trace::MezmoHttpBatchLoggingService,
+    mezmo::user_trace::{MezmoHttpBatchLoggingService, MezmoUserLog},
     sinks::{
         self,
         util::{http::HttpBatchService, SinkBatchSettings},
@@ -25,7 +25,9 @@ use crate::{
     },
     template::Template,
     tls::{TlsConfig, TlsSettings},
+    user_log_error,
 };
+use vrl::value::Value;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SplunkHecDefaultBatchSettings;
@@ -96,6 +98,7 @@ pub async fn build_healthcheck(
     endpoint: String,
     token: String,
     client: HttpClient,
+    cx: SinkContext,
 ) -> crate::Result<()> {
     let uri = build_uri(endpoint.as_str(), "/services/collector/health/1.0", None)
         .context(UriParseSnafu)?;
@@ -106,7 +109,15 @@ pub async fn build_healthcheck(
         .unwrap();
 
     let response = client.send(request).await?;
-    match response.status() {
+    let status = response.status();
+    if status.is_client_error() || status.is_server_error() {
+        let msg = Value::from(format!(
+            "Error returned from destination with status code: {}",
+            status
+        ));
+        user_log_error!(cx.mezmo_ctx, msg);
+    }
+    match status {
         StatusCode::OK => Ok(()),
         StatusCode::BAD_REQUEST => Err(HealthcheckError::InvalidToken.into()),
         StatusCode::SERVICE_UNAVAILABLE => Err(HealthcheckError::QueuesFull.into()),
@@ -183,13 +194,16 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
     };
 
-    use crate::sinks::{
-        splunk_hec::common::{
-            build_healthcheck, build_uri, create_client,
-            service::{HttpRequestBuilder, MetadataFields},
-            EndpointTarget, HOST_FIELD, SOURCE_FIELD,
+    use crate::{
+        config::SinkContext,
+        sinks::{
+            splunk_hec::common::{
+                build_healthcheck, build_uri, create_client,
+                service::{HttpRequestBuilder, MetadataFields},
+                EndpointTarget, HOST_FIELD, SOURCE_FIELD,
+            },
+            util::Compression,
         },
-        util::Compression,
     };
 
     #[tokio::test]
@@ -203,8 +217,9 @@ mod tests {
             .mount(&mock_server)
             .await;
 
+        let cx = SinkContext::default();
         let client = create_client(&None, &ProxyConfig::default()).unwrap();
-        let healthcheck = build_healthcheck(mock_server.uri(), "token".to_string(), client);
+        let healthcheck = build_healthcheck(mock_server.uri(), "token".to_string(), client, cx);
 
         assert!(healthcheck.await.is_ok())
     }
@@ -220,8 +235,9 @@ mod tests {
             .mount(&mock_server)
             .await;
 
+        let cx = SinkContext::default();
         let client = create_client(&None, &ProxyConfig::default()).unwrap();
-        let healthcheck = build_healthcheck(mock_server.uri(), "token".to_string(), client);
+        let healthcheck = build_healthcheck(mock_server.uri(), "token".to_string(), client, cx);
 
         assert_eq!(
             &healthcheck.await.unwrap_err().to_string(),
@@ -240,8 +256,9 @@ mod tests {
             .mount(&mock_server)
             .await;
 
+        let cx = SinkContext::default();
         let client = create_client(&None, &ProxyConfig::default()).unwrap();
-        let healthcheck = build_healthcheck(mock_server.uri(), "token".to_string(), client);
+        let healthcheck = build_healthcheck(mock_server.uri(), "token".to_string(), client, cx);
 
         assert_eq!(
             &healthcheck.await.unwrap_err().to_string(),
@@ -260,8 +277,9 @@ mod tests {
             .mount(&mock_server)
             .await;
 
+        let cx = SinkContext::default();
         let client = create_client(&None, &ProxyConfig::default()).unwrap();
-        let healthcheck = build_healthcheck(mock_server.uri(), "token".to_string(), client);
+        let healthcheck = build_healthcheck(mock_server.uri(), "token".to_string(), client, cx);
 
         assert_eq!(
             &healthcheck.await.unwrap_err().to_string(),
@@ -414,7 +432,7 @@ mod integration_tests {
         integration_test_helpers::{get_token, splunk_hec_address},
     };
     use crate::{
-        assert_downcast_matches, sinks::splunk_hec::common::HealthcheckError,
+        assert_downcast_matches, config::SinkContext, sinks::splunk_hec::common::HealthcheckError,
         test_util::retry_until,
     };
 
@@ -423,9 +441,10 @@ mod integration_tests {
         let client = create_client(&None, &ProxyConfig::default()).unwrap();
         let address = splunk_hec_address();
         let token = get_token().await;
+        let cx = SinkContext::default();
 
         retry_until(
-            || build_healthcheck(address.clone(), token.clone(), client.clone()),
+            || build_healthcheck(address.clone(), token.clone(), client.clone(), cx.clone()),
             Duration::from_millis(500),
             Duration::from_secs(30),
         )
@@ -435,10 +454,12 @@ mod integration_tests {
     #[tokio::test]
     async fn splunk_healthcheck_server_not_listening() {
         let client = create_client(&None, &ProxyConfig::default()).unwrap();
+        let cx = SinkContext::default();
         let healthcheck = build_healthcheck(
             "http://localhost:1111/".to_string(),
             get_token().await,
             client,
+            cx.clone(),
         );
 
         healthcheck.await.unwrap_err();
@@ -447,10 +468,12 @@ mod integration_tests {
     #[tokio::test]
     async fn splunk_healthcheck_server_unavailable() {
         let client = create_client(&None, &ProxyConfig::default()).unwrap();
+        let cx = SinkContext::default();
         let healthcheck = build_healthcheck(
             "http://localhost:5503/".to_string(),
             get_token().await,
             client,
+            cx.clone(),
         );
 
         let unhealthy = warp::any()

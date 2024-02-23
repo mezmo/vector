@@ -1,5 +1,8 @@
 use super::config::LokiConfig;
-use crate::http::HttpClient;
+use crate::{
+    config::SinkContext, http::HttpClient, mezmo::user_trace::MezmoUserLog, user_log_error,
+};
+use vrl::value::Value;
 
 async fn fetch_status(
     endpoint: &str,
@@ -19,7 +22,11 @@ async fn fetch_status(
     Ok(client.send(req).await?.status())
 }
 
-pub async fn healthcheck(config: LokiConfig, client: HttpClient) -> crate::Result<()> {
+pub async fn healthcheck(
+    config: LokiConfig,
+    client: HttpClient,
+    cx: SinkContext,
+) -> crate::Result<()> {
     let status = match fetch_status("ready", &config, &client).await? {
         // Issue https://github.com/vectordotdev/vector/issues/6463
         http::StatusCode::NOT_FOUND => {
@@ -28,6 +35,14 @@ pub async fn healthcheck(config: LokiConfig, client: HttpClient) -> crate::Resul
         }
         status => status,
     };
+
+    if status.is_client_error() || status.is_server_error() {
+        let msg = Value::from(format!(
+            "Error returned from destination with status code: {}",
+            status
+        ));
+        user_log_error!(cx.mezmo_ctx, msg);
+    }
 
     match status {
         http::StatusCode::OK => Ok(()),
