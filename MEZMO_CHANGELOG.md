@@ -1,3 +1,10 @@
+# [3.9.0](https://github.com/answerbook/vector/compare/v3.8.1...v3.9.0) (2024-02-26)
+
+
+### Features
+
+* **aggregate-v2**: Track and expose metadata on event [e88c421](https://github.com/answerbook/vector/commit/e88c421ba9818b1ab7678be413064dfdc2d36915) - Dan Hable [LOG-19291](https://logdna.atlassian.net/browse/LOG-19291)
+
 ## [3.8.1](https://github.com/answerbook/vector/compare/v3.8.0...v3.8.1) (2024-02-23)
 
 
