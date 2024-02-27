@@ -8,6 +8,7 @@ use bytes::Bytes;
 use futures::FutureExt;
 use http::StatusCode;
 use snafu::Snafu;
+use std::collections::BTreeMap;
 use vector_lib::stream::DriverResponse;
 use vector_lib::{
     json_size::JsonSize,
@@ -30,6 +31,7 @@ pub struct AzureBlobRequest {
     pub content_type: &'static str,
     pub metadata: AzureBlobMetadata,
     pub request_metadata: RequestMetadata,
+    pub tags: Option<BTreeMap<String, String>>,
 }
 
 impl Finalizable for AzureBlobRequest {

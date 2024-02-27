@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use chrono::Utc;
+use std::collections::BTreeMap;
 use uuid::Uuid;
 use vector_lib::codecs::encoding::Framer;
 use vector_lib::request_metadata::RequestMetadata;
@@ -24,6 +25,7 @@ pub struct AzureBlobRequestOptions {
     pub blob_append_uuid: bool,
     pub encoder: (Transformer, Encoder<Framer>),
     pub compression: Compression,
+    pub tags: Option<BTreeMap<String, String>>,
 }
 
 impl RequestBuilder<(String, Vec<Event>)> for AzureBlobRequestOptions {
@@ -96,6 +98,7 @@ impl RequestBuilder<(String, Vec<Event>)> for AzureBlobRequestOptions {
             content_type: self.encoder.1.content_type(),
             metadata: azure_metadata,
             request_metadata,
+            tags: self.tags.clone(),
         }
     }
 }
