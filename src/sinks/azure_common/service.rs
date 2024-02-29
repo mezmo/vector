@@ -42,9 +42,18 @@ impl Service<AzureBlobRequest> for AzureBlobService {
                 Some(client) => {
                     let client = client.blob_client(request.metadata.partition_key.as_str());
                     let byte_size = request.blob_data.len();
+
+                    let mut tags: Tags = Tags::new();
+                    if request.tags.is_some() {
+                        for (key, value) in request.tags.unwrap().iter() {
+                            tags.insert(key, value);
+                        }
+                    }
+
                     let blob = client
                         .put_block_blob(request.blob_data)
-                        .content_type(request.content_type);
+                        .content_type(request.content_type)
+                        .tags(tags);
                     let blob = match request.content_encoding {
                         Some(encoding) => blob.content_encoding(encoding),
                         None => blob,

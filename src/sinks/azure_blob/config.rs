@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use azure_storage_blobs::prelude::*;
@@ -26,6 +27,12 @@ use crate::{
     template::Template,
     user_log_error, Result,
 };
+
+// MEZMO: added dependencies for s3-sink file consolidation
+use crate::sinks::azure_blob::file_consolidator_async::{
+    FileConsolidationConfig, FileConsolidatorAsync,
+};
+use gethostname::gethostname;
 
 /// Configuration for the `azure_blob` sink.
 #[configurable_component(sink(
@@ -143,6 +150,16 @@ pub struct AzureBlobSinkConfig {
         skip_serializing_if = "crate::serde::skip_serializing_if_default"
     )]
     pub(super) acknowledgements: AcknowledgementsConfig,
+
+    // MEZMO: added configuration for azure-sink file consolidation
+    #[configurable(derived)]
+    #[serde(default)]
+    pub file_consolidation_config: FileConsolidationConfig,
+
+    /// allow the customer to specify tags to be added to the document
+    #[configurable(derived)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<BTreeMap<String, String>>,
 }
 
 pub fn default_blob_prefix() -> Template {
@@ -164,6 +181,8 @@ impl GenerateConfig for AzureBlobSinkConfig {
             batch: BatchConfig::default(),
             request: TowerRequestConfig::default(),
             acknowledgements: Default::default(),
+            file_consolidation_config: Default::default(),
+            tags: Default::default(),
         })
         .unwrap()
     }
@@ -247,13 +266,18 @@ impl AzureBlobSinkConfig {
             blob_append_uuid,
             encoder: (transformer, encoder),
             compression: self.compression,
+            tags: self.tags.clone(),
         };
+
+        // MEZMO: added new file consolidation process for azure blobs
+        let consolidation_process = self.build_consolidation_process();
 
         let sink = AzureBlobSink::new(
             service,
             request_options,
             self.key_partitioner()?,
             batcher_settings,
+            consolidation_process,
         );
 
         Ok(VectorSink::from_event_streamsink(sink))
@@ -261,5 +285,35 @@ impl AzureBlobSinkConfig {
 
     pub fn key_partitioner(&self) -> crate::Result<KeyPartitioner> {
         Ok(KeyPartitioner::new(self.blob_prefix.clone()))
+    }
+
+    // MEZMO: added process to define setup for azure-blob-sink file consolidation
+    fn build_consolidation_process(&self) -> Option<FileConsolidatorAsync> {
+        // we can perform consolidation assuming that the process itself is requested via the configuration
+        // we only want to handle this process on the primary instance of the statefulset
+        // so we don't have to worry about contention between instances of sinks
+        let host_name = gethostname().into_string().unwrap();
+        if !host_name.ends_with("-0") || !self.file_consolidation_config.enabled {
+            info!(
+                message = "azure-blob-sink file consolidation process disabled",
+                host_name,
+                config.enabled = self.file_consolidation_config.enabled,
+            );
+            return None;
+        } else {
+            info!(
+                message = "azure-blob-sink file consolidation enabled",
+                host_name,
+                config.enabled = self.file_consolidation_config.enabled,
+            );
+        }
+
+        // grab the connection options and config so we can return a new FileConsolidator
+        let consolidator = FileConsolidatorAsync::new(
+            self.connection_string.clone(),
+            self.container_name.clone(),
+            self.file_consolidation_config.clone(),
+        );
+        Some(consolidator)
     }
 }

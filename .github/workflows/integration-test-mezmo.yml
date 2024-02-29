@@ -48,7 +48,7 @@ jobs:
         include:
           # Integrations that we are not using/supporting are disabled
           - test: 'aws'
-          # - test: 'azure'
+          - test: 'azure'
           # - test: 'clickhouse'
           # - test: 'datadog-agent'
           # - test: 'datadog-logs'

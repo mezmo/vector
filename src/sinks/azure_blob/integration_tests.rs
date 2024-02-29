@@ -1,6 +1,9 @@
+use bytes::Bytes;
 use std::{
+    collections::BTreeMap,
     io::{BufRead, BufReader},
     num::NonZeroU32,
+    sync::Arc,
 };
 
 use azure_core::{error::HttpError, prelude::Range};
@@ -133,8 +136,6 @@ async fn azure_blob_insert_json_into_blob() {
 }
 
 #[tokio::test]
-// This test will fail with Azurite blob emulator because of this issue:
-// https://github.com/Azure/Azurite/issues/629
 async fn azure_blob_insert_lines_into_blob_gzip() {
     let blob_prefix = format!("lines-gzip/into/blob/{}", random_string(10));
     let config = AzureBlobSinkConfig::new_emulator().await;
@@ -158,8 +159,6 @@ async fn azure_blob_insert_lines_into_blob_gzip() {
 
 #[ignore]
 #[tokio::test]
-// This test will fail with Azurite blob emulator because of this issue:
-// https://github.com/Azure/Azurite/issues/629
 async fn azure_blob_insert_json_into_blob_gzip() {
     let blob_prefix = format!("json-gzip/into/blob/{}", random_string(10));
     let config = AzureBlobSinkConfig::new_emulator().await;
@@ -243,6 +242,8 @@ impl AzureBlobSinkConfig {
                 batch: Default::default(),
                 request: TowerRequestConfig::default(),
                 acknowledgements: Default::default(),
+                file_consolidation_config: Default::default(),
+                tags: Default::default(),
             };
 
         config.ensure_container().await;
@@ -334,6 +335,65 @@ impl AzureBlobSinkConfig {
                 .map(|l| l.unwrap())
                 .collect()
         }
+    }
+
+    pub async fn put_blob(
+        &self,
+        filename: String,
+        content_type: &str,
+        encoding: &str,
+        file_tags: Option<BTreeMap<String, String>>,
+        data: Bytes,
+    ) {
+        let client = azure_common::config::build_client(
+            self.connection_string.clone().map(Into::into),
+            self.storage_account.clone().map(Into::into),
+            self.container_name.clone(),
+            self.endpoint.clone(),
+        )
+        .unwrap();
+
+        let mut tags: Tags = Tags::new();
+        if file_tags.is_some() {
+            for (key, value) in file_tags.unwrap().iter() {
+                tags.insert(key, value);
+            }
+        }
+
+        client
+            .blob_client(filename.clone())
+            .put_block_blob(data)
+            .content_type(content_type.to_string())
+            .content_encoding(encoding.to_string())
+            .tags(tags)
+            .into_future()
+            .await
+            .unwrap();
+    }
+
+    pub async fn get_tags(&self, blob: String) -> azure_storage_blobs::prelude::Tags {
+        let client = azure_common::config::build_client(
+            self.connection_string.clone().map(Into::into),
+            self.storage_account.clone().map(Into::into),
+            self.container_name.clone(),
+            self.endpoint.clone(),
+        )
+        .unwrap();
+
+        let response = client.blob_client(blob).get_tags().await.unwrap();
+        response.tags
+    }
+
+    pub async fn get_client(&self) -> Arc<ContainerClient> {
+        let client = azure_common::config::build_client(
+            self.connection_string.clone().map(Into::into),
+            self.storage_account.clone().map(Into::into),
+            self.container_name.clone(),
+            self.endpoint.clone(),
+        )
+        .unwrap();
+
+        client
     }
 
     async fn ensure_container(&self) {
