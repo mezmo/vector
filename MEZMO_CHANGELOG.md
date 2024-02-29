@@ -1,3 +1,15 @@
+# [3.10.0](https://github.com/answerbook/vector/compare/v3.9.0...v3.10.0) (2024-02-29)
+
+
+### Features
+
+* **azure blob**: add tagging and file consolidation [d933d28](https://github.com/answerbook/vector/commit/d933d2800edfde28e2eb19d6c27a84b5431238e4) - dominic-mcallister-logdna [LOG-19336](https://logdna.atlassian.net/browse/LOG-19336) [LOG-19337](https://logdna.atlassian.net/browse/LOG-19337)
+
+
+### Miscellaneous
+
+* Merge pull request #426 from answerbook/dominic/LOG-19232 [a5acdec](https://github.com/answerbook/vector/commit/a5acdec594f76de949900f6f31dcd1f300f6f2dd) - GitHub [LOG-19232](https://logdna.atlassian.net/browse/LOG-19232)
+
 # [3.9.0](https://github.com/answerbook/vector/compare/v3.8.1...v3.9.0) (2024-02-26)
 
 
