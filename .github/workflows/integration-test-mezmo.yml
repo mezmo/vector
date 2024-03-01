@@ -2,18 +2,14 @@ name: Integration Test Suite (Mezmo)
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches-ignore:
-      - 'dependabot/**'
-    paths-ignore:
-      - 'deployment/**'
-      - 'test/data/**'
-      - 'docs/**'
-
   push:
     branches:
       - master
       - ci-fix
+    paths-ignore:
+      - 'deployment/**'
+      - 'test/data/**'
+      - 'docs/**'
 
 concurrency:
   # For pull requests, cancel running workflows, for master, run all
