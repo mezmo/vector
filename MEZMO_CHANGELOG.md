@@ -1,3 +1,20 @@
+# [3.11.0](https://github.com/answerbook/vector/compare/v3.10.0...v3.11.0) (2024-03-01)
+
+
+### Chores
+
+* disable integration tests on pull requests [23251f2](https://github.com/answerbook/vector/commit/23251f290ac02e3ec8c34fe93082e6fe1a74041a) - Mike Del Tito [LOG-19433](https://logdna.atlassian.net/browse/LOG-19433)
+
+
+### Features
+
+* **classification**: identify and annotate json string messages [a837636](https://github.com/answerbook/vector/commit/a837636de79d9339b03d16c4e95e906f4cdca587) - Mike Del Tito [LOG-19433](https://logdna.atlassian.net/browse/LOG-19433)
+
+
+### Miscellaneous
+
+* Merge pull request #427 from answerbook/mdeltito/LOG-19433 [6ef9311](https://github.com/answerbook/vector/commit/6ef931137b5ae2600240c39d0fa111664f047d4a) - GitHub [LOG-19433](https://logdna.atlassian.net/browse/LOG-19433)
+
 # [3.10.0](https://github.com/answerbook/vector/compare/v3.9.0...v3.10.0) (2024-02-29)
 
 
