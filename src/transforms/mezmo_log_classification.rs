@@ -25,12 +25,21 @@ const DEFAULT_APP_FIELDS: [&str; 3] = ["app", "application", "container"];
 const DEFAULT_HOST_FIELDS: [&str; 2] = ["host", "hostname"];
 const DEFAULT_LEVEL_FIELDS: [&str; 2] = ["level", "log_level"];
 
+/// Defines a custom grok pattern and alias. This can be used to override default grok patterns.
+const CUSTOM_GROK_DEFINITIONS: [(&str, &str); 1] = [
+    // Use the java grok pattern which is more strict that the rust port of grok
+    // @see: https://docs.rs/grok/2.0.0/src/grok/lib.rs.html#1-4
+    // https://github.com/thekrakken/java-grok/blob/901fda38ef6d5c902355eb25cff3f4b4fc3debde/src/main/resources/patterns/linux-syslog#L2
+    ("SYSLOGLINE", "(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?%{SYSLOGHOST:logsource} %{SYSLOGPROG}: %{GREEDYDATA:message}")
+];
+
+/// List of grok aliases to compile and check against. Comparisons happen in order of this array.
 const DEFAULT_LOG_EVENT_TYPES: [&str; 67] = [
     "HTTPD_COMBINEDLOG",
     "HTTPD_COMMONLOG",
     "HTTPD_ERRORLOG",
     "SYSLOG5424LINE",
-    "SYSLOGLINE",
+    "SYSLOGLINE", // This is overridden by a custom pattern. The default is not strict enough and is causing false positives.
     "SYSLOGPAMSESSION",
     "CRONLOG",
     "MONGO3_LOG",
@@ -97,6 +106,11 @@ const DEFAULT_LOG_EVENT_TYPES: [&str; 67] = [
 
 fn grok_patterns() -> &'static BTreeMap<String, grok::Pattern> {
     let mut parser = grok::Grok::with_default_patterns();
+
+    // Add aliases and custom grok patterns prior to referencing them during `.compile()`
+    for (alias, pattern) in CUSTOM_GROK_DEFINITIONS.iter() {
+        parser.add_pattern(alias.to_string(), pattern.to_string());
+    }
 
     static GROK_PATTERNS: OnceLock<BTreeMap<String, grok::Pattern>> = OnceLock::new();
     GROK_PATTERNS.get_or_init(|| {
@@ -413,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn event_with_string_message() {
-        let line = r#"47.29.201.179 - - [28/Feb/2019:13:17:10 +0000] "GET /?p=1 HTTP/2.0" 200 5316 "https://domain1.com/?p=1" "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36" "2.75"#;
+        let line = r#"47.29.201.179 - - [28/Feb/2019:13:17:10 +0000] "GET /?p=1 HTTP/2.0" 200 5316 "https://domain1.com/?p=1" "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36" "2.75""#;
         let message_key = "message".to_string();
         let event = Event::Log(LogEvent::from(Value::Object(
             btreemap!(message_key.clone() => Value::Bytes(line.into())),
@@ -430,6 +444,68 @@ mod tests {
 
         let annotations =
             make_expected_annotations(&event, None, vec!["HTTPD_COMBINEDLOG".to_string()]);
+
+        // line is retained
+        assert_eq!(
+            output.as_log().get(message_key.as_str()),
+            Some(Value::Bytes(line.into())).as_ref()
+        );
+
+        assert_eq!(
+            output.as_log().get(log_schema().annotations_key()),
+            Some(&annotations)
+        );
+    }
+
+    #[tokio::test]
+    async fn similar_syslog_event_is_not_syslog() {
+        let line = r#"2024-02-27T18:41:21.75258589Z stderr F E0227 18:41:21.752167       1 scraper.go:140] "Failed to scrape node" err="Get \"https://192.168.1.102:10250/metrics/resource\": dial tcp 192.168.1.102:10250: connect: no route to host" node="linux02""#;
+        let message_key = "message".to_string();
+        let event = Event::Log(LogEvent::from(Value::Object(
+            btreemap!(message_key.clone() => Value::Bytes(line.into())),
+        )));
+
+        let config = LogClassificationConfig {
+            line_fields: None,
+            grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
+        };
+        let output = do_transform(config, event.clone().into()).await.unwrap();
+
+        // There should be no match to this line, even though default patterns think it looks like syslog
+        let annotations = make_expected_annotations(&event, None, vec![]);
+
+        assert_eq!(
+            output.as_log().get(message_key.as_str()),
+            Some(Value::Bytes(line.into())).as_ref()
+        );
+
+        assert_eq!(
+            output.as_log().get(log_schema().annotations_key()),
+            Some(&annotations)
+        );
+    }
+
+    #[tokio::test]
+    async fn syslog_custom_pattern_matches() {
+        let line = r#"2024-02-27T18:41:21.75258589Z myhost scraper.go[35870]: "Failed to scrape node" err="Get \"https://192.168.1.102:10250/metrics/resource\": dial tcp 192.168.1.102:10250: connect: no route to host" node="linux02""#;
+        let message_key = "message".to_string();
+        let event = Event::Log(LogEvent::from(Value::Object(
+            btreemap!(message_key.clone() => Value::Bytes(line.into())),
+        )));
+
+        let config = LogClassificationConfig {
+            line_fields: None,
+            grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
+        };
+        let output = do_transform(config, event.clone().into()).await.unwrap();
+
+        let annotations = make_expected_annotations(&event, None, vec!["SYSLOGLINE".to_string()]);
 
         // line is retained
         assert_eq!(
