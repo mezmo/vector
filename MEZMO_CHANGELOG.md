@@ -1,3 +1,15 @@
+## [3.11.1](https://github.com/answerbook/vector/compare/v3.11.0...v3.11.1) (2024-03-12)
+
+
+### Bug Fixes
+
+* **classification**: `SYSLOGLINE` is having false positive matches [e908658](https://github.com/answerbook/vector/commit/e9086582b383f9a25178a6215333521f14ae66f2) - Darin Spivey [LOG-19416](https://logdna.atlassian.net/browse/LOG-19416)
+
+
+### Miscellaneous
+
+* Merge pull request #429 from answerbook/darinspivey/LOG-19416 [c129f60](https://github.com/answerbook/vector/commit/c129f605b54128ae46eb40ec682ac4920bee5cb5) - GitHub [LOG-19416](https://logdna.atlassian.net/browse/LOG-19416)
+
 # [3.11.0](https://github.com/answerbook/vector/compare/v3.10.0...v3.11.0) (2024-03-01)
 
 
