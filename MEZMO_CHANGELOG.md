@@ -1,3 +1,15 @@
+# [3.12.0](https://github.com/answerbook/vector/compare/v3.11.1...v3.12.0) (2024-03-13)
+
+
+### Features
+
+* **s3 sink**: add recursive directory consolidation [301ac96](https://github.com/answerbook/vector/commit/301ac96b00170af05aab9f3bfd4db1a0b4a896c8) - dominic-mcallister-logdna [LOG-19448](https://logdna.atlassian.net/browse/LOG-19448)
+
+
+### Miscellaneous
+
+* Merge pull request #428 from answerbook/dominic/LOG-19448 [f43e028](https://github.com/answerbook/vector/commit/f43e028b0e500a84997afb60ff0026dc38ba0fb1) - GitHub [LOG-19448](https://logdna.atlassian.net/browse/LOG-19448)
+
 ## [3.11.1](https://github.com/answerbook/vector/compare/v3.11.0...v3.11.1) (2024-03-12)
 
 
