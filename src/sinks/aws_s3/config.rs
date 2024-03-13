@@ -302,9 +302,8 @@ impl S3SinkConfig {
             endpoint,
             proxy,
             self.tls.clone(),
-            self.file_consolidation_config,
+            self.file_consolidation_config.clone(),
             self.bucket.clone(),
-            self.key_prefix.clone(),
         );
         Some(consolidator)
     }

@@ -8,6 +8,9 @@ use crate::sinks::aws_s3::file_consolidation_processor::FileConsolidationProcess
 use crate::{aws::create_client, common::s3::S3ClientBuilder};
 use tokio::task::JoinHandle;
 
+const DEFAULT_BASE_PATH: &str = "";
+const DEFAULT_OUTPUT_FORMAT: &str = "ndjson";
+
 /// File Consolidation
 /// Depending on the configuration of the sink and the throughput of data,
 /// S3 may receive hundreds and thousands of files. This is unmanageable from
@@ -18,7 +21,7 @@ use tokio::task::JoinHandle;
 /// 1. All files within the bucket directory are of the same format configured
 /// to the sink
 #[configurable_component]
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct FileConsolidationConfig {
     /// boolean indicating if the consolidation process is enabled
@@ -29,6 +32,13 @@ pub struct FileConsolidationConfig {
 
     /// Indicates the size of the consolidation file that is produced
     pub requested_size_bytes: i64,
+
+    /// Indicates the output format (text, json, ndjson)
+    /// defaults to ndjson for backwards compatibility
+    pub output_format: Option<String>,
+
+    /// Indicates the base path to start consolidation
+    pub base_path: Option<String>,
 }
 
 impl Default for FileConsolidationConfig {
@@ -37,6 +47,8 @@ impl Default for FileConsolidationConfig {
             enabled: false,
             process_every_ms: 600000,        // 10 min
             requested_size_bytes: 500000000, // 500 MB
+            output_format: Some(DEFAULT_BASE_PATH.to_string()),
+            base_path: Some(DEFAULT_OUTPUT_FORMAT.to_string()),
         }
     }
 }
@@ -51,7 +63,6 @@ pub struct FileConsolidatorAsync {
     tls_options: Option<TlsConfig>,
     file_consolidation_config: FileConsolidationConfig,
     bucket: String,
-    key_prefix: String,
     join_handle: Option<JoinHandle<()>>,
 }
 
@@ -71,7 +82,6 @@ impl FileConsolidatorAsync {
         tls_options: Option<TlsConfig>,
         file_consolidation_config: FileConsolidationConfig,
         bucket: String,
-        key_prefix: String,
     ) -> FileConsolidatorAsync {
         FileConsolidatorAsync {
             auth,
@@ -81,7 +91,6 @@ impl FileConsolidatorAsync {
             tls_options,
             file_consolidation_config,
             bucket,
-            key_prefix,
             join_handle: None,
         }
     }
@@ -92,20 +101,33 @@ impl FileConsolidatorAsync {
             return false;
         }
 
+        let base_path = self
+            .file_consolidation_config
+            .base_path
+            .clone()
+            .unwrap_or(DEFAULT_BASE_PATH.to_string())
+            .clone();
+        let output_format = self
+            .file_consolidation_config
+            .output_format
+            .clone()
+            .unwrap_or(DEFAULT_OUTPUT_FORMAT.to_string())
+            .clone();
+
         if self.join_handle.is_some() {
             info!(
                 message =
-                    "bucket={}, prefix={}, Thread for S3 file consolidation already in progress",
+                    "bucket={}, base_path={}, Thread for S3 file consolidation already in progress",
                 bucket = self.bucket,
-                key_prefix = self.key_prefix,
+                key_prefix = base_path,
             );
             return false;
         }
 
         info!(
-            message = "bucket={}, prefix={}, Initiating thread for S3 file consolidation",
+            message = "bucket={}, base_path={}, Initiating thread for S3 file consolidation",
             bucket = self.bucket,
-            key_prefix = self.key_prefix,
+            key_prefix = base_path,
         );
 
         const TEN_MINUTES_MS: u64 = 10 * 60 * 1000;
@@ -117,7 +139,8 @@ impl FileConsolidatorAsync {
         };
 
         let box_bucket = Box::new(self.bucket.clone());
-        let box_key_prefix = Box::new(self.key_prefix.clone());
+        let box_base_path = Box::new(base_path.clone());
+        let box_output_format = Box::new(output_format.clone());
         let box_auth = Box::new(self.auth.clone());
         let box_region = Box::new(self.region.clone());
         let box_endpoint = Box::new(self.endpoint.clone());
@@ -141,9 +164,9 @@ impl FileConsolidatorAsync {
                 Err(e) => {
                     error!(
                         ?e,
-                        "bucket={}, key_prefix={} Failed to create s3 client for consolidation",
+                        "bucket={}, base_path={} Failed to create s3 client for consolidation",
                         (*box_bucket).clone(),
-                        (*box_key_prefix).clone()
+                        (*box_base_path).clone(),
                     );
                     return;
                 }
@@ -153,23 +176,24 @@ impl FileConsolidatorAsync {
                 let start_time = tokio::time::Instant::now();
 
                 info!(
-                    message = "bucket={}, prefix={}, Starting S3 file consolidation",
+                    message = "bucket={}, base_path={}, Starting S3 file consolidation",
                     bucket = (*box_bucket).clone(),
-                    key_prefix = (*box_key_prefix).clone(),
+                    base_path = (*box_base_path).clone(),
                 );
 
                 let processor = FileConsolidationProcessor::new(
                     &client,
                     (*box_bucket).clone(),
-                    (*box_key_prefix).clone(),
                     *box_requested_size_bytes,
+                    (*box_base_path).clone(),
+                    (*box_output_format).clone(),
                 );
 
                 processor.run().await;
                 info!(
-                    message = "bucket={}, prefix={}, Completed S3 file consolidation",
+                    message = "bucket={}, base_path={}, Completed S3 file consolidation",
                     bucket = (*box_bucket).clone(),
-                    key_prefix = (*box_key_prefix).clone(),
+                    base_path = (*box_base_path).clone(),
                 );
 
                 // determine how long this action took to complete and await
@@ -179,9 +203,9 @@ impl FileConsolidatorAsync {
                 if diff > 0 {
                     info!(
                         message =
-                            "bucket={}, prefix={}, processing time={} ms, restarting in {} ms",
+                            "bucket={}, base_path={}, processing time={} ms, restarting in {} ms",
                         bucket = (*box_bucket).clone(),
-                        key_prefix = (*box_key_prefix).clone(),
+                        base_path = (*box_base_path).clone(),
                         elapsed,
                         diff
                     );
@@ -201,10 +225,17 @@ impl FileConsolidatorAsync {
             return false;
         }
 
+        let base_path = self
+            .file_consolidation_config
+            .base_path
+            .clone()
+            .unwrap_or(DEFAULT_BASE_PATH.to_string())
+            .clone();
+
         info!(
             message = "Triggering shutdown for S3 file consolidation",
             bucket = self.bucket,
-            key_prefix = self.key_prefix,
+            base_path = base_path,
         );
 
         if let Some(h) = self.join_handle.take() {
@@ -214,7 +245,7 @@ impl FileConsolidatorAsync {
         info!(
             message = "Shutdown for S3 file consolidation complete",
             bucket = self.bucket,
-            key_prefix = self.key_prefix,
+            base_path = base_path,
         );
 
         true

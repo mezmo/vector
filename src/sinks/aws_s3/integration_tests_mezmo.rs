@@ -173,9 +173,10 @@ async fn s3_file_consolidator_enabled_run() {
             enabled: true,
             process_every_ms: 10,
             requested_size_bytes: 512000000,
+            base_path: None,
+            output_format: None,
         },
         bucket.clone(),
-        "/".to_owned(),
     );
 
     let started = fc.start();
@@ -211,10 +212,17 @@ async fn s3_file_consolidation_process_no_files() {
     let bucket = uuid::Uuid::new_v4().to_string();
     let key_prefix = "/".to_owned();
     let requested_size_bytes: i64 = 10 * 1024 * 1024;
+    let output_format = "ndjson".to_owned();
 
     create_bucket(&bucket, false).await;
 
-    let fcp = FileConsolidationProcessor::new(&s3_client, bucket, key_prefix, requested_size_bytes);
+    let fcp = FileConsolidationProcessor::new(
+        &s3_client,
+        bucket,
+        requested_size_bytes,
+        key_prefix,
+        output_format,
+    );
     fcp.run().await;
 }
 
@@ -227,6 +235,7 @@ async fn s3_file_consolidation_process_no_tagged_files() {
     let key_prefix = "/".to_string();
     let requested_size_bytes: i64 = 10 * 1024 * 1024;
     let content_type = "text/x-log".to_string();
+    let output_format = "ndjson".to_owned();
 
     create_bucket(&bucket, false).await;
     put_file(
@@ -244,8 +253,17 @@ async fn s3_file_consolidation_process_no_tagged_files() {
     assert_eq!(keys.len(), 1);
 
     // runs without errors
-    let fcp = FileConsolidationProcessor::new(&s3_client, bucket, key_prefix, requested_size_bytes);
+    let fcp = FileConsolidationProcessor::new(
+        &s3_client,
+        bucket.clone(),
+        requested_size_bytes,
+        key_prefix.clone(),
+        output_format,
+    );
     fcp.run().await;
+
+    let keys = get_keys(&bucket, key_prefix).await;
+    assert_eq!(keys.len(), 1);
 }
 
 #[tokio::test]
@@ -257,6 +275,7 @@ async fn s3_file_consolidation_process_tag_filters() {
     let key_prefix = "/".to_string();
     let requested_size_bytes: i64 = 1024 * 1024;
     let content_type = "text/x-log".to_string();
+    let output_format = "ndjson".to_owned();
 
     create_bucket(&bucket, false).await;
 
@@ -333,54 +352,277 @@ async fn s3_file_consolidation_process_tag_filters() {
     )
     .await;
 
+    // 6 keys should be persisted
     let keys = get_keys(&bucket, key_prefix.clone()).await;
     assert_eq!(keys.len(), 6);
 
-    // only s3 created files with ndjson and text will be merged
-    match get_files_to_consolidate(&s3_client, bucket.clone(), key_prefix.clone()).await {
-        Ok(files) => {
-            assert_eq!(files.len(), 2);
-            assert_eq!(files[0].size, 16);
-            assert_eq!(files[0].key, "/s3_type_ndjson.log");
-
-            assert_eq!(files[1].size, 14);
-            assert_eq!(files[1].key, "/s3_type_text.log");
-        }
-        Err(err) => panic!("Retrieving files should not error: {}", err),
-    };
-
-    let fcp = FileConsolidationProcessor::new(
+    //validate the filter works for the requested types
+    let filtered_text = get_files_to_consolidate(
         &s3_client,
         bucket.clone(),
         key_prefix.clone(),
+        "text".to_owned(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(filtered_text.len(), 1);
+    assert_eq!(filtered_text[0].key, "/s3_type_text.log");
+
+    let filtered_json = get_files_to_consolidate(
+        &s3_client,
+        bucket.clone(),
+        key_prefix.clone(),
+        "json".to_owned(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(filtered_json.len(), 1);
+    assert_eq!(filtered_json[0].key, "/s3_type_json.log");
+
+    let filtered_ndjson = get_files_to_consolidate(
+        &s3_client,
+        bucket.clone(),
+        key_prefix.clone(),
+        "ndjson".to_owned(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(filtered_ndjson.len(), 1);
+    assert_eq!(filtered_ndjson[0].key, "/s3_type_ndjson.log");
+
+    // run the consolidator and
+    let fcp = FileConsolidationProcessor::new(
+        &s3_client,
+        bucket.clone(),
         requested_size_bytes,
+        key_prefix.clone(),
+        output_format.clone(),
     );
     fcp.run().await;
 
-    // validate we're down to 5 files now since 2 of them were merged
+    // no changes made since there was only a single of each type
     let keys = get_keys(&bucket, key_prefix.clone()).await;
-    assert_eq!(keys.len(), 5);
-
-    // untouched files
+    assert_eq!(keys.len(), 6);
     assert!(keys.contains(&"/s3_sink.log".to_string()));
+    assert!(keys.contains(&"/s3_type_text.log".to_string()));
     assert!(keys.contains(&"/s3_type_json.log".to_string()));
+    assert!(keys.contains(&"/s3_type_ndjson.log".to_string()));
     assert!(keys.contains(&"/s3_type_unknown.log".to_string()));
     assert!(keys.contains(&"/previous_merge.log".to_string()));
+}
 
-    // the new file that should contain the text of the docs
-    if let Some(k) = keys.into_iter().find(|s| is_merged_file(s)) {
-        let obj = get_object(&bucket, k).await;
-        assert_eq!(obj.content_encoding, Some("identity".to_string()));
-        assert_eq!(obj.content_type, Some("text/x-log".to_string()));
-        assert_eq!(obj.content_length, 32); // contents plus newlines
+#[tokio::test]
+async fn s3_file_consolidation_process_text_files() {
+    let _cx = SinkContext::new_test();
 
-        let response_lines = get_lines(obj).await;
-        assert_eq!(response_lines.len(), 2);
-        assert!(response_lines.contains(&"file with ndjson".to_string()));
-        assert!(response_lines.contains(&"file with text".to_string()));
-    } else {
-        panic!("did not find the merged file as expected");
+    let s3_client = client().await;
+    let bucket = uuid::Uuid::new_v4().to_string();
+    let key_prefix = "/".to_string();
+    let requested_size_bytes: i64 = 1024 * 1024;
+    let content_type = "text/x-log".to_string();
+    let output_format = "text".to_owned();
+
+    create_bucket(&bucket, false).await;
+
+    let mezmo_pipeline_s3_type_text_tags =
+        generate_tags("mezmo_pipeline_s3_type".to_string(), output_format.clone());
+
+    for i in 0..3 {
+        let filename = format!("file_{}.log", i + 1);
+
+        let data = Bytes::from(format!("this is from file {}", i + 1));
+        put_file(
+            filename,
+            data,
+            key_prefix.clone(),
+            bucket.clone(),
+            content_type.clone(),
+            None,
+            mezmo_pipeline_s3_type_text_tags.clone(),
+        )
+        .await;
+
+        // forcing a sleep so the file sorting is tested correctly as the
+        // emulator only keeps time to the second
+        thread::sleep(time::Duration::from_millis(1000));
     }
+
+    // 3 keys should be persisted
+    let keys = get_keys(&bucket, key_prefix.clone()).await;
+    assert_eq!(keys.len(), 3);
+
+    // run the consolidator and
+    let fcp = FileConsolidationProcessor::new(
+        &s3_client,
+        bucket.clone(),
+        requested_size_bytes,
+        key_prefix.clone(),
+        output_format.clone(),
+    );
+    fcp.run().await;
+
+    // the files are properly consolidated into 1 file
+    let keys = get_keys(&bucket, key_prefix.clone()).await;
+    assert_eq!(keys.len(), 1);
+    assert!(is_merged_file(&keys[0]));
+
+    let obj = get_object(&bucket, keys[0].clone()).await;
+    assert_eq!(obj.content_encoding, Some("identity".to_string()));
+    assert_eq!(obj.content_type, Some("text/x-log".to_string()));
+    assert_eq!(obj.content_length, 59); // line length plus newlines
+
+    let response_lines = get_lines(obj).await;
+    assert_eq!(response_lines.len(), 3);
+
+    assert_eq!(response_lines[0], "this is from file 1");
+    assert_eq!(response_lines[1], "this is from file 2");
+    assert_eq!(response_lines[2], "this is from file 3");
+}
+
+#[tokio::test]
+async fn s3_file_consolidation_process_json_files() {
+    let _cx = SinkContext::new_test();
+
+    let s3_client = client().await;
+    let bucket = uuid::Uuid::new_v4().to_string();
+    let key_prefix = "/".to_string();
+    let requested_size_bytes: i64 = 1024 * 1024;
+    let content_type = "text/x-log".to_string();
+    let output_format = "json".to_owned();
+
+    create_bucket(&bucket, false).await;
+
+    let mezmo_pipeline_s3_type_text_tags =
+        generate_tags("mezmo_pipeline_s3_type".to_string(), output_format.clone());
+
+    for i in 0..3 {
+        let filename = format!("file_{}.log", i + 1);
+        let data = Bytes::from(format!("[\"this is from file {}\"]", i + 1));
+        put_file(
+            filename,
+            data,
+            key_prefix.clone(),
+            bucket.clone(),
+            content_type.clone(),
+            None,
+            mezmo_pipeline_s3_type_text_tags.clone(),
+        )
+        .await;
+
+        // forcing a sleep so the file sorting is tested correctly as the
+        // emulator only keeps time to the second
+        thread::sleep(time::Duration::from_millis(1000));
+    }
+
+    // 3 keys should be persisted
+    let keys = get_keys(&bucket, key_prefix.clone()).await;
+    assert_eq!(keys.len(), 3);
+
+    // run the consolidator and
+    let fcp = FileConsolidationProcessor::new(
+        &s3_client,
+        bucket.clone(),
+        requested_size_bytes,
+        key_prefix.clone(),
+        output_format.clone(),
+    );
+    fcp.run().await;
+
+    // the files are properly consolidated into 1 file
+    let keys = get_keys(&bucket, key_prefix.clone()).await;
+    assert_eq!(keys.len(), 1);
+    assert!(is_merged_file(&keys[0]));
+
+    let obj = get_object(&bucket, keys[0].clone()).await;
+    assert_eq!(obj.content_encoding, Some("identity".to_string()));
+    assert_eq!(obj.content_type, Some("text/x-log".to_string()));
+    assert_eq!(obj.content_length, 67); //text with comma separators
+
+    let response_lines = get_lines(obj).await;
+    assert_eq!(response_lines.len(), 1);
+    assert_eq!(
+        response_lines[0],
+        "[\"this is from file 1\",\"this is from file 2\",\"this is from file 3\"]"
+    );
+}
+
+#[tokio::test]
+async fn s3_file_consolidation_process_ndjson_files() {
+    let _cx = SinkContext::new_test();
+
+    let s3_client = client().await;
+    let bucket = uuid::Uuid::new_v4().to_string();
+    let key_prefix = "/".to_string();
+    let requested_size_bytes: i64 = 1024 * 1024;
+    let content_type = "text/x-log".to_string();
+    let output_format = "ndjson".to_owned();
+
+    create_bucket(&bucket, false).await;
+
+    let mezmo_pipeline_s3_type_text_tags =
+        generate_tags("mezmo_pipeline_s3_type".to_string(), output_format.clone());
+
+    for i in 0..3 {
+        let filename = format!("file_{}.log", i + 1);
+        let data = Bytes::from(format!(
+            "{{ \"message\": \"this is from file {}\" }}",
+            i + 1
+        ));
+        put_file(
+            filename,
+            data,
+            key_prefix.clone(),
+            bucket.clone(),
+            content_type.clone(),
+            None,
+            mezmo_pipeline_s3_type_text_tags.clone(),
+        )
+        .await;
+
+        // forcing a sleep so the file sorting is tested correctly as the
+        // emulator only keeps time to the second
+        thread::sleep(time::Duration::from_millis(1000));
+    }
+
+    // 3 keys should be persisted
+    let keys = get_keys(&bucket, key_prefix.clone()).await;
+    assert_eq!(keys.len(), 3);
+
+    // run the consolidator and
+    let fcp = FileConsolidationProcessor::new(
+        &s3_client,
+        bucket.clone(),
+        requested_size_bytes,
+        key_prefix.clone(),
+        output_format.clone(),
+    );
+    fcp.run().await;
+
+    // the files are properly consolidated into 1 file
+    let keys = get_keys(&bucket, key_prefix.clone()).await;
+    assert_eq!(keys.len(), 1);
+    assert!(is_merged_file(&keys[0]));
+
+    let obj = get_object(&bucket, keys[0].clone()).await;
+    assert_eq!(obj.content_encoding, Some("identity".to_string()));
+    assert_eq!(obj.content_type, Some("text/x-log".to_string()));
+    assert_eq!(obj.content_length, 110); // line length plus newlines
+
+    let response_lines = get_lines(obj).await;
+    assert_eq!(response_lines.len(), 3);
+
+    assert_eq!(
+        response_lines[0],
+        "{ \"message\": \"this is from file 1\" }"
+    );
+    assert_eq!(
+        response_lines[1],
+        "{ \"message\": \"this is from file 2\" }"
+    );
+    assert_eq!(
+        response_lines[2],
+        "{ \"message\": \"this is from file 3\" }"
+    );
 }
 
 #[tokio::test]
@@ -389,57 +631,56 @@ async fn s3_file_consolidation_compressed_files() {
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
-    let key_prefix = "/".to_string();
+    let key_prefix = "/compressed-files/".to_string();
     let requested_size_bytes: i64 = 20 * 1024 * 1024;
     let content_type = "text/x-log".to_string();
+    let output_format = "text".to_owned();
 
     create_bucket(&bucket, false).await;
 
     // create some text lines and compress them
-    let ndjson = "{\"property\":\"fkcurxdqnnybrcutaogcvzvdttjzlcavsonfhuianreijaqfpaojjmolsibjzjvcphrjxzorjtvlbphepgfzy\"}".to_owned();
     let text = "ozsggnwocqbrtuzwzudhakpibrkfnewnnuoeyopbmshpgcjicrmgasucmizjqycsvjladptmhtygwwystocxsphnyckeijpyfbvy".to_owned();
-
-    let compressed_ndjson = compress_text(&ndjson);
     let compressed_text = compress_text(&text);
 
-    let mezmo_pipeline_s3_type_ndjson_tags =
-        generate_tags("mezmo_pipeline_s3_type".to_string(), "ndjson".to_string());
     let mezmo_pipeline_s3_type_text_tags =
-        generate_tags("mezmo_pipeline_s3_type".to_string(), "text".to_string());
+        generate_tags("mezmo_pipeline_s3_type".to_string(), output_format.clone());
 
-    put_file(
-        "ndjson.log".to_string(),
-        compressed_ndjson,
-        key_prefix.clone(),
-        bucket.clone(),
-        content_type.clone(),
-        Some("gzip".to_string()),
-        mezmo_pipeline_s3_type_ndjson_tags,
-    )
-    .await;
-    put_file(
-        "text.log".to_string(),
-        compressed_text,
-        key_prefix.clone(),
-        bucket.clone(),
-        content_type.clone(),
-        Some("gzip".to_string()),
-        mezmo_pipeline_s3_type_text_tags,
-    )
-    .await;
+    for i in 0..3 {
+        let filename = format!("file_{}.log", i + 1);
+        put_file(
+            filename,
+            compressed_text.clone(),
+            key_prefix.clone(),
+            bucket.clone(),
+            content_type.clone(),
+            Some("gzip".to_string()),
+            mezmo_pipeline_s3_type_text_tags.clone(),
+        )
+        .await;
+    }
 
     let keys = get_keys(&bucket, key_prefix.clone()).await;
-    assert_eq!(keys.len(), 2);
+    assert_eq!(keys.len(), 3);
 
     // only s3 created files with ndjson and text will be merged
-    match get_files_to_consolidate(&s3_client, bucket.clone(), key_prefix.clone()).await {
+    match get_files_to_consolidate(
+        &s3_client,
+        bucket.clone(),
+        key_prefix.clone(),
+        output_format.clone(),
+    )
+    .await
+    {
         Ok(files) => {
-            assert_eq!(files.len(), 2);
-            assert_eq!(files[0].size, 91);
-            assert_eq!(files[0].key, "/ndjson.log");
+            assert_eq!(files.len(), 3);
+            assert_eq!(files[0].size, 85);
+            assert_eq!(files[0].key, "/compressed-files/file_1.log");
 
             assert_eq!(files[1].size, 85);
-            assert_eq!(files[1].key, "/text.log");
+            assert_eq!(files[1].key, "/compressed-files/file_2.log");
+
+            assert_eq!(files[2].size, 85);
+            assert_eq!(files[2].key, "/compressed-files/file_3.log");
         }
         Err(err) => panic!("Retrieving files should not error: {}", err),
     };
@@ -447,29 +688,27 @@ async fn s3_file_consolidation_compressed_files() {
     let fcp = FileConsolidationProcessor::new(
         &s3_client,
         bucket.clone(),
-        key_prefix.clone(),
         requested_size_bytes,
+        key_prefix.clone(),
+        output_format.clone(),
     );
     fcp.run().await;
 
     // validate we're down to 1 files now since 2 of them were merged
     let keys = get_keys(&bucket, key_prefix.clone()).await;
     assert_eq!(keys.len(), 1);
+    assert!(is_merged_file(&keys[0]));
 
-    // the new file that should contain the text of the docs uncompressed
-    if let Some(k) = keys.into_iter().find(|s| is_merged_file(s)) {
-        let obj = get_object(&bucket, k).await;
-        assert_eq!(obj.content_encoding, Some("identity".to_string()));
-        assert_eq!(obj.content_type, Some("text/x-log".to_string()));
-        assert_eq!(obj.content_length, 202); // decompressed plus newlines
+    let obj = get_object(&bucket, keys[0].clone()).await;
+    assert_eq!(obj.content_encoding, Some("identity".to_string()));
+    assert_eq!(obj.content_type, Some("text/x-log".to_string()));
+    assert_eq!(obj.content_length, 302); // decompressed plus newlines
 
-        let response_lines = get_lines(obj).await;
-        assert_eq!(response_lines.len(), 2);
-        assert!(response_lines.contains(&ndjson));
-        assert!(response_lines.contains(&text));
-    } else {
-        panic!("did not find the merged file as expected");
-    }
+    let response_lines = get_lines(obj).await;
+    assert_eq!(response_lines.len(), 3);
+    assert_eq!(response_lines[0], text);
+    assert_eq!(response_lines[1], text);
+    assert_eq!(response_lines[2], text);
 }
 
 #[tokio::test]
@@ -478,9 +717,10 @@ async fn s3_file_consolidation_multiple_consolidated_files() {
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
-    let key_prefix = "/".to_string();
+    let key_prefix = "".to_string();
     let requested_size_bytes: i64 = 1024 * 1024;
     let content_type = "text/x-log".to_string();
+    let output_type = "ndjson".to_string();
 
     create_bucket(&bucket, false).await;
 
@@ -492,7 +732,7 @@ async fn s3_file_consolidation_multiple_consolidated_files() {
         }
 
         let mezmo_pipeline_s3_type_ndjson_tags =
-            generate_tags("mezmo_pipeline_s3_type".to_string(), "ndjson".to_string());
+            generate_tags("mezmo_pipeline_s3_type".to_string(), output_type.clone());
         let filename = format!("{}_generated.log", i);
         put_file(
             filename,
@@ -501,7 +741,7 @@ async fn s3_file_consolidation_multiple_consolidated_files() {
             bucket.clone(),
             content_type.clone(),
             None,
-            mezmo_pipeline_s3_type_ndjson_tags,
+            mezmo_pipeline_s3_type_ndjson_tags.clone(),
         )
         .await;
     }
@@ -509,7 +749,14 @@ async fn s3_file_consolidation_multiple_consolidated_files() {
     let keys = get_keys(&bucket, key_prefix.clone()).await;
     assert_eq!(keys.len(), 5);
 
-    match get_files_to_consolidate(&s3_client, bucket.clone(), key_prefix.clone()).await {
+    match get_files_to_consolidate(
+        &s3_client,
+        bucket.clone(),
+        key_prefix.clone(),
+        output_type.clone(),
+    )
+    .await
+    {
         Ok(files) => {
             assert_eq!(files.len(), 5);
             for file in files.iter() {
@@ -522,8 +769,9 @@ async fn s3_file_consolidation_multiple_consolidated_files() {
     let fcp = FileConsolidationProcessor::new(
         &s3_client,
         bucket.clone(),
-        key_prefix.clone(),
         requested_size_bytes,
+        key_prefix.clone(),
+        output_type.clone(),
     );
     fcp.run().await;
 
@@ -559,6 +807,7 @@ async fn s3_file_consolidation_large_files() {
     let key_prefix = "unit-test/".to_string();
     let requested_size_bytes: i64 = 100 * 1024 * 1024;
     let content_type = "text/x-log".to_string();
+    let output_format = "text".to_string();
 
     create_bucket(&bucket, false).await;
 
@@ -573,7 +822,7 @@ async fn s3_file_consolidation_large_files() {
         }
 
         let mezmo_pipeline_s3_type_text_tags =
-            generate_tags("mezmo_pipeline_s3_type".to_string(), "text".to_string());
+            generate_tags("mezmo_pipeline_s3_type".to_string(), output_format.clone());
         let filename = format!("{}_generated.log", i);
         put_file(
             filename,
@@ -636,30 +885,27 @@ async fn s3_file_consolidation_large_files() {
     let fcp = FileConsolidationProcessor::new(
         &s3_client,
         bucket.clone(),
-        key_prefix.clone(),
         requested_size_bytes,
+        key_prefix.clone(),
+        output_format.clone(),
     );
     fcp.run().await;
 
     // validate we're down to 1 file
     let keys = get_keys(&bucket, key_prefix.clone()).await;
     assert_eq!(keys.len(), 1);
+    assert!(is_merged_file(&keys[0]));
 
-    // the new file that should contain the text of the docs
-    if let Some(k) = keys.into_iter().find(|s| is_merged_file(s)) {
-        let obj = get_object(&bucket, k).await;
-        assert_eq!(obj.content_encoding, Some("identity".to_string()));
-        assert_eq!(obj.content_type, Some("text/x-log".to_string()));
+    let obj = get_object(&bucket, keys[0].clone()).await;
+    assert_eq!(obj.content_encoding, Some("identity".to_string()));
+    assert_eq!(obj.content_type, Some("text/x-log".to_string()));
 
-        // 15 files of 5000 lines
-        // 1 file of 10 lines
-        // 1 file of 60000 lines
-        // newlines between each added file
-        let response_lines = get_lines(obj).await;
-        assert_eq!(response_lines.len(), 675_027);
-    } else {
-        panic!("did not find the merged file as expected");
-    }
+    // 15 files of 5000 lines
+    // 1 file of 10 lines
+    // 1 file of 60000 lines
+    // newlines between each added file
+    let response_lines = get_lines(obj).await;
+    assert_eq!(response_lines.len(), 675_025);
 }
 
 #[tokio::test]
@@ -671,6 +917,7 @@ async fn s3_file_consolidation_lots_of_10mb_files() {
     let key_prefix = "unit-test/".to_string();
     let requested_size_bytes: i64 = 5_000_000_000;
     let content_type = "text/x-log".to_string();
+    let output_format = "text".to_owned();
 
     create_bucket(&bucket, false).await;
 
@@ -683,7 +930,7 @@ async fn s3_file_consolidation_lots_of_10mb_files() {
         }
 
         let mezmo_pipeline_s3_type_text_tags =
-            generate_tags("mezmo_pipeline_s3_type".to_string(), "text".to_string());
+            generate_tags("mezmo_pipeline_s3_type".to_string(), output_format.clone());
         let filename = format!("10MB_{}_generated.log", i);
         put_file(
             filename,
@@ -703,8 +950,9 @@ async fn s3_file_consolidation_lots_of_10mb_files() {
     let fcp = FileConsolidationProcessor::new(
         &s3_client,
         bucket.clone(),
-        key_prefix.clone(),
         requested_size_bytes,
+        key_prefix.clone(),
+        output_format.clone(),
     );
     fcp.run().await;
 
@@ -717,11 +965,11 @@ async fn s3_file_consolidation_lots_of_10mb_files() {
         let obj = get_object(&bucket, k).await;
         assert_eq!(obj.content_encoding, Some("identity".to_string()));
         assert_eq!(obj.content_type, Some("text/x-log".to_string()));
-        assert_eq!(obj.content_length, 151_500_015);
+        assert_eq!(obj.content_length, 151_500_000);
 
         // 15 files of 100_000 lines that are all bashed together
         let response_lines = get_lines(obj).await;
-        assert_eq!(response_lines.len(), 1_500_015);
+        assert_eq!(response_lines.len(), 1_500_000);
     } else {
         panic!("did not find the merged file as expected");
     }
@@ -735,6 +983,7 @@ async fn s3_file_consolidation_large_amount_of_files() {
     let bucket = uuid::Uuid::new_v4().to_string();
     let key_prefix = "large-amount-of-files/".to_string();
     let content_type = "text/x-log".to_string();
+    let output_format = "text".to_owned();
 
     create_bucket(&bucket, false).await;
 
@@ -742,7 +991,7 @@ async fn s3_file_consolidation_large_amount_of_files() {
     // NOTE: this is an expensive test, takes ~45 seconds locally :/
     for n in 1..1006 {
         let mezmo_pipeline_s3_type_ndjson_tags =
-            generate_tags("mezmo_pipeline_s3_type".to_string(), "text".to_string());
+            generate_tags("mezmo_pipeline_s3_type".to_string(), output_format.clone());
 
         let filename = format!("{}.log", n);
         let data = Bytes::from(format!("This is the content of {}.log", n));
@@ -760,7 +1009,14 @@ async fn s3_file_consolidation_large_amount_of_files() {
     }
 
     // only s3 created files with ndjson and text will be merged
-    match get_files_to_consolidate(&s3_client, bucket.clone(), key_prefix.clone()).await {
+    match get_files_to_consolidate(
+        &s3_client,
+        bucket.clone(),
+        key_prefix.clone(),
+        output_format.clone(),
+    )
+    .await
+    {
         Ok(files) => {
             assert_eq!(files.len(), 1005);
         }
