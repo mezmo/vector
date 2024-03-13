@@ -4,11 +4,12 @@
   "description": "Vector is a high-performance, end-to-end (agent & aggregator) observability data pipeline",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/answerbook/vector.git"
+    "url": "git+https://github.com/mezmo/vector.git"
   },
   "scripts": {
     "release": "semantic-release",
-    "release:dry": "semantic-release --no-ci --dry-run --branches=${BRANCH_NAME:-master}"
+    "release:dry": "semantic-release --no-ci --dry-run --branches=${BRANCH_NAME:-master}",
+    "commitlint": "./node_modules/.bin/commitlint-logdna --from=origin/master"
   },
   "release": {
     "branches": [
@@ -20,21 +21,19 @@
     "plugins": [
       "@semantic-release/commit-analyzer",
       "@semantic-release/release-notes-generator",
-      "@semantic-release/npm",
       [
-        "@semantic-release/changelog",
-        {
+        "@semantic-release/changelog", {
           "changelogFile": "MEZMO_CHANGELOG.md"
         }
       ],
       [
-        "@semantic-release/git",
-        {
-          "assets": [
-            "package.json",
-            "MEZMO_CHANGELOG.md",
-            "!**/node_modules/**"
-          ]
+        "@semantic-release/github", {
+          "assets": "MEZMO_CHANGELOG.md"
+        }
+      ],
+      [
+        "@semantic-release/git", {
+          "assets": "MEZMO_CHANGELOG.md"
         }
       ]
     ]
@@ -42,5 +41,8 @@
   "devDependencies": {
     "@answerbook/release-config-logdna": "^2.0.0",
     "semantic-release": "^19.0.5"
+  },
+  "dependencies": {
+    "@answerbook/commitlint-config-logdna": "^2.2.0"
   }
 }
