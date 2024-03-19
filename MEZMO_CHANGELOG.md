@@ -1,3 +1,15 @@
+## [3.12.1](https://github.com/answerbook/vector/compare/v3.12.0...v3.12.1) (2024-03-19)
+
+
+### Bug Fixes
+
+* **profiling**: only track profiling annotations from classification [c3106a9](https://github.com/answerbook/vector/commit/c3106a903c40ac61a957c97dae67ae092473b51a) - Mike Del Tito [LOG-19502](https://logdna.atlassian.net/browse/LOG-19502)
+
+
+### Miscellaneous
+
+* Merge pull request #431 from answerbook/mdeltito/LOG-19502 [c267715](https://github.com/answerbook/vector/commit/c26771560d8e56d2c6472023a7804f4c87d9befc) - GitHub [LOG-19502](https://logdna.atlassian.net/browse/LOG-19502)
+
 # [3.12.0](https://github.com/answerbook/vector/compare/v3.11.1...v3.12.0) (2024-03-13)
 
 
