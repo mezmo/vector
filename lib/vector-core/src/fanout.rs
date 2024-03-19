@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::ReusableBoxFuture;
 use vector_buffers::topology::channel::BufferSender;
 
-use crate::{config::ComponentKey, event::EventArray};
+use crate::{config::ComponentKey, event::EventArray, usage_metrics::OutputUsageTracker};
 
 pub enum ControlMessage {
     /// Adds a new sink to the fanout.
@@ -170,10 +170,13 @@ impl Fanout {
     pub async fn send_stream(
         &mut self,
         events: impl Stream<Item = EventArray>,
+        usage_tracker: Box<dyn OutputUsageTracker>,
     ) -> crate::Result<()> {
         tokio::pin!(events);
         while let Some(event_array) = events.next().await {
+            let usage_profile = usage_tracker.get_size_and_profile(&event_array);
             self.send(event_array).await?;
+            usage_tracker.track_output(usage_profile);
         }
         Ok(())
     }

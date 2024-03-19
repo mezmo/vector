@@ -798,6 +798,7 @@ fn build_transform(
             node.typetag,
             &node.key,
             &node.outputs,
+            usage_tracker,
         ),
     }
 }
@@ -1001,6 +1002,7 @@ fn build_task_transform(
     typetag: &str,
     key: &ComponentKey,
     outputs: &[TransformOutput],
+    usage_tracker: Box<dyn OutputUsageTracker>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
     let (mut fanout, control) = Fanout::new();
 
@@ -1049,7 +1051,7 @@ fn build_task_transform(
     let transform = async move {
         debug!("Task transform starting.");
 
-        match fanout.send_stream(stream).await {
+        match fanout.send_stream(stream, usage_tracker).await {
             Ok(()) => {
                 debug!("Task transform finished normally.");
                 Ok(TaskOutput::Transform)
