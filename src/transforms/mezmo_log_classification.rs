@@ -3,7 +3,7 @@ use crate::{
         schema::Definition, DataType, Input, LogNamespace, OutputId, TransformConfig,
         TransformContext,
     },
-    event::Event,
+    event::{Event, LogEvent},
     transforms::{TaskTransform, Transform},
 };
 use futures::StreamExt;
@@ -21,12 +21,25 @@ use std::{
     sync::OnceLock,
 };
 
+const DEFAULT_APP_FIELDS: [&str; 3] = ["app", "application", "container"];
+const DEFAULT_HOST_FIELDS: [&str; 2] = ["host", "hostname"];
+const DEFAULT_LEVEL_FIELDS: [&str; 2] = ["level", "log_level"];
+
+/// Defines a custom grok pattern and alias. This can be used to override default grok patterns.
+const CUSTOM_GROK_DEFINITIONS: [(&str, &str); 1] = [
+    // Use the java grok pattern which is more strict that the rust port of grok
+    // @see: https://docs.rs/grok/2.0.0/src/grok/lib.rs.html#1-4
+    // https://github.com/thekrakken/java-grok/blob/901fda38ef6d5c902355eb25cff3f4b4fc3debde/src/main/resources/patterns/linux-syslog#L2
+    ("SYSLOGLINE", "(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?%{SYSLOGHOST:logsource} %{SYSLOGPROG}: %{GREEDYDATA:message}")
+];
+
+/// List of grok aliases to compile and check against. Comparisons happen in order of this array.
 const DEFAULT_LOG_EVENT_TYPES: [&str; 67] = [
     "HTTPD_COMBINEDLOG",
     "HTTPD_COMMONLOG",
     "HTTPD_ERRORLOG",
     "SYSLOG5424LINE",
-    "SYSLOGLINE",
+    "SYSLOGLINE", // This is overridden by a custom pattern. The default is not strict enough and is causing false positives.
     "SYSLOGPAMSESSION",
     "CRONLOG",
     "MONGO3_LOG",
@@ -94,6 +107,11 @@ const DEFAULT_LOG_EVENT_TYPES: [&str; 67] = [
 fn grok_patterns() -> &'static BTreeMap<String, grok::Pattern> {
     let mut parser = grok::Grok::with_default_patterns();
 
+    // Add aliases and custom grok patterns prior to referencing them during `.compile()`
+    for (alias, pattern) in CUSTOM_GROK_DEFINITIONS.iter() {
+        parser.add_pattern(alias.to_string(), pattern.to_string());
+    }
+
     static GROK_PATTERNS: OnceLock<BTreeMap<String, grok::Pattern>> = OnceLock::new();
     GROK_PATTERNS.get_or_init(|| {
         let mut m = BTreeMap::new();
@@ -113,11 +131,24 @@ fn grok_patterns() -> &'static BTreeMap<String, grok::Pattern> {
 #[derive(Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct LogClassificationConfig {
-    /// When a [[LogEvent]] ".message" property is an object, look for matches in these fields.
-    /// Fields are evaluated in the order they are defined in the configuration, and the
-    /// first valid (string) field will be used to attempt to classify the event.
-    /// Note that these fields are relative to the message field rather than the root of the event.
+    /// When a [[LogEvent]] ".message" property is an object or is parsed as JSON, look for
+    /// matches in these fields. Fields are evaluated in the order they are defined in the
+    /// configuration, and the first valid (string) field will be used to attempt to classify
+    /// the event. Note that these fields are relative to the message field rather than the
+    /// root of the event.
     line_fields: Option<Vec<String>>,
+
+    /// A list of object fields to consider for the "app" annotation
+    #[serde(default = "default_app_fields")]
+    app_fields: Vec<String>,
+
+    /// A list of object fields to consider for the "host" annotation
+    #[serde(default = "default_host_fields")]
+    host_fields: Vec<String>,
+
+    /// A list of object fields to consider for the "level" annotation
+    #[serde(default = "default_level_fields")]
+    level_fields: Vec<String>,
 
     /// List of Grok patterns to match on
     #[serde(default = "default_grok_patterns")]
@@ -129,6 +160,18 @@ fn default_grok_patterns() -> Vec<String> {
         .iter()
         .map(|s| s.to_string())
         .collect()
+}
+
+fn default_app_fields() -> Vec<String> {
+    DEFAULT_APP_FIELDS.iter().map(|s| s.to_string()).collect()
+}
+
+fn default_host_fields() -> Vec<String> {
+    DEFAULT_HOST_FIELDS.iter().map(|s| s.to_string()).collect()
+}
+
+fn default_level_fields() -> Vec<String> {
+    DEFAULT_LEVEL_FIELDS.iter().map(|s| s.to_string()).collect()
 }
 
 impl_generate_config_from_default!(LogClassificationConfig);
@@ -157,6 +200,9 @@ impl TransformConfig for LogClassificationConfig {
 pub struct LogClassification {
     patterns: Vec<String>,
     line_fields: Vec<String>,
+    app_fields: Vec<String>,
+    host_fields: Vec<String>,
+    level_fields: Vec<String>,
 }
 
 impl LogClassification {
@@ -164,6 +210,9 @@ impl LogClassification {
         LogClassification {
             patterns: config.grok_patterns.clone(),
             line_fields: config.line_fields.clone().unwrap_or_default(),
+            app_fields: config.app_fields.clone(),
+            host_fields: config.host_fields.clone(),
+            level_fields: config.level_fields.clone(),
         }
     }
 
@@ -185,66 +234,98 @@ impl LogClassification {
         None
     }
 
+    fn match_from_line_fields(
+        &self,
+        value: &Value,
+        matches: &mut Vec<String>,
+        message_key: &mut String,
+    ) {
+        for line_field in self.line_fields.iter() {
+            let value = value.get(line_field.as_str());
+            if let Some(value) = value {
+                // Only consider fields containing string values.
+                // The first string field we encounter will be used, regardless
+                // of whether or not there are other string fields that may potentially
+                // match one of the patterns.
+                if !value.is_bytes() {
+                    continue;
+                }
+
+                // We identified a line field that is a string.
+                // We mark it as the message_key, regardless of whether there's a match in
+                // the classification
+                *message_key = format!("{message_key}{line_field}");
+
+                let line = value.to_string_lossy();
+                if let Some(event_type) = self.match_event_type(&line) {
+                    matches.push(event_type);
+                }
+
+                break;
+            }
+        }
+    }
+
+    fn annotate_from_fields(&self, value: &Value, log: &mut LogEvent) {
+        for field in self.app_fields.iter() {
+            if let Some(val) = value.get(field.as_str()) {
+                log.insert(annotation_path(vec!["app"]).as_str(), val.clone());
+            }
+        }
+        for field in self.host_fields.iter() {
+            if let Some(val) = value.get(field.as_str()) {
+                log.insert(annotation_path(vec!["host"]).as_str(), val.clone());
+            }
+        }
+        for field in self.level_fields.iter() {
+            if let Some(val) = value.get(field.as_str()) {
+                log.insert(annotation_path(vec!["level"]).as_str(), val.clone());
+            }
+        }
+    }
+
     fn transform_one(&mut self, mut event: Event) -> Option<Event> {
         let log = event.as_mut_log();
 
         if let Some(message) = log.get(log_schema().message_key_target_path().unwrap()) {
-            let mut matches = vec![];
             let mut message_key = log_schema().message_key().unwrap().to_string();
+            let mut matches = Vec::new();
+
             let mut message_size = value_size(message) as i64;
             if message_size.is_negative() {
                 warn!("total_bytes for message exceeded i64 limit, using i64::MAX instead");
                 message_size = i64::MAX;
             }
 
-            // For object messages, look for a valid field from `line_fields` in order.
-            // Otherwise just look for matches in the message (string).
+            // For object messages, look for a valid string field from `line_fields` in order.
+            // Otherwise just look for matches in the message string. If none are found,
+            // attempt to parse as JSON including annotations from the object.
             // NOTE: array values for `message` are not explicitly handled here, as it is
             // expected the events are already unrolled when hitting this transform.
             if message.is_object() {
-                for line_field in self.line_fields.iter() {
-                    let value = message.get(line_field.as_str());
-                    if let Some(value) = value {
-                        // Only consider fields containing string values.
-                        // The first string field we encounter will be used, regardless
-                        // of whether or not there are other string fields that may potentially
-                        // match one of the patterns.
-                        if !value.is_bytes() {
-                            continue;
-                        }
-
-                        // We identified a line field that is a string.
-                        // We mark it as the message_key, regardless of whether there's a match in
-                        // the classification
-                        message_key = format!("{message_key}{line_field}");
-
-                        let line = value.to_string_lossy();
-                        if let Some(event_type) = self.match_event_type(&line) {
-                            matches.push(event_type);
-                        }
-
-                        break;
-                    }
-                }
+                self.match_from_line_fields(message, &mut matches, &mut message_key);
+                self.annotate_from_fields(&message.clone(), log);
             } else if message.is_bytes() {
-                if let Some(event_type) = self.match_event_type(&message.to_string_lossy()) {
+                let message_str = &message.to_string_lossy();
+                if let Some(event_type) = self.match_event_type(message_str) {
                     matches.push(event_type);
+                } else if let Some(json) = try_parse_json(message_str) {
+                    let value = Value::from(json);
+                    self.match_from_line_fields(&value, &mut matches, &mut message_key);
+                    self.annotate_from_fields(&value, log);
                 }
             };
 
-            let classification_path =
-                log_schema().annotations_key().to_string() + ".classification";
-
             log.insert(
-                (classification_path.clone() + ".total_bytes").as_str(),
+                annotation_path(vec!["classification", "total_bytes"]).as_str(),
                 Value::Integer(message_size),
             );
             log.insert(
-                (classification_path.clone() + ".event_count").as_str(),
+                annotation_path(vec!["classification", "event_count"]).as_str(),
                 Value::Integer(1),
             );
             log.insert(
-                (classification_path + ".event_types").as_str(),
+                annotation_path(vec!["classification", "event_types"]).as_str(),
                 Value::Object(
                     matches
                         .into_iter()
@@ -253,13 +334,21 @@ impl LogClassification {
                 ),
             );
             log.insert(
-                (log_schema().annotations_key().to_string() + ".message_key").as_str(),
+                annotation_path(vec!["message_key"]).as_str(),
                 Value::Bytes(message_key.into()),
             );
         }
 
         Some(event)
     }
+}
+
+fn try_parse_json(s: &str) -> Option<serde_json::Value> {
+    serde_json::from_str(s).ok()
+}
+
+fn annotation_path(parts: Vec<&str>) -> String {
+    log_schema().annotations_key().to_string() + "." + parts.join(".").as_str()
 }
 
 impl TaskTransform<Event> for LogClassification {
@@ -274,6 +363,7 @@ impl TaskTransform<Event> for LogClassification {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use std::collections::BTreeMap;
     use std::time::Duration;
     use tokio::sync::mpsc;
@@ -337,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn event_with_string_message() {
-        let line = r#"47.29.201.179 - - [28/Feb/2019:13:17:10 +0000] "GET /?p=1 HTTP/2.0" 200 5316 "https://domain1.com/?p=1" "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36" "2.75"#;
+        let line = r#"47.29.201.179 - - [28/Feb/2019:13:17:10 +0000] "GET /?p=1 HTTP/2.0" 200 5316 "https://domain1.com/?p=1" "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36" "2.75""#;
         let message_key = "message".to_string();
         let event = Event::Log(LogEvent::from(Value::Object(
             btreemap!(message_key.clone() => Value::Bytes(line.into())),
@@ -346,6 +436,9 @@ mod tests {
         let config = LogClassificationConfig {
             line_fields: None,
             grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
@@ -356,6 +449,116 @@ mod tests {
         assert_eq!(
             output.as_log().get(message_key.as_str()),
             Some(Value::Bytes(line.into())).as_ref()
+        );
+
+        assert_eq!(
+            output.as_log().get(log_schema().annotations_key()),
+            Some(&annotations)
+        );
+    }
+
+    #[tokio::test]
+    async fn similar_syslog_event_is_not_syslog() {
+        let line = r#"2024-02-27T18:41:21.75258589Z stderr F E0227 18:41:21.752167       1 scraper.go:140] "Failed to scrape node" err="Get \"https://192.168.1.102:10250/metrics/resource\": dial tcp 192.168.1.102:10250: connect: no route to host" node="linux02""#;
+        let message_key = "message".to_string();
+        let event = Event::Log(LogEvent::from(Value::Object(
+            btreemap!(message_key.clone() => Value::Bytes(line.into())),
+        )));
+
+        let config = LogClassificationConfig {
+            line_fields: None,
+            grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
+        };
+        let output = do_transform(config, event.clone().into()).await.unwrap();
+
+        // There should be no match to this line, even though default patterns think it looks like syslog
+        let annotations = make_expected_annotations(&event, None, vec![]);
+
+        assert_eq!(
+            output.as_log().get(message_key.as_str()),
+            Some(Value::Bytes(line.into())).as_ref()
+        );
+
+        assert_eq!(
+            output.as_log().get(log_schema().annotations_key()),
+            Some(&annotations)
+        );
+    }
+
+    #[tokio::test]
+    async fn syslog_custom_pattern_matches() {
+        let line = r#"2024-02-27T18:41:21.75258589Z myhost scraper.go[35870]: "Failed to scrape node" err="Get \"https://192.168.1.102:10250/metrics/resource\": dial tcp 192.168.1.102:10250: connect: no route to host" node="linux02""#;
+        let message_key = "message".to_string();
+        let event = Event::Log(LogEvent::from(Value::Object(
+            btreemap!(message_key.clone() => Value::Bytes(line.into())),
+        )));
+
+        let config = LogClassificationConfig {
+            line_fields: None,
+            grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
+        };
+        let output = do_transform(config, event.clone().into()).await.unwrap();
+
+        let annotations = make_expected_annotations(&event, None, vec!["SYSLOGLINE".to_string()]);
+
+        // line is retained
+        assert_eq!(
+            output.as_log().get(message_key.as_str()),
+            Some(Value::Bytes(line.into())).as_ref()
+        );
+
+        assert_eq!(
+            output.as_log().get(log_schema().annotations_key()),
+            Some(&annotations)
+        );
+    }
+
+    #[tokio::test]
+    async fn event_with_json_string_message() {
+        let line = r#"47.29.201.179 - - [28/Feb/2019:13:17:10 +0000] "GET /?p=1 HTTP/2.0" 200 5316 "https://domain1.com/?p=1" "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36" "2.75"#;
+        let line_obj = json!({
+            "foo": "bar",
+            "baz": 30,
+            "application": "test-app",
+            "host": "test-host",
+            "level": "test-level",
+            "line": line
+        });
+
+        let message_key = "message".to_string();
+        let event = Event::Log(LogEvent::from(Value::Object(
+            btreemap!(message_key.clone() => Value::Bytes(line_obj.to_string().into())),
+        )));
+
+        let config = LogClassificationConfig {
+            line_fields: Some(vec![".line".to_string()]),
+            grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
+        };
+        let output = do_transform(config, event.clone().into()).await.unwrap();
+
+        let mut annotations = make_expected_annotations(
+            &event,
+            Some(".line".into()),
+            vec!["HTTPD_COMBINEDLOG".to_string()],
+        );
+
+        annotations.insert("app", Value::Bytes("test-app".into()));
+        annotations.insert("host", Value::Bytes("test-host".into()));
+        annotations.insert("level", Value::Bytes("test-level".into()));
+
+        // line is retained
+        assert_eq!(
+            output.as_log().get(message_key.as_str()),
+            Some(Value::Bytes(line_obj.to_string().into())).as_ref()
         );
 
         assert_eq!(
@@ -376,6 +579,9 @@ mod tests {
         let config = LogClassificationConfig {
             line_fields: None,
             grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
@@ -400,6 +606,9 @@ mod tests {
         let config = LogClassificationConfig {
             line_fields: None,
             grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
@@ -428,6 +637,9 @@ mod tests {
                 ".key3".to_string(),
             ]),
             grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
@@ -445,6 +657,9 @@ mod tests {
         let event = Event::Log(LogEvent::from(btreemap! {
             "message" => btreemap! {
                 "foo" => "bar",
+                "app" => "test-app",
+                "hostname" => "test-host",
+                "log_level" => "test-level",
                 "apache" => r#"47.29.201.179 - - [28/Feb/2019:13:17:10 +0000] "GET /?p=1 HTTP/2.0" 200 5316 "https://domain1.com/?p=1" "Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.119 Safari/537.36" "2.75"#,
                 "syslog" => r#"<161>2 2023-11-07T14:20:52.042-05:00 walker.net jeralddamore 948 ID430 - Authentication failed from 163.27.187.39 (163.27.187.39): Permission denied in replay cache code"#
             }
@@ -454,14 +669,21 @@ mod tests {
             // First match wins, apache is not detected
             line_fields: Some(vec![".syslog".to_string(), ".apache".to_string()]),
             grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations = make_expected_annotations(
+        let mut annotations = make_expected_annotations(
             &event,
             Some(".syslog".to_string()),
             vec!["SYSLOG5424LINE".to_string()],
         );
+
+        annotations.insert("app", Value::Bytes("test-app".into()));
+        annotations.insert("host", Value::Bytes("test-host".into()));
+        annotations.insert("level", Value::Bytes("test-level".into()));
 
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
@@ -482,6 +704,9 @@ mod tests {
             // The first valid field is the only field considered
             line_fields: Some(vec![".foo".to_string(), ".apache".to_string()]),
             grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
@@ -508,6 +733,9 @@ mod tests {
         let config = LogClassificationConfig {
             line_fields: None,
             grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 

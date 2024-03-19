@@ -158,7 +158,9 @@ impl SinkConfig for DatadogLogsConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let client = self.create_client(&cx.proxy)?;
 
-        let healthcheck = self.dd_common.build_healthcheck(client.clone())?;
+        let healthcheck = self
+            .dd_common
+            .build_healthcheck(client.clone(), cx.clone())?;
 
         let app_name_slug = cx.app_name_slug.clone();
         let sink = self.build_processor(client, cx, app_name_slug)?;

@@ -114,11 +114,12 @@ impl UserLoggingResponse for GcsResponse {
     fn log_msg(&self) -> Option<Value> {
         match &self.inner {
             Some(response) => {
-                if response.status().is_success() {
+                let status = response.status();
+                if status.is_client_error() || status.is_server_error() {
                     Some(
                         format!(
                             "Error returned from destination with status code: {}",
-                            response.status()
+                            status
                         )
                         .into(),
                     )

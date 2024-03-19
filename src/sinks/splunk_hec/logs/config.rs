@@ -198,6 +198,7 @@ impl SinkConfig for HecLogsSinkConfig {
             self.endpoint.clone(),
             self.default_token.inner().to_owned(),
             client.clone(),
+            cx.clone(),
         )
         .boxed();
         let sink = self.build_processor(client, cx)?;

@@ -102,11 +102,7 @@ fn log_event(json_event: impl AsRef<str>) -> Event {
     Event::from(log_event)
 }
 
-fn counter_event(
-    name: impl Into<String>,
-    tags: Option<BTreeMap<String, String>>,
-    value: f64,
-) -> Event {
+fn counter(name: impl Into<String>, tags: Option<BTreeMap<String, String>>, value: f64) -> Event {
     let name = name.into();
     let tags = match tags {
         None => "{}".to_string(),
@@ -130,13 +126,31 @@ fn counter_event(
     log_event(counter)
 }
 
+fn set_aggregate_meta(event: Event, field: &str, value: i64) -> Event {
+    let mut event = event;
+    let field = format!(".metadata.aggregate.{field}");
+    event.as_mut_log().insert(&*field, Value::from(value));
+    event
+}
+
+fn not_flushed(event: Event, start_ts: i64, end_ts: i64, count: i64) -> Event {
+    let event = set_aggregate_meta(event, "start_timestamp", start_ts);
+    let event = set_aggregate_meta(event, "end_timestamp", end_ts);
+    set_aggregate_meta(event, "event_count", count)
+}
+
+fn as_flushed(event: Event, start_ts: i64, end_ts: i64, flush_ts: i64, count: i64) -> Event {
+    let event = not_flushed(event, start_ts, end_ts, count);
+    set_aggregate_meta(event, "flush_timestamp", flush_ts)
+}
+
 fn counter_event_custom_timestamp(
     name: impl Into<String>,
     tags: Option<BTreeMap<String, String>>,
     value: f64,
     timestamp: u32,
 ) -> Event {
-    let mut event = counter_event(name, tags, value);
+    let mut event = counter(name, tags, value);
     let metadata = json!({
         "timestamp": timestamp
     });
@@ -205,7 +219,7 @@ fn generate_config() {
 #[tokio::test]
 async fn record_single_metric() {
     let mut target = new_aggregator(None, default_aggregator_limits(), None).await;
-    target.record(counter_event("a", None, 10.0));
+    target.record(counter("a", None, 10.0));
     assert_eq!(target.data.len(), 1);
 
     let key = metric_event_key("a", None);
@@ -218,7 +232,10 @@ async fn record_single_metric() {
         ..
     } = val.get(0).unwrap();
     assert_eq!(5, actual_size_ms.end - actual_size_ms.start);
-    assert_eq!(*actual_event, counter_event("a", None, 10.0));
+    assert_eq!(
+        *actual_event,
+        not_flushed(counter("a", None, 10.0), 1, 6, 1)
+    );
 }
 
 #[tokio::test]
@@ -237,8 +254,8 @@ async fn record_overlapping_windows() {
     assert_eq!(actual.len(), 2, "number of sliding windows didn't match");
     assert_windows_eq(
         vec![
-            counter_event_custom_timestamp("a", None, 7.0, 1),
-            counter_event_custom_timestamp("a", None, 4.0, 3),
+            not_flushed(counter_event_custom_timestamp("a", None, 7.0, 1), 1, 6, 2),
+            not_flushed(counter_event_custom_timestamp("a", None, 4.0, 3), 3, 8, 1),
         ],
         actual,
     );
@@ -247,7 +264,7 @@ async fn record_overlapping_windows() {
 #[tokio::test]
 async fn record_nonoverlapping_windows() {
     let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10), None).await;
-    target.record(counter_event("a", None, 3.0));
+    target.record(counter("a", None, 3.0));
     target.record(counter_event_custom_timestamp("a", None, 4.0, 15));
     assert_eq!(
         target.data.len(),
@@ -260,8 +277,13 @@ async fn record_nonoverlapping_windows() {
     assert_eq!(actual.len(), 2, "number of sliding windows didn't match");
     assert_windows_eq(
         vec![
-            counter_event("a", None, 3.0),
-            counter_event_custom_timestamp("a", None, 4.0, 15),
+            not_flushed(counter("a", None, 3.0), 1, 6, 1),
+            not_flushed(
+                counter_event_custom_timestamp("a", None, 4.0, 15),
+                15,
+                20,
+                1,
+            ),
         ],
         actual,
     );
@@ -270,16 +292,8 @@ async fn record_nonoverlapping_windows() {
 #[tokio::test]
 async fn record_group_by_tags() {
     let mut target = new_aggregator(None, aggregator_limits_custom_window_size(0), None).await;
-    target.record(counter_event(
-        "a",
-        Some(btreemap! { "host" => "host-1"}),
-        3.0,
-    ));
-    target.record(counter_event(
-        "a",
-        Some(btreemap! { "host" => "host-2"}),
-        2.0,
-    ));
+    target.record(counter("a", Some(btreemap! { "host" => "host-1"}), 3.0));
+    target.record(counter("a", Some(btreemap! { "host" => "host-2"}), 2.0));
     target.record(counter_event_custom_timestamp(
         "a",
         Some(btreemap! { "host" => "host-1"}),
@@ -298,8 +312,18 @@ async fn record_group_by_tags() {
     assert_windows_eq(
         vec![
             // timestamp of event 1 is updated after merge with event 2
-            counter_event_custom_timestamp("a", Some(btreemap! { "host" => "host-1"}), 7.0, 3),
-            counter_event_custom_timestamp("a", Some(btreemap! { "host" => "host-1"}), 4.0, 3),
+            not_flushed(
+                counter_event_custom_timestamp("a", Some(btreemap! { "host" => "host-1"}), 7.0, 3),
+                1,
+                6,
+                2,
+            ),
+            not_flushed(
+                counter_event_custom_timestamp("a", Some(btreemap! { "host" => "host-1"}), 4.0, 3),
+                3,
+                8,
+                1,
+            ),
         ],
         actual_events,
     );
@@ -308,10 +332,11 @@ async fn record_group_by_tags() {
     let host_1_key = metric_event_key("a", Some(btreemap! { "host" => "host-2"}));
     let actual_events = target.data.get(&host_1_key).unwrap();
     assert_windows_eq(
-        vec![counter_event(
-            "a",
-            Some(btreemap! { "host" => "host-2"}),
-            2.0,
+        vec![not_flushed(
+            counter("a", Some(btreemap! { "host" => "host-2"}), 2.0),
+            1,
+            6,
+            1,
         )],
         actual_events,
     );
@@ -320,9 +345,9 @@ async fn record_group_by_tags() {
 #[tokio::test]
 async fn record_drops_events_when_cardinality_is_exceeded() {
     let mut target = new_aggregator(None, AggregatorLimits::new(200, 2, 5000, 5), None).await;
-    target.record(counter_event("a", None, 3.0));
-    target.record(counter_event("b", None, 5.0));
-    target.record(counter_event("c", None, 6.0));
+    target.record(counter("a", None, 3.0));
+    target.record(counter("b", None, 5.0));
+    target.record(counter("c", None, 6.0));
     assert_eq!(
         target.data.len(),
         2,
@@ -340,8 +365,8 @@ async fn record_drops_events_when_cardinality_is_exceeded() {
 #[tokio::test]
 async fn record_skips_creating_window() {
     let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10), None).await;
-    target.record(counter_event("a", None, 3.0));
-    target.record(counter_event("b", None, 7.0));
+    target.record(counter("a", None, 3.0));
+    target.record(counter("b", None, 7.0));
     // event overlaps existing window but does not allocate new window
     target.record(counter_event_custom_timestamp("a", None, 6.0, 4));
     assert_eq!(
@@ -355,7 +380,12 @@ async fn record_skips_creating_window() {
     assert_eq!(actual.len(), 1, "number of sliding windows didn't match");
     // timestamp is updated after merge of event metadata
     assert_windows_eq(
-        vec![counter_event_custom_timestamp("a", None, 9.0, 4)],
+        vec![not_flushed(
+            counter_event_custom_timestamp("a", None, 9.0, 4),
+            1,
+            6,
+            2,
+        )],
         actual,
     );
 }
@@ -363,8 +393,8 @@ async fn record_skips_creating_window() {
 #[tokio::test]
 async fn record_creates_new_windows_when_event_exceeds_min_window() {
     let mut target = new_aggregator(None, aggregator_limits_custom_window_size(10), None).await;
-    target.record(counter_event("a", None, 3.0));
-    target.record(counter_event("b", None, 7.0));
+    target.record(counter("a", None, 3.0));
+    target.record(counter("b", None, 7.0));
     // use explicit timestamp instead of shared atomic value
     target.record(counter_event_custom_timestamp("a", None, 6.0, 15));
     assert_eq!(
@@ -378,8 +408,13 @@ async fn record_creates_new_windows_when_event_exceeds_min_window() {
     assert_eq!(actual.len(), 2, "number of sliding windows didn't match");
     assert_windows_eq(
         vec![
-            counter_event("a", None, 3.0),
-            counter_event_custom_timestamp("a", None, 6.0, 15),
+            not_flushed(counter("a", None, 3.0), 1, 6, 1),
+            not_flushed(
+                counter_event_custom_timestamp("a", None, 6.0, 15),
+                15,
+                20,
+                1,
+            ),
         ],
         actual,
     );
@@ -396,8 +431,8 @@ async fn flush_when_empty() {
 #[tokio::test]
 async fn flush_no_expired() {
     let mut target = new_aggregator(None, default_aggregator_limits(), None).await;
-    target.record(counter_event("a", None, 3.0));
-    target.record(counter_event("b", None, 3.0));
+    target.record(counter("a", None, 3.0));
+    target.record(counter("b", None, 3.0));
 
     let mut res = vec![];
     target.flush_finalized(&mut res);
@@ -407,16 +442,19 @@ async fn flush_no_expired() {
 #[tokio::test]
 async fn flush_only_expired() {
     let mut target = new_aggregator(None, default_aggregator_limits(), None).await;
-    target.record(counter_event("a", None, 3.0));
-    target.record(counter_event("b", None, 3.0));
+    target.record(counter("a", None, 3.0));
+    target.record(counter("b", None, 3.0));
     target.clock.increment_by(10);
-    target.record(counter_event("a", None, 3.0));
+    target.record(counter("a", None, 3.0));
 
     let mut actual_events = vec![];
     target.flush_finalized(&mut actual_events);
     fix_event_ordering(&mut actual_events);
     assert_events_eq(
-        vec![counter_event("a", None, 3.0), counter_event("b", None, 3.0)],
+        vec![
+            as_flushed(counter("a", None, 3.0), 1, 6, 11, 1),
+            as_flushed(counter("b", None, 3.0), 1, 6, 11, 1),
+        ],
         actual_events,
     );
 }
@@ -429,14 +467,17 @@ async fn flush_on_conditional_value() {
         None,
     )
     .await;
-    target.record(counter_event("a", None, 3.0));
-    target.record(counter_event("b", None, 3.0));
-    target.record(counter_event("a", None, 3.0));
+    target.record(counter("a", None, 3.0));
+    target.record(counter("b", None, 3.0));
+    target.record(counter("a", None, 3.0));
 
     let mut actual_events = vec![];
     target.flush_finalized(&mut actual_events);
     fix_event_ordering(&mut actual_events);
-    assert_events_eq(vec![counter_event("a", None, 6.0)], actual_events);
+    assert_events_eq(
+        vec![as_flushed(counter("a", None, 6.0), 1, 6, 1, 2)],
+        actual_events,
+    );
 }
 
 #[tokio::test]
@@ -447,22 +488,10 @@ async fn flush_on_conditional_tag() {
         None,
     )
     .await;
-    target.record(counter_event(
-        "a",
-        Some(btreemap! { "region" => "foo"}),
-        2.0,
-    ));
-    target.record(counter_event(
-        "a",
-        Some(btreemap! { "region" => "bar"}),
-        4.0,
-    ));
-    target.record(counter_event(
-        "b",
-        Some(btreemap! { "region" => "foo"}),
-        6.0,
-    ));
-    target.record(counter_event("b", None, 8.0));
+    target.record(counter("a", Some(btreemap! { "region" => "foo"}), 2.0));
+    target.record(counter("a", Some(btreemap! { "region" => "bar"}), 4.0));
+    target.record(counter("b", Some(btreemap! { "region" => "foo"}), 6.0));
+    target.record(counter("b", None, 8.0));
     assert_eq!(target.data.len(), 4);
 
     let mut actual_events = vec![];
@@ -470,8 +499,20 @@ async fn flush_on_conditional_tag() {
     fix_event_ordering(&mut actual_events);
     assert_events_eq(
         vec![
-            counter_event("a", Some(btreemap! { "region" => "foo"}), 2.0),
-            counter_event("b", Some(btreemap! { "region" => "foo"}), 6.0),
+            as_flushed(
+                counter("a", Some(btreemap! { "region" => "foo"}), 2.0),
+                1,
+                6,
+                1,
+                1,
+            ),
+            as_flushed(
+                counter("b", Some(btreemap! { "region" => "foo"}), 6.0),
+                1,
+                6,
+                1,
+                1,
+            ),
         ],
         actual_events,
     );
@@ -491,9 +532,9 @@ async fn flush_using_prev_value() {
         None,
     )
     .await;
-    target.record(counter_event("a", None, 1.0));
+    target.record(counter("a", None, 1.0));
     target.clock.increment_by(1);
-    target.record(counter_event("a", None, 1.0));
+    target.record(counter("a", None, 1.0));
 
     // Assert that the internal state of the aggregate windows match what we expect for
     // two events that have not exceeded the trigger condition nor has the window elapsed.
@@ -541,7 +582,7 @@ async fn flush_using_prev_value() {
 
     // Now record a large event that should trigger the flush condition. This should
     // flush even without the window expiring. (clock = 6)
-    target.record(counter_event("a", None, 100.0));
+    target.record(counter("a", None, 100.0));
     target.flush_finalized(&mut actual_events);
     assert_eq!(actual_events.len(), 1);
     let event = actual_events
@@ -563,8 +604,8 @@ async fn flush_using_prev_value() {
 #[tokio::test]
 async fn flushes_excess_windows_to_stay_within_window_limits() {
     let mut target = new_aggregator(None, AggregatorLimits::new(2, 5000, 0, 5), None).await;
-    target.record(counter_event("a", None, 3.0));
-    target.record(counter_event("b", None, 3.0));
+    target.record(counter("a", None, 3.0));
+    target.record(counter("b", None, 3.0));
     // use explicit timestamps to force new window allocations
     target.record(counter_event_custom_timestamp("a", None, 4.0, 12));
     target.record(counter_event_custom_timestamp("a", None, 5.0, 13));
@@ -578,10 +619,22 @@ async fn flushes_excess_windows_to_stay_within_window_limits() {
     fix_event_ordering(&mut actual_events);
     assert_events_eq(
         vec![
-            counter_event("a", None, 3.0),
-            counter_event_custom_timestamp("a", None, 22.0, 12),
-            counter_event_custom_timestamp("a", None, 18.0, 13),
-            counter_event("b", None, 3.0),
+            as_flushed(counter("a", None, 3.0), 1, 6, 15, 1),
+            as_flushed(
+                counter_event_custom_timestamp("a", None, 22.0, 12),
+                12,
+                17,
+                15,
+                4,
+            ),
+            as_flushed(
+                counter_event_custom_timestamp("a", None, 18.0, 13),
+                13,
+                18,
+                15,
+                3,
+            ),
+            as_flushed(counter("b", None, 3.0), 1, 6, 15, 1),
         ],
         actual_events,
     );
@@ -591,7 +644,7 @@ async fn flushes_excess_windows_to_stay_within_window_limits() {
 async fn window_alloc_limit_over_time() {
     let mut target = new_aggregator(None, AggregatorLimits::new(10, 10, 3, 5), None).await;
     for _ in 0..6 {
-        target.record(counter_event("a", None, 1.0));
+        target.record(counter("a", None, 1.0));
         target.clock.increment_by(2);
     }
 
@@ -621,9 +674,9 @@ async fn window_alloc_limit_over_time() {
     */
     assert_eq!(
         vec![
-            (1..6, counter_event("a", None, 3.0)),
-            (5..10, counter_event("a", None, 3.0)),
-            (9..14, counter_event("a", None, 2.0)),
+            (1..6, not_flushed(counter("a", None, 3.0), 1, 6, 3)),
+            (5..10, not_flushed(counter("a", None, 3.0), 5, 10, 3)),
+            (9..14, not_flushed(counter("a", None, 2.0), 9, 14, 2)),
         ],
         actual
     );
@@ -636,8 +689,8 @@ async fn with_initial_state() {
     let limits = AggregatorLimits::new(1, 5000, 1, 5);
 
     let mut target = new_aggregator(None, limits.clone(), state_persistence_base_path).await;
-    target.record(counter_event("a", None, 3.0));
-    target.record(counter_event("b", None, 3.0));
+    target.record(counter("a", None, 3.0));
+    target.record(counter("b", None, 3.0));
 
     let mut res = vec![];
     let initial_data = target.data.clone();
@@ -653,15 +706,18 @@ async fn with_initial_state() {
     );
 
     let mut new_res = vec![];
-    new_target.record(counter_event("a", None, 3.0));
-    new_target.record(counter_event("b", None, 3.0));
+    new_target.record(counter("a", None, 3.0));
+    new_target.record(counter("b", None, 3.0));
     new_target.clock.increment_by(10);
     new_target.flush_finalized(&mut new_res);
     assert!(!new_res.is_empty());
 
     fix_event_ordering(&mut new_res);
     assert_events_eq(
-        vec![counter_event("a", None, 6.0), counter_event("b", None, 6.0)],
+        vec![
+            as_flushed(counter("a", None, 6.0), 1, 6, 11, 2),
+            as_flushed(counter("b", None, 6.0), 1, 6, 11, 2),
+        ],
         new_res,
     );
 }
@@ -724,8 +780,43 @@ async fn tumbling_aggregate_behavior() {
     assert_eq!(1, flushed_events.len());
     assert_eq!(
         vec![
-            (1..6, true, log_event(r#"{ "id": "a", "value": 5 }"#)),
-            (6..11, false, log_event(r#"{ "id": "a", "value": 1 }"#))
+            (
+                1..6,
+                true,
+                log_event(
+                    r#"
+                {
+                    "metadata": {
+                        "aggregate": {
+                            "start_timestamp": 1,
+                            "end_timestamp": 6,
+                            "flush_timestamp": 6,
+                            "event_count": 5
+                        }
+                   },
+                   "id": "a",
+                   "value": 5
+               }"#
+                )
+            ),
+            (
+                6..11,
+                false,
+                log_event(
+                    r#"
+                {
+                    "metadata": {
+                        "aggregate": {
+                            "start_timestamp": 6,
+                            "end_timestamp": 11,
+                            "event_count": 1
+                        }
+                    },
+                    "id": "a",
+                    "value": 1
+                }"#
+                )
+            )
         ],
         target
             .data
@@ -758,8 +849,43 @@ async fn tumbling_aggregate_behavior() {
     assert_eq!(1, flushed_events.len());
     assert_eq!(
         vec![
-            (6..11, true, log_event(r#"{ "id": "a", "value": 5 }"#)),
-            (11..16, false, log_event(r#"{ "id": "a", "value": 1 }"#))
+            (
+                6..11,
+                true,
+                log_event(
+                    r#"
+                {
+                    "metadata": {
+                        "aggregate": {
+                            "start_timestamp": 6,
+                            "end_timestamp": 11,
+                            "flush_timestamp": 11,
+                            "event_count": 5
+                        }
+                    },
+                    "id": "a",
+                    "value": 5
+                }"#
+                )
+            ),
+            (
+                11..16,
+                false,
+                log_event(
+                    r#"
+                {
+                    "metadata": {
+                        "aggregate": {
+                            "start_timestamp": 11,
+                             "end_timestamp": 16,
+                             "event_count": 1
+                         }
+                     },
+                     "id": "a",
+                     "value": 1
+                 }"#
+                )
+            )
         ],
         target
             .data

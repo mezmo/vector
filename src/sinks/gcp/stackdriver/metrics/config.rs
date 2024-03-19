@@ -119,7 +119,7 @@ impl SinkConfig for StackdriverConfig {
 
         let service = ServiceBuilder::new()
             .settings(request_limits, http_response_retry_logic())
-            .service(service);
+            .service(MezmoLoggingService::new(service, cx.mezmo_ctx.clone()));
 
         let sink = StackdriverMetricsSink::new(service, batch_settings, request_builder);
 

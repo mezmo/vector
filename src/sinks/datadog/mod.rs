@@ -9,9 +9,11 @@ use vrl::value::Value;
 
 use crate::{
     common::datadog::{get_api_base_endpoint, DD_US_SITE},
+    config::SinkContext,
     http::{HttpClient, HttpError},
-    mezmo::user_trace::UserLoggingError,
+    mezmo::user_trace::{MezmoUserLog, UserLoggingError},
     sinks::HealthcheckError,
+    user_log_error,
 };
 
 use super::Healthcheck;
@@ -95,13 +97,13 @@ impl Default for DatadogCommonConfig {
 impl DatadogCommonConfig {
     /// Returns a `Healthcheck` which is a future that will be used to ensure the
     /// `<site>/api/v1/validate` endpoint is reachable.
-    fn build_healthcheck(&self, client: HttpClient) -> crate::Result<Healthcheck> {
+    fn build_healthcheck(&self, client: HttpClient, cx: SinkContext) -> crate::Result<Healthcheck> {
         let validate_endpoint =
             get_api_validate_endpoint(self.endpoint.as_ref(), self.site.as_str())?;
 
         let api_key: String = self.default_api_key.clone().into();
 
-        Ok(build_healthcheck_future(client, validate_endpoint, api_key).boxed())
+        Ok(build_healthcheck_future(client, validate_endpoint, api_key, cx).boxed())
     }
 }
 
@@ -110,6 +112,7 @@ async fn build_healthcheck_future(
     client: HttpClient,
     validate_endpoint: Uri,
     api_key: String,
+    cx: SinkContext,
 ) -> crate::Result<()> {
     let request = Request::get(validate_endpoint)
         .header("DD-API-KEY", api_key)
@@ -117,8 +120,17 @@ async fn build_healthcheck_future(
         .unwrap();
 
     let response = client.send(request).await?;
+    let status = response.status();
 
-    match response.status() {
+    if status.is_client_error() || status.is_server_error() {
+        let msg = Value::from(format!(
+            "Error returned from destination with status code: {}",
+            status
+        ));
+        user_log_error!(cx.mezmo_ctx, msg);
+    }
+
+    match status {
         StatusCode::OK => Ok(()),
         other => Err(HealthcheckError::UnexpectedStatus { status: other }.into()),
     }

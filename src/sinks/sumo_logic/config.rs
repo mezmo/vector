@@ -183,8 +183,12 @@ impl SinkConfig for SumoLogicSinkConfig {
 
         let request_limits = self.request.unwrap_with(&Default::default());
         let client = self.build_client(ctx.clone())?;
-        let healthcheck =
-            healthcheck(client.clone(), SumoLogicCredentials::from(self).into()).boxed();
+        let healthcheck = healthcheck(
+            client.clone(),
+            SumoLogicCredentials::from(self).into(),
+            ctx.clone(),
+        )
+        .boxed();
         let service = ServiceBuilder::new()
             .settings(request_limits, SumoLogicRetry)
             .service(MezmoLoggingService::new(

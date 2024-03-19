@@ -181,7 +181,9 @@ impl_generate_config_from_default!(DatadogMetricsConfig);
 impl SinkConfig for DatadogMetricsConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let client = self.build_client(&cx.proxy)?;
-        let healthcheck = self.dd_common.build_healthcheck(client.clone())?;
+        let healthcheck = self
+            .dd_common
+            .build_healthcheck(client.clone(), cx.clone())?;
         let sink = self.build_sink(client, cx)?;
 
         Ok((sink, healthcheck))

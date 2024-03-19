@@ -58,16 +58,21 @@ struct AggregateWindow {
 }
 
 impl AggregateWindow {
-    const fn new(event: Event, window_start: i64, window_size: i64) -> Self {
+    fn new(event: Event, window_start: i64, window_size: i64) -> Self {
         let size_ms = window_start..window_start + window_size;
-        Self {
-            size_ms,
-            event,
-            flushed: false,
-        }
-    }
 
-    const fn from_parts(size_ms: Range<i64>, event: Event) -> Self {
+        let mut event = event;
+        let log_event = event.as_mut_log();
+        log_event.insert(".metadata.aggregate.event_count", Value::from(1));
+        log_event.insert(
+            ".metadata.aggregate.start_timestamp",
+            Value::from(size_ms.start),
+        );
+        log_event.insert(
+            ".metadata.aggregate.end_timestamp",
+            Value::from(size_ms.end),
+        );
+
         Self {
             size_ms,
             event,
@@ -101,7 +106,10 @@ impl AggregateWindow {
             None => (false, self),
             Some(flush_condition) => {
                 let Self {
-                    size_ms, mut event, ..
+                    size_ms,
+                    mut event,
+                    flushed,
+                    ..
                 } = self;
                 if let Some(Event::Log(prev_event)) = prev_event {
                     let prev_event = prev_event.value().clone();
@@ -109,9 +117,38 @@ impl AggregateWindow {
                 }
                 let (should_flush, mut event) = flush_condition.check(event);
                 event.as_mut_log().remove("%previous");
-                (should_flush, Self::from_parts(size_ms, event))
+
+                let event = Self {
+                    size_ms,
+                    event,
+                    flushed,
+                };
+                (should_flush, event)
             }
         }
+    }
+
+    fn increment_event_count(&mut self) {
+        match self
+            .event
+            .as_mut_log()
+            .get_mut(".metadata.aggregate.event_count")
+        {
+            Some(Value::Integer(count)) => *count += 1,
+            _ => panic!(
+                "missing event_count metadata: size_ms={:?},flushed={},event={:?}",
+                self.size_ms,
+                self.flushed,
+                serde_json::to_string(&self.event)
+            ),
+        }
+    }
+
+    fn set_flushed(&mut self, ts: i64) {
+        self.event
+            .as_mut_log()
+            .insert(".metadata.aggregate.flush_timestamp", Value::from(ts));
+        self.flushed = true;
     }
 }
 
@@ -216,11 +253,16 @@ impl MezmoAggregateV2 {
         hasher.finish()
     }
 
-    /// Executes the aggregation VRL program againt the current accumulated event and the new event.
+    /// Executes the aggregation VRL program against the current accumulated event and the new event.
     fn run_merge_vrl(&mut self, accum_event: Event, new_event: Event) -> Result<Event, Terminate> {
         let (accum_value, mut accum_meta) = accum_event.into_log().into_parts();
         let (new_value, new_meta) = new_event.into_log().into_parts();
         accum_meta.merge(new_meta);
+
+        let aggregate_meta = accum_value
+            .get(".metadata.aggregate")
+            .map(ToOwned::to_owned)
+            .expect("accumulated event should always contain aggregate metadata");
 
         let mut vrl_target = VrlTarget::LogEvent(
             Value::from(btreemap! {
@@ -231,10 +273,11 @@ impl MezmoAggregateV2 {
         );
 
         let timezone = TimeZone::parse("UTC").unwrap();
-        let value =
+        let mut value =
             self.vrl_runtime
                 .resolve(&mut vrl_target, &self.event_merge_program, &timezone)?;
         self.vrl_runtime.clear();
+        value.insert(".metadata.aggregate", aggregate_meta);
         Ok(Event::from(LogEvent::from_parts(value, accum_meta)))
     }
 
@@ -297,6 +340,7 @@ impl MezmoAggregateV2 {
                             Err(e) => error!("dropping event; failed to execute VRL program on event to aggregate: {e}"),
                             Ok(new_acc) => window.event = new_acc
                         };
+                        window.increment_event_count();
                     }
                 }
 
@@ -370,16 +414,17 @@ impl MezmoAggregateV2 {
             // flush_condition check to use when checking the oldest aggregation window.
             let mut to_flush = new_window_list.drain(0..flush_end);
             let retained = to_flush.next_back();
-            for datum in to_flush {
+            for mut datum in to_flush {
                 if !datum.flushed {
+                    datum.set_flushed(current_time);
                     output.push(datum.event);
                 }
             }
 
             if let Some(mut retain) = retained {
                 if !retain.flushed {
+                    retain.set_flushed(current_time);
                     output.push(retain.event.clone());
-                    retain.flushed = true;
                     new_window_list.push_front(retain);
                 }
             }

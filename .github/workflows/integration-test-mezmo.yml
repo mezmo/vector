@@ -2,18 +2,14 @@ name: Integration Test Suite (Mezmo)
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches-ignore:
-      - 'dependabot/**'
-    paths-ignore:
-      - 'deployment/**'
-      - 'test/data/**'
-      - 'docs/**'
-
   push:
     branches:
       - master
       - ci-fix
+    paths-ignore:
+      - 'deployment/**'
+      - 'test/data/**'
+      - 'docs/**'
 
 concurrency:
   # For pull requests, cancel running workflows, for master, run all
@@ -48,7 +44,7 @@ jobs:
         include:
           # Integrations that we are not using/supporting are disabled
           - test: 'aws'
-          # - test: 'azure'
+          - test: 'azure'
           # - test: 'clickhouse'
           # - test: 'datadog-agent'
           # - test: 'datadog-logs'

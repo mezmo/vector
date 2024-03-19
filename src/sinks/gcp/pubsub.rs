@@ -15,6 +15,7 @@ use crate::{
     event::Event,
     gcp::{GcpAuthConfig, GcpAuthenticator, Scope, PUBSUB_URL},
     http::HttpClient,
+    mezmo::user_trace::MezmoUserLog,
     sinks::{
         gcs_common::config::healthcheck_response,
         util::{
@@ -24,6 +25,7 @@ use crate::{
         Healthcheck, UriParseSnafu, VectorSink,
     },
     tls::{TlsConfig, TlsSettings},
+    user_log_error,
 };
 
 #[derive(Debug, Snafu)]
@@ -130,7 +132,8 @@ impl SinkConfig for PubsubConfig {
         let tls_settings = TlsSettings::from_options(&self.tls)?;
         let client = HttpClient::new(tls_settings, cx.proxy())?;
 
-        let healthcheck = healthcheck(client.clone(), sink.uri("")?, sink.auth.clone()).boxed();
+        let healthcheck =
+            healthcheck(client.clone(), sink.uri("")?, sink.auth.clone(), cx.clone()).boxed();
         if let Some(creds) = &sink.auth {
             creds.spawn_regenerate_token();
         }
@@ -260,6 +263,7 @@ async fn healthcheck(
     client: HttpClient,
     uri: Uri,
     auth: Option<GcpAuthenticator>,
+    cx: SinkContext,
 ) -> crate::Result<()> {
     let mut request = Request::get(uri).body(Body::empty()).unwrap();
 
@@ -268,9 +272,23 @@ async fn healthcheck(
             auth.apply(&mut request);
 
             let response = client.send(request).await?;
+            let status = response.status();
+            if status.is_client_error() || status.is_server_error() {
+                let msg = Value::from(format!(
+                    "Error returned from destination with status code: {}",
+                    status
+                ));
+                user_log_error!(cx.mezmo_ctx, msg);
+            }
             healthcheck_response(response, HealthcheckError::TopicNotFound.into())
         }
-        None => Err(HealthcheckError::InvalidAuth.into()),
+        None => {
+            user_log_error!(
+                cx.mezmo_ctx,
+                Value::from(format!("{}", HealthcheckError::InvalidAuth))
+            );
+            Err(HealthcheckError::InvalidAuth.into())
+        }
     }
 }
 

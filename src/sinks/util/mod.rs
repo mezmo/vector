@@ -46,8 +46,8 @@ pub use compressor::Compressor;
 pub use normalizer::Normalizer;
 pub use request_builder::{IncrementalRequestBuilder, RequestBuilder};
 pub use service::{
-    Concurrency, ServiceBuilderExt, TowerBatchedSink, TowerPartitionSink, TowerRequestConfig,
-    TowerRequestLayer, TowerRequestSettings,
+    Concurrency, ServiceBuilderExt, TowerBatchedSink, TowerPartitionSink,
+    TowerPartitionSinkWithoutArc, TowerRequestConfig, TowerRequestLayer, TowerRequestSettings,
 };
 pub use sink::{BatchSink, PartitionBatchSink, StreamSink};
 use snafu::Snafu;

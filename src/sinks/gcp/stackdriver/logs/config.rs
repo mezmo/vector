@@ -12,6 +12,7 @@ use crate::{
             BoxedRawValue, RealtimeSizeBasedDefaultBatchSettings,
         },
     },
+    user_log_error,
 };
 use http::{Request, Uri};
 use hyper::Body;
@@ -234,11 +235,11 @@ impl SinkConfig for StackdriverConfig {
 
         let service = ServiceBuilder::new()
             .settings(request_limits, http_response_retry_logic())
-            .service(service);
+            .service(MezmoLoggingService::new(service, cx.mezmo_ctx.clone()));
 
         let sink = StackdriverLogsSink::new(service, batch_settings, request_builder);
 
-        let healthcheck = healthcheck(client, auth.clone(), uri).boxed();
+        let healthcheck = healthcheck(client, auth.clone(), uri, cx.clone()).boxed();
 
         auth.spawn_regenerate_token();
 
@@ -257,7 +258,12 @@ impl SinkConfig for StackdriverConfig {
     }
 }
 
-async fn healthcheck(client: HttpClient, auth: GcpAuthenticator, uri: Uri) -> crate::Result<()> {
+async fn healthcheck(
+    client: HttpClient,
+    auth: GcpAuthenticator,
+    uri: Uri,
+    cx: SinkContext,
+) -> crate::Result<()> {
     let entries: Vec<BoxedRawValue> = Vec::new();
     let events = serde_json::json!({ "entries": entries });
 
@@ -273,6 +279,15 @@ async fn healthcheck(client: HttpClient, auth: GcpAuthenticator, uri: Uri) -> cr
     let request = request.map(Body::from);
 
     let response = client.send(request).await?;
+    let status = response.status();
+
+    if status.is_client_error() || status.is_server_error() {
+        let msg = Value::from(format!(
+            "Error returned from destination with status code: {}",
+            status
+        ));
+        user_log_error!(cx.mezmo_ctx, msg);
+    }
 
     healthcheck_response(response, HealthcheckError::NotFound.into())
 }

@@ -2,11 +2,16 @@ use std::fmt;
 
 use crate::sinks::{prelude::*, util::partitioner::KeyPartitioner};
 
+// MEZMO: added dependency for s3-sink file consolidation
+use crate::sinks::azure_blob::file_consolidator_async::FileConsolidatorAsync;
+
 pub struct AzureBlobSink<Svc, RB> {
     service: Svc,
     request_builder: RB,
     partitioner: KeyPartitioner,
     batcher_settings: BatcherSettings,
+    // MEZMO: added property for azure-blob-sink file consolidation
+    file_consolidator: Option<FileConsolidatorAsync>,
 }
 
 impl<Svc, RB> AzureBlobSink<Svc, RB> {
@@ -15,12 +20,14 @@ impl<Svc, RB> AzureBlobSink<Svc, RB> {
         request_builder: RB,
         partitioner: KeyPartitioner,
         batcher_settings: BatcherSettings,
+        file_consolidator: Option<FileConsolidatorAsync>,
     ) -> Self {
         Self {
             service,
             request_builder,
             partitioner,
             batcher_settings,
+            file_consolidator,
         }
     }
 }
@@ -41,7 +48,12 @@ where
 
         let request_builder = self.request_builder;
 
-        input
+        // MEZMO: added file consolidation processing
+        // initiate the file consolidation process if necessary
+        let mut file_consolidator = self.file_consolidator.unwrap_or_default();
+        file_consolidator.start();
+
+        let result = input
             .batched_partitioned(partitioner, || settings.as_byte_size_config())
             .filter_map(|(key, batch)| async move {
                 // We don't need to emit an error here if the event is dropped since this will occur if the template
@@ -62,7 +74,13 @@ where
             .into_driver(self.service)
             .protocol("https")
             .run()
-            .await
+            .await;
+
+        // MEZMO: added file consolidation processing
+        //stop the file consolidation process if necessary
+        file_consolidator.stop();
+
+        result
     }
 }
 

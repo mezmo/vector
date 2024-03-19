@@ -245,6 +245,13 @@ spec:
                   sources:
                     - configMap:
                         name: vector
+            topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              labelSelector:
+                matchLabels:
+                  app: vector
             affinity:
               nodeAffinity:
                 requiredDuringSchedulingIgnoredDuringExecution:

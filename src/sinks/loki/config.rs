@@ -194,7 +194,7 @@ impl SinkConfig for LokiConfig {
             }
         }
 
-        let client = self.build_client(cx)?;
+        let client = self.build_client(cx.clone())?;
 
         let config = LokiConfig {
             auth: self.auth.choose_one(&self.endpoint.auth)?,
@@ -203,7 +203,7 @@ impl SinkConfig for LokiConfig {
 
         let sink = LokiSink::new(config.clone(), client.clone())?;
 
-        let healthcheck = healthcheck(config, client).boxed();
+        let healthcheck = healthcheck(config, client, cx.clone()).boxed();
 
         Ok((VectorSink::from_event_streamsink(sink), healthcheck))
     }

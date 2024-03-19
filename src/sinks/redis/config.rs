@@ -128,12 +128,12 @@ impl GenerateConfig for RedisSinkConfig {
 #[async_trait::async_trait]
 #[typetag::serde(name = "redis")]
 impl SinkConfig for RedisSinkConfig {
-    async fn build(&self, _cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
+    async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         if self.key.is_empty() {
             return Err("`key` cannot be empty.".into());
         }
         let conn = self.build_client().await.context(RedisCreateFailedSnafu)?;
-        let healthcheck = RedisSinkConfig::healthcheck(conn.clone()).boxed();
+        let healthcheck = RedisSinkConfig::healthcheck(conn.clone(), cx).boxed();
         let sink = RedisSink::new(self, conn)?;
         Ok((super::VectorSink::from_event_streamsink(sink), healthcheck))
     }
@@ -153,10 +153,13 @@ impl RedisSinkConfig {
         client.get_tokio_connection_manager().await
     }
 
-    async fn healthcheck(mut conn: ConnectionManager) -> crate::Result<()> {
+    async fn healthcheck(mut conn: ConnectionManager, cx: SinkContext) -> crate::Result<()> {
         redis::cmd("PING")
             .query_async(&mut conn)
             .await
-            .map_err(Into::into)
+            .map_err(|err| {
+                user_log_error!(cx.mezmo_ctx, Value::from(format!("{}", err)));
+                err.into()
+            })
     }
 }

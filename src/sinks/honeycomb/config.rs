@@ -117,11 +117,11 @@ impl SinkConfig for HoneycombConfig {
 
         let service = ServiceBuilder::new()
             .settings(request_limits, http_response_retry_logic())
-            .service(service);
+            .service(MezmoLoggingService::new(service, cx.mezmo_ctx.clone()));
 
         let sink = HoneycombSink::new(service, batch_settings, request_builder);
 
-        let healthcheck = healthcheck(uri, self.api_key.clone(), client).boxed();
+        let healthcheck = healthcheck(uri, self.api_key.clone(), client, cx.clone()).boxed();
 
         Ok((VectorSink::from_event_streamsink(sink), healthcheck))
     }
@@ -144,7 +144,12 @@ impl HoneycombConfig {
     }
 }
 
-async fn healthcheck(uri: Uri, api_key: SensitiveString, client: HttpClient) -> crate::Result<()> {
+async fn healthcheck(
+    uri: Uri,
+    api_key: SensitiveString,
+    client: HttpClient,
+    cx: SinkContext,
+) -> crate::Result<()> {
     let request = Request::post(uri).header(HTTP_HEADER_HONEYCOMB, api_key.inner());
     let body = crate::serde::json::to_bytes(&Vec::<BoxedRawValue>::new())
         .unwrap()
@@ -156,6 +161,14 @@ async fn healthcheck(uri: Uri, api_key: SensitiveString, client: HttpClient) -> 
 
     let status = res.status();
     let body = hyper::body::to_bytes(res.into_body()).await?;
+
+    if status.is_client_error() || status.is_server_error() {
+        let msg = Value::from(format!(
+            "Error returned from destination with status code: {}",
+            status
+        ));
+        user_log_error!(cx.mezmo_ctx, msg);
+    }
 
     if status == StatusCode::BAD_REQUEST {
         Ok(())

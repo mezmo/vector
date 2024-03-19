@@ -11,6 +11,7 @@ use vector_lib::codecs::{
 use crate::{
     codecs::{EncodingConfigWithFraming, SinkType},
     http::{Auth, HttpClient, MaybeAuth},
+    mezmo::user_trace::{MezmoLoggingService, MezmoUserLog},
     sinks::{
         prelude::*,
         util::{
@@ -172,7 +173,12 @@ impl GenerateConfig for HttpSinkConfig {
     }
 }
 
-async fn healthcheck(uri: UriSerde, auth: Option<Auth>, client: HttpClient) -> crate::Result<()> {
+async fn healthcheck(
+    uri: UriSerde,
+    auth: Option<Auth>,
+    client: HttpClient,
+    cx: SinkContext,
+) -> crate::Result<()> {
     let auth = auth.choose_one(&uri.auth)?;
     let uri = uri.with_default_parts();
     let mut request = Request::head(&uri.uri).body(Body::empty()).unwrap();
@@ -182,8 +188,17 @@ async fn healthcheck(uri: UriSerde, auth: Option<Auth>, client: HttpClient) -> c
     }
 
     let response = client.send(request).await?;
+    let status = response.status();
 
-    match response.status() {
+    if status.is_client_error() || status.is_server_error() {
+        let msg = Value::from(format!(
+            "Error returned from destination with status code: {}",
+            status
+        ));
+        user_log_error!(cx.mezmo_ctx, msg);
+    }
+
+    match status {
         StatusCode::OK => Ok(()),
         status => Err(HealthcheckError::UnexpectedStatus { status }.into()),
     }
@@ -244,12 +259,17 @@ impl SinkConfig for HttpSinkConfig {
         let (payload_prefix, payload_suffix) =
             validate_payload_wrapper(&self.payload_prefix, &self.payload_suffix, &encoder)?;
 
+        let cx_clone = cx.clone();
         let client = self.build_http_client(&cx)?;
 
         let healthcheck = match cx.healthcheck.uri {
-            Some(healthcheck_uri) => {
-                healthcheck(healthcheck_uri, self.auth.clone(), client.clone()).boxed()
-            }
+            Some(healthcheck_uri) => healthcheck(
+                healthcheck_uri,
+                self.auth.clone(),
+                client.clone(),
+                cx_clone.clone(),
+            )
+            .boxed(),
             None => future::ok(()).boxed(),
         };
 
@@ -293,8 +313,7 @@ impl SinkConfig for HttpSinkConfig {
 
         let service = ServiceBuilder::new()
             .settings(request_limits, http_response_retry_logic())
-            .service(service);
-
+            .service(MezmoLoggingService::new(service, cx_clone.mezmo_ctx));
         let sink = HttpSink::new(service, batch_settings, request_builder);
 
         Ok((VectorSink::from_event_streamsink(sink), healthcheck))

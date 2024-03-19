@@ -26,8 +26,8 @@ use vector_lib::{ByteSizeOf, EstimatedJsonEncodedSizeOf};
 use super::{
     retries::{RetryAction, RetryLogic},
     sink::{self, Response as _},
-    uri, Batch, EncodedEvent, Partition, TowerBatchedSink, TowerPartitionSink, TowerRequestConfig,
-    TowerRequestSettings,
+    uri, Batch, EncodedEvent, Partition, TowerBatchedSink, TowerPartitionSinkWithoutArc,
+    TowerRequestConfig, TowerRequestSettings,
 };
 use crate::{
     config::SinkContext,
@@ -229,7 +229,7 @@ where
 {
     sink: Arc<T>,
     #[pin]
-    inner: TowerPartitionSink<
+    inner: TowerPartitionSinkWithoutArc<
         MezmoHttpBatchLoggingService<
             BoxFuture<'static, crate::Result<hyper::Request<Bytes>>>,
             B::Output,
@@ -300,7 +300,8 @@ where
             HttpBatchService::new(client, request_builder),
             cx.mezmo_ctx,
         );
-        let inner = request_settings.partition_sink(retry_logic, svc, batch, batch_timeout);
+        let inner =
+            request_settings.partition_sink_without_arc(retry_logic, svc, batch, batch_timeout);
         let encoder = sink.build_encoder();
 
         Self {
@@ -781,6 +782,32 @@ where
                 raw_byte_size,
             })
         })
+    }
+}
+
+impl UserLoggingResponse for HttpResponse {
+    fn log_msg(&self) -> Option<Value> {
+        if !self.http_response.status().is_success() {
+            Some(
+                format!(
+                    "Error returned from destination with status code: {}",
+                    self.http_response.status()
+                )
+                .into(),
+            )
+        } else {
+            None
+        }
+    }
+}
+
+impl UserLoggingError for crate::Error {
+    fn log_msg(&self) -> Option<Value> {
+        let msg = match self.downcast_ref::<HttpError>() {
+            Some(err) => Value::from(format!("{}", err)),
+            None => Value::from("Request failed".to_string()),
+        };
+        Some(msg)
     }
 }
 

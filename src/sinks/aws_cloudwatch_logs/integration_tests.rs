@@ -449,9 +449,10 @@ async fn cloudwatch_healthcheck() {
         auth: Default::default(),
         acknowledgements: Default::default(),
     };
+    let cx = SinkContext::default();
 
     let client = config.create_client(&ProxyConfig::default()).await.unwrap();
-    healthcheck(config, client).await.unwrap();
+    healthcheck(config, client, cx).await.unwrap();
 }
 
 async fn create_client_test() -> CloudwatchLogsClient {
