@@ -126,6 +126,7 @@ impl UsageMetricsKey {
     /// Determines whether the component with this key should be tracked for profiling.
     /// Currently only during the analysis phase.
     fn is_tracked_for_profiling(&self) -> bool {
+        // The absence of a pipeline id means that the component is part of the analysis phase
         if self.pipeline_id.is_some() {
             return false;
         }
@@ -134,6 +135,8 @@ impl UsageMetricsKey {
             return false;
         };
 
+        // Only internal instances of the log classification component should be tracked
+        // for profiling.
         !internal && self.component_type == "mezmo_log_classification"
     }
 
@@ -299,7 +302,10 @@ fn track_usage(
         });
     }
 
-    if is_profile_enabled() && !usage.usage_by_annotation.is_empty() {
+    if is_profile_enabled()
+        && key.is_tracked_for_profiling()
+        && !usage.usage_by_annotation.is_empty()
+    {
         usage_by_annotation = Some(usage.usage_by_annotation);
     }
 
@@ -817,6 +823,7 @@ pub fn get_db_config(endpoint_url: &str) -> Result<Config, MetricsPublishingErro
 
 #[cfg(test)]
 mod tests {
+    use assay::assay;
     use std::collections::{BTreeMap, HashMap};
     use tokio::sync::mpsc;
     use vrl::value::Value;
@@ -859,6 +866,18 @@ mod tests {
                 )
             );
         };
+    }
+
+    fn track_usage_test(key: &UsageMetricsKey, event: LogEvent) -> UnboundedReceiver<UsageMetrics> {
+        let (tx, rx) = mpsc::unbounded_channel::<UsageMetrics>();
+        let usage_profile = get_size_and_profile(&event.into());
+
+        track_usage(&tx, key, usage_profile);
+        rx
+    }
+
+    fn annotation_path(parts: &[&str]) -> String {
+        log_schema().annotations_key().to_string() + "." + parts.join(".").as_str()
     }
 
     #[test]
@@ -969,6 +988,79 @@ mod tests {
         assert!(
             !value.is_tracked_for_billing(),
             "Kafka source should NOT be tracked"
+        );
+    }
+
+    #[assay(env = [("USAGE_METRICS_PROFILE_ENABLED", "true")])]
+    fn track_usage_key_not_tracked_either() {
+        let key: UsageMetricsKey = "v1:filter-by-field:transform:comp1:pipe1:account1"
+            .parse()
+            .unwrap();
+        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        event_map.insert(
+            log_schema().message_key().unwrap().to_string(),
+            "foo".into(),
+        );
+        let event: LogEvent = event_map.into();
+
+        let mut rx = track_usage_test(&key, event);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[assay(env = [("USAGE_METRICS_PROFILE_ENABLED", "true")])]
+    fn track_usage_key_billing_only() {
+        let key: UsageMetricsKey = "v1:remap:internal_transform:comp1:pipe1:account1"
+            .parse()
+            .unwrap();
+        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        event_map.insert(
+            log_schema().message_key().unwrap().to_string(),
+            "the message".into(),
+        );
+
+        let mut event: LogEvent = event_map.into();
+        event.insert(annotation_path(vec!["app"].as_ref()).as_str(), "app-1");
+
+        let mut rx = track_usage_test(&key, event);
+        let tracked = rx.try_recv();
+        assert!(tracked.is_ok());
+
+        let tracked = tracked.unwrap();
+        assert_eq!(tracked.key, key, "should be the same key");
+        assert!(tracked.billing.is_some(), "should contain billing metrics");
+        assert!(
+            tracked.usage_by_annotation.is_none(),
+            "should NOT contain profiling metrics"
+        );
+    }
+
+    #[assay(env = [("USAGE_METRICS_PROFILE_ENABLED", "true")])]
+    fn track_usage_key_profiling_only() {
+        let key: UsageMetricsKey = "v1:mezmo_log_classification:transform:comp1:account1"
+            .parse()
+            .unwrap();
+        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        event_map.insert(
+            log_schema().message_key().unwrap().to_string(),
+            "the message".into(),
+        );
+
+        let mut event: LogEvent = event_map.into();
+        event.insert(annotation_path(vec!["app"].as_ref()).as_str(), "app-1");
+
+        let mut rx = track_usage_test(&key, event);
+        let tracked = rx.try_recv();
+        assert!(tracked.is_ok());
+
+        let tracked = tracked.unwrap();
+        assert_eq!(tracked.key, key, "should be the same key");
+        assert!(
+            tracked.billing.is_none(),
+            "should NOT contain billing metrics"
+        );
+        assert!(
+            tracked.usage_by_annotation.is_some(),
+            "should contain profiling metrics"
         );
     }
 
