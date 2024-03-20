@@ -168,27 +168,77 @@ impl UserLogSubscription {
 /// Defines a set of methods that can be used to generate log messages that are intended for
 /// the end user of the pipeline to see.
 pub trait MezmoUserLog {
-    fn log(&self, level: Level, msg: Value, rate_limit: Option<u64>, identity: CallsiteIdentity);
+    fn log(
+        &self,
+        level: Level,
+        msg: Value,
+        rate_limit: Option<u64>,
+        captured_data: Option<Value>,
+        identity: CallsiteIdentity,
+    );
 
-    fn debug(&self, msg: impl Into<Value>, rate_limit: Option<u64>, identity: CallsiteIdentity) {
-        self.log(Level::Debug, msg.into(), rate_limit, identity);
+    fn debug(
+        &self,
+        msg: impl Into<Value>,
+        rate_limit: Option<u64>,
+        captured_data: Option<Value>,
+        identity: CallsiteIdentity,
+    ) {
+        self.log(
+            Level::Debug,
+            msg.into(),
+            rate_limit,
+            captured_data,
+            identity,
+        );
     }
 
-    fn info(&self, msg: impl Into<Value>, rate_limit: Option<u64>, identity: CallsiteIdentity) {
-        self.log(Level::Info, msg.into(), rate_limit, identity);
+    fn info(
+        &self,
+        msg: impl Into<Value>,
+        rate_limit: Option<u64>,
+        captured_data: Option<Value>,
+        identity: CallsiteIdentity,
+    ) {
+        self.log(Level::Info, msg.into(), rate_limit, captured_data, identity);
     }
 
-    fn warn(&self, msg: impl Into<Value>, rate_limit: Option<u64>, identity: CallsiteIdentity) {
-        self.log(Level::Warn, msg.into(), rate_limit, identity);
+    fn warn(
+        &self,
+        msg: impl Into<Value>,
+        rate_limit: Option<u64>,
+        captured_data: Option<Value>,
+        identity: CallsiteIdentity,
+    ) {
+        self.log(Level::Warn, msg.into(), rate_limit, captured_data, identity);
     }
 
-    fn error(&self, msg: impl Into<Value>, rate_limit: Option<u64>, identity: CallsiteIdentity) {
-        self.log(Level::Error, msg.into(), rate_limit, identity);
+    fn error(
+        &self,
+        msg: impl Into<Value>,
+        rate_limit: Option<u64>,
+        captured_data: Option<Value>,
+        identity: CallsiteIdentity,
+    ) {
+        self.log(
+            Level::Error,
+            msg.into(),
+            rate_limit,
+            captured_data,
+            identity,
+        );
     }
 }
 
 impl MezmoUserLog for Option<MezmoContext> {
-    fn log(&self, level: Level, msg: Value, rate_limit: Option<u64>, identity: CallsiteIdentity) {
+    fn log(
+        &self,
+        level: Level,
+        msg: Value,
+        rate_limit: Option<u64>,
+        captured_data: Option<Value>,
+        identity: CallsiteIdentity,
+    ) {
         if let Some(ctx) = self {
             let mut event = LogEvent::default();
             event.insert("meta.mezmo.level", Value::from(level.to_string()));
@@ -208,6 +258,11 @@ impl MezmoUserLog for Option<MezmoContext> {
                 Value::from(&ctx.component_kind),
             );
             event.insert("meta.mezmo.internal", Value::from(ctx.internal));
+            // `captured_data` should always have a value for the sink to insert
+            event.insert(
+                "meta.mezmo.captured_data",
+                captured_data.unwrap_or(Value::Null),
+            );
             event.insert("message", msg);
             try_send_user_log(
                 event,
@@ -395,7 +450,7 @@ pub fn handle_deserializer_error(ctx: &Option<MezmoContext>, err: Box<dyn StdErr
 
 #[cfg(test)]
 mod tests {
-    use crate::{user_log_debug, user_log_info, user_log_warn};
+    use crate::{user_log, user_log_debug, user_log_info, user_log_warn};
 
     use super::*;
     use serial_test::serial;
@@ -477,6 +532,12 @@ mod tests {
                 .expect("internal should be a boolean");
             assert!(internal);
 
+            let captured_data = actual
+                .get(".meta.mezmo.captured_data")
+                .expect("should contain captured_data")
+                .as_str();
+            assert_eq!(captured_data, None);
+
             let msg = actual
                 .get(".message")
                 .expect("should contain a message")
@@ -533,6 +594,144 @@ mod tests {
         };
 
         assert!(timeout, "expected a timeout because of rate limiting");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_input() {
+        let id = "v1:kafka:internal_source:component_abc:pipeline_123:account_123".to_owned();
+        let ctx = MezmoContext::try_from(id).ok();
+        let log_stream = UserLogSubscription::subscribe().into_stream();
+
+        // Using the helper macros
+        user_log_error!(ctx, "error msg", captured_data: Value::from("some string captured_data"));
+        user_log_warn!(ctx, "warning msg", captured_data: Value::from(vec![1, 2, 3]));
+        user_log_error!(ctx, "error msg with object", captured_data: Value::from(btreemap! {
+            "message" => "some event message",
+            "metadata" => btreemap! {
+                "status" => 2,
+                "method" => "POST",
+            }
+        }));
+
+        // `captured_data` can be included in other calls as long as all parameters are specified
+        user_log!(
+            "debug",
+            ctx,
+            "debug msg",
+            None,
+            Some(Value::from("a debug captured_data")),
+            None
+        );
+        user_log!(
+            "info",
+            ctx,
+            "info msg",
+            None,
+            Some(Value::from("an info captured_data")),
+            None
+        );
+        user_log!(
+            "warn",
+            ctx,
+            "warn msg",
+            None,
+            Some(Value::from("a warn captured_data")),
+            None
+        );
+        user_log!(
+            "error",
+            ctx,
+            "error msg",
+            None,
+            Some(Value::from("an error captured_data")),
+            None
+        );
+
+        let res: Vec<LogEvent> = log_stream.take(7).collect().await;
+
+        assert_eq!(res.len(), 7, "number of log events is correct");
+        assert_eq!(
+            res[0]
+                .get(".meta.mezmo.captured_data")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "some string captured_data",
+            "captured_data can be a string"
+        );
+        assert_eq!(
+            res[1].get(".meta.mezmo.captured_data").unwrap(),
+            &Value::from(vec![1, 2, 3]),
+            "captured_data can be an array"
+        );
+        assert_eq!(
+            res[2].get(".meta.mezmo.captured_data").unwrap(),
+            &Value::from(btreemap! {
+                "message" => "some event message",
+                "metadata" => btreemap! {
+                    "status" => 2,
+                    "method" => "POST",
+                }
+            }),
+            "captured_data can be an object"
+        );
+        assert_eq!(
+            res[3]
+                .get(".meta.mezmo.captured_data")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "a debug captured_data",
+            "explicit debug call has captured_data"
+        );
+        assert_eq!(
+            res[3].get(".meta.mezmo.level").unwrap().as_str().unwrap(),
+            "DEBUG",
+            "explicit debug call has level"
+        );
+        assert_eq!(
+            res[4]
+                .get(".meta.mezmo.captured_data")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "an info captured_data",
+            "explicit info call has captured_data"
+        );
+        assert_eq!(
+            res[4].get(".meta.mezmo.level").unwrap().as_str().unwrap(),
+            "INFO",
+            "explicit info call has level"
+        );
+        assert_eq!(
+            res[5]
+                .get(".meta.mezmo.captured_data")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "a warn captured_data",
+            "explicit warn call has captured_data"
+        );
+        assert_eq!(
+            res[5].get(".meta.mezmo.level").unwrap().as_str().unwrap(),
+            "WARN",
+            "explicit warn call has level"
+        );
+        assert_eq!(
+            res[6]
+                .get(".meta.mezmo.captured_data")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "an error captured_data",
+            "explicit error call has captured_data"
+        );
+        assert_eq!(
+            res[6].get(".meta.mezmo.level").unwrap().as_str().unwrap(),
+            "ERROR",
+            "explicit error call has level"
+        );
     }
 
     #[derive(Debug, Snafu)]

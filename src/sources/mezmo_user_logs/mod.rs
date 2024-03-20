@@ -107,6 +107,7 @@ mod tests {
     use crate::{
         event::Event,
         mezmo::{user_trace::MezmoUserLog, MezmoContext},
+        sinks::prelude::Value,
         test_util::{
             collect_ready,
             components::{assert_source_compliance, SOURCE_TAGS},
@@ -132,11 +133,62 @@ mod tests {
             crate::user_log_warn!(ctx, "warn msg");
             crate::user_log_error!(ctx, "error msg");
 
-            let expected = vec![
-                ("DEBUG", "debug msg"),
-                ("INFO", "info msg"),
-                ("WARN", "warn msg"),
-                ("ERROR", "error msg"),
+            // With `captured_data` using the `user_log` macro
+            crate::user_log!(
+                "debug",
+                ctx,
+                "captured debug",
+                None,
+                Some("captured string".into()),
+                None
+            );
+            crate::user_log!("info", ctx, "captured info", None, Some(12345.into()), None);
+            crate::user_log!("warn", ctx, "captured warn", None, Some(false.into()), None);
+            crate::user_log!(
+                "error",
+                ctx,
+                "captured error",
+                None,
+                Some(btreemap! { "my_key" => "my_val"}.into()),
+                None
+            );
+            crate::user_log!(
+                "error",
+                ctx,
+                "captured array error",
+                None,
+                Some(vec![1, 2, 3].into()),
+                None
+            );
+
+            // `captured_data` using the overloaded macros
+            crate::user_log_warn!(
+                ctx,
+                "overloaded warn msg",
+                captured_data: "overloaded captured string".into()
+            );
+            crate::user_log_error!(ctx, "overloaded error msg", captured_data: 54321.into());
+
+            let expected: Vec<(&str, &str, Option<Value>)> = vec![
+                ("DEBUG", "debug msg", None),
+                ("INFO", "info msg", None),
+                ("WARN", "warn msg", None),
+                ("ERROR", "error msg", None),
+                ("DEBUG", "captured debug", Some("captured string".into())),
+                ("INFO", "captured info", Some(12345.into())),
+                ("WARN", "captured warn", Some(false.into())),
+                (
+                    "ERROR",
+                    "captured error",
+                    Some(btreemap! { "my_key" => "my_val"}.into()),
+                ),
+                ("ERROR", "captured array error", Some(vec![1, 2, 3].into())),
+                (
+                    "WARN",
+                    "overloaded warn msg",
+                    Some("overloaded captured string".into()),
+                ),
+                ("ERROR", "overloaded error msg", Some(54321.into())),
             ];
 
             sleep(Duration::from_millis(1)).await;
@@ -145,7 +197,9 @@ mod tests {
             let end = chrono::Utc::now();
             assert_eq!(events.len(), expected.len());
 
-            for ((exp_level, exp_msg), actual) in expected.into_iter().zip(events.iter()) {
+            for ((exp_level, exp_msg, captured_data), actual) in
+                expected.into_iter().zip(events.iter())
+            {
                 let log = actual.as_log();
 
                 let timestamp = *log["timestamp"]
@@ -202,6 +256,14 @@ mod tests {
                     .as_str()
                     .expect("message should be a string");
                 assert_eq!(msg, exp_msg);
+
+                if let Some(expected_captured_data) = captured_data {
+                    let captured_data = log
+                        .get(".meta.mezmo.captured_data")
+                        .expect("should contain captured_data");
+
+                    assert_eq!(captured_data, &expected_captured_data);
+                }
             }
         })
         .await;
