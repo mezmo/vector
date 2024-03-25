@@ -1,3 +1,20 @@
+# [3.13.0](https://github.com/answerbook/vector/compare/v3.12.1...v3.13.0) (2024-03-25)
+
+
+### Bug Fixes
+
+* **postgresql**: Account for storage of `Value::Object` [6d1f32a](https://github.com/answerbook/vector/commit/6d1f32a111eb17cf814133e9dd049d7cff55c501) - Darin Spivey [LOG-19497](https://logdna.atlassian.net/browse/LOG-19497)
+
+
+### Features
+
+* **mezmo**: `user_log` acceps optional `captured_data` parameter [e623edd](https://github.com/answerbook/vector/commit/e623edd26d5b1a24210b32644835bf3da603f1bc) - Darin Spivey [LOG-19497](https://logdna.atlassian.net/browse/LOG-19497)
+
+
+### Miscellaneous
+
+* Merge pull request #433 from answerbook/feature/LOG-19497 [f122d43](https://github.com/answerbook/vector/commit/f122d4371f5bb6a37d680c8d29e38a8b0bd094ee) - GitHub [LOG-19497](https://logdna.atlassian.net/browse/LOG-19497)
+
 ## [3.12.1](https://github.com/answerbook/vector/compare/v3.12.0...v3.12.1) (2024-03-19)
 
 
