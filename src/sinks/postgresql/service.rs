@@ -3,6 +3,8 @@ use bytes::BytesMut;
 use chrono::{DateTime, Utc};
 use deadpool_postgres::Pool;
 use futures::future::BoxFuture;
+use serde_json::json;
+use serde_json::Value as SerdeValue;
 use std::{
     borrow::Cow,
     error::Error,
@@ -160,6 +162,10 @@ impl ToSql for ValueSqlAdapter<'_> {
             "boolean" => {
                 let raw_value = value.as_boolean().expect("boolean");
                 <bool as ToSql>::to_sql(&raw_value, ty, out)
+            }
+            "map" => {
+                let raw_value: SerdeValue = json!(value.as_object().expect("object"));
+                <SerdeValue as ToSql>::to_sql(&raw_value, ty, out)
             }
             _ => {
                 // Treat unhandled cases, map, array and null as null values

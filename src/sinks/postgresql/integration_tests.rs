@@ -11,10 +11,15 @@ use crate::test_util::{
 };
 use chrono::{DateTime, SubsecRound, Utc};
 use futures_util::{stream, Stream};
+use serde_json::json;
+use serde_json::Value as SerdeValue;
 use std::env;
 use tokio_postgres::{Client, NoTls};
-use vector_common::finalization::BatchNotifier;
-use vector_lib::event::{Event, EventArray, LogEvent, Metric, MetricKind, MetricTags, MetricValue};
+use vector_lib::btreemap;
+use vector_lib::event::{
+    Event, EventArray, LogEvent, Metric, MetricKind, MetricTags, MetricValue, Value,
+};
+use vector_lib::finalization::BatchNotifier;
 use vector_lib::sink::VectorSink;
 
 fn connection_string() -> String {
@@ -35,7 +40,9 @@ fn log_table_schema(table_name: &str) -> Vec<String> {
                 message VARCHAR(100),
                 one VARCHAR(80),
                 two VARCHAR(80),
-                UNIQUE(one, two)
+                UNIQUE(one, two),
+                serialized_json_field TEXT,
+                json_field JSONB
             )"#
         ),
         format!("TRUNCATE {table_name}"),
@@ -92,6 +99,14 @@ fn log_schema_config(table_name: &str) -> PostgreSQLSchemaConfig {
                 name: "two".to_owned(),
                 path: ".nested.two".to_owned(),
             },
+            PostgreSQLFieldConfig {
+                name: "serialized_json_field".to_owned(),
+                path: ".serialized_json_field".to_owned(),
+            },
+            PostgreSQLFieldConfig {
+                name: "json_field".to_owned(),
+                path: ".json_field".to_owned(),
+            },
         ],
     }
 }
@@ -121,7 +136,9 @@ fn metric_schema_config(table_name: &str) -> PostgreSQLSchemaConfig {
 }
 
 async fn check_log_events_match(psql_client: &Client, table_name: &str, expected: &Vec<Event>) {
-    let stmt = format!("SELECT event_ts, message, one, two FROM {table_name}");
+    let stmt = format!(
+        "SELECT event_ts, message, one, two, serialized_json_field, json_field FROM {table_name}"
+    );
     let rows = psql_client.query(&stmt, &[]).await.unwrap();
     assert_eq!(rows.len(), expected.len());
 
@@ -148,6 +165,25 @@ async fn check_log_events_match(psql_client: &Client, table_name: &str, expected
             actual.get::<usize, String>(3),
             expected.get(".nested.two").unwrap().as_str().unwrap()
         );
+
+        // Postgres should have coerced the JSON field into a text string for storage
+        let serialized_json_field = actual.get::<usize, String>(4);
+        let expected_serialized_json = serde_json::to_string(&json!(expected
+            .value()
+            .get(".serialized_json_field")
+            .expect(".serialized_json_field should exist in the event")))
+        .expect(".serialized_json_field should be serialized JSON");
+
+        assert_eq!(serialized_json_field, expected_serialized_json);
+
+        // Postgres should return the data as a serde Value to be compared to the `Object` value of `.json_field`
+        let json_field: SerdeValue = actual.get::<usize, SerdeValue>(5);
+        let expected_json_value: SerdeValue = json!(expected
+            .value()
+            .get(".json_field")
+            .expect(".json_field should exist in the event"));
+
+        assert_eq!(json_field, expected_json_value);
     }
 }
 
@@ -187,6 +223,25 @@ async fn log_events() {
         let mut log_event = LogEvent::from(format!("message {idx}"));
         log_event.insert(".nested.one", random_string(80));
         log_event.insert(".nested.two", random_string(80));
+        // Test postgres coercion from JSON to TEXT
+        log_event.insert(
+            ".serialized_json_field",
+            Value::from(btreemap! {
+                "hello" => true,
+                "num" => 123,
+                "nested_object" => {
+                    btreemap! {
+                        "one" => 1
+                    }
+                }
+            }),
+        );
+        log_event.insert(
+            ".json_field",
+            Value::from(btreemap! {
+                "my_key" => "this is a json object",
+            }),
+        );
         Event::Log(log_event)
     };
 
@@ -221,6 +276,24 @@ async fn log_events_skip_on_conflicts() {
         let mut log_event = LogEvent::from(format!("message {idx}"));
         log_event.insert(".nested.one", "a one");
         log_event.insert(".nested.two", "a two");
+        log_event.insert(
+            ".serialized_json_field",
+            Value::from(btreemap! {
+                "hello" => true,
+                "num" => 123,
+                "nested_object" => {
+                    btreemap! {
+                        "one" => 1
+                    }
+                }
+            }),
+        );
+        log_event.insert(
+            ".json_field",
+            Value::from(btreemap! {
+                "my_key" => "this is a json object",
+            }),
+        );
         Event::Log(log_event)
     };
 
@@ -259,6 +332,24 @@ async fn log_events_update_on_conflicts() {
         let mut log_event = LogEvent::from(format!("message {idx}"));
         log_event.insert(".nested.one", "a one");
         log_event.insert(".nested.two", "a two");
+        log_event.insert(
+            ".serialized_json_field",
+            Value::from(btreemap! {
+                "hello" => true,
+                "num" => 123,
+                "nested_object" => {
+                    btreemap! {
+                        "one" => 1
+                    }
+                }
+            }),
+        );
+        log_event.insert(
+            ".json_field",
+            Value::from(btreemap! {
+                "my_key" => "this is a json object",
+            }),
+        );
         Event::Log(log_event)
     };
 
