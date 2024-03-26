@@ -1,3 +1,15 @@
+## [3.13.2](https://github.com/answerbook/vector/compare/v3.13.1...v3.13.2) (2024-03-26)
+
+
+### Chores
+
+* **deps**: Use public dependencies for everything [894ef6a](https://github.com/answerbook/vector/commit/894ef6ad50af8c3811e7fdefe28b9aeb567aef7d) - Darin Spivey [LOG-19548](https://logdna.atlassian.net/browse/LOG-19548)
+
+
+### Miscellaneous
+
+* Merge pull request #435 from answerbook/darinspivey/LOG-19548 [f358607](https://github.com/answerbook/vector/commit/f358607651d7ed77c4549f1dfca6faf405385177) - GitHub [LOG-19548](https://logdna.atlassian.net/browse/LOG-19548)
+
 ## [3.13.1](https://github.com/answerbook/vector/compare/v3.13.0...v3.13.1) (2024-03-26)
 
 
