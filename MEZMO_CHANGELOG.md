@@ -1,3 +1,15 @@
+## [3.13.1](https://github.com/answerbook/vector/compare/v3.13.0...v3.13.1) (2024-03-26)
+
+
+### Bug Fixes
+
+* **classification**: include metadata in event size calculation [5d65d5f](https://github.com/answerbook/vector/commit/5d65d5fbdb85d1f378d15b6a56dbca8fcf138196) - Mike Del Tito [LOG-19550](https://logdna.atlassian.net/browse/LOG-19550)
+
+
+### Miscellaneous
+
+* Merge pull request #434 from answerbook/mdeltito/LOG-19550 [37dc960](https://github.com/answerbook/vector/commit/37dc960670f927f777711b885a0e2f65c0b6ec7d) - GitHub [LOG-19550](https://logdna.atlassian.net/browse/LOG-19550)
+
 # [3.13.0](https://github.com/answerbook/vector/compare/v3.12.1...v3.13.0) (2024-03-25)
 
 
