@@ -446,14 +446,7 @@ fn get_size_and_profile(array: &EventArray) -> UsageProfileValue {
             let mut usage_by_annotation = AnnotationMap::new();
             for log_event in a {
                 if let Some(fields) = log_event.as_map() {
-                    // Account for the value of ".message" and ".meta"
-                    let size = fields
-                        .get(&log_schema().message_key().unwrap().to_string())
-                        .map_or(0, value_size)
-                        + fields
-                            .get(log_schema().user_metadata_key())
-                            .map_or(0, value_size);
-
+                    let size = log_event_size(fields);
                     total_size += size;
 
                     if let Some(annotation_set) = get_annotations(fields) {
@@ -555,6 +548,7 @@ fn get_log_type(fields: &BTreeMap<String, Value>) -> Option<String> {
     Some(log_type.clone())
 }
 
+/// Estimate the byte size of a single [Value]
 pub fn value_size(v: &Value) -> usize {
     match v {
         Value::Bytes(v) => v.len(),
@@ -570,6 +564,17 @@ pub fn value_size(v: &Value) -> usize {
         Value::Array(v) => BASE_ARRAY_SIZE + v.iter().map(value_size).sum::<usize>(),
         Value::Null => 0, // No value, just the type definition
     }
+}
+
+/// Estimate the byte size of all fields within an event, accounting for
+/// both the value of ".message" and ".metadata" top-level fields.
+pub fn log_event_size(event_map: &BTreeMap<String, Value>) -> usize {
+    event_map
+        .get(&log_schema().message_key().unwrap().to_string())
+        .map_or(0, value_size)
+        + event_map
+            .get(log_schema().user_metadata_key())
+            .map_or(0, value_size)
 }
 
 /// Estimate the value of the metric based on the type
