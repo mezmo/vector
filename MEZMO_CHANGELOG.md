@@ -1,3 +1,20 @@
+## [3.13.3](https://github.com/answerbook/vector/compare/v3.13.2...v3.13.3) (2024-03-27)
+
+
+### Chores
+
+* **build**: Use open source vrl fork [347e20f](https://github.com/answerbook/vector/commit/347e20f28b0480c707868f3cc8713b7e7d534ade) - Dan Hable [LOG-19155](https://logdna.atlassian.net/browse/LOG-19155)
+
+
+### Miscellaneous
+
+* Merge pull request #6 from mezmo/darinspivey/answerbook_sync [bd66904](https://github.com/answerbook/vector/commit/bd66904d93efc261909215b5c3141cf21540fcf4) - GitHub
+* Merge remote-tracking branch 'answerbook/master' into darinspivey/answerbook_sync [98280d6](https://github.com/answerbook/vector/commit/98280d69bfc94fd4e1261841e7eeaca13df1a2e2) - Darin Spivey
+* Merge pull request #5 from mezmo/holmberg/LOG-19506 [35fed6f](https://github.com/answerbook/vector/commit/35fed6fd25638e558f15404fa75b1a818caa6247) - GitHub [LOG-19506](https://logdna.atlassian.net/browse/LOG-19506)
+* Merge pull request #3 from mezmo/edge1 [a049b0c](https://github.com/answerbook/vector/commit/a049b0c62ba1705b958fb56d45abc3c1b970d0a3) - GitHub
+* Merge branch 'master' into edge1 [596ba22](https://github.com/answerbook/vector/commit/596ba22be5bf186e88ea8e1798d1b6587dec8ebe) - GitHub
+* Merge pull request #2 from mezmo/dhable/LOG-19155 [7ddc8c2](https://github.com/answerbook/vector/commit/7ddc8c2f5fb8c29a10610522d533b36ac27e7087) - GitHub [LOG-19155](https://logdna.atlassian.net/browse/LOG-19155)
+
 ## [3.13.2](https://github.com/answerbook/vector/compare/v3.13.1...v3.13.2) (2024-03-26)
 
 
