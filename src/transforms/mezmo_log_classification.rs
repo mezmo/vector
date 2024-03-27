@@ -10,7 +10,7 @@ use futures::StreamExt;
 use vector_lib::{
     config::{log_schema, TransformOutput},
     configurable::configurable_component,
-    usage_metrics::value_size,
+    usage_metrics::log_event_size,
 };
 
 use vrl::value::Value;
@@ -287,15 +287,18 @@ impl LogClassification {
     fn transform_one(&mut self, mut event: Event) -> Option<Event> {
         let log = event.as_mut_log();
 
-        if let Some(message) = log.get(log_schema().message_key_target_path().unwrap()) {
-            let mut message_key = log_schema().message_key().unwrap().to_string();
-            let mut matches = Vec::new();
-
-            let mut message_size = value_size(message) as i64;
+        let mut message_size: i64 = 0;
+        if let Some(fields) = log.as_map() {
+            message_size = log_event_size(fields) as i64;
             if message_size.is_negative() {
                 warn!("total_bytes for message exceeded i64 limit, using i64::MAX instead");
                 message_size = i64::MAX;
             }
+        }
+
+        if let Some(message) = log.get(log_schema().message_key_target_path().unwrap()) {
+            let mut message_key = log_schema().message_key().unwrap().to_string();
+            let mut matches = Vec::new();
 
             // For object messages, look for a valid string field from `line_fields` in order.
             // Otherwise just look for matches in the message string. If none are found,
@@ -386,25 +389,22 @@ mod tests {
         line_field: Option<String>,
         matches: Vec<String>,
     ) -> Value {
-        let mut annotations = BTreeMap::new();
-
-        let msg_path = log_schema().message_key_target_path().unwrap();
-        let msg_key = log_schema().message_key().unwrap().to_string();
-        let message = input_event
-            .as_log()
-            .get(msg_path)
-            .expect("message always exists in the presence of annotations");
-
+        let message_key = log_schema().message_key().unwrap().to_string();
         let message_key = match line_field {
-            Some(line_field) => format!("{msg_key}{line_field}"),
-            None => msg_key,
+            Some(line_field) => format!("{message_key}{line_field}"),
+            None => message_key,
         };
+        let event_fields = input_event
+            .as_log()
+            .as_map()
+            .expect("event always has fields under test");
 
+        let mut annotations = BTreeMap::new();
         annotations.insert("message_key".to_string(), Value::Bytes(message_key.into()));
         annotations.insert("classification".to_string(), Value::Object(btreemap!(
             "event_count" => Value::Integer(1),
             "event_types" => Value::Object(matches.into_iter().map(|m| (m, Value::Integer(1))).collect()),
-            "total_bytes" => Value::Integer(value_size(message) as i64),
+            "total_bytes" => Value::Integer(log_event_size(event_fields) as i64),
         )));
         Value::Object(annotations)
     }
@@ -748,6 +748,59 @@ mod tests {
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
             Some(&annotations)
+        );
+    }
+
+    #[tokio::test]
+    async fn event_with_string_message_and_metadata_includes_metadata_size() {
+        let line = r#"this is the unclassifyable line"#;
+        let message_key = "message".to_string();
+        let metadata_key = "metadata".to_string();
+        let config = LogClassificationConfig {
+            line_fields: None,
+            grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
+        };
+
+        let without_metadata = do_transform(
+            config.clone(),
+            Event::Log(LogEvent::from(Value::Object(btreemap!(
+                message_key.clone() => Value::Bytes(line.into())
+            ))))
+            .into(),
+        )
+        .await
+        .unwrap();
+
+        let with_metadata = do_transform(
+            config,
+            Event::Log(LogEvent::from(Value::Object(btreemap!(
+                message_key.clone() => Value::Bytes(line.into()),
+                metadata_key => Value::Object(btreemap!(
+                    "foo" => Value::Bytes("bar".into()),
+                    "baz" => Value::Bytes("qux".into()),
+                ))
+            ))))
+            .into(),
+        )
+        .await
+        .unwrap();
+
+        let bytes_path = annotation_path(vec!["classification", "total_bytes"]);
+        assert!(without_metadata != with_metadata, "not equal");
+        assert!(
+            with_metadata
+                .as_log()
+                .get(bytes_path.as_str())
+                .unwrap()
+                .as_integer()
+                > without_metadata
+                    .as_log()
+                    .get(bytes_path.as_str())
+                    .unwrap()
+                    .as_integer()
         );
     }
 }

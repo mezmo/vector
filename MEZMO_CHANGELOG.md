@@ -1,3 +1,56 @@
+## [3.13.2](https://github.com/answerbook/vector/compare/v3.13.1...v3.13.2) (2024-03-26)
+
+
+### Chores
+
+* **deps**: Use public dependencies for everything [894ef6a](https://github.com/answerbook/vector/commit/894ef6ad50af8c3811e7fdefe28b9aeb567aef7d) - Darin Spivey [LOG-19548](https://logdna.atlassian.net/browse/LOG-19548)
+
+
+### Miscellaneous
+
+* Merge pull request #435 from answerbook/darinspivey/LOG-19548 [f358607](https://github.com/answerbook/vector/commit/f358607651d7ed77c4549f1dfca6faf405385177) - GitHub [LOG-19548](https://logdna.atlassian.net/browse/LOG-19548)
+
+## [3.13.1](https://github.com/answerbook/vector/compare/v3.13.0...v3.13.1) (2024-03-26)
+
+
+### Bug Fixes
+
+* **classification**: include metadata in event size calculation [5d65d5f](https://github.com/answerbook/vector/commit/5d65d5fbdb85d1f378d15b6a56dbca8fcf138196) - Mike Del Tito [LOG-19550](https://logdna.atlassian.net/browse/LOG-19550)
+
+
+### Miscellaneous
+
+* Merge pull request #434 from answerbook/mdeltito/LOG-19550 [37dc960](https://github.com/answerbook/vector/commit/37dc960670f927f777711b885a0e2f65c0b6ec7d) - GitHub [LOG-19550](https://logdna.atlassian.net/browse/LOG-19550)
+
+# [3.13.0](https://github.com/answerbook/vector/compare/v3.12.1...v3.13.0) (2024-03-25)
+
+
+### Bug Fixes
+
+* **postgresql**: Account for storage of `Value::Object` [6d1f32a](https://github.com/answerbook/vector/commit/6d1f32a111eb17cf814133e9dd049d7cff55c501) - Darin Spivey [LOG-19497](https://logdna.atlassian.net/browse/LOG-19497)
+
+
+### Features
+
+* **mezmo**: `user_log` acceps optional `captured_data` parameter [e623edd](https://github.com/answerbook/vector/commit/e623edd26d5b1a24210b32644835bf3da603f1bc) - Darin Spivey [LOG-19497](https://logdna.atlassian.net/browse/LOG-19497)
+
+
+### Miscellaneous
+
+* Merge pull request #433 from answerbook/feature/LOG-19497 [f122d43](https://github.com/answerbook/vector/commit/f122d4371f5bb6a37d680c8d29e38a8b0bd094ee) - GitHub [LOG-19497](https://logdna.atlassian.net/browse/LOG-19497)
+
+## [3.12.1](https://github.com/answerbook/vector/compare/v3.12.0...v3.12.1) (2024-03-19)
+
+
+### Bug Fixes
+
+* **profiling**: only track profiling annotations from classification [c3106a9](https://github.com/answerbook/vector/commit/c3106a903c40ac61a957c97dae67ae092473b51a) - Mike Del Tito [LOG-19502](https://logdna.atlassian.net/browse/LOG-19502)
+
+
+### Miscellaneous
+
+* Merge pull request #431 from answerbook/mdeltito/LOG-19502 [c267715](https://github.com/answerbook/vector/commit/c26771560d8e56d2c6472023a7804f4c87d9befc) - GitHub [LOG-19502](https://logdna.atlassian.net/browse/LOG-19502)
+
 # [3.12.0](https://github.com/answerbook/vector/compare/v3.11.1...v3.12.0) (2024-03-13)
 
 

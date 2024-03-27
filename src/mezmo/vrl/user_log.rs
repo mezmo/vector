@@ -30,6 +30,11 @@ impl Function for UserLog {
                 kind: kind::INTEGER,
                 required: false,
             },
+            Parameter {
+                keyword: "captured_data",
+                kind: kind::ANY,
+                required: false,
+            },
         ]
     }
 
@@ -37,12 +42,22 @@ impl Function for UserLog {
         &[
             Example {
                 title: "default log level (info)",
-                source: r#"user_log("foo")"#,
+                source: r#"user_log("some information")"#,
                 result: Ok("null"),
             },
             Example {
                 title: "custom level",
-                source: r#"user_log("foo", "error")"#,
+                source: r#"user_log("foo bombed", level: "error")"#,
+                result: Ok("null"),
+            },
+            Example {
+                title: "custom rate limiting with warning",
+                source: r#"user_log("be careful", level: "warn", rate_limit_secs: 10)"#,
+                result: Ok("null"),
+            },
+            Example {
+                title: "with captured_data that caused the error",
+                source: r#"user_log("something failed", level: "error", captured_data: .some_field)"#,
                 result: Ok("null"),
             },
         ]
@@ -63,6 +78,7 @@ impl Function for UserLog {
             .try_bytes()
             .expect("log level not bytes");
         let rate_limit_secs = arguments.optional("rate_limit_secs");
+        let captured_data = arguments.optional("captured_data");
         let vrl_position = ctx.span().start();
 
         Ok(UserLogFn {
@@ -70,6 +86,7 @@ impl Function for UserLog {
             value,
             level,
             rate_limit_secs,
+            captured_data,
             vrl_position,
         }
         .as_expr())
@@ -82,6 +99,7 @@ struct UserLogFn {
     value: Box<dyn Expression>,
     level: Bytes,
     rate_limit_secs: Option<Box<dyn Expression>>,
+    captured_data: Option<Box<dyn Expression>>,
     vrl_position: usize,
 }
 
@@ -93,19 +111,57 @@ impl FunctionExpression for UserLogFn {
             Some(expr) => u64::try_from(expr.resolve(ctx)?.try_integer()?).ok(),
             None => None,
         };
+        // To preserve data types of the `captured data``, AND to ensure data type consistency
+        // with the DB that stores this data, make `captured_data` into a `Object::Value` always.
+        // Then, we can expect the DB column to be `JSONB`.
+        let captured_data = match &self.captured_data {
+            Some(expr) => Some(Value::from(btreemap! {
+                "captured_data" => expr.resolve(ctx)?
+            })),
+            None => None,
+        };
+
         let vrl_position = Some(self.vrl_position);
         match self.level.as_ref() {
             b"debug" => {
-                user_log!("debug", mezmo_ctx, value, rate_limit_secs, vrl_position);
+                user_log!(
+                    "debug",
+                    mezmo_ctx,
+                    value,
+                    rate_limit_secs,
+                    captured_data,
+                    vrl_position
+                );
             }
             b"warn" => {
-                user_log!("warn", mezmo_ctx, value, rate_limit_secs, vrl_position);
+                user_log!(
+                    "warn",
+                    mezmo_ctx,
+                    value,
+                    rate_limit_secs,
+                    captured_data,
+                    vrl_position
+                );
             }
             b"error" => {
-                user_log!("error", mezmo_ctx, value, rate_limit_secs, vrl_position);
+                user_log!(
+                    "error",
+                    mezmo_ctx,
+                    value,
+                    rate_limit_secs,
+                    captured_data,
+                    vrl_position
+                );
             }
             _ => {
-                user_log!("info", mezmo_ctx, value, rate_limit_secs, vrl_position);
+                user_log!(
+                    "info",
+                    mezmo_ctx,
+                    value,
+                    rate_limit_secs,
+                    captured_data,
+                    vrl_position
+                );
             }
         }
         Ok(Value::Null)
