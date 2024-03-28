@@ -1,4 +1,3 @@
-use chrono::{NaiveDateTime, TimeZone, Utc};
 use smallvec::SmallVec;
 use std::borrow::Cow;
 
@@ -24,9 +23,12 @@ use vector_core::{
     },
 };
 
-use crate::decoding::format::mezmo::open_telemetry::{DeserializerError, OpenTelemetryKeyValue};
+use vector_common::btreemap;
 
-const NANO_RATIO: i64 = 1_000_000_000;
+use crate::decoding::format::mezmo::open_telemetry::{
+    nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
+};
+
 const METRIC_TIMESTAMP_KEY: &str = "message.value.value.time_unix_nano";
 
 #[derive(Debug, Default, PartialEq)]
@@ -772,36 +774,32 @@ impl IntoValue for ScopeMetricValue<'_> {
             attributes: self.attributes.as_ref().unwrap().clone(),
         };
 
-        let name = self.name.as_ref().unwrap().to_string();
-        let version = self.version.as_ref().unwrap().to_string();
+        let name = if let Some(name) = self.name.as_ref() {
+            if !name.to_string().is_empty() {
+                Value::from(name.to_string())
+            } else {
+                Value::Null
+            }
+        } else {
+            Value::Null
+        };
 
-        Value::Object(
-            [
-                (
-                    "name".to_owned(),
-                    if !name.is_empty() {
-                        name.into()
-                    } else {
-                        Value::Null
-                    },
-                ),
-                (
-                    "version".to_owned(),
-                    if !version.is_empty() {
-                        version.into()
-                    } else {
-                        Value::Null
-                    },
-                ),
-                ("attributes".to_owned(), attributes.to_value()),
-                (
-                    "dropped_attributes_count".to_owned(),
-                    self.dropped_attributes_count.into(),
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        )
+        let version = if let Some(version) = self.version.as_ref() {
+            if !version.to_string().is_empty() {
+                Value::from(version.to_string())
+            } else {
+                Value::Null
+            }
+        } else {
+            Value::Null
+        };
+
+        Value::Object(btreemap! {
+            "name" => name,
+            "version" => version,
+            "attributes" => attributes.to_value(),
+            "dropped_attributes_count" => self.dropped_attributes_count,
+        })
     }
 }
 
@@ -832,17 +830,10 @@ impl<'a> ResourceMetricValue<'a> {
 
 impl IntoValue for ResourceMetricValue<'_> {
     fn to_value(&self) -> Value {
-        Value::Object(
-            [
-                ("attributes".into(), self.attributes.to_value()),
-                (
-                    "dropped_attributes_count".into(),
-                    self.dropped_attributes_count.into(),
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        )
+        Value::Object(btreemap! {
+            "attributes" => self.attributes.to_value(),
+            "dropped_attributes_count" => self.dropped_attributes_count,
+        })
     }
 }
 
@@ -857,14 +848,10 @@ impl IntoValue for QuantileValuesMetricValue {
             self.quantile_values
                 .iter()
                 .map(|quantile_value| {
-                    Value::Object(
-                        [
-                            ("quantile".into(), from_f64_or_zero(quantile_value.quantile)),
-                            ("value".into(), from_f64_or_zero(quantile_value.value)),
-                        ]
-                        .into_iter()
-                        .collect(),
-                    )
+                    Value::Object(btreemap! {
+                        "quantile" => from_f64_or_zero(quantile_value.quantile),
+                        "value" => from_f64_or_zero(quantile_value.value),
+                    })
                 })
                 .collect(),
         )
@@ -892,23 +879,13 @@ impl IntoValue for ExemplarsMetricValue<'_> {
                         attributes: exemplar.filtered_attributes.clone(),
                     };
 
-                    Value::Object(
-                        [
-                            ("filtered_attributes".into(), filtered_attributes.to_value()),
-                            ("value".into(), exemplar_value),
-                            ("time_unix_nano".into(), exemplar.time_unix_nano.into()),
-                            (
-                                "span_id".into(),
-                                Value::from(faster_hex::hex_string(&exemplar.span_id)),
-                            ),
-                            (
-                                "trace_id".into(),
-                                Value::from(faster_hex::hex_string(&exemplar.trace_id)),
-                            ),
-                        ]
-                        .into_iter()
-                        .collect(),
-                    )
+                    Value::Object(btreemap! {
+                        "filtered_attributes" => filtered_attributes.to_value(),
+                        "value" => exemplar_value,
+                        "time_unix_nano" => exemplar.time_unix_nano,
+                        "span_id" => faster_hex::hex_string(&exemplar.span_id),
+                        "trace_id" => faster_hex::hex_string(&exemplar.trace_id),
+                    })
                 })
                 .collect(),
         )
@@ -938,22 +915,15 @@ impl DataPointBucketsMetricValue {
 
 impl IntoValue for DataPointBucketsMetricValue {
     fn to_value(&self) -> Value {
-        Value::Object(
-            [
-                ("offset".to_owned(), self.offset.into()),
-                (
-                    "bucket_counts".to_owned(),
-                    Value::Array(
-                        self.bucket_counts
-                            .iter()
-                            .map(|count| Value::from(*count))
-                            .collect(),
-                    ),
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        )
+        Value::Object(btreemap! {
+            "offset" => self.offset,
+            "bucket_counts" => Value::Array(
+                self.bucket_counts
+                    .iter()
+                    .map(|count| Value::from(*count))
+                    .collect(),
+            ),
+        })
     }
 }
 
@@ -1201,17 +1171,11 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 fn make_event(mut log_event: LogEvent) -> Event {
     if let Some(timestamp_key) = log_schema().timestamp_key() {
         let metric_timestamp_target = (lookup::PathPrefix::Event, METRIC_TIMESTAMP_KEY);
-        let timestamp = match log_event.get(metric_timestamp_target) {
-            Some(ts) => {
-                let ts = ts.as_integer().unwrap();
-                let ms: i64 = ts / NANO_RATIO;
-                let nanos: u32 = (ts % NANO_RATIO) as u32;
-                Utc.from_utc_datetime(
-                    &NaiveDateTime::from_timestamp_opt(ms, nanos)
-                        .expect("timestamp should be a valid timestamp"),
-                )
-            }
-            None => Utc::now(),
+
+        let timestamp = if let Some(Value::Integer(time)) = log_event.get(metric_timestamp_target) {
+            nano_to_timestamp(time.to_owned().try_into().unwrap_or(0))
+        } else {
+            nano_to_timestamp(0)
         };
 
         log_event.insert((lookup::PathPrefix::Event, timestamp_key), timestamp);
