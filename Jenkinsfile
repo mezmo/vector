@@ -3,25 +3,20 @@ library 'magic-butler-catalogue'
 def WORKSPACE_PATH = "/tmp/workspace/${env.BUILD_TAG.replace('%2F', '/')}"
 def DEFAULT_BRANCH = "master"
 def PROJECT_NAME = "vector"
-def CURRENT_BRANCH = [env.CHANGE_BRANCH, env.BRANCH_NAME]?.find{branch -> branch != null}
-
-def slugify(str) {
-  def s = str.toLowerCase()
-  s = s.replaceAll(/[^a-z0-9\s-\/]/, "").replaceAll(/\s+/, " ").trim()
-  s = s.replaceAll(/[\/\s]/, '-').replaceAll(/-{2,}/, '-')
-  s
-}
+def CURRENT_BRANCH = currentBranch()
+def DOCKER_REPO = "docker.io/mezmohq"
 
 def CREDS = [
   string(
     credentialsId: 'github-api-token',
     variable: 'GITHUB_TOKEN'
   ),
-  aws(credentialsId: 'aws',
+  aws(
+    credentialsId: 'aws',
     accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'),
+    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+  ),
 ]
-
 def NPMRC = [
     configFile(fileId: 'npmrc', variable: 'NPM_CONFIG_USERCONFIG')
 ]
@@ -71,22 +66,23 @@ pipeline {
     }
   }
   stages {
-    stage('Setup') {
+    stage('Validate PR Author') {
+      when {
+        expression { env.CHANGE_FORK }
+        not {
+          triggeredBy 'issueCommentCause'
+        }
+      }
       steps {
-        sh 'make release-tool'
+        error("A maintainer needs to approve this PR for CI by commenting")
       }
     }
-    stage('Check'){
-      steps {
-        sh """
-          make check ENVIRONMENT=true
-          make check-fmt ENVIRONMENT=true
-        """
-      }
-    }
+
+
+
     stage('Lint and test release'){
       tools {
-        nodejs 'NodeJS 16'
+        nodejs 'NodeJS 20'
       }
       environment {
         GIT_BRANCH = "${CURRENT_BRANCH}"
@@ -97,15 +93,27 @@ pipeline {
       steps {
         script {
           configFileProvider(NPMRC) {
-            sh 'npm ci'
+            sh 'npm ci --ignore-scripts'
+            sh 'npm run commitlint'
             sh 'npm run release:dry'
           }
         }
-        sh './release-tool lint'
-        sh './release-tool test'
       }
     }
-    stage('Lint and Test'){
+
+    stage('vdev Check'){
+      when {
+        changeRequest() // Only do this during PRs. It's about a 15-min wait.
+      }
+      steps {
+        sh """
+          make check ENVIRONMENT=true
+          make check-fmt ENVIRONMENT=true
+        """
+      }
+    }
+
+    stage('Code'){
       parallel {
         stage('Lint'){
           steps {
@@ -115,7 +123,10 @@ pipeline {
             """
           }
         }
-        stage('Deny'){
+        stage('Check Deny'){
+          when {
+            changeRequest() // PRs only to speed up dev flows. These can be fixed then if they're actionable.
+          }
           steps {
             catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
               sh """
@@ -142,12 +153,14 @@ pipeline {
               , push: false
               , tags: [slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")]
               , dockerfile: "distribution/docker/mezmo/Dockerfile"
+              , docker_repo: DOCKER_REPO
               )
             }
           }
         }
       }
     }
+
     stage('Feature build and publish') {
       when {
         expression {
@@ -156,19 +169,18 @@ pipeline {
       }
       steps {
         script {
-          def tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
+          def feature_tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
           buildx.build(
             project: PROJECT_NAME
           , push: true
-          , tags: [tag]
+          , tags: [feature_tag]
           , dockerfile: "distribution/docker/mezmo/Dockerfile"
+          , docker_repo: DOCKER_REPO
           )
         }
-        sh './release-tool clean'
-        sh './release-tool build'
-        sh './release-tool publish'
       }
     }
+
     stage('Release and publish') {
       when {
         branch DEFAULT_BRANCH
@@ -177,30 +189,27 @@ pipeline {
         }
       }
       tools {
-        nodejs 'NodeJS 16'
+        nodejs 'NodeJS 20'
       }
       steps {
         script {
+          def version_before = npm.semver().version
           configFileProvider(NPMRC) {
             sh 'npm ci'
             sh 'npm run release'
           }
 
-          def tag = sh (
-            script: "./release-tool debug-RELEASE_VERSION",
-            returnStdout: true
-          ).split(' = ')[1].trim()
-
-          buildx.build(
-            project: PROJECT_NAME
-          , push: true
-          , tags: [tag]
-          , dockerfile: "distribution/docker/mezmo/Dockerfile"
-          )
+          def semver = npm.semver()
+          if (version_before != semver.version) {
+            buildx.build(
+              project: PROJECT_NAME
+            , push: true
+            , tags: [semver.version]
+            , dockerfile: "distribution/docker/mezmo/Dockerfile"
+            , docker_repo: DOCKER_REPO
+            )
+          }
         }
-        sh './release-tool clean'
-        sh './release-tool build'
-        sh './release-tool publish'
       }
     }
   }
