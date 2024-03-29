@@ -12,6 +12,8 @@ def slugify(str) {
   s
 }
 
+def BRANCH_BUILD = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
+
 def CREDS = [
   string(
     credentialsId: 'github-api-token',
@@ -53,22 +55,7 @@ pipeline {
     ENVIRONMENT_AUTOBUILD = 'false'
     ENVIRONMENT_TTY = 'false'
     CI = 'true'
-  }
-  post {
-    always {
-      script {
-        if (env.SANITY_BUILD == 'true') {
-          notifySlack(
-            currentBuild.currentResult,
-            [
-              channel: '#pipeline-bots',
-              tokenCredentialId: 'qa-slack-token'
-            ],
-            "`${PROJECT_NAME}` sanity build took ${currentBuild.durationString.replaceFirst(' and counting', '')}."
-          )
-        }
-      }
-    }
+    VECTOR_TARGET = "${BRANCH_BUILD}"
   }
   stages {
     stage('Setup') {
@@ -77,6 +64,8 @@ pipeline {
       }
     }
     stage('Check'){
+      // Important: do this step serially since it'll be the one to prepare the testing container
+      // and install the rust toolchain in it. Volume mounts are created here, too.
       steps {
         sh """
           make check ENVIRONMENT=true
@@ -105,7 +94,8 @@ pipeline {
         sh './release-tool test'
       }
     }
-    stage('Lint and Test'){
+    stage('Lint and Test') {
+      // All `make ENVIRONMENT=true` steps should now use the existing container
       parallel {
         stage('Lint'){
           steps {
@@ -140,7 +130,7 @@ pipeline {
               buildx.build(
                 project: PROJECT_NAME
               , push: false
-              , tags: [slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")]
+              , tags: [BRANCH_BUILD]
               , dockerfile: "distribution/docker/mezmo/Dockerfile"
               )
             }
@@ -201,6 +191,26 @@ pipeline {
         sh './release-tool clean'
         sh './release-tool build'
         sh './release-tool publish'
+      }
+    }
+  }
+  post {
+    always {
+      // Clear disk space by removing the `target` volume mount where the binaries are stored.
+      // The volume is unique to the current build, so there should be no "in use" errors.
+      sh 'make target-clean'
+
+      script {
+        if (env.SANITY_BUILD == 'true') {
+          notifySlack(
+            currentBuild.currentResult,
+            [
+              channel: '#pipeline-bots',
+              tokenCredentialId: 'qa-slack-token'
+            ],
+            "`${PROJECT_NAME}` sanity build took ${currentBuild.durationString.replaceFirst(' and counting', '')}."
+          )
+        }
       }
     }
   }
