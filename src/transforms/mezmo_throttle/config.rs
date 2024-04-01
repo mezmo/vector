@@ -1,5 +1,15 @@
 use super::*;
 
+use crate::{
+    config::{DataType, Input, TransformConfig},
+    schema,
+    template::Template,
+    transforms::Transform,
+};
+use serde_with::serde_as;
+use vector_lib::config::{clone_input_definitions, LogNamespace, OutputId, TransformOutput};
+use vector_lib::configurable::configurable_component;
+
 /// Configuration for the `mezmo_throttle` transform.
 #[serde_as]
 #[configurable_component(transform(
@@ -16,7 +26,7 @@ pub struct MezmoThrottleConfig {
 
     /// The time window in which the configured `threshold` is applied, in milliseconds.
     #[configurable(metadata(docs::human_name = "Time Window"))]
-    pub(super) window_ms: i64,
+    pub(super) window_ms: u64,
 
     /// The value to group events into separate buckets to be rate limited independently.
     ///
@@ -27,6 +37,33 @@ pub struct MezmoThrottleConfig {
 
     /// A logical condition used to exclude events from sampling.
     pub(super) exclude: Option<AnyCondition>,
+
+    /// Sets the base path for the persistence connection.
+    /// NOTE: Leaving this value empty will disable state persistence.
+    #[serde(default = "default_state_persistence_base_path")]
+    pub(super) state_persistence_base_path: Option<String>,
+
+    /// Set how often the state of this transform will be persisted to the [PersistenceConnection]
+    /// storage backend.
+    #[serde(default = "default_state_persistence_tick_ms")]
+    pub(super) state_persistence_tick_ms: u64,
+
+    /// The maximum amount of jitter (ms) to add to the `state_persistence_tick_ms`
+    /// flush interval.
+    #[serde(default = "default_state_persistence_max_jitter_ms")]
+    pub(super) state_persistence_max_jitter_ms: u64,
+}
+
+const fn default_state_persistence_base_path() -> Option<String> {
+    None
+}
+
+const fn default_state_persistence_tick_ms() -> u64 {
+    30000
+}
+
+const fn default_state_persistence_max_jitter_ms() -> u64 {
+    750
 }
 
 impl_generate_config_from_default!(MezmoThrottleConfig);
@@ -35,7 +72,7 @@ impl_generate_config_from_default!(MezmoThrottleConfig);
 #[typetag::serde(name = "mezmo_throttle")]
 impl TransformConfig for MezmoThrottleConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
-        Throttle::new(self, context, ThrottleClock {}).map(Transform::event_task)
+        Throttle::new(self, context, ThrottleClock::new()).map(Transform::event_task)
     }
 
     fn input(&self) -> Input {
