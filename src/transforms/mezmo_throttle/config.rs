@@ -9,15 +9,14 @@ use super::*;
 #[derive(Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct MezmoThrottleConfig {
-    /// The number of events allowed for a given bucket per configured `window_secs`.
+    /// The number of events allowed for a given bucket per configured `window_ms`.
     ///
     /// Each unique key has its own `threshold`.
     pub(super) threshold: u32,
 
-    /// The time window in which the configured `threshold` is applied, in seconds.
-    #[serde_as(as = "serde_with::DurationSecondsWithFrac<f64>")]
+    /// The time window in which the configured `threshold` is applied, in milliseconds.
     #[configurable(metadata(docs::human_name = "Time Window"))]
-    pub(super) window_secs: Duration,
+    pub(super) window_ms: i64,
 
     /// The value to group events into separate buckets to be rate limited independently.
     ///

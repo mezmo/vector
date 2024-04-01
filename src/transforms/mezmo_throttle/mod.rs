@@ -4,7 +4,6 @@ use futures::{Stream, StreamExt};
 use serde_with::serde_as;
 use snafu::Snafu;
 use std::collections::{HashMap, VecDeque};
-use std::time::Duration;
 use std::{num::NonZeroU32, pin::Pin};
 use vector_lib::config::{clone_input_definitions, LogNamespace, OutputId, TransformOutput};
 use vector_lib::configurable::configurable_component;
@@ -104,7 +103,7 @@ where
 
         Ok(Self {
             keys: Default::default(),
-            window_ms: config.window_secs.as_millis() as i64,
+            window_ms: config.window_ms,
             key_field: config.key_field.clone(),
             threshold,
             exclude,
@@ -188,7 +187,7 @@ where
 
 #[derive(Debug, Snafu)]
 pub enum ConfigError {
-    #[snafu(display("`threshold`, and `window_secs` must be non-zero"))]
+    #[snafu(display("`threshold`, and `window_ms` must be non-zero"))]
     NonZero,
 }
 
@@ -234,7 +233,7 @@ mod tests {
         let config = toml::from_str::<MezmoThrottleConfig>(
             r#"
     threshold = 2
-    window_secs = 0.005
+    window_ms = 5
     "#,
         )
         .unwrap();
@@ -297,7 +296,7 @@ mod tests {
         let config = toml::from_str::<MezmoThrottleConfig>(
             r#"
 threshold = 2
-window_secs = 0.005
+window_ms = 5
 exclude = """
 exists(.special)
 """
@@ -372,7 +371,7 @@ exists(.special)
         let config = toml::from_str::<MezmoThrottleConfig>(
             r#"
     threshold = 1
-    window_secs = 0.005
+    window_ms = 5
     key_field = "{{ bucket }}"
     "#,
         )
@@ -422,7 +421,7 @@ exists(.special)
         assert_transform_compliance(async move {
             let config = MezmoThrottleConfig {
                 threshold: 1,
-                window_secs: Duration::from_secs_f64(1.0),
+                window_ms: 1000,
                 key_field: None,
                 exclude: None,
             };
