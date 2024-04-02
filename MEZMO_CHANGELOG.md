@@ -1,3 +1,21 @@
+# [3.14.0](https://github.com/answerbook/vector/compare/v3.13.3...v3.14.0) (2024-04-02)
+
+
+### Bug Fixes
+
+* **throttle**: use ms for window config [f898c1f](https://github.com/answerbook/vector/commit/f898c1ff8b873a63937e061d722a9499cd8da9b4) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+
+
+### Features
+
+* **throttle**: add state persistence [ad882f2](https://github.com/answerbook/vector/commit/ad882f26c0f88b660b75b6be9f9c443fac554620) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+* **throttle**: reimplement throttle transform with basic rate limiting [066cac3](https://github.com/answerbook/vector/commit/066cac3957882804c6174f11924e1b2ea4a0b91f) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+
+
+### Miscellaneous
+
+* Merge pull request #438 from answerbook/mdeltito/LOG-19565 [f8854d6](https://github.com/answerbook/vector/commit/f8854d6c07b4cc173531acb70ced6a2aea424b17) - GitHub [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+
 ## [3.13.3](https://github.com/answerbook/vector/compare/v3.13.2...v3.13.3) (2024-03-27)
 
 
