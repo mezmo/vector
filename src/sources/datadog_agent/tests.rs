@@ -25,7 +25,7 @@ use vector_lib::{
     metric_tags,
 };
 use vrl::compiler::value::Collection;
-use vrl::value::Kind;
+use vrl::value::{Kind, ObjectMap};
 
 use crate::schema::Definition;
 use crate::{
@@ -1250,12 +1250,8 @@ async fn decode_traces() {
 
             assert_eq!(
                 trace_v2.as_map()["tags"],
-                Value::Object(BTreeMap::from_iter(
-                    [
-                        ("a".to_string(), "tag".into()),
-                        ("another".to_string(), "tag".into())
-                    ]
-                    .into_iter()
+                Value::Object(ObjectMap::from_iter(
+                    [("a".into(), "tag".into()), ("another".into(), "tag".into())].into_iter()
                 ))
             );
 
@@ -1873,6 +1869,7 @@ fn test_config_outputs() {
             disable_metrics: false,
             disable_traces: false,
             log_namespace: Some(false),
+            keepalive: Default::default(),
         };
 
         let mut outputs = config

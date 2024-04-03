@@ -1094,6 +1094,7 @@ fn json_config(bucket: &str, batch_size: usize) -> S3SinkConfig {
         auth: Default::default(),
         acknowledgements: Default::default(),
         file_consolidation_config: Default::default(),
+        timezone: Default::default(),
     }
 }
 

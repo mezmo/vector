@@ -192,7 +192,7 @@ impl Transformer {
                 let mut new_log = LogEvent::from(old_value);
                 if let Some(service) = new_log.remove(service_path) {
                     log.metadata_mut()
-                        .add_dropped_field(meaning::SERVICE.to_string(), service);
+                        .add_dropped_field(meaning::SERVICE.into(), service);
                 }
             }
         }
@@ -213,7 +213,7 @@ impl Transformer {
                 if let (Some(v), Some(service_path)) = (value, service_path) {
                     if service_path.path == *value_path {
                         log.metadata_mut()
-                            .add_dropped_field(meaning::SERVICE.to_string(), v);
+                            .add_dropped_field(meaning::SERVICE.into(), v);
                     }
                 }
             }

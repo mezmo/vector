@@ -150,7 +150,7 @@ impl FunctionTransform for ProtobufToMetric {
                 {
                     if let Some(user_meta_obj) = metadata.as_object() {
                         for entry in user_meta_obj.iter() {
-                            user_metadata.insert(entry.0.to_string(), entry.1.clone());
+                            user_metadata.insert(entry.0.clone(), entry.1.clone());
                         }
                     }
                 }
@@ -168,7 +168,7 @@ impl FunctionTransform for ProtobufToMetric {
                 {
                     if let Some(meta_obj) = metadata.as_object() {
                         for entry in meta_obj.iter() {
-                            internal_metadata.insert(entry.0.to_string(), entry.1.clone());
+                            internal_metadata.insert(entry.0.clone(), entry.1.clone());
                         }
                     }
                 }
@@ -201,7 +201,7 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
-    use vector_lib::event::Value;
+    use vector_lib::event::{KeyString, Value};
 
     use crate::event::{Event, LogEvent};
     use crate::test_util::components::assert_transform_compliance;
@@ -217,7 +217,7 @@ mod tests {
     }
 
     fn log_event_from_bytes(msg: &[u8], metadata: &Value) -> LogEvent {
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         event_map.insert("message".into(), msg.into());
         event_map.insert("timestamp".into(), ts().into());
         event_map.insert("metadata".into(), metadata.clone());
@@ -252,11 +252,11 @@ mod tests {
         let metrics: &[u8] = b"\n\xd8\x18\n\x8f\x02\nR\n\x0ccontainer.id\x12B\n@e59af7f60d91b041aab241389682f45868d4198b456fc95060e9b48eb574f6fe\n\x1d\n\x0cservice.name\x12\r\n\x0bcartservice\n)\n\x11service.namespace\x12\x14\n\x12opentelemetry-demo\n%\n\x12telemetry.sdk.name\x12\x0f\n\ropentelemetry\n\"\n\x16telemetry.sdk.language\x12\x08\n\x06dotnet\n$\n\x15telemetry.sdk.version\x12\x0b\n\t1.4.0.788\x12\xc3\x16\n0\n%OpenTelemetry.Instrumentation.Runtime\x12\x071.1.0.1\x12\x94\x02\n+process.runtime.dotnet.gc.collections.count\x12ENumber of garbage collections that have occurred since process start.:\x9d\x01\n1\x114*\x8d\x15l\xe6]\x17\x19\xec\x1d-\xf1\xa3\xe6]\x171\0\0\0\0\0\0\0\0:\x14\n\ngeneration\x12\x06\n\x04gen2\n1\x114*\x8d\x15l\xe6]\x17\x19\xec\x1d-\xf1\xa3\xe6]\x171\0\0\0\0\0\0\0\0:\x14\n\ngeneration\x12\x06\n\x04gen1\n1\x114*\x8d\x15l\xe6]\x17\x19\xec\x1d-\xf1\xa3\xe6]\x171\0\0\0\0\0\0\0\0:\x14\n\ngeneration\x12\x06\n\x04gen0\x10\x02\x18\x01\x12\xed\x01\n&process.runtime.dotnet.gc.objects.size\x12\x9a\x01Count of bytes currently in use by objects in the GC heap that haven't been collected yet. Fragmentation and other GC committed memory pools are excluded.\x1a\x05bytes:\x1f\n\x1b\x11\xf0\xbb\xd5\x15l\xe6]\x17\x19\xb4\x1e-\xf1\xa3\xe6]\x171\xf0\xbbY\0\0\0\0\0\x10\x02\x12\x9c\x02\n*process.runtime.dotnet.gc.allocations.size\x12\xc3\x01Count of bytes allocated on the managed GC heap since the process start. .NET objects are allocated from this heap. Object allocations from unmanaged languages such as C/C++ do not use this heap.\x1a\x05bytes:!\n\x1b\x11X\x8e\xd7\x15l\xe6]\x17\x19\xe0\x1f-\xf1\xa3\xe6]\x171@\xb9U\0\0\0\0\0\x10\x02\x18\x01\x12\xb1\x01\n+process.runtime.dotnet.jit.il_compiled.size\x12XCount of bytes of intermediate language that have been compiled since the process start.\x1a\x05bytes:!\n\x1b\x110\xc9\xd8\x15l\xe6]\x17\x19\x90$-\xf1\xa3\xe6]\x171\xbef\n\0\0\0\0\0\x10\x02\x18\x01\x12\xe2\x02\n1process.runtime.dotnet.jit.methods_compiled.count\x12\x89\x02The number of times the JIT compiler compiled a method since the process start. The JIT compiler may be invoked multiple times for the same method to compile with different generic parameters, or because tiered compilation requested different optimization settings.:!\n\x1b\x11l\x87\xd9\x15l\xe6]\x17\x19\xbc%-\xf1\xa3\xe6]\x171\x16&\0\0\0\0\0\0\x10\x02\x18\x01\x12\xae\x01\n+process.runtime.dotnet.jit.compilation_time\x12XThe amount of time the JIT compiler has spent compiling methods since the process start.\x1a\x02ns:!\n\x1b\x11\xdc\xe9\xd9\x15l\xe6]\x17\x19 &-\xf1\xa3\xe6]\x171\xe4\xef\xda\x8c\0\0\0\0\x10\x02\x18\x01\x12\xbe\x02\n4process.runtime.dotnet.monitor.lock_contention.count\x12\xe2\x01The number of times there was contention when trying to acquire a monitor lock since the process start. Monitor locks are commonly acquired by using the lock keyword in C#, or by calling Monitor.Enter() and Monitor.TryEnter().:!\n\x1b\x11\x18D\xda\x15l\xe6]\x17\x19\x84&-\xf1\xa3\xe6]\x171\x0c\0\0\0\0\0\0\0\x10\x02\x18\x01\x12\x8c\x01\n0process.runtime.dotnet.thread_pool.threads.count\x127The number of thread pool threads that currently exist.:\x1f\n\x1b\x11\xd4\x91\xda\x15l\xe6]\x17\x19\xe8&-\xf1\xa3\xe6]\x171\x03\0\0\0\0\0\0\0\x10\x02\x12\xbc\x01\n8process.runtime.dotnet.thread_pool.completed_items.count\x12]The number of work items that have been processed by the thread pool since the process start.:!\n\x1b\x11@\x95\xfc\x15l\xe6]\x17\x19\xb0'-\xf1\xa3\xe6]\x171\xb9\x01\0\0\0\0\0\0\x10\x02\x18\x01\x12\xaa\x01\n/process.runtime.dotnet.thread_pool.queue.length\x12VThe number of work items that are currently queued to be processed by the thread pool.:\x1f\n\x1b\x11<\x02\xfd\x15l\xe6]\x17\x19\x14(-\xf1\xa3\xe6]\x171\0\0\0\0\0\0\0\0\x10\x02\x12\xdb\x02\n\"process.runtime.dotnet.timer.count\x12\x93\x02The number of timer instances that are currently active. Timers can be created by many sources such as System.Threading.Timer, Task.Delay, or the timeout in a CancellationSource. An active timer is registered to tick at some point in the future and has not yet been canceled.:\x1f\n\x1b\x11L[\xfd\x15l\xe6]\x17\x19\xdc(-\xf1\xa3\xe6]\x171\x05\0\0\0\0\0\0\0\x10\x02\x12\x84\x01\n'process.runtime.dotnet.assemblies.count\x128The number of .NET assemblies that are currently loaded.:\x1f\n\x1b\x11d\xa2\xfd\x15l\xe6]\x17\x19@)-\xf1\xa3\xe6]\x171m\0\0\0\0\0\0\0\x10\x02";
         let base_metadata = vec![
             (
-                "headers".to_owned(),
+                "headers".into(),
                 Value::Object(BTreeMap::from([("key".into(), "value".into())])),
             ),
             (
-                "resource".to_owned(),
+                "resource".into(),
                 Value::Object(BTreeMap::from([
                     (
                         "attributes".into(),
@@ -273,7 +273,7 @@ mod tests {
                 ]))
             ),
             (
-                "scope".to_owned(),
+                "scope".into(),
                 Value::Object(BTreeMap::from([
                     ("attributes".into(), Value::Object(BTreeMap::new())),
                     ("dropped_attributes_count".into(), Value::Integer(0)),

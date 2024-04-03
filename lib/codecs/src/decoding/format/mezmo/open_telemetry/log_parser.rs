@@ -72,8 +72,8 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                     // Assemble metadata
                     let mut metadata = BTreeMap::new();
 
-                    metadata.insert("resource".to_string(), resource_attrs.clone());
-                    metadata.insert("scope".to_string(), scope_attrs.clone());
+                    metadata.insert("resource".into(), Value::from(resource_attrs.clone()));
+                    metadata.insert("scope".into(), Value::from(scope_attrs.clone()));
 
                     // "time":"2023-10-31T13:32:42.240772879-04:00",
                     let time_unix_millis = Value::from(if log_record.time_unix_nano == 0 {
@@ -86,20 +86,20 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                     } else {
                         log_record.time_unix_nano / NANOS_IN_MILLIS
                     });
-                    metadata.insert("time".to_string(), Value::from(time_unix_millis.clone()));
+                    metadata.insert("time".into(), Value::from(time_unix_millis.clone()));
                     // "observed_timestamp": "2023-10-31T13:32:42.240772879-04:00",
                     if log_record.observed_time_unix_nano != 0 {
                         metadata.insert(
-                            "observed_timestamp".to_string(),
+                            "observed_timestamp".into(),
                             Value::from(log_record.observed_time_unix_nano / NANOS_IN_MILLIS),
                         );
                     }
                     // "severity_text": "ERROR",
                     let sev = log_record.severity_text;
                     if !sev.is_empty() {
-                        metadata.insert("severity_text".to_string(), Value::from(sev.clone()));
+                        metadata.insert("severity_text".into(), Value::from(sev.clone()));
                         metadata.insert(
-                            "level".to_string(),
+                            "level".into(),
                             Value::from(Cow::from(
                                 &sev[..std::cmp::min(sev.len(), MAX_LOG_LEVEL_LEN)],
                             )),
@@ -107,27 +107,27 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                     }
                     // "severity_number": 17,
                     metadata.insert(
-                        "severity_number".to_string(),
+                        "severity_number".into(),
                         Value::from(log_record.severity_number as i32),
                     );
                     // "trace_id": "0x5b8aa5a2d2c872e8321cf37308d69df2",
                     metadata.insert(
-                        "trace_id".to_string(),
+                        "trace_id".into(),
                         Value::from(faster_hex::hex_string(&log_record.trace_id)),
                     );
                     // "span_id": "0x051581bf3cb55c13",
                     metadata.insert(
-                        "span_id".to_string(),
+                        "span_id".into(),
                         Value::from(faster_hex::hex_string(&log_record.span_id)),
                     );
                     // "trace_flags": "00",
-                    metadata.insert("flags".to_string(), Value::from(log_record.flags));
+                    metadata.insert("flags".into(), Value::from(log_record.flags));
 
                     // LogRecord attributes
                     let attributes = OpenTelemetryKeyValue {
                         attributes: log_record.attributes,
                     };
-                    metadata.insert("attributes".to_string(), attributes.to_value());
+                    metadata.insert("attributes".into(), attributes.to_value());
 
                     let line = match log_record.body {
                         Some(av) => OpenTelemetryAnyValue { value: av }.to_value(),
@@ -137,11 +137,11 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                     let log_line = BTreeMap::from_iter([
                         // Add the user metadata
                         (
-                            log_schema().user_metadata_key().to_string(),
+                            log_schema().user_metadata_key().into(),
                             Value::from(metadata),
                         ),
                         // Add the actual line
-                        (log_schema().message_key().unwrap().to_string(), line),
+                        (log_schema().message_key().unwrap().to_string().into(), line),
                     ]);
 
                     // Wrap line in mezmo format

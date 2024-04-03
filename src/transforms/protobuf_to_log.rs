@@ -149,7 +149,7 @@ impl FunctionTransform for ProtobufToLog {
                     {
                         if let Some(user_meta_obj) = metadata.as_object() {
                             for entry in user_meta_obj.iter() {
-                                user_metadata.insert(entry.0.to_string(), entry.1.clone());
+                                user_metadata.insert(entry.0.clone(), entry.1.clone());
                             }
                         }
                     }
@@ -168,7 +168,7 @@ impl FunctionTransform for ProtobufToLog {
                     {
                         if let Some(meta_obj) = metadata.as_object() {
                             for entry in meta_obj.iter() {
-                                internal_metadata.insert(entry.0.to_string(), entry.1.clone());
+                                internal_metadata.insert(entry.0.clone(), entry.1.clone());
                             }
                         }
                     }
@@ -205,7 +205,7 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
-    use vector_lib::event::Value;
+    use vector_lib::event::{KeyString, Value};
 
     use crate::event::{Event, LogEvent};
     use crate::test_util::components::assert_transform_compliance;
@@ -221,7 +221,7 @@ mod tests {
     }
 
     fn log_event_from_bytes(msg: &[u8], metadata: &Value) -> LogEvent {
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         event_map.insert("message".into(), msg.into());
         event_map.insert("timestamp".into(), ts().into());
         event_map.insert("metadata".into(), metadata.clone());
@@ -257,19 +257,19 @@ mod tests {
 
         let expect_metadata = Value::Object(BTreeMap::from([
             (
-                "headers".to_owned(),
+                "headers".into(),
                 Value::Object(BTreeMap::from([("key".into(), "value".into())])),
             ),
-            ("attributes".to_owned(), Value::Object(BTreeMap::from([]))),
-            ("resource".to_owned(), Value::Object(BTreeMap::from([]))),
-            ("scope".to_owned(), Value::Object(BTreeMap::from([]))),
-            ("flags".to_owned(), Value::Integer(0)),
-            ("severity_number".to_owned(), Value::Integer(0)),
-            ("severity_text".to_owned(), "ERROR".into()),
-            ("level".to_owned(), "ERROR".into()),
-            ("span_id".to_owned(), "".into()),
-            ("trace_id".to_owned(), "".into()),
-            ("time".to_owned(), Value::Integer(1)),
+            ("attributes".into(), Value::Object(BTreeMap::from([]))),
+            ("resource".into(), Value::Object(BTreeMap::from([]))),
+            ("scope".into(), Value::Object(BTreeMap::from([]))),
+            ("flags".into(), Value::Integer(0)),
+            ("severity_number".into(), Value::Integer(0)),
+            ("severity_text".into(), "ERROR".into()),
+            ("level".into(), "ERROR".into()),
+            ("span_id".into(), "".into()),
+            ("trace_id".into(), "".into()),
+            ("time".into(), Value::Integer(1)),
         ]));
 
         let event = log_event_from_bytes(logs, &expect_metadata);
@@ -376,11 +376,11 @@ mod tests {
 
         let expect_metadata_1 = Value::Object(BTreeMap::from([
             (
-                "headers".to_owned(),
+                "headers".into(),
                 Value::Object(BTreeMap::from([("key".into(), "value".into())])),
             ),
             (
-                "resource".to_owned(),
+                "resource".into(),
                 Value::Object(BTreeMap::from([
                     (
                         "attributes".into(),
@@ -409,7 +409,7 @@ mod tests {
                 ])),
             ),
             (
-                "scope".to_owned(),
+                "scope".into(),
                 Value::Object(BTreeMap::from([
                     ("attributes".into(), Value::Object(BTreeMap::new())),
                     ("dropped_attributes_count".into(), Value::Integer(0)),
@@ -418,7 +418,7 @@ mod tests {
                 ])),
             ),
             (
-                "attributes".to_owned(),
+                "attributes".into(),
                 Value::Object(BTreeMap::from([
                     ("http.client_ip".into(), Value::from("127.0.0.1")),
                     ("http.flavor".into(), Value::from("1.1")),
@@ -441,16 +441,16 @@ mod tests {
                     ),
                 ])),
             ),
-            ("level".to_owned(), "trace".into()),
+            ("level".into(), "trace".into()),
         ]));
 
         let expect_metadata_2 = Value::Object(BTreeMap::from([
             (
-                "headers".to_owned(),
+                "headers".into(),
                 Value::Object(BTreeMap::from([("key".into(), "value".into())])),
             ),
             (
-                "resource".to_owned(),
+                "resource".into(),
                 Value::Object(BTreeMap::from([
                     (
                         "attributes".into(),
@@ -470,7 +470,7 @@ mod tests {
                 ]))
             ),
             (
-                "scope".to_owned(),
+                "scope".into(),
                 Value::Object(BTreeMap::from([
                     ("attributes".into(), Value::Object(BTreeMap::new())),
                     ("dropped_attributes_count".into(), Value::Integer(0)),
@@ -479,7 +479,7 @@ mod tests {
                 ])),
             ),
             (
-                "attributes".to_owned(),
+                "attributes".into(),
                 Value::Object(BTreeMap::from([
                     ("db.instance".into(), Value::from("ffs")),
                     ("db.statement".into(), Value::from("SELECT f0.\"id\", f0.\"description\", f0.\"enabled\", f0.\"name\", f0.\"inserted_at\", f0.\"updated_at\" FROM \"featureflags\" AS f0")),
@@ -495,7 +495,7 @@ mod tests {
 
                 ])),
             ),
-            ("level".to_owned(), "trace".into()),
+            ("level".into(), "trace".into()),
         ]));
 
         let event = log_event_from_bytes(traces, &expect_metadata_1);

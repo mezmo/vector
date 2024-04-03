@@ -116,7 +116,7 @@ fn convert_value_raw(
                 for (key, val) in o.into_iter() {
                     match convert_value(&value_field, val) {
                         Ok(prost_val) => {
-                            map.insert(MapKey::String(key), prost_val);
+                            map.insert(MapKey::String(key.into()), prost_val);
                         }
                         Err(e) => return Err(e),
                     }
@@ -240,7 +240,7 @@ mod tests {
 
     fn test_message_descriptor(message_type: &str) -> MessageDescriptor {
         let path = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
-            .join("tests/data/protobuf/test.desc");
+            .join("tests/data/protobuf/protos/test.desc");
         get_message_descriptor(&path, &format!("test.{message_type}")).unwrap()
     }
 
@@ -460,9 +460,9 @@ mod tests {
         filename: &str,
         message_type: &str,
     ) -> Result<DynamicMessage, vector_common::Error> {
-        let test_data_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
-            .join("tests/data/protobuf");
-        let descriptor_set_path = test_data_dir.join(filename);
+        let protos_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
+            .join("tests/data/protobuf/protos");
+        let descriptor_set_path = protos_dir.join(filename);
         let message_descriptor =
             get_message_descriptor(&descriptor_set_path, message_type).unwrap();
         encode_message(

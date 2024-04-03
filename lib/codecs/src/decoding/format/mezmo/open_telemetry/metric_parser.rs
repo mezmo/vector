@@ -778,7 +778,7 @@ impl IntoValue for ScopeMetricValue<'_> {
         Value::Object(
             [
                 (
-                    "name".to_owned(),
+                    "name".into(),
                     if !name.is_empty() {
                         name.into()
                     } else {
@@ -786,16 +786,16 @@ impl IntoValue for ScopeMetricValue<'_> {
                     },
                 ),
                 (
-                    "version".to_owned(),
+                    "version".into(),
                     if !version.is_empty() {
                         version.into()
                     } else {
                         Value::Null
                     },
                 ),
-                ("attributes".to_owned(), attributes.to_value()),
+                ("attributes".into(), attributes.to_value()),
                 (
-                    "dropped_attributes_count".to_owned(),
+                    "dropped_attributes_count".into(),
                     self.dropped_attributes_count.into(),
                 ),
             ]
@@ -940,9 +940,9 @@ impl IntoValue for DataPointBucketsMetricValue {
     fn to_value(&self) -> Value {
         Value::Object(
             [
-                ("offset".to_owned(), self.offset.into()),
+                ("offset".into(), self.offset.into()),
                 (
-                    "bucket_counts".to_owned(),
+                    "bucket_counts".into(),
                     Value::Array(
                         self.bucket_counts
                             .iter()

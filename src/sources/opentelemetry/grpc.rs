@@ -54,7 +54,9 @@ impl LogsService for Service {
             })
             .and_then(|_| handle_batch_status(receiver))
             .await?;
-        Ok(Response::new(ExportLogsServiceResponse {}))
+        Ok(Response::new(ExportLogsServiceResponse {
+            partial_success: None,
+        }))
     }
 }
 

@@ -10,6 +10,7 @@ use vrl::value::Value;
 
 use super::request_builder::AzureBlobRequestOptions;
 use crate::mezmo::user_trace::MezmoLoggingService;
+use crate::sinks::util::service::TowerRequestConfigDefaults;
 use crate::{
     codecs::{Encoder, EncodingConfigWithFraming, SinkType, Transformer},
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
@@ -33,6 +34,13 @@ use crate::sinks::azure_blob::file_consolidator_async::{
     FileConsolidationConfig, FileConsolidatorAsync,
 };
 use gethostname::gethostname;
+
+#[derive(Clone, Copy, Debug)]
+pub struct AzureBlobTowerRequestConfigDefaults;
+
+impl TowerRequestConfigDefaults for AzureBlobTowerRequestConfigDefaults {
+    const RATE_LIMIT_NUM: u64 = 250;
+}
 
 /// Configuration for the `azure_blob` sink.
 #[configurable_component(sink(
@@ -141,7 +149,7 @@ pub struct AzureBlobSinkConfig {
 
     #[configurable(derived)]
     #[serde(default)]
-    pub request: TowerRequestConfig,
+    pub request: TowerRequestConfig<AzureBlobTowerRequestConfigDefaults>,
 
     #[configurable(derived)]
     #[serde(
@@ -233,9 +241,7 @@ impl AzureBlobSinkConfig {
         client: Option<Arc<ContainerClient>>,
         cx: SinkContext,
     ) -> crate::Result<VectorSink> {
-        let request_limits = self
-            .request
-            .unwrap_with(&TowerRequestConfig::default().rate_limit_num(250));
+        let request_limits = self.request.into_settings();
         let service = ServiceBuilder::new()
             .settings(request_limits, AzureBlobRetryLogic)
             .service(MezmoLoggingService::new(

@@ -134,39 +134,36 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                     // Assemble trace message
                     let mut message = std::collections::BTreeMap::new();
 
-                    message.insert("name".to_string(), string_to_value(span.name.into()));
+                    message.insert("name".into(), string_to_value(span.name.into()));
 
                     if let Some(host_name) = &resource_host_name {
-                        message.insert(
-                            "hostname".to_string(),
-                            string_to_value(host_name.to_string()),
-                        );
+                        message.insert("hostname".into(), string_to_value(host_name.to_string()));
                     }
 
                     message.insert(
-                        "trace.id".to_string(),
+                        "trace.id".into(),
                         Value::from(faster_hex::hex_string(&span.trace_id)),
                     );
-                    message.insert("trace.state".to_string(), Value::from(span.trace_state));
+                    message.insert("trace.state".into(), Value::from(span.trace_state));
                     message.insert(
-                        "span.id".to_string(),
+                        "span.id".into(),
                         Value::from(faster_hex::hex_string(&span.span_id)),
                     );
                     message.insert(
-                        "span.parent_id".to_string(),
+                        "span.parent_id".into(),
                         Value::from(faster_hex::hex_string(&span.parent_span_id)),
                     );
 
                     let start_time_unix_nano = nano_to_timestamp(span.start_time_unix_nano);
 
-                    message.insert("start_timestamp".to_string(), start_time_unix_nano.clone());
+                    message.insert("start_timestamp".into(), start_time_unix_nano.clone());
 
                     message.insert(
-                        "end_timestamp".to_string(),
+                        "end_timestamp".into(),
                         nano_to_timestamp(span.end_time_unix_nano),
                     );
 
-                    message.insert("kind".to_string(), Value::from(span.kind as i32));
+                    message.insert("kind".into(), Value::from(span.kind as i32));
 
                     message.insert(
                         "dropped_attributes_count".into(),
@@ -174,7 +171,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                     );
 
                     message.insert(
-                        "events".to_string(),
+                        "events".into(),
                         Value::Array(
                             span.events
                                 .iter()
@@ -208,7 +205,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                     );
 
                     message.insert(
-                        "links".to_string(),
+                        "links".into(),
                         Value::Array(
                             span.links
                                 .iter()
@@ -247,7 +244,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
 
                     if let Some(status) = span.status {
                         message.insert(
-                            "status".to_string(),
+                            "status".into(),
                             Value::Object(BTreeMap::from([
                                 (
                                     "message".into(),
@@ -259,27 +256,25 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                     }
 
                     // Assemble metadata
-                    let mut user_metadata = std::collections::BTreeMap::from_iter([(
-                        "level".to_string(),
-                        "trace".into(),
-                    )]);
+                    let mut user_metadata =
+                        std::collections::BTreeMap::from_iter([("level".into(), "trace".into())]);
 
-                    user_metadata.insert("resource".to_string(), resource.clone());
-                    user_metadata.insert("scope".to_string(), scope.clone());
+                    user_metadata.insert("resource".into(), resource.clone());
+                    user_metadata.insert("scope".into(), scope.clone());
 
                     let filtered_attributes = OpenTelemetryKeyValue {
                         attributes: span.attributes,
                     }
                     .to_value();
-                    user_metadata.insert("attributes".to_string(), filtered_attributes);
+                    user_metadata.insert("attributes".into(), filtered_attributes);
 
                     let log_line = BTreeMap::from_iter([
                         (
-                            log_schema().message_key().unwrap().to_string(),
+                            log_schema().message_key().unwrap().to_string().into(),
                             message.into(),
                         ),
                         (
-                            log_schema().user_metadata_key().to_string(),
+                            log_schema().user_metadata_key().into(),
                             user_metadata.into(),
                         ),
                     ]);

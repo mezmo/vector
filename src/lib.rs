@@ -77,10 +77,11 @@ pub mod async_read;
 pub mod aws;
 #[allow(unreachable_pub)]
 pub mod codecs;
-pub(crate) mod common;
+pub mod common;
 mod convert_config;
 pub mod encoding_transcode;
 pub mod enrichment_tables;
+pub mod extra_context;
 #[cfg(feature = "gcp")]
 pub mod gcp;
 pub(crate) mod graph;
@@ -104,7 +105,7 @@ pub mod serde;
 #[cfg(windows)]
 pub mod service;
 pub mod signal;
-pub(crate) mod sink;
+pub(crate) mod sink_ext;
 #[allow(unreachable_pub)]
 pub mod sinks;
 pub mod source_sender;

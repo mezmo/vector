@@ -252,7 +252,11 @@ where
                                             Some(event)
                                         }
                                         None => {
-                                            emit!(ThrottleEventDiscarded{key});
+                                            emit!(ThrottleEventDiscarded{
+                                                key,
+                                                // Set to true to maintain previous behaviour
+                                                emit_events_discarded_per_key: true
+                                            });
                                             None
                                         }
                                     }

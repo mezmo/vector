@@ -33,7 +33,7 @@ use vector_lib::lookup::lookup_v2::{parse_target_path, OwnedSegment};
 use vector_lib::lookup::owned_value_path;
 use vector_lib::schema::Definition;
 
-use crate::event::Value;
+use crate::event::{KeyString, Value};
 use vector_lib::config::LogNamespace;
 
 /// Configuration for the `mezmo_reduce` transform.
@@ -84,7 +84,7 @@ pub struct MezmoReduceConfig {
     ///   the last received timestamp value.
     /// - Numeric values are summed.
     #[serde(default)]
-    pub merge_strategies: IndexMap<String, MergeStrategy>,
+    pub merge_strategies: IndexMap<KeyString, MergeStrategy>,
 
     /// The maximum number of events to group together.
     pub max_events: Option<NonZeroUsize>,
@@ -194,8 +194,8 @@ impl TransformConfig for MezmoReduceConfig {
 
 #[derive(Debug)]
 struct ReduceState {
-    fields: HashMap<String, Box<dyn ReduceValueMerger>>,
-    message_fields: HashMap<String, Box<dyn ReduceValueMerger>>, // Mezmo-specific. Fields under "message".
+    fields: HashMap<KeyString, Box<dyn ReduceValueMerger>>,
+    message_fields: HashMap<KeyString, Box<dyn ReduceValueMerger>>, // Mezmo-specific. Fields under "message".
     started_at: Instant,
     metadata: EventMetadata,
     mezmo_metadata: MezmoMetadata,
@@ -207,9 +207,9 @@ impl ReduceState {
     fn new(
         event: LogEvent,
         message_event: LogEvent,
-        strategies: &IndexMap<String, MergeStrategy>,
+        strategies: &IndexMap<KeyString, MergeStrategy>,
         mezmo_metadata: MezmoMetadata,
-        group_by: &[String],
+        group_by: &[KeyString],
     ) -> Self {
         let (value, metadata) = event.into_parts();
 
@@ -224,11 +224,11 @@ impl ReduceState {
 
         // Create a list of root property names after their field path notations are parsed (."my-thing" === "my-thing")
         // This is used only to disallow using merge_strategies on group_by fields below.
-        let mut group_by_lookups = vec![];
+        let mut group_by_lookups: Vec<KeyString> = vec![];
         let name = "group_by_lookup";
         for key in group_by {
             if let Some(root_key) = get_root_property_name_from_path(key, name, false) {
-                group_by_lookups.push(root_key);
+                group_by_lookups.push(root_key.into());
             }
         }
 
@@ -281,7 +281,7 @@ impl ReduceState {
         &mut self,
         event: LogEvent,
         message_event: LogEvent,
-        strategies: &IndexMap<String, MergeStrategy>,
+        strategies: &IndexMap<KeyString, MergeStrategy>,
     ) {
         let (value, metadata) = event.into_parts();
         self.metadata.merge(metadata);
@@ -433,7 +433,7 @@ impl ReduceState {
         let mut event = LogEvent::new_with_metadata(metadata_and_finalizers);
 
         for (k, v) in self.fields.drain() {
-            if let Err(error) = v.insert_into(k, &mut event) {
+            if let Err(error) = v.insert_into(k.into(), &mut event) {
                 warn!(message = "Failed to merge values for field.", %error);
             }
         }
@@ -442,11 +442,11 @@ impl ReduceState {
             // When the resulting event is created from the mezmo-reduce accumulator,
             // we need to inject its results into the `.message` property, but make it an
             // actual "path" so that special characters are handled.
-            let path = owned_value_path!("message", &k).to_string();
+            let path = owned_value_path!("message", k.as_str()).to_string();
             // BEWARE: Upstream has changed inserts to use `event_path!`, but that stores
             // flattened keys like `message.thing` which breaks us. We need nested objects,
             // so do not accept upstream changes to `merge_strategy.rs`.
-            if let Err(error) = v.insert_into(path, &mut event) {
+            if let Err(error) = v.insert_into(path.into(), &mut event) {
                 warn!(message = "Failed to merge values for message field.", %error);
             }
         }
@@ -460,8 +460,8 @@ impl ReduceState {
 pub struct MezmoReduce {
     expire_after: Duration,
     flush_period: Duration,
-    group_by: Vec<String>,
-    merge_strategies: IndexMap<String, MergeStrategy>,
+    group_by: Vec<KeyString>,
+    merge_strategies: IndexMap<KeyString, MergeStrategy>,
     reduce_merge_states: HashMap<Discriminant, ReduceState>,
     ends_when: Option<Condition>,
     starts_when: Option<Condition>,
@@ -493,8 +493,8 @@ impl MezmoReduce {
             .into_iter()
             .map(|path| {
                 match path.strip_prefix(log_schema().message_key().unwrap().to_string().as_str()) {
-                    Some(stripped) => stripped.to_string(),
-                    None => path,
+                    Some(stripped) => stripped.into(),
+                    None => path.into(),
                 }
             })
             .collect();
@@ -513,20 +513,20 @@ impl MezmoReduce {
         };
 
         // Strip path notation from merge_strategy fields
-        let mut merge_strategies: IndexMap<String, MergeStrategy> = IndexMap::new();
+        let mut merge_strategies: IndexMap<KeyString, MergeStrategy> = IndexMap::new();
         let name = "merge_strategy";
-        for (merge_strategy_key, strategy) in &config.merge_strategies {
+        for (merge_strategy_key, strategy) in config.merge_strategies.iter() {
             if let Some(root_key) = get_root_property_name_from_path(merge_strategy_key, name, true)
             {
-                merge_strategies.insert(root_key, strategy.clone());
+                merge_strategies.insert(root_key.into(), strategy.clone());
             }
         }
 
         // Strip path notation from date_formats
         let mut date_formats: HashMap<String, String> = HashMap::new();
         let name = "date_format";
-        for (date_key, format) in &config.date_formats {
-            if let Some(root_key) = get_root_property_name_from_path(date_key, name, true) {
+        for (date_key, format) in config.date_formats.clone().into_iter() {
+            if let Some(root_key) = get_root_property_name_from_path(&date_key.into(), name, true) {
                 date_formats.insert(root_key, format.clone());
             }
         }
@@ -782,7 +782,7 @@ impl TaskTransform<Event> for MezmoReduce {
 }
 
 pub fn get_root_property_name_from_path(
-    path_key: &String,
+    path_key: &KeyString,
     name: &str,
     error_when_nested: bool,
 ) -> Option<String> {
@@ -795,7 +795,7 @@ pub fn get_root_property_name_from_path(
             if path_key.is_empty() {
                 None
             } else {
-                Some(path_key.to_owned())
+                Some(path_key.to_string())
             }
         },
         |target_path| {
@@ -806,7 +806,7 @@ pub fn get_root_property_name_from_path(
                 let mut segments = target_path.path.segments;
                 // Ignore schema prefixes, which are valid VRL but not relevant to reduce
                 if let Some(OwnedSegment::Field(first_element)) = segments.get(0) {
-                    if first_element == &log_schema().message_key().unwrap().to_string() {
+                    if first_element.as_str() == log_schema().message_key().unwrap().to_string().as_str() {
                         segments.remove(0);
                         field_count = segments.len();
                     }
@@ -815,14 +815,14 @@ pub fn get_root_property_name_from_path(
                     Some(OwnedSegment::Field(root_field)) => {
                         if field_count == 1 {
                             // Normal result - only a root-level path lookup was provided
-                            Some(root_field.to_owned())
+                            Some(root_field.to_string())
                         } else if error_when_nested {
                             // Told to reject nested path properties
                             error!("Nested path provided for {} path {} when only root-level paths are accepted", name, path_key);
                             None
                         } else {
                             // Nesting found, but told not to error, so return just the root-level field
-                            Some(root_field.to_owned())
+                            Some(root_field.to_string())
                         }
                     },
                     Some(not_supported) => {
@@ -886,9 +886,9 @@ mod test {
             e_1.insert(
                 "message",
                 BTreeMap::from([
-                    ("my_num".to_owned(), Value::from(10)),
-                    ("my_string".to_owned(), Value::from("first string")),
-                    ("my_date".to_owned(), Value::from(start_date)),
+                    ("my_num".into(), Value::from(10)),
+                    ("my_string".into(), Value::from("first string")),
+                    ("my_date".into(), Value::from(start_date)),
                 ]),
             );
             e_1.insert("timestamp", Value::from(start_date));
@@ -897,12 +897,9 @@ mod test {
             e_2.insert(
                 "message",
                 BTreeMap::from([
-                    ("my_num".to_owned(), Value::from(10)),
-                    ("my_string".to_owned(), Value::from("second string")),
-                    (
-                        "e2_string".to_owned(),
-                        Value::from("Added in the second event"),
-                    ),
+                    ("my_num".into(), Value::from(10)),
+                    ("my_string".into(), Value::from("second string")),
+                    ("e2_string".into(), Value::from("Added in the second event")),
                 ]),
             );
             e_2.insert("timestamp", Value::from(Utc::now()));
@@ -911,13 +908,13 @@ mod test {
             e_3.insert(
                 "message",
                 BTreeMap::from([
-                    ("my_num".to_owned(), Value::from(10)),
-                    ("my_string".to_owned(), Value::from("third string")),
+                    ("my_num".into(), Value::from(10)),
+                    ("my_string".into(), Value::from("third string")),
                     (
-                        "e2_string".to_owned(),
+                        "e2_string".into(),
                         Value::from("Ignored, cause it's added in the THIRD event"),
                     ),
-                    ("my_date".to_owned(), Value::from(end_date)),
+                    ("my_date".into(), Value::from(end_date)),
                 ]),
             );
             e_3.insert("timestamp", Value::from(end_date));
@@ -962,8 +959,8 @@ mod test {
         e_1.insert(
             "message",
             BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("first string")),
+                ("my_num".into(), Value::from(10)),
+                ("my_string".into(), Value::from("first string")),
             ]),
         );
 
@@ -971,12 +968,9 @@ mod test {
         e_2.insert(
             "message",
             BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("second string")),
-                (
-                    "e2_string".to_owned(),
-                    Value::from("Added in the second event"),
-                ),
+                ("my_num".into(), Value::from(10)),
+                ("my_string".into(), Value::from("second string")),
+                ("e2_string".into(), Value::from("Added in the second event")),
             ]),
         );
 
@@ -984,10 +978,10 @@ mod test {
         e_3.insert(
             "message",
             BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("third string")),
+                ("my_num".into(), Value::from(10)),
+                ("my_string".into(), Value::from("third string")),
                 (
-                    "e2_string".to_owned(),
+                    "e2_string".into(),
                     Value::from("Ignored, cause it's added in the THIRD event"),
                 ),
             ]),
@@ -997,9 +991,9 @@ mod test {
         e_4.insert(
             "message",
             BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("fourth string")),
-                ("test_end".to_owned(), Value::from("first end")),
+                ("my_num".into(), Value::from(10)),
+                ("my_string".into(), Value::from("fourth string")),
+                ("test_end".into(), Value::from("first end")),
             ]),
         );
 
@@ -1007,9 +1001,9 @@ mod test {
         e_5.insert(
             "message",
             BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("fifth string")),
-                ("test_end".to_owned(), Value::from("second end")),
+                ("my_num".into(), Value::from(10)),
+                ("my_string".into(), Value::from("fifth string")),
+                ("test_end".into(), Value::from("second end")),
             ]),
         );
         let inputs = vec![e_1.into(), e_2.into(), e_3.into(), e_4.into(), e_5.into()];
@@ -1055,8 +1049,8 @@ mod test {
         e_1.insert(
             "message",
             BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("first string")),
+                ("my_num".into(), Value::from(10)),
+                ("my_string".into(), Value::from("first string")),
             ]),
         );
 
@@ -1064,14 +1058,11 @@ mod test {
         e_2.insert(
             "message",
             BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("second string")),
+                ("my_num".into(), Value::from(10)),
+                ("my_string".into(), Value::from("second string")),
+                ("e2_string".into(), Value::from("Added in the second event")),
                 (
-                    "e2_string".to_owned(),
-                    Value::from("Added in the second event"),
-                ),
-                (
-                    "start_new_here".to_owned(),
+                    "start_new_here".into(),
                     Value::from(false), // Should NOT start a new one because it's false
                 ),
             ]),
@@ -1081,13 +1072,13 @@ mod test {
         e_3.insert(
             "message",
             BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("third string")),
+                ("my_num".into(), Value::from(10)),
+                ("my_string".into(), Value::from("third string")),
                 (
-                    "e2_string".to_owned(),
+                    "e2_string".into(),
                     Value::from("Ignored, cause it's added in the THIRD event"),
                 ),
-                ("start_new_here".to_owned(), Value::from(true)),
+                ("start_new_here".into(), Value::from(true)),
             ]),
         );
 
@@ -1095,8 +1086,8 @@ mod test {
         e_4.insert(
             "message",
             BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("fourth string")),
+                ("my_num".into(), Value::from(10)),
+                ("my_string".into(), Value::from("fourth string")),
             ]),
         );
 
@@ -1104,8 +1095,8 @@ mod test {
         e_5.insert(
             "message",
             BTreeMap::from([
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("fifth string")),
+                ("my_num".into(), Value::from(10)),
+                ("my_string".into(), Value::from("fifth string")),
             ]),
         );
         let inputs = vec![e_1.into(), e_2.into(), e_3.into(), e_4.into(), e_5.into()];
@@ -1147,9 +1138,9 @@ mod test {
         e_1.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), Value::from("1")),
-                ("my_num".to_owned(), Value::from(10)),
-                ("my_string".to_owned(), Value::from("first string")),
+                ("request_id".into(), Value::from("1")),
+                ("my_num".into(), Value::from(10)),
+                ("my_string".into(), Value::from("first string")),
             ]),
         );
 
@@ -1157,11 +1148,11 @@ mod test {
         e_2.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), Value::from("2")),
-                ("my_num".to_owned(), Value::from(11)),
-                ("my_string".to_owned(), Value::from("second string")),
+                ("request_id".into(), Value::from("2")),
+                ("my_num".into(), Value::from(11)),
+                ("my_string".into(), Value::from("second string")),
                 (
-                    "other_string".to_owned(),
+                    "other_string".into(),
                     Value::from("Added in the second event"),
                 ),
             ]),
@@ -1171,11 +1162,11 @@ mod test {
         e_3.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), Value::from("1")),
-                ("my_num".to_owned(), Value::from(12)),
-                ("my_string".to_owned(), Value::from("third string")),
+                ("request_id".into(), Value::from("1")),
+                ("my_num".into(), Value::from(12)),
+                ("my_string".into(), Value::from("third string")),
                 (
-                    "other_string".to_owned(),
+                    "other_string".into(),
                     Value::from("Added in the third event"),
                 ),
             ]),
@@ -1185,14 +1176,14 @@ mod test {
         e_4.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), Value::from("2")),
-                ("my_num".to_owned(), Value::from(13)),
-                ("my_string".to_owned(), Value::from("Ignore this string")),
+                ("request_id".into(), Value::from("2")),
+                ("my_num".into(), Value::from(13)),
+                ("my_string".into(), Value::from("Ignore this string")),
                 (
-                    "other_string".to_owned(),
+                    "other_string".into(),
                     Value::from("Ignore this string also"),
                 ),
-                ("stop_here".to_owned(), Value::from(true)),
+                ("stop_here".into(), Value::from(true)),
             ]),
         );
 
@@ -1200,10 +1191,10 @@ mod test {
         e_5.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), Value::from("1")),
-                ("my_num".to_owned(), Value::from(14)),
-                ("my_string".to_owned(), Value::from("fifth string")),
-                ("stop_here".to_owned(), Value::from(true)),
+                ("request_id".into(), Value::from("1")),
+                ("my_num".into(), Value::from(14)),
+                ("my_string".into(), Value::from("fifth string")),
+                ("stop_here".into(), Value::from(true)),
             ]),
         );
         let inputs = vec![e_1.into(), e_2.into(), e_3.into(), e_4.into(), e_5.into()];
@@ -1256,10 +1247,10 @@ mod test {
         e_1.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), Value::from("1")),
-                ("foo".to_owned(), Value::from("first foo")),
-                ("bar".to_owned(), Value::from("first bar")),
-                ("baz".to_owned(), Value::from(2)),
+                ("request_id".into(), Value::from("1")),
+                ("foo".into(), Value::from("first foo")),
+                ("bar".into(), Value::from("first bar")),
+                ("baz".into(), Value::from(2)),
             ]),
         );
 
@@ -1267,10 +1258,10 @@ mod test {
         e_2.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), Value::from("1")),
-                ("foo".to_owned(), Value::from("second foo")),
-                ("bar".to_owned(), Value::from(2)),
-                ("baz".to_owned(), Value::from("not number")),
+                ("request_id".into(), Value::from("1")),
+                ("foo".into(), Value::from("second foo")),
+                ("bar".into(), Value::from(2)),
+                ("baz".into(), Value::from("not number")),
             ]),
         );
 
@@ -1278,11 +1269,11 @@ mod test {
         e_3.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), Value::from("1")),
-                ("foo".to_owned(), Value::from(10)),
-                ("bar".to_owned(), Value::from("third bar")),
-                ("baz".to_owned(), Value::from(3)),
-                ("test_end".to_owned(), Value::from("yep")),
+                ("request_id".into(), Value::from("1")),
+                ("foo".into(), Value::from(10)),
+                ("bar".into(), Value::from("third bar")),
+                ("baz".into(), Value::from(3)),
+                ("test_end".into(), Value::from("yep")),
             ]),
         );
 
@@ -1321,23 +1312,20 @@ mod test {
         e_1.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), "1".into()),
-                ("counter".to_owned(), 1.into()),
+                ("request_id".into(), "1".into()),
+                ("counter".into(), 1.into()),
             ]),
         );
 
         let mut e_2 = LogEvent::default();
-        e_2.insert(
-            "message",
-            BTreeMap::from([("counter".to_owned(), 2.into())]),
-        );
+        e_2.insert("message", BTreeMap::from([("counter".into(), 2.into())]));
 
         let mut e_3 = LogEvent::default();
         e_3.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), "1".into()),
-                ("counter".to_owned(), 3.into()),
+                ("request_id".into(), "1".into()),
+                ("counter".into(), 3.into()),
             ]),
         );
 
@@ -1345,9 +1333,9 @@ mod test {
         e_4.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), "1".into()),
-                ("counter".to_owned(), 4.into()),
-                ("test_end".to_owned(), "yep".into()),
+                ("request_id".into(), "1".into()),
+                ("counter".into(), 4.into()),
+                ("test_end".into(), "yep".into()),
             ]),
         );
 
@@ -1355,9 +1343,9 @@ mod test {
         e_5.insert(
             "message",
             BTreeMap::from([
-                ("counter".to_owned(), 5.into()),
-                ("extra_field".to_owned(), "value1".into()),
-                ("test_end".to_owned(), "yep".into()),
+                ("counter".into(), 5.into()),
+                ("extra_field".into(), "value1".into()),
+                ("test_end".into(), "yep".into()),
             ]),
         );
 
@@ -1408,22 +1396,13 @@ max_events = 1
             let (topology, mut out) = create_topology(ReceiverStream::new(rx), reduce_config).await;
 
             let mut e_1 = LogEvent::default();
-            e_1.insert(
-                "message",
-                BTreeMap::from([("id".to_owned(), Value::from("1"))]),
-            );
+            e_1.insert("message", BTreeMap::from([("id".into(), Value::from("1"))]));
 
             let mut e_2 = LogEvent::default();
-            e_2.insert(
-                "message",
-                BTreeMap::from([("id".to_owned(), Value::from("1"))]),
-            );
+            e_2.insert("message", BTreeMap::from([("id".into(), Value::from("1"))]));
 
             let mut e_3 = LogEvent::default();
-            e_3.insert(
-                "message",
-                BTreeMap::from([("id".to_owned(), Value::from("1"))]),
-            );
+            e_3.insert("message", BTreeMap::from([("id".into(), Value::from("1"))]));
 
             for event in vec![e_1.into(), e_2.into(), e_3.into()] {
                 tx.send(event).await.unwrap();
@@ -1464,8 +1443,8 @@ max_events = 3
             e_1.insert(
                 "message",
                 BTreeMap::from([
-                    ("request_id".to_owned(), Value::from("1")),
-                    ("text".to_owned(), Value::from("test 1")),
+                    ("request_id".into(), Value::from("1")),
+                    ("text".into(), Value::from("test 1")),
                 ]),
             );
 
@@ -1473,8 +1452,8 @@ max_events = 3
             e_2.insert(
                 "message",
                 BTreeMap::from([
-                    ("request_id".to_owned(), Value::from("1")),
-                    ("text".to_owned(), Value::from("test 2")),
+                    ("request_id".into(), Value::from("1")),
+                    ("text".into(), Value::from("test 2")),
                 ]),
             );
 
@@ -1482,8 +1461,8 @@ max_events = 3
             e_3.insert(
                 "message",
                 BTreeMap::from([
-                    ("request_id".to_owned(), Value::from("1")),
-                    ("text".to_owned(), Value::from("test 3")),
+                    ("request_id".into(), Value::from("1")),
+                    ("text".into(), Value::from("test 3")),
                 ]),
             );
 
@@ -1491,8 +1470,8 @@ max_events = 3
             e_4.insert(
                 "message",
                 BTreeMap::from([
-                    ("request_id".to_owned(), Value::from("1")),
-                    ("text".to_owned(), Value::from("test 4")),
+                    ("request_id".into(), Value::from("1")),
+                    ("text".into(), Value::from("test 4")),
                 ]),
             );
 
@@ -1500,8 +1479,8 @@ max_events = 3
             e_5.insert(
                 "message",
                 BTreeMap::from([
-                    ("request_id".to_owned(), Value::from("1")),
-                    ("text".to_owned(), Value::from("test 5")),
+                    ("request_id".into(), Value::from("1")),
+                    ("text".into(), Value::from("test 5")),
                 ]),
             );
 
@@ -1509,8 +1488,8 @@ max_events = 3
             e_6.insert(
                 "message",
                 BTreeMap::from([
-                    ("request_id".to_owned(), Value::from("1")),
-                    ("text".to_owned(), Value::from("test 6")),
+                    ("request_id".into(), Value::from("1")),
+                    ("text".into(), Value::from("test 6")),
                 ]),
             );
 
@@ -1568,9 +1547,9 @@ max_events = 3
         e_1.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), "1".into()),
-                ("foo".to_owned(), json!([1, 3]).into()),
-                ("bar".to_owned(), json!([1, 3]).into()),
+                ("request_id".into(), "1".into()),
+                ("foo".into(), json!([1, 3]).into()),
+                ("bar".into(), json!([1, 3]).into()),
             ]),
         );
 
@@ -1578,9 +1557,9 @@ max_events = 3
         e_2.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), "2".into()),
-                ("foo".to_owned(), json!([2, 4]).into()),
-                ("bar".to_owned(), json!([2, 4]).into()),
+                ("request_id".into(), "2".into()),
+                ("foo".into(), json!([2, 4]).into()),
+                ("bar".into(), json!([2, 4]).into()),
             ]),
         );
 
@@ -1588,9 +1567,9 @@ max_events = 3
         e_3.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), "1".into()),
-                ("foo".to_owned(), json!([5, 7]).into()),
-                ("bar".to_owned(), json!([5, 7]).into()),
+                ("request_id".into(), "1".into()),
+                ("foo".into(), json!([5, 7]).into()),
+                ("bar".into(), json!([5, 7]).into()),
             ]),
         );
 
@@ -1598,10 +1577,10 @@ max_events = 3
         e_4.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), "1".into()),
-                ("foo".to_owned(), json!("done").into()),
-                ("bar".to_owned(), json!("done").into()),
-                ("test_end".to_owned(), "yep".into()),
+                ("request_id".into(), "1".into()),
+                ("foo".into(), json!("done").into()),
+                ("bar".into(), json!("done").into()),
+                ("test_end".into(), "yep".into()),
             ]),
         );
 
@@ -1609,9 +1588,9 @@ max_events = 3
         e_5.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), "2".into()),
-                ("foo".to_owned(), json!([6, 8]).into()),
-                ("bar".to_owned(), json!([6, 8]).into()),
+                ("request_id".into(), "2".into()),
+                ("foo".into(), json!([6, 8]).into()),
+                ("bar".into(), json!([6, 8]).into()),
             ]),
         );
 
@@ -1619,10 +1598,10 @@ max_events = 3
         e_6.insert(
             "message",
             BTreeMap::from([
-                ("request_id".to_owned(), "2".into()),
-                ("foo".to_owned(), json!("done").into()),
-                ("bar".to_owned(), json!("done").into()),
-                ("test_end".to_owned(), "yep".into()),
+                ("request_id".into(), "2".into()),
+                ("foo".into(), json!("done").into()),
+                ("bar".into(), json!("done").into()),
+                ("test_end".into(), "yep".into()),
             ]),
         );
 
@@ -1678,9 +1657,9 @@ max_events = 3
         e_1.insert(
             "message",
             BTreeMap::from([
-                ("ts".to_owned(), "2014-11-28 12:00:09".into()),
-                ("epoch".to_owned(), 1671134262.into()),
-                ("epoch_str".to_owned(), "1671134262".into()),
+                ("ts".into(), "2014-11-28 12:00:09".into()),
+                ("epoch".into(), 1671134262.into()),
+                ("epoch_str".into(), "1671134262".into()),
             ]),
         );
 
@@ -1688,9 +1667,9 @@ max_events = 3
         e_2.insert(
             "message",
             BTreeMap::from([
-                ("ts".to_owned(), "2014-11-28 13:00:09".into()),
-                ("epoch".to_owned(), 1671134263.into()),
-                ("epoch_str".to_owned(), "1671134263".into()),
+                ("ts".into(), "2014-11-28 13:00:09".into()),
+                ("epoch".into(), 1671134263.into()),
+                ("epoch_str".into(), "1671134263".into()),
             ]),
         );
 
@@ -1698,10 +1677,10 @@ max_events = 3
         e_3.insert(
             "message",
             BTreeMap::from([
-                ("ts".to_owned(), "2014-11-28 14:00:09".into()),
-                ("epoch".to_owned(), 1671134264.into()),
-                ("epoch_str".to_owned(), "1671134264".into()),
-                ("test_end".to_owned(), "yup".into()),
+                ("ts".into(), "2014-11-28 14:00:09".into()),
+                ("epoch".into(), 1671134264.into()),
+                ("epoch_str".into(), "1671134264".into()),
+                ("test_end".into(), "yup".into()),
             ]),
         );
 
@@ -1739,27 +1718,27 @@ max_events = 3
         e_1.insert(
             "message",
             BTreeMap::from([
-                ("some-retain-field".to_owned(), "one".into()),
-                ("some!array-field".to_owned(), "four".into()),
-                ("concat-me!".to_owned(), "seven".into()),
+                ("some-retain-field".into(), "one".into()),
+                ("some!array-field".into(), "four".into()),
+                ("concat-me!".into(), "seven".into()),
             ]),
         );
         let mut e_2 = LogEvent::default();
         e_2.insert(
             "message",
             BTreeMap::from([
-                ("some-retain-field".to_owned(), "two".into()),
-                ("some!array-field".to_owned(), "five".into()),
-                ("concat-me!".to_owned(), "eight".into()),
+                ("some-retain-field".into(), "two".into()),
+                ("some!array-field".into(), "five".into()),
+                ("concat-me!".into(), "eight".into()),
             ]),
         );
         let mut e_3 = LogEvent::default();
         e_3.insert(
             "message",
             BTreeMap::from([
-                ("some-retain-field".to_owned(), "three".into()),
-                ("some!array-field".to_owned(), "six".into()),
-                ("concat-me!".to_owned(), "nine".into()),
+                ("some-retain-field".into(), "three".into()),
+                ("some!array-field".into(), "six".into()),
+                ("concat-me!".into(), "nine".into()),
             ]),
         );
 
@@ -2531,94 +2510,94 @@ max_events = 3
     #[test]
     fn mezmo_reduce_test_get_root_property_name_from_path() {
         let test_cases = [
-            ("".to_string(), None, false, "empty string"),
-            (".".to_string(), None, false, "dot"),
+            ("".into(), None, false, "empty string"),
+            (".".into(), None, false, "dot"),
             (
-                "does-not-parse".to_string(),
+                "does-not-parse".into(),
                 Some("does-not-parse".to_string()),
                 false,
                 "invalid characters",
             ),
             (
-                "nope!".to_string(),
+                "nope!".into(),
                 Some("nope!".to_string()),
                 false,
                 "invalid characters",
             ),
             (
-                "yep".to_string(),
+                "yep".into(),
                 Some("yep".to_string()),
                 false,
                 "root-level property given without dot-notation",
             ),
             (
-                ".yep".to_string(),
+                ".yep".into(),
                 Some("yep".to_string()),
                 false,
                 "dot-notated parent",
             ),
             (
-                ".yep.nested".to_string(),
+                ".yep.nested".into(),
                 Some("yep".to_string()),
                 false,
                 "returns parent when nested errors is false",
             ),
             (
-                ".yep.nested".to_string(),
+                ".yep.nested".into(),
                 None,
                 true,
                 "nested errors true returns none",
             ),
             (
-                ".\"special-chars\".nested".to_string(),
+                ".\"special-chars\".nested".into(),
                 Some("special-chars".to_string()),
                 false,
                 "quoting special chars returns parent when error_when_nested is false",
             ),
             (
-                ".\"special-chars\".nested".to_string(),
+                ".\"special-chars\".nested".into(),
                 None,
                 true,
                 "quoting special chars returns None when error_when_nested",
             ),
             (
-                "thing[1].nested".to_string(),
+                "thing[1].nested".into(),
                 Some("thing".to_string()),
                 false,
                 "array path returns root when error_when_nested is false",
             ),
             (
-                "thing[1].nested".to_string(),
+                "thing[1].nested".into(),
                 None,
                 true,
                 "array path returns None when error_when_nested is true",
             ),
             (
-                "message.not_nested".to_string(),
+                "message.not_nested".into(),
                 Some("not_nested".to_string()),
                 true,
                 "message schema prefix is ignored and root-level property returned",
             ),
             (
-                "message.thing.nested".to_string(),
+                "message.thing.nested".into(),
                 None,
                 true,
                 "message schema prefix is ignored and deeply-nested detected",
             ),
             (
-                "message.thing.nested".to_string(),
+                "message.thing.nested".into(),
                 Some("thing".to_string()),
                 false,
                 "message schema prefix is ignored and root-level property returned",
             ),
             (
-                "message".to_string(),
+                "message".into(),
                 None,
                 true,
                 "message schema without a root-level property returns None",
             ),
             (
-                "(root | message).field_name".to_string(),
+                "(root | message).field_name".into(),
                 None,
                 true,
                 "Coalescing VRL is not supported",

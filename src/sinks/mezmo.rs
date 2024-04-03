@@ -244,7 +244,7 @@ impl SinkConfig for MezmoConfig {
             return Err("only one of `line_field` and `line_template` can be provided".into());
         }
 
-        let request_settings = self.request.unwrap_with(&TowerRequestConfig::default());
+        let request_settings = self.request.into_settings();
         let batch_settings = self.batch.into_batch_settings()?;
         let client = HttpClient::new(None, cx.proxy())?;
 
@@ -567,8 +567,10 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, derivative::Derivative)]
+#[derivative(Debug)]
 struct MezmoSink {
+    #[derivative(Debug = "ignore")]
     cx: SinkContext,
     cfg: MezmoConfig,
 }

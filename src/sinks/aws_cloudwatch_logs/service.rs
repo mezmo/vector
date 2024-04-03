@@ -9,6 +9,7 @@ use crate::sinks::prelude::{
 };
 use aws_sdk_cloudwatchlogs::error::{
     CreateLogGroupError, CreateLogStreamError, DescribeLogStreamsError, PutLogEventsError,
+    PutRetentionPolicyError,
 };
 use aws_sdk_cloudwatchlogs::model::InputLogEvent;
 use aws_sdk_cloudwatchlogs::types::SdkError;
@@ -34,17 +35,17 @@ use vrl::value::Value;
 
 use crate::sinks::{
     aws_cloudwatch_logs::{
-        config::CloudwatchLogsSinkConfig, request, retry::CloudwatchRetryLogic,
+        config::CloudwatchLogsSinkConfig, config::Retention, request, retry::CloudwatchRetryLogic,
         sink::BatchCloudwatchRequest, CloudwatchKey,
     },
-    util::{retries::FixedRetryPolicy, EncodedLength, TowerRequestConfig, TowerRequestSettings},
+    util::{retries::FibonacciRetryPolicy, EncodedLength, TowerRequestSettings},
 };
 
 type Svc = Buffer<
     ConcurrencyLimit<
         RateLimit<
             Retry<
-                FixedRetryPolicy<CloudwatchRetryLogic<CloudwatchInnerResponse>>,
+                FibonacciRetryPolicy<CloudwatchRetryLogic<CloudwatchInnerResponse>>,
                 Buffer<Timeout<MezmoLoggingService<CloudwatchLogsSvc>>, Vec<InputLogEvent>>,
             >,
         >,
@@ -62,9 +63,10 @@ pub type SmithyClient = std::sync::Arc<
 #[derive(Debug)]
 pub enum CloudwatchError {
     Put(SdkError<PutLogEventsError>),
-    Describe(SdkError<DescribeLogStreamsError>),
+    DescribeLogStreams(SdkError<DescribeLogStreamsError>),
     CreateStream(SdkError<CreateLogStreamError>),
     CreateGroup(SdkError<CreateLogGroupError>),
+    PutRetentionPolicy(SdkError<PutRetentionPolicyError>),
     NoStreamsFound,
 }
 
@@ -72,7 +74,9 @@ impl fmt::Display for CloudwatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CloudwatchError::Put(error) => write!(f, "CloudwatchError::Put: {}", error),
-            CloudwatchError::Describe(error) => write!(f, "CloudwatchError::Describe: {}", error),
+            CloudwatchError::DescribeLogStreams(error) => {
+                write!(f, "CloudwatchError::DescribeLogStreams: {}", error)
+            }
             CloudwatchError::CreateStream(error) => {
                 write!(f, "CloudwatchError::CreateStream: {}", error)
             }
@@ -80,6 +84,9 @@ impl fmt::Display for CloudwatchError {
                 write!(f, "CloudwatchError::CreateGroup: {}", error)
             }
             CloudwatchError::NoStreamsFound => write!(f, "CloudwatchError: No Streams Found"),
+            CloudwatchError::PutRetentionPolicy(error) => {
+                write!(f, "CloudwatchError::PutRetentionPolicy: {}", error)
+            }
         }
     }
 }
@@ -94,7 +101,7 @@ impl From<SdkError<PutLogEventsError>> for CloudwatchError {
 
 impl From<SdkError<DescribeLogStreamsError>> for CloudwatchError {
     fn from(error: SdkError<DescribeLogStreamsError>) -> Self {
-        CloudwatchError::Describe(error)
+        CloudwatchError::DescribeLogStreams(error)
     }
 }
 
@@ -126,9 +133,10 @@ impl UserLoggingError for CloudwatchError {
     fn log_msg(&self) -> Option<Value> {
         match self {
             CloudwatchError::Put(error) => extract_user_err(error),
-            CloudwatchError::Describe(error) => extract_user_err(error),
+            CloudwatchError::DescribeLogStreams(error) => extract_user_err(error),
             CloudwatchError::CreateStream(error) => extract_user_err(error),
             CloudwatchError::CreateGroup(error) => extract_user_err(error),
+            CloudwatchError::PutRetentionPolicy(_) => Some("Put Retention Policy Error".into()),
             CloudwatchError::NoStreamsFound => Some("No Streams Found".into()),
         }
     }
@@ -185,10 +193,7 @@ impl CloudwatchLogsPartitionSvc {
         smithy_client: SmithyClient,
         cx: SinkContext,
     ) -> Self {
-        let request_settings = config
-            .request
-            .tower
-            .unwrap_with(&TowerRequestConfig::default());
+        let request_settings = config.request.tower.into_settings();
 
         Self {
             config,
@@ -276,6 +281,8 @@ impl CloudwatchLogsSvc {
         let create_missing_group = config.create_missing_group;
         let create_missing_stream = config.create_missing_stream;
 
+        let retention = config.retention.clone();
+
         CloudwatchLogsSvc {
             headers: config.request.headers,
             client,
@@ -284,6 +291,7 @@ impl CloudwatchLogsSvc {
             group_name,
             create_missing_group,
             create_missing_stream,
+            retention,
             token: None,
             token_rx: None,
         }
@@ -365,6 +373,7 @@ impl Service<Vec<InputLogEvent>> for CloudwatchLogsSvc {
                 self.group_name.clone(),
                 self.create_missing_group,
                 self.create_missing_stream,
+                self.retention.clone(),
                 event_batches,
                 self.token.take(),
                 tx,
@@ -383,6 +392,7 @@ pub struct CloudwatchLogsSvc {
     group_name: String,
     create_missing_group: bool,
     create_missing_stream: bool,
+    retention: Retention,
     token: Option<String>,
     token_rx: Option<oneshot::Receiver<Option<String>>>,
 }

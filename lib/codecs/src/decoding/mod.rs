@@ -32,6 +32,8 @@ use vector_core::{
     schema,
 };
 
+use self::format::{AvroDeserializer, AvroDeserializerConfig, AvroDeserializerOptions};
+
 /// An error that occurred while decoding structured events from a byte stream /
 /// byte messages.
 #[derive(Debug)]
@@ -242,6 +244,14 @@ pub enum DeserializerConfig {
     /// Delegates the Deserializer configuration to the MezmoDeserializer
     /// types
     Mezmo(MezmoDeserializer),
+
+    /// Decodes the raw bytes as as an [Apache Avro][apache_avro] message.
+    ///
+    /// [apache_avro]: https://avro.apache.org/
+    Avro {
+        /// Apache Avro-specific encoder options.
+        avro: AvroDeserializerOptions,
+    },
 }
 
 impl From<BytesDeserializerConfig> for DeserializerConfig {
@@ -285,6 +295,12 @@ impl DeserializerConfig {
     /// Build the `Deserializer` from this configuration.
     pub fn build(&self) -> vector_common::Result<Deserializer> {
         match self {
+            DeserializerConfig::Avro { avro } => Ok(Deserializer::Avro(
+                AvroDeserializerConfig {
+                    avro_options: avro.clone(),
+                }
+                .build(),
+            )),
             DeserializerConfig::Bytes => Ok(Deserializer::Bytes(BytesDeserializerConfig.build())),
             DeserializerConfig::Json(config) => Ok(Deserializer::Json(config.build())),
             DeserializerConfig::Protobuf(config) => Ok(Deserializer::Protobuf(config.build()?)),
@@ -302,6 +318,7 @@ impl DeserializerConfig {
     /// Return an appropriate default framer for the given deserializer
     pub fn default_stream_framing(&self) -> FramingConfig {
         match self {
+            DeserializerConfig::Avro { .. } => FramingConfig::Bytes,
             DeserializerConfig::Native => FramingConfig::LengthDelimited,
             DeserializerConfig::Bytes
             | DeserializerConfig::Json(_)
@@ -319,6 +336,10 @@ impl DeserializerConfig {
     /// Return the type of event build by this deserializer.
     pub fn output_type(&self) -> DataType {
         match self {
+            DeserializerConfig::Avro { avro } => AvroDeserializerConfig {
+                avro_options: avro.clone(),
+            }
+            .output_type(),
             DeserializerConfig::Bytes => BytesDeserializerConfig.output_type(),
             DeserializerConfig::Json(config) => config.output_type(),
             DeserializerConfig::Protobuf(config) => config.output_type(),
@@ -334,6 +355,10 @@ impl DeserializerConfig {
     /// The schema produced by the deserializer.
     pub fn schema_definition(&self, log_namespace: LogNamespace) -> schema::Definition {
         match self {
+            DeserializerConfig::Avro { avro } => AvroDeserializerConfig {
+                avro_options: avro.clone(),
+            }
+            .schema_definition(log_namespace),
             DeserializerConfig::Bytes => BytesDeserializerConfig.schema_definition(log_namespace),
             DeserializerConfig::Json(config) => config.schema_definition(log_namespace),
             DeserializerConfig::Protobuf(config) => config.schema_definition(log_namespace),
@@ -365,7 +390,9 @@ impl DeserializerConfig {
                         },
                 }),
             ) => "application/json",
-            (DeserializerConfig::Native, _) => "application/octet-stream",
+            (DeserializerConfig::Native, _) | (DeserializerConfig::Avro { .. }, _) => {
+                "application/octet-stream"
+            }
             (DeserializerConfig::Protobuf(_), _) => "application/octet-stream",
             (
                 DeserializerConfig::Json(_)
@@ -384,6 +411,8 @@ impl DeserializerConfig {
 /// Parse structured events from bytes.
 #[derive(Clone)]
 pub enum Deserializer {
+    /// Uses a `AvroDeserializer` for deserialization.
+    Avro(AvroDeserializer),
     /// Uses a `BytesDeserializer` for deserialization.
     Bytes(BytesDeserializer),
     /// Uses a `JsonDeserializer` for deserialization.
@@ -410,6 +439,7 @@ impl format::Deserializer for Deserializer {
         log_namespace: LogNamespace,
     ) -> vector_common::Result<SmallVec<[Event; 1]>> {
         match self {
+            Deserializer::Avro(deserializer) => deserializer.parse(bytes, log_namespace),
             Deserializer::Bytes(deserializer) => deserializer.parse(bytes, log_namespace),
             Deserializer::Json(deserializer) => deserializer.parse(bytes, log_namespace),
             Deserializer::Protobuf(deserializer) => deserializer.parse(bytes, log_namespace),

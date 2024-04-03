@@ -547,6 +547,7 @@ impl ProviderConfig for MezmoPartitionConfig {
 
 #[cfg(test)]
 mod tests {
+    use crate::extra_context::ExtraContext;
     use crate::topology;
 
     use super::*;
@@ -1061,8 +1062,14 @@ mod tests {
             .expect("to build config successfully");
 
         let diff = config::ConfigDiff::initial(&config);
-        topology::builder::TopologyPieces::build(&config, &diff, None, HashMap::new())
-            .await
-            .map(|_| ())
+        topology::builder::TopologyPieces::build(
+            &config,
+            &diff,
+            None,
+            HashMap::new(),
+            ExtraContext::default(),
+        )
+        .await
+        .map(|_| ())
     }
 }

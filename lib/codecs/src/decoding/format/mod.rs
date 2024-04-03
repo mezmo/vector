@@ -3,6 +3,7 @@
 
 #![deny(missing_docs)]
 
+mod avro;
 mod bytes;
 mod gelf;
 mod json;
@@ -15,6 +16,7 @@ mod syslog;
 mod mezmo;
 
 use ::bytes::Bytes;
+pub use avro::{AvroDeserializer, AvroDeserializerConfig, AvroDeserializerOptions};
 use dyn_clone::DynClone;
 pub use gelf::{GelfDeserializer, GelfDeserializerConfig, GelfDeserializerOptions};
 pub use json::{JsonDeserializer, JsonDeserializerConfig, JsonDeserializerOptions};
