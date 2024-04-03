@@ -1,3 +1,15 @@
+## [3.13.4](https://github.com/mezmo/vector/compare/v3.13.3...v3.13.4) (2024-04-03)
+
+
+### Chores
+
+* **ci**: Publish to `docker.io` and use public repos [631a8ab](https://github.com/mezmo/vector/commit/631a8ab6b3f9482610b80c74ac9d290e5c63787d) - Darin Spivey [LOG-18250](https://logdna.atlassian.net/browse/LOG-18250)
+
+
+### Miscellaneous
+
+* Merge pull request #7 from mezmo/darinspivey/LOG-18250 [7f3158e](https://github.com/mezmo/vector/commit/7f3158e172e6eae32ba00f608f33718db4316c1c) - GitHub [LOG-18250](https://logdna.atlassian.net/browse/LOG-18250)
+
 ## [3.13.2](https://github.com/answerbook/vector/compare/v3.13.1...v3.13.2) (2024-03-26)
 
 
