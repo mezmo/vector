@@ -1,3 +1,15 @@
+## [3.14.1](https://github.com/answerbook/vector/compare/v3.14.0...v3.14.1) (2024-04-03)
+
+
+### Bug Fixes
+
+* **ci**: Clean disk space after ci runs [ci skip] [7963582](https://github.com/answerbook/vector/commit/796358215aaa5eecd597addbd39a6e5fad998a13) - Darin Spivey [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590)
+
+
+### Miscellaneous
+
+* Merge pull request #439 from answerbook/darinspivey/LOG-19590 [b658874](https://github.com/answerbook/vector/commit/b658874d925621326410d26a187ef3087efa24a1) - GitHub [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590)
+
 # [3.14.0](https://github.com/answerbook/vector/compare/v3.13.3...v3.14.0) (2024-04-02)
 
 
