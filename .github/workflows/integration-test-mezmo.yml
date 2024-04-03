@@ -30,8 +30,6 @@ env:
   VERBOSE: true
   CI: true
   PROFILE: debug
-  GITHUB_TOKEN: ${{ secrets.GH_AUTH_TOKEN }}
-  CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
   test-integration:
@@ -73,7 +71,6 @@ jobs:
           # - test: 'sumo-logic'
     steps:
       - uses: actions/checkout@v3
-      - run: git config --global url."https://${GITHUB_TOKEN}@github.com".insteadOf ssh://git@github.com
       - run: make test-integration-${{ matrix.test }}
         env:
           SPLUNK_VERSION: ${{ matrix.env.SPLUNK_VERSION }}
