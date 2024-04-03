@@ -1,3 +1,10 @@
+## [3.13.5](https://github.com/mezmo/vector/compare/v3.13.4...v3.13.5) (2024-04-03)
+
+
+### Bug Fixes
+
+* **ci**: update `package.json` version via `npm` plugin [243c05f](https://github.com/mezmo/vector/commit/243c05ffd9192f479108568d0a4046063b7271ed) - Darin Spivey [LOG-18250](https://logdna.atlassian.net/browse/LOG-18250)
+
 ## [3.13.4](https://github.com/mezmo/vector/compare/v3.13.3...v3.13.4) (2024-04-03)
 
 
