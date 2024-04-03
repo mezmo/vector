@@ -1,6 +1,6 @@
 {
   "name": "vector",
-  "version": "3.13.4",
+  "version": "3.13.5",
   "description": "Vector is a high-performance, end-to-end (agent & aggregator) observability data pipeline",
   "repository": {
     "type": "git",
@@ -34,7 +34,10 @@
       ],
       [
         "@semantic-release/git", {
-          "assets": "MEZMO_CHANGELOG.md"
+          "assets": [
+            "MEZMO_CHANGELOG.md",
+            "package.json"
+          ]
         }
       ]
     ]
