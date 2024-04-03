@@ -1,3 +1,10 @@
+## [3.13.6](https://github.com/mezmo/vector/compare/v3.13.5...v3.13.6) (2024-04-03)
+
+
+### Bug Fixes
+
+* **ci**: Add `package.json` into the semantic-release assets [24e8774](https://github.com/mezmo/vector/commit/24e8774b206645d4357452161c1417acbcdcb8ce) - Darin Spivey [LOG-18250](https://logdna.atlassian.net/browse/LOG-18250)
+
 ## [3.13.5](https://github.com/mezmo/vector/compare/v3.13.4...v3.13.5) (2024-04-03)
 
 
