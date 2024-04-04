@@ -1,3 +1,32 @@
+# [3.14.0](https://github.com/mezmo/vector/compare/v3.13.6...v3.14.0) (2024-04-04)
+
+
+### Bug Fixes
+
+* **ci**: Clean disk space after ci runs [ci skip] [7963582](https://github.com/mezmo/vector/commit/796358215aaa5eecd597addbd39a6e5fad998a13) - Darin Spivey [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590)
+* **throttle**: use ms for window config [f898c1f](https://github.com/mezmo/vector/commit/f898c1ff8b873a63937e061d722a9499cd8da9b4) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+
+
+### Chores
+
+* **release**: 3.13.3 [skip ci] [a033400](https://github.com/mezmo/vector/commit/a033400f5d6f2c1ba1bc042159a1862977b02788) - LogDNA Bot [LOG-19155](https://logdna.atlassian.net/browse/LOG-19155) [LOG-19155](https://logdna.atlassian.net/browse/LOG-19155) [LOG-19506](https://logdna.atlassian.net/browse/LOG-19506) [LOG-19506](https://logdna.atlassian.net/browse/LOG-19506) [LOG-19506](https://logdna.atlassian.net/browse/LOG-19506) [LOG-19155](https://logdna.atlassian.net/browse/LOG-19155) [LOG-19155](https://logdna.atlassian.net/browse/LOG-19155) [LOG-19155](https://logdna.atlassian.net/browse/LOG-19155)
+* **release**: 3.14.0 [skip ci] [9163805](https://github.com/mezmo/vector/commit/9163805d665c022d7be60a3ceef8ad34cd1ba386) - LogDNA Bot [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565) [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565) [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565) [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565) [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565) [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565) [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565) [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565) [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+* **release**: 3.14.1 [skip ci] [21f683c](https://github.com/mezmo/vector/commit/21f683c05bf9f0c924d4ffb55ad0db0a46e6baad) - LogDNA Bot [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590) [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590) [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590) [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590) [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590)
+
+
+### Features
+
+* **throttle**: add state persistence [ad882f2](https://github.com/mezmo/vector/commit/ad882f26c0f88b660b75b6be9f9c443fac554620) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+* **throttle**: reimplement throttle transform with basic rate limiting [066cac3](https://github.com/mezmo/vector/commit/066cac3957882804c6174f11924e1b2ea4a0b91f) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+
+
+### Miscellaneous
+
+* Merge pull request #10 from mezmo/darinspivey/sync_3.14.1 [d4585e2](https://github.com/mezmo/vector/commit/d4585e23d66839f950049d5322ff1140b5e3ca57) - GitHub
+* Merge remote-tracking branch 'answerbook/master' into darinspivey/sync_3.14.1 [eeae52e](https://github.com/mezmo/vector/commit/eeae52e68e22b5ba85e62a1690b8e98a4a7828a4) - Darin Spivey
+* Merge pull request #439 from answerbook/darinspivey/LOG-19590 [b658874](https://github.com/mezmo/vector/commit/b658874d925621326410d26a187ef3087efa24a1) - GitHub [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590)
+* Merge pull request #438 from answerbook/mdeltito/LOG-19565 [f8854d6](https://github.com/mezmo/vector/commit/f8854d6c07b4cc173531acb70ced6a2aea424b17) - GitHub [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+
 ## [3.13.6](https://github.com/mezmo/vector/compare/v3.13.5...v3.13.6) (2024-04-03)
 ## [3.14.1](https://github.com/answerbook/vector/compare/v3.14.0...v3.14.1) (2024-04-03)
 
