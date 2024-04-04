@@ -6,6 +6,8 @@ def PROJECT_NAME = "vector"
 def CURRENT_BRANCH = currentBranch()
 def DOCKER_REPO = "docker.io/mezmohq"
 
+def BRANCH_BUILD = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
+
 def CREDS = [
   string(
     credentialsId: 'github-api-token',
@@ -48,22 +50,7 @@ pipeline {
     ENVIRONMENT_AUTOBUILD = 'false'
     ENVIRONMENT_TTY = 'false'
     CI = 'true'
-  }
-  post {
-    always {
-      script {
-        if (env.SANITY_BUILD == 'true') {
-          notifySlack(
-            currentBuild.currentResult,
-            [
-              channel: '#pipeline-bots',
-              tokenCredentialId: 'qa-slack-token'
-            ],
-            "`${PROJECT_NAME}` sanity build took ${currentBuild.durationString.replaceFirst(' and counting', '')}."
-          )
-        }
-      }
-    }
+    VECTOR_TARGET = "${BRANCH_BUILD}"
   }
   stages {
     stage('Validate PR Author') {
@@ -77,8 +64,6 @@ pipeline {
         error("A maintainer needs to approve this PR for CI by commenting")
       }
     }
-
-
 
     stage('Lint and test release'){
       tools {
@@ -101,21 +86,20 @@ pipeline {
       }
     }
 
-    stage('vdev Check'){
-      when {
-        changeRequest() // Only do this during PRs. It's about a 15-min wait.
-      }
+    stage('Unit test'){
+      // Important: do one step serially since it'll be the one to prepare the testing container
+      // and install the rust toolchain in it. Volume mounts are created here, too.
       steps {
         sh """
-          make check ENVIRONMENT=true
-          make check-fmt ENVIRONMENT=true
+          make test ENVIRONMENT=true
         """
       }
     }
 
-    stage('Code'){
+    stage('Checks'){
+      // All `make ENVIRONMENT=true` steps should now use the existing container
       parallel {
-        stage('Lint'){
+        stage('check-clippy'){
           steps {
             sh """
               make check-clippy ENVIRONMENT=true
@@ -123,10 +107,15 @@ pipeline {
             """
           }
         }
-        stage('Check Deny'){
-          when {
-            changeRequest() // PRs only to speed up dev flows. These can be fixed then if they're actionable.
+        stage('check-fmt'){
+          steps {
+            sh """
+              make check ENVIRONMENT=true
+              make check-fmt ENVIRONMENT=true
+            """
           }
+        }
+        stage('check-deny'){
           steps {
             catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
               sh """
@@ -135,14 +124,7 @@ pipeline {
             }
           }
         }
-        stage('Unit test'){
-          steps {
-            sh """
-              make test ENVIRONMENT=true
-            """
-          }
-        }
-        stage('Test build container image') {
+        stage('image test') {
           when {
             changeRequest() // Only do this during PRs because it can take 30 minutes
           }
@@ -151,7 +133,7 @@ pipeline {
               buildx.build(
                 project: PROJECT_NAME
               , push: false
-              , tags: [slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")]
+              , tags: [BRANCH_BUILD]
               , dockerfile: "distribution/docker/mezmo/Dockerfile"
               , docker_repo: DOCKER_REPO
               )
@@ -209,6 +191,26 @@ pipeline {
             , docker_repo: DOCKER_REPO
             )
           }
+        }
+      }
+    }
+  }
+  post {
+    always {
+      // Clear disk space by removing the `target` volume mount where the binaries are stored.
+      // The volume is unique to the current build, so there should be no "in use" errors.
+      sh 'make target-clean'
+
+      script {
+        if (env.SANITY_BUILD == 'true') {
+          notifySlack(
+            currentBuild.currentResult,
+            [
+              channel: '#pipeline-bots',
+              tokenCredentialId: 'qa-slack-token'
+            ],
+            "`${PROJECT_NAME}` sanity build took ${currentBuild.durationString.replaceFirst(' and counting', '')}."
+          )
         }
       }
     }

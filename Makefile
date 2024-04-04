@@ -94,6 +94,8 @@ export VERSION ?= $(shell command -v cargo >/dev/null && cargo vdev version || e
 # Set if you are on the CI and actually want the things to happen. (Non-CI users should never set this.)
 export CI ?= false
 
+export VECTOR_TARGET ?= vector-target
+
 export RUST_VERSION ?= $(shell grep channel rust-toolchain.toml | cut -d '"' -f 2)
 
 FORMATTING_BEGIN_YELLOW = \033[0;33m
@@ -162,7 +164,9 @@ define ENVIRONMENT_EXEC
 			$(if $(ENVIRONMENT_NETWORK),--network $(ENVIRONMENT_NETWORK),) \
 			--mount type=bind,source=${CURRENT_DIR},target=/git/vectordotdev/vector \
 			$(if $(findstring docker,$(CONTAINER_TOOL)),--mount type=bind$(COMMA)source=/var/run/docker.sock$(COMMA)target=/var/run/docker.sock,) \
-			--mount type=volume,source=vector-target,target=/git/vectordotdev/vector/target \
+			--mount type=volume,source=${VECTOR_TARGET},target=/git/vectordotdev/vector/target \
+			--mount type=volume,source=vector-cargo-cache,target=/root/.cargo \
+			--mount type=volume,source=vector-rustup-cache,target=/root/.rustup \
 			$(foreach publish,$(ENVIRONMENT_PUBLISH),--publish $(publish)) \
 			$(ENVIRONMENT_UPSTREAM)
 endef
@@ -204,9 +208,14 @@ environment:
 environment-prepare: ## Prepare the Vector dev shell using $CONTAINER_TOOL.
 	${ENVIRONMENT_PREPARE}
 
+.PHONY: target-clean
+target-clean: ## Clean just the target volume, and leave toolchain/cargo in tact
+	@echo "Removing vector target volume: ${VECTOR_TARGET}"
+	@$(CONTAINER_TOOL) volume rm -f ${VECTOR_TARGET}
+
 .PHONY: environment-clean
 environment-clean: ## Clean the Vector dev shell using $CONTAINER_TOOL.
-	@$(CONTAINER_TOOL) volume rm -f vector-target vector-cargo-cache vector-rustup-cache
+	@$(CONTAINER_TOOL) volume rm -f ${VECTOR_TARGET} vector-cargo-cache vector-rustup-cache
 	@$(CONTAINER_TOOL) rmi $(ENVIRONMENT_UPSTREAM) || true
 
 .PHONY: environment-push

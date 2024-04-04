@@ -9,7 +9,17 @@
   "scripts": {
     "release": "semantic-release",
     "release:dry": "semantic-release --no-ci --dry-run --branches=${BRANCH_NAME:-master}",
-    "commitlint": "./node_modules/.bin/commitlint-logdna --from=origin/master"
+    "commitlint": "commitlint --from=origin/master"
+  },
+  "commitlint": {
+    "extends": "@answerbook/commitlint-config-logdna",
+    "rules": {
+      "body-max-line-length": [
+        2,
+        "always",
+        80
+      ]
+    }
   },
   "release": {
     "branches": [
@@ -50,6 +60,6 @@
     "semantic-release": "^19.0.5"
   },
   "dependencies": {
-    "@answerbook/commitlint-config-logdna": "^2.2.0"
+    "@answerbook/commitlint-config-logdna": "^2.2.1"
   }
 }
