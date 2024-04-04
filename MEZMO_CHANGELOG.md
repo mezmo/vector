@@ -1,3 +1,12 @@
+## Changelog
+
+## [3.14.1](https://github.com/mezmo/vector/compare/v3.14.0...v3.14.1) (2024-04-04)
+
+
+### Bug Fixes
+
+* **ci**: Clean up `package.json` for linting and release [36baa53](https://github.com/mezmo/vector/commit/36baa53b6ca34057e65968a2ba10c7bcb7a35f20) - Darin Spivey [LOG-18250](https://logdna.atlassian.net/browse/LOG-18250)
+
 # [3.14.0](https://github.com/mezmo/vector/compare/v3.13.6...v3.14.0) (2024-04-04)
 
 
