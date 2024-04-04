@@ -1,4 +1,5 @@
 ## [3.13.6](https://github.com/mezmo/vector/compare/v3.13.5...v3.13.6) (2024-04-03)
+## [3.14.1](https://github.com/answerbook/vector/compare/v3.14.0...v3.14.1) (2024-04-03)
 
 
 ### Bug Fixes
@@ -18,11 +19,48 @@
 ### Chores
 
 * **ci**: Publish to `docker.io` and use public repos [631a8ab](https://github.com/mezmo/vector/commit/631a8ab6b3f9482610b80c74ac9d290e5c63787d) - Darin Spivey [LOG-18250](https://logdna.atlassian.net/browse/LOG-18250)
+* **ci**: Clean disk space after ci runs [ci skip] [7963582](https://github.com/answerbook/vector/commit/796358215aaa5eecd597addbd39a6e5fad998a13) - Darin Spivey [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590)
 
 
 ### Miscellaneous
 
 * Merge pull request #7 from mezmo/darinspivey/LOG-18250 [7f3158e](https://github.com/mezmo/vector/commit/7f3158e172e6eae32ba00f608f33718db4316c1c) - GitHub [LOG-18250](https://logdna.atlassian.net/browse/LOG-18250)
+* Merge pull request #439 from answerbook/darinspivey/LOG-19590 [b658874](https://github.com/answerbook/vector/commit/b658874d925621326410d26a187ef3087efa24a1) - GitHub [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590)
+
+# [3.14.0](https://github.com/answerbook/vector/compare/v3.13.3...v3.14.0) (2024-04-02)
+
+
+### Bug Fixes
+
+* **throttle**: use ms for window config [f898c1f](https://github.com/answerbook/vector/commit/f898c1ff8b873a63937e061d722a9499cd8da9b4) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+
+
+### Features
+
+* **throttle**: add state persistence [ad882f2](https://github.com/answerbook/vector/commit/ad882f26c0f88b660b75b6be9f9c443fac554620) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+* **throttle**: reimplement throttle transform with basic rate limiting [066cac3](https://github.com/answerbook/vector/commit/066cac3957882804c6174f11924e1b2ea4a0b91f) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+
+
+### Miscellaneous
+
+* Merge pull request #438 from answerbook/mdeltito/LOG-19565 [f8854d6](https://github.com/answerbook/vector/commit/f8854d6c07b4cc173531acb70ced6a2aea424b17) - GitHub [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+
+## [3.13.3](https://github.com/answerbook/vector/compare/v3.13.2...v3.13.3) (2024-03-27)
+
+
+### Chores
+
+* **build**: Use open source vrl fork [347e20f](https://github.com/answerbook/vector/commit/347e20f28b0480c707868f3cc8713b7e7d534ade) - Dan Hable [LOG-19155](https://logdna.atlassian.net/browse/LOG-19155)
+
+
+### Miscellaneous
+
+* Merge pull request #6 from mezmo/darinspivey/answerbook_sync [bd66904](https://github.com/answerbook/vector/commit/bd66904d93efc261909215b5c3141cf21540fcf4) - GitHub
+* Merge remote-tracking branch 'answerbook/master' into darinspivey/answerbook_sync [98280d6](https://github.com/answerbook/vector/commit/98280d69bfc94fd4e1261841e7eeaca13df1a2e2) - Darin Spivey
+* Merge pull request #5 from mezmo/holmberg/LOG-19506 [35fed6f](https://github.com/answerbook/vector/commit/35fed6fd25638e558f15404fa75b1a818caa6247) - GitHub [LOG-19506](https://logdna.atlassian.net/browse/LOG-19506)
+* Merge pull request #3 from mezmo/edge1 [a049b0c](https://github.com/answerbook/vector/commit/a049b0c62ba1705b958fb56d45abc3c1b970d0a3) - GitHub
+* Merge branch 'master' into edge1 [596ba22](https://github.com/answerbook/vector/commit/596ba22be5bf186e88ea8e1798d1b6587dec8ebe) - GitHub
+* Merge pull request #2 from mezmo/dhable/LOG-19155 [7ddc8c2](https://github.com/answerbook/vector/commit/7ddc8c2f5fb8c29a10610522d533b36ac27e7087) - GitHub [LOG-19155](https://logdna.atlassian.net/browse/LOG-19155)
 
 ## [3.13.2](https://github.com/answerbook/vector/compare/v3.13.1...v3.13.2) (2024-03-26)
 
