@@ -105,16 +105,16 @@ const DEFAULT_LOG_EVENT_TYPES: [&str; 67] = [
 ];
 
 fn grok_patterns() -> &'static BTreeMap<String, grok::Pattern> {
-    let mut parser = grok::Grok::with_default_patterns();
-
-    // Add aliases and custom grok patterns prior to referencing them during `.compile()`
-    for (alias, pattern) in CUSTOM_GROK_DEFINITIONS.iter() {
-        parser.add_pattern(alias.to_string(), pattern.to_string());
-    }
-
     static GROK_PATTERNS: OnceLock<BTreeMap<String, grok::Pattern>> = OnceLock::new();
     GROK_PATTERNS.get_or_init(|| {
         let mut m = BTreeMap::new();
+        let mut parser = grok::Grok::with_default_patterns();
+
+        // Add aliases and custom grok patterns prior to referencing them during `.compile()`
+        for (alias, pattern) in CUSTOM_GROK_DEFINITIONS.iter() {
+            parser.add_pattern(alias.to_string(), pattern.to_string());
+        }
+
         for s in DEFAULT_LOG_EVENT_TYPES.iter() {
             let pattern_str = format!("%{{{s}}}");
             let pattern = parser
