@@ -55,27 +55,19 @@ pipeline {
     ENVIRONMENT_AUTOBUILD = 'false'
     ENVIRONMENT_TTY = 'false'
     CI = 'true'
-    VECTOR_TARGET = "${BRANCH_BUILD}"
+    VECTOR_TARGET = "${BRANCH_BUILD}-target"
+    VECTOR_CARGO_CACHE = "${BRANCH_BUILD}-cargo"
+    VECTOR_RUSTUP_CACHE = "${BRANCH_BUILD}-rustup"
   }
   stages {
-    stage('Setup') {
+    stage('Release Tool') {
       steps {
         sh 'make release-tool'
       }
     }
-    stage('Check'){
-      // Important: do this step serially since it'll be the one to prepare the testing container
-      // and install the rust toolchain in it. Volume mounts are created here, too.
-      steps {
-        sh """
-          make check ENVIRONMENT=true
-          make check-fmt ENVIRONMENT=true
-        """
-      }
-    }
     stage('Lint and test release'){
       tools {
-        nodejs 'NodeJS 16'
+        nodejs 'NodeJS 20'
       }
       environment {
         GIT_BRANCH = "${CURRENT_BRANCH}"
@@ -94,10 +86,19 @@ pipeline {
         sh './release-tool test'
       }
     }
-    stage('Lint and Test') {
+    stage('Unit test'){
+      // Important: do one step serially since it'll be the one to prepare the testing container
+      // and install the rust toolchain in it. Volume mounts are created here, too.
+      steps {
+        sh """
+          make test ENVIRONMENT=true
+        """
+      }
+    }
+    stage('Checks') {
       // All `make ENVIRONMENT=true` steps should now use the existing container
       parallel {
-        stage('Lint'){
+        stage('check-clippy'){
           steps {
             sh """
               make check-clippy ENVIRONMENT=true
@@ -105,7 +106,17 @@ pipeline {
             """
           }
         }
-        stage('Deny'){
+        stage('check-fmt'){
+          // Important: do this step serially since it'll be the one to prepare the testing container
+          // and install the rust toolchain in it. Volume mounts are created here, too.
+          steps {
+            sh """
+              make check ENVIRONMENT=true
+              make check-fmt ENVIRONMENT=true
+            """
+          }
+        }
+        stage('check-deny'){
           steps {
             catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
               sh """
@@ -114,14 +125,7 @@ pipeline {
             }
           }
         }
-        stage('Unit test'){
-          steps {
-            sh """
-              make test ENVIRONMENT=true
-            """
-          }
-        }
-        stage('Test build container image') {
+        stage('image test') {
           when {
             changeRequest() // Only do this during PRs because it can take 30 minutes
           }
@@ -167,7 +171,7 @@ pipeline {
         }
       }
       tools {
-        nodejs 'NodeJS 16'
+        nodejs 'NodeJS 20'
       }
       steps {
         script {
@@ -196,9 +200,9 @@ pipeline {
   }
   post {
     always {
-      // Clear disk space by removing the `target` volume mount where the binaries are stored.
-      // The volume is unique to the current build, so there should be no "in use" errors.
-      sh 'make target-clean'
+      // Clear disk space by removing the test container and all of its volumes.
+      // The container and volumes are unique to the current build, so there should be no "in use" errors.
+      sh 'make environment-clean'
 
       script {
         if (env.SANITY_BUILD == 'true') {
