@@ -3,6 +3,7 @@ use crate::{event::LogEvent, test_util::trace_init};
 use bytes::Bytes;
 use std::ffi::OsStr;
 use std::io::Cursor;
+use tokio_test::assert_ok;
 use vector_lib::event::EventMetadata;
 use vrl::value;
 
@@ -175,7 +176,12 @@ fn test_build_command() {
             respawn_on_exit: default_respawn_on_exit(),
             respawn_interval_secs: default_respawn_interval_secs(),
         }),
-        command: vec!["./runner".to_owned(), "arg1".to_owned(), "arg2".to_owned()],
+        command: Some(vec![
+            "./runner".to_owned(),
+            "arg1".to_owned(),
+            "arg2".to_owned(),
+        ]),
+        source: None,
         environment: None,
         clear_environment: default_clear_environment(),
         working_directory: Some(PathBuf::from("/tmp")),
@@ -209,7 +215,12 @@ fn test_build_command_custom_environment() {
             respawn_on_exit: default_respawn_on_exit(),
             respawn_interval_secs: default_respawn_interval_secs(),
         }),
-        command: vec!["./runner".to_owned(), "arg1".to_owned(), "arg2".to_owned()],
+        command: Some(vec![
+            "./runner".to_owned(),
+            "arg1".to_owned(),
+            "arg2".to_owned(),
+        ]),
+        source: None,
         environment: Some(HashMap::from([("FOO".to_owned(), "foo".to_owned())])),
         clear_environment: default_clear_environment(),
         working_directory: Some(PathBuf::from("/tmp")),
@@ -239,7 +250,12 @@ fn test_build_command_clear_environment() {
             respawn_on_exit: default_respawn_on_exit(),
             respawn_interval_secs: default_respawn_interval_secs(),
         }),
-        command: vec!["./runner".to_owned(), "arg1".to_owned(), "arg2".to_owned()],
+        command: Some(vec![
+            "./runner".to_owned(),
+            "arg1".to_owned(),
+            "arg2".to_owned(),
+        ]),
+        source: None,
         environment: Some(HashMap::from([("FOO".to_owned(), "foo".to_owned())])),
         clear_environment: true,
         working_directory: Some(PathBuf::from("/tmp")),
@@ -384,13 +400,13 @@ async fn test_run_command_linux() {
 async fn test_graceful_shutdown() {
     trace_init();
     let mut config = standard_streaming_test_config();
-    config.command = vec![
+    config.command = Some(vec![
         String::from("bash"),
         String::from("-c"),
         String::from(
             r#"trap 'echo signal received ; sleep 1; echo slept ; exit' SIGTERM; while true ; do sleep 10 ; done"#,
         ),
-    ];
+    ]);
     let hostname = Some("Some.Machine".to_string());
     let decoder = Default::default();
     let (trigger, shutdown, _) = ShutdownSignal::new_wired();
@@ -435,6 +451,84 @@ async fn test_graceful_shutdown() {
     }
 }
 
+#[test]
+fn test_maybe_compile_vrl() {
+    let config = script_scheduled_test_config();
+
+    let (sender, _) = SourceSender::new_test();
+    let ctx = SourceContext::new_test(sender, Some(HashMap::default()));
+    let output = maybe_compile_vrl_script(&config, &ctx);
+
+    assert_ok!(output);
+}
+
+#[test]
+fn test_validate() {
+    let mut config = script_scheduled_test_config();
+
+    config.command = None;
+    config.source = None;
+    config
+        .validate()
+        .expect_err("Expected command validation error");
+
+    config.command = Some(vec![]);
+    config
+        .validate()
+        .expect_err("Expected command validation error");
+
+    config.source = Some("".to_owned());
+    config
+        .validate()
+        .expect_err("Expected VRL source validation error");
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn test_run_vrl_script() {
+    let config = script_scheduled_test_config();
+
+    let (mut rx, timeout_result) = crate::test_util::components::assert_source_compliance(
+        &crate::test_util::components::SOURCE_TAGS,
+        async {
+            let (sender, rx) = SourceSender::new_test();
+            let ctx = SourceContext::new_test(sender.clone(), Some(HashMap::default()));
+            let program = maybe_compile_vrl_script(&config, &ctx).unwrap();
+
+            let result = tokio::time::timeout(
+                time::Duration::from_secs(5),
+                run_vrl_script(
+                    config.clone(),
+                    sender,
+                    LogNamespace::Legacy,
+                    program.unwrap(),
+                ),
+            )
+            .await;
+            (rx, result)
+        },
+    )
+    .await;
+
+    let res = timeout_result
+        .expect("script timed out")
+        .expect("script error");
+    assert_eq!(res, None);
+
+    if let Poll::Ready(Some(event)) = futures::poll!(rx.next()) {
+        let log = event.as_log();
+
+        assert_eq!(
+            *log["metadata"].get("mezmo.type").unwrap(),
+            "clock_tick".into()
+        );
+        assert_eq!(*log["message"].get("origin").unwrap(), "exec".into());
+        assert_eq!(*log["message"].get("mode").unwrap(), "scheduled".into());
+    } else {
+        panic!("Expected to receive a log event from VRL script");
+    }
+}
+
 fn standard_scheduled_test_config() -> ExecConfig {
     Default::default()
 }
@@ -447,7 +541,8 @@ fn standard_streaming_test_config() -> ExecConfig {
             respawn_on_exit: default_respawn_on_exit(),
             respawn_interval_secs: default_respawn_interval_secs(),
         }),
-        command: vec!["yes".to_owned()],
+        command: Some(vec!["yes".to_owned()]),
+        source: None,
         environment: None,
         clear_environment: default_clear_environment(),
         working_directory: None,
@@ -457,4 +552,28 @@ fn standard_streaming_test_config() -> ExecConfig {
         decoding: default_decoding(),
         log_namespace: None,
     }
+}
+
+fn script_scheduled_test_config() -> ExecConfig {
+    let mut config: ExecConfig = Default::default();
+    config.source = Some(generate_vrl_source().to_owned());
+    config.command = None;
+    config
+}
+
+fn generate_vrl_source() -> &'static str {
+    r#"
+        envelope = {}
+        envelope.metadata = object({
+            "mezmo": {
+                "type": "clock_tick"
+            }
+        })
+        envelope.message = object({
+            "timestamp": now(),
+            "origin": "exec",
+            "mode": "scheduled"
+        })
+        . = envelope
+    "#
 }

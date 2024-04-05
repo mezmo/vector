@@ -17,26 +17,35 @@ use tokio::{
 };
 use tokio_stream::wrappers::IntervalStream;
 use tokio_util::codec::FramedRead;
-use vector_lib::codecs::{
-    decoding::{DeserializerConfig, FramingConfig},
-    StreamDecodingError,
-};
 use vector_lib::configurable::configurable_component;
 use vector_lib::internal_event::{ByteSize, BytesReceived, InternalEventHandle as _, Protocol};
-use vector_lib::{config::LegacyKey, EstimatedJsonEncodedSizeOf};
-use vrl::path::OwnedValuePath;
+use vector_lib::{
+    codecs::{
+        decoding::{DeserializerConfig, FramingConfig},
+        StreamDecodingError,
+    },
+    config::LegacyKey,
+    event::{LogEvent, TargetEvents},
+    schema, ByteSizeOf, EstimatedJsonEncodedSizeOf, TimeZone,
+};
 use vrl::value::Kind;
+use vrl::{
+    compiler::{runtime::Runtime, Program},
+    path::OwnedValuePath,
+};
 
 use crate::{
     codecs::{Decoder, DecodingConfig},
     config::{SourceConfig, SourceContext, SourceOutput},
-    event::Event,
+    event::{Event, VrlTarget},
     internal_events::{
         ExecChannelClosedError, ExecCommandExecuted, ExecEventsReceived, ExecFailedError,
-        ExecFailedToSignalChild, ExecFailedToSignalChildError, ExecTimeoutError, StreamClosedError,
+        ExecFailedToSignalChild, ExecFailedToSignalChildError, ExecTimeoutError,
+        ExecVrlEventsReceived, StreamClosedError,
     },
     serde::default_decoding,
     shutdown::ShutdownSignal,
+    transforms::remap::RemapConfig,
     SourceSender,
 };
 use futures::FutureExt;
@@ -62,7 +71,11 @@ pub struct ExecConfig {
 
     /// The command to run, plus any arguments required.
     #[configurable(metadata(docs::examples = "echo", docs::examples = "Hello World!"))]
-    pub command: Vec<String>,
+    pub command: Option<Vec<String>>,
+
+    /// The VRL program to execute
+    #[configurable(derived)]
+    source: Option<String>,
 
     /// Custom environment variables to set or update when running the command.
     /// If a variable name already exists in the environment, its value is replaced.
@@ -144,6 +157,10 @@ pub enum ExecConfigError {
     CommandEmpty,
     #[snafu(display("The maximum buffer size must be greater than zero"))]
     ZeroBuffer,
+    #[snafu(display("A non-empty VRL source must be provided"))]
+    VrlSourceEmpty,
+    #[snafu(display("The command or VRL source to execute must be provided"))]
+    CommandAndSourceEmpty,
 }
 
 impl Default for ExecConfig {
@@ -154,7 +171,8 @@ impl Default for ExecConfig {
                 exec_interval_secs: default_exec_interval_secs(),
             }),
             streaming: None,
-            command: vec!["echo".to_owned(), "Hello World!".to_owned()],
+            command: Some(vec!["echo".to_owned(), "Hello World!".to_owned()]),
+            source: None,
             environment: None,
             clear_environment: default_clear_environment(),
             working_directory: None,
@@ -209,22 +227,36 @@ const STDERR: &str = "stderr";
 const STREAM_KEY: &str = "stream";
 const PID_KEY: &str = "pid";
 const COMMAND_KEY: &str = "command";
+const SOURCE_KEY: &str = "source";
 
 impl_generate_config_from_default!(ExecConfig);
 
 impl ExecConfig {
     fn validate(&self) -> Result<(), ExecConfigError> {
-        if self.command.is_empty() {
-            Err(ExecConfigError::CommandEmpty)
-        } else if self.maximum_buffer_size_bytes == 0 {
-            Err(ExecConfigError::ZeroBuffer)
-        } else {
-            Ok(())
+        self.validate_command_and_source()?;
+
+        if self.maximum_buffer_size_bytes == 0 {
+            return Err(ExecConfigError::ZeroBuffer);
         }
+        Ok(())
+    }
+
+    fn validate_command_and_source(&self) -> Result<(), ExecConfigError> {
+        if self.is_script_mode()
+            && (self.source.is_none() || self.source.as_ref().unwrap().is_empty())
+        {
+            return Err(ExecConfigError::VrlSourceEmpty);
+        }
+        if !self.is_script_mode()
+            && (self.command.is_none() || self.command.as_ref().unwrap().is_empty())
+        {
+            return Err(ExecConfigError::CommandEmpty);
+        }
+        Ok(())
     }
 
     fn command_line(&self) -> String {
-        self.command.join(" ")
+        self.command.as_ref().unwrap().join(" ")
     }
 
     const fn exec_interval_secs_or_default(&self) -> u64 {
@@ -247,6 +279,10 @@ impl ExecConfig {
             Some(config) => config.respawn_interval_secs,
         }
     }
+
+    fn is_script_mode(&self) -> bool {
+        return self.source.is_some();
+    }
 }
 
 #[async_trait::async_trait]
@@ -263,6 +299,7 @@ impl SourceConfig for ExecConfig {
             .unwrap_or_else(|| self.decoding.default_stream_framing());
         let decoder =
             DecodingConfig::new(framing, self.decoding.clone(), LogNamespace::Legacy).build()?;
+        let program = maybe_compile_vrl_script(&self, &cx)?;
 
         match &self.mode {
             Mode::Scheduled => {
@@ -276,6 +313,7 @@ impl SourceConfig for ExecConfig {
                     cx.shutdown,
                     cx.out,
                     log_namespace,
+                    program.clone(),
                 )))
             }
             Mode::Streaming => {
@@ -291,6 +329,7 @@ impl SourceConfig for ExecConfig {
                     cx.shutdown,
                     cx.out,
                     log_namespace,
+                    program.clone(),
                 )))
             }
         }
@@ -334,6 +373,13 @@ impl SourceConfig for ExecConfig {
                 &owned_value_path!(COMMAND_KEY),
                 Kind::bytes(),
                 None,
+            )
+            .with_source_metadata(
+                Self::NAME,
+                Some(LegacyKey::InsertIfEmpty(owned_value_path!(SOURCE_KEY))),
+                &owned_value_path!(SOURCE_KEY),
+                Kind::bytes().or_undefined(),
+                None,
             );
 
         vec![SourceOutput::new_logs(
@@ -355,6 +401,7 @@ async fn run_scheduled(
     shutdown: ShutdownSignal,
     out: SourceSender,
     log_namespace: LogNamespace,
+    program: Option<Program>,
 ) -> Result<(), ()> {
     debug!("Starting scheduled exec runs.");
     let schedule = Duration::from_secs(exec_interval_secs);
@@ -363,19 +410,32 @@ async fn run_scheduled(
 
     while interval.next().await.is_some() {
         // Wait for our task to finish, wrapping it in a timeout
-        let timeout = tokio::time::timeout(
-            schedule,
-            run_command(
-                config.clone(),
-                hostname.clone(),
-                decoder.clone(),
-                shutdown.clone(),
-                out.clone(),
-                log_namespace,
-            ),
-        )
-        .await;
 
+        let timeout = if config.is_script_mode() {
+            tokio::time::timeout(
+                schedule,
+                run_vrl_script(
+                    config.clone(),
+                    out.clone(),
+                    log_namespace,
+                    program.clone().unwrap(),
+                ),
+            )
+            .await
+        } else {
+            tokio::time::timeout(
+                schedule,
+                run_command(
+                    config.clone(),
+                    hostname.clone(),
+                    decoder.clone(),
+                    shutdown.clone(),
+                    out.clone(),
+                    log_namespace,
+                ),
+            )
+            .await
+        };
         match timeout {
             Ok(output) => {
                 if let Err(command_error) = output {
@@ -409,8 +469,10 @@ async fn run_streaming(
     mut shutdown: ShutdownSignal,
     out: SourceSender,
     log_namespace: LogNamespace,
+    program: Option<Program>,
 ) -> Result<(), ()> {
-    if respawn_on_exit {
+    // respawn only applies to command execution
+    if !config.is_script_mode() && respawn_on_exit {
         let duration = Duration::from_secs(respawn_interval_secs);
 
         // Continue to loop while not shutdown
@@ -439,15 +501,19 @@ async fn run_streaming(
             }
         }
     } else {
-        let output = run_command(
-            config.clone(),
-            hostname,
-            decoder,
-            shutdown,
-            out,
-            log_namespace,
-        )
-        .await;
+        let output = if config.is_script_mode() {
+            run_vrl_script(config.clone(), out.clone(), log_namespace, program.unwrap()).await
+        } else {
+            run_command(
+                config.clone(),
+                hostname,
+                decoder,
+                shutdown,
+                out,
+                log_namespace,
+            )
+            .await
+        };
 
         if let Err(command_error) = output {
             emit!(ExecFailedError {
@@ -568,6 +634,92 @@ async fn run_command(
     result
 }
 
+fn maybe_compile_vrl_script(
+    config: &ExecConfig,
+    ctx: &SourceContext,
+) -> Result<Option<Program>, Error> {
+    if !config.is_script_mode() {
+        return Ok(None);
+    }
+    let remap_config = RemapConfig {
+        source: config.source.clone(),
+        ..Default::default()
+    };
+    let result = remap_config.compile_vrl_program(
+        Default::default(),
+        schema::Definition::any(),
+        ctx.mezmo_ctx.clone(),
+    );
+    match result {
+        Ok((program, _, _, _)) => Ok(Some(program)),
+        Err(err) => {
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!("Error compiling VRL program. Reason: {}", err),
+            ))
+        }
+    }
+}
+
+async fn run_vrl_script(
+    config: ExecConfig,
+    mut out: SourceSender,
+    log_namespace: LogNamespace,
+    program: Program,
+) -> Result<Option<ExitStatus>, Error> {
+    debug!("Starting vrl execution.");
+
+    let event = LogEvent::default();
+    let timezone = TimeZone::parse("UTC").unwrap();
+    let mut target = VrlTarget::new(Event::Log(event), &program.info(), false);
+    let result = Runtime::default().resolve(&mut target, &program, &timezone);
+
+    let bytes_received = register!(BytesReceived::from(Protocol::NONE));
+    let source = config.source.as_ref().unwrap();
+
+    // handle the result error
+    if let Err(err) = result {
+        error!("VRL execution terminated: {}", err)
+    } else {
+        match target.into_events(log_namespace) {
+            TargetEvents::One(mut event) => {
+                bytes_received.emit(ByteSize(event.allocated_bytes()));
+                emit!(ExecVrlEventsReceived {
+                    count: 1,
+                    byte_size: event.estimated_json_encoded_size_of(),
+                    source: source.as_str(),
+                });
+                handle_event(&config, &None, &None, None, &mut event, log_namespace);
+
+                if (out.send_event(event).await).is_err() {
+                    emit!(StreamClosedError { count: 1 });
+                }
+            }
+            TargetEvents::Logs(mut events) => {
+                let mut count = 0;
+                for mut event in &mut events {
+                    emit!(ExecVrlEventsReceived {
+                        count: 1,
+                        byte_size: event.estimated_json_encoded_size_of(),
+                        source: source.as_str(),
+                    });
+                    handle_event(&config, &None, &None, None, &mut event, log_namespace);
+
+                    if (out.send_event(event).await).is_err() {
+                        count += 1;
+                        emit!(StreamClosedError { count });
+                    }
+                }
+            }
+            // for traces do nothing
+            _ => warn!("VRL execution must return logs, not traces"),
+        }
+    }
+
+    debug!("Finished vrl execution.");
+    Ok(None)
+}
+
 fn handle_exit_status(config: &ExecConfig, exit_status: Option<i32>, exec_duration: Duration) {
     emit!(ExecCommandExecuted {
         command: config.command_line().as_str(),
@@ -633,12 +785,20 @@ async fn shutdown_child(
 }
 
 fn build_command(config: &ExecConfig) -> Command {
-    let command = &config.command[0];
+    let command = config
+        .command
+        .clone()
+        .expect("Expected command to be present");
+    let command_args = if command.len() > 1 {
+        Some(&command[1..])
+    } else {
+        None
+    };
 
-    let mut command = Command::new(command);
+    let mut command = Command::new(&command[0]);
 
-    if config.command.len() > 1 {
-        command.args(&config.command[1..]);
+    if command_args.is_some() {
+        command.args(command_args.unwrap());
     };
 
     command.kill_on_drop(true);
@@ -719,13 +879,15 @@ fn handle_event(
         }
 
         // Add command
-        log_namespace.insert_source_metadata(
-            ExecConfig::NAME,
-            log,
-            Some(LegacyKey::InsertIfEmpty(path!(COMMAND_KEY))),
-            path!(COMMAND_KEY),
-            config.command.clone(),
-        );
+        if config.command.is_some() {
+            log_namespace.insert_source_metadata(
+                ExecConfig::NAME,
+                log,
+                Some(LegacyKey::InsertIfEmpty(path!(COMMAND_KEY))),
+                path!(COMMAND_KEY),
+                config.command.clone(),
+            );
+        }
     }
 }
 
