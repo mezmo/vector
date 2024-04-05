@@ -1,3 +1,15 @@
+## [3.14.2](https://github.com/answerbook/vector/compare/v3.14.1...v3.14.2) (2024-04-05)
+
+
+### Chores
+
+* reenable `profiling` feature for jemalloc [6e3e3d5](https://github.com/answerbook/vector/commit/6e3e3d57f9c67e4a4683cba22cf838e0f33588d5) - Mike Del Tito [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647)
+
+
+### Miscellaneous
+
+* Merge pull request #442 from answerbook/mdeltito/LOG-19647 [10e26f6](https://github.com/answerbook/vector/commit/10e26f6e4cb0d7fd311f4c3ab0e432f208903414) - GitHub [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647)
+
 ## [3.14.1](https://github.com/answerbook/vector/compare/v3.14.0...v3.14.1) (2024-04-03)
 
 
