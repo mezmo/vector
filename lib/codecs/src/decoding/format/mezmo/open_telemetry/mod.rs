@@ -3,6 +3,7 @@ mod metric_parser;
 mod trace_parser;
 
 use bytes::Bytes;
+use chrono::{NaiveDateTime, TimeZone, Utc};
 use opentelemetry_rs::opentelemetry::common::{AnyValue, AnyValueOneOfvalue, KeyValue};
 use std::borrow::Cow;
 
@@ -28,6 +29,20 @@ use vrl::value::Kind;
 use opentelemetry_rs::Error as OpenTelemetryError;
 
 const MAX_METADATA_SIZE: usize = 32 * 1024;
+const NANO_RATIO: u64 = 1_000_000_000;
+
+pub fn nano_to_timestamp(time_unix_nano: u64) -> Value {
+    Value::Timestamp(if time_unix_nano > 0 {
+        let ms: i64 = (time_unix_nano / NANO_RATIO).try_into().unwrap();
+        let nanos: u32 = (time_unix_nano % NANO_RATIO) as u32;
+        Utc.from_utc_datetime(
+            &NaiveDateTime::from_timestamp_opt(ms, nanos)
+                .expect("timestamp should be a valid timestamp"),
+        )
+    } else {
+        Utc::now()
+    })
+}
 
 /// OpenTelemetry protobuf deserializer error list
 #[derive(Debug, snafu::Snafu)]
