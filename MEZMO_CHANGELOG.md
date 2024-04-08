@@ -1,5 +1,26 @@
 ## Changelog
 
+## [3.14.2](https://github.com/mezmo/vector/compare/v3.14.1...v3.14.2) (2024-04-08)
+
+
+### Bug Fixes
+
+* **ci**: Make all vector dev volumnes unique [ee0749c](https://github.com/mezmo/vector/commit/ee0749c296fdeef2220b889b6bce8ec74771f040) - Darin Spivey [LOG-19643](https://logdna.atlassian.net/browse/LOG-19643)
+
+
+### Chores
+
+* reenable `profiling` feature for jemalloc [6e3e3d5](https://github.com/mezmo/vector/commit/6e3e3d57f9c67e4a4683cba22cf838e0f33588d5) - Mike Del Tito [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647)
+* **release**: 3.14.2 [skip ci] [c8a2366](https://github.com/mezmo/vector/commit/c8a2366b81696883eb163971a13ba1d94b3d28e8) - LogDNA Bot [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647) [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647) [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647) [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647) [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647)
+* **release**: 3.14.3 [skip ci] [846c1ab](https://github.com/mezmo/vector/commit/846c1ab63ba7cbf0fc9c491e0d6dfbc2d40f4328) - LogDNA Bot [LOG-19643](https://logdna.atlassian.net/browse/LOG-19643) [LOG-19643](https://logdna.atlassian.net/browse/LOG-19643)
+
+
+### Miscellaneous
+
+* Merge pull request #13 from mezmo/darinspivey/sync_3.14.3 [ce4dafb](https://github.com/mezmo/vector/commit/ce4dafb8f8a6b1de8bc2d6535c4e02ef76cbd9dd) - GitHub
+* Merge remote-tracking branch 'answerbook/master' into darinspivey/sync_3.14.3 [8d40441](https://github.com/mezmo/vector/commit/8d4044100b30415596b1233ccc9e9fb26e0cf43c) - Darin Spivey
+* Merge pull request #442 from answerbook/mdeltito/LOG-19647 [10e26f6](https://github.com/mezmo/vector/commit/10e26f6e4cb0d7fd311f4c3ab0e432f208903414) - GitHub [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647)
+
 ## [3.14.1](https://github.com/mezmo/vector/compare/v3.14.0...v3.14.1) (2024-04-04)
 ## [3.14.3](https://github.com/answerbook/vector/compare/v3.14.2...v3.14.3) (2024-04-08)
 
