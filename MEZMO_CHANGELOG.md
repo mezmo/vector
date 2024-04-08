@@ -1,3 +1,15 @@
+# [3.15.0](https://github.com/answerbook/vector/compare/v3.14.4...v3.15.0) (2024-04-08)
+
+
+### Features
+
+* **sink**: OTLP sink - Log implementation [df954e0](https://github.com/answerbook/vector/commit/df954e01b89298876f9bb03a76878fe74baba51c) - Sergey Opria [LOG-19370](https://logdna.atlassian.net/browse/LOG-19370)
+
+
+### Miscellaneous
+
+* Merge pull request #436 from answerbook/sopria/LOG-19370 [0f6c03d](https://github.com/answerbook/vector/commit/0f6c03dcf63dbe20b9e6f9244dcaa19e979a5f0c) - GitHub [LOG-19370](https://logdna.atlassian.net/browse/LOG-19370)
+
 ## [3.14.4](https://github.com/answerbook/vector/compare/v3.14.3...v3.14.4) (2024-04-08)
 
 
