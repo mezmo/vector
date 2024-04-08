@@ -50,7 +50,9 @@ pipeline {
     ENVIRONMENT_AUTOBUILD = 'false'
     ENVIRONMENT_TTY = 'false'
     CI = 'true'
-    VECTOR_TARGET = "${BRANCH_BUILD}"
+    VECTOR_TARGET = "${BRANCH_BUILD}-target"
+    VECTOR_CARGO_CACHE = "${BRANCH_BUILD}-cargo"
+    VECTOR_RUSTUP_CACHE = "${BRANCH_BUILD}-rustup"
   }
   stages {
     stage('Validate PR Author') {
@@ -85,7 +87,6 @@ pipeline {
         }
       }
     }
-
     stage('Unit test'){
       // Important: do one step serially since it'll be the one to prepare the testing container
       // and install the rust toolchain in it. Volume mounts are created here, too.
@@ -197,9 +198,9 @@ pipeline {
   }
   post {
     always {
-      // Clear disk space by removing the `target` volume mount where the binaries are stored.
-      // The volume is unique to the current build, so there should be no "in use" errors.
-      sh 'make target-clean'
+      // Clear disk space by removing the test container and all of its volumes.
+      // The container and volumes are unique to the current build, so there should be no "in use" errors.
+      sh 'make environment-clean'
 
       script {
         if (env.SANITY_BUILD == 'true') {

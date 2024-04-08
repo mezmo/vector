@@ -1,6 +1,7 @@
 ## Changelog
 
 ## [3.14.1](https://github.com/mezmo/vector/compare/v3.14.0...v3.14.1) (2024-04-04)
+## [3.14.3](https://github.com/answerbook/vector/compare/v3.14.2...v3.14.3) (2024-04-08)
 
 
 ### Bug Fixes
@@ -14,6 +15,9 @@
 
 * **ci**: Clean disk space after ci runs [ci skip] [7963582](https://github.com/mezmo/vector/commit/796358215aaa5eecd597addbd39a6e5fad998a13) - Darin Spivey [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590)
 * **throttle**: use ms for window config [f898c1f](https://github.com/mezmo/vector/commit/f898c1ff8b873a63937e061d722a9499cd8da9b4) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+* **ci**: Make all vector dev volumnes unique [ee0749c](https://github.com/answerbook/vector/commit/ee0749c296fdeef2220b889b6bce8ec74771f040) - Darin Spivey [LOG-19643](https://logdna.atlassian.net/browse/LOG-19643)
+
+## [3.14.2](https://github.com/answerbook/vector/compare/v3.14.1...v3.14.2) (2024-04-05)
 
 
 ### Chores
@@ -27,6 +31,7 @@
 
 * **throttle**: add state persistence [ad882f2](https://github.com/mezmo/vector/commit/ad882f26c0f88b660b75b6be9f9c443fac554620) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
 * **throttle**: reimplement throttle transform with basic rate limiting [066cac3](https://github.com/mezmo/vector/commit/066cac3957882804c6174f11924e1b2ea4a0b91f) - Mike Del Tito [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
+* reenable `profiling` feature for jemalloc [6e3e3d5](https://github.com/answerbook/vector/commit/6e3e3d57f9c67e4a4683cba22cf838e0f33588d5) - Mike Del Tito [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647)
 
 
 ### Miscellaneous
@@ -37,6 +42,8 @@
 * Merge pull request #438 from answerbook/mdeltito/LOG-19565 [f8854d6](https://github.com/mezmo/vector/commit/f8854d6c07b4cc173531acb70ced6a2aea424b17) - GitHub [LOG-19565](https://logdna.atlassian.net/browse/LOG-19565)
 
 ## [3.13.6](https://github.com/mezmo/vector/compare/v3.13.5...v3.13.6) (2024-04-03)
+* Merge pull request #442 from answerbook/mdeltito/LOG-19647 [10e26f6](https://github.com/answerbook/vector/commit/10e26f6e4cb0d7fd311f4c3ab0e432f208903414) - GitHub [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647)
+
 ## [3.14.1](https://github.com/answerbook/vector/compare/v3.14.0...v3.14.1) (2024-04-03)
 
 
