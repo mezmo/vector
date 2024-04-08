@@ -1,3 +1,15 @@
+## [3.14.4](https://github.com/answerbook/vector/compare/v3.14.3...v3.14.4) (2024-04-08)
+
+
+### Bug Fixes
+
+* **classifier**: avoid reallocating grok pattern names/strings [379d51f](https://github.com/answerbook/vector/commit/379d51fe4c04ef7d6b52f7a21c0934606b57695f) - Mike Del Tito [LOG-19646](https://logdna.atlassian.net/browse/LOG-19646)
+
+
+### Miscellaneous
+
+* Merge pull request #444 from answerbook/feature/LOG-19646 [caef31c](https://github.com/answerbook/vector/commit/caef31cbdac83693e8e11d31b75f3fa399b19b3b) - GitHub [LOG-19646](https://logdna.atlassian.net/browse/LOG-19646)
+
 ## [3.14.3](https://github.com/answerbook/vector/compare/v3.14.2...v3.14.3) (2024-04-08)
 
 
