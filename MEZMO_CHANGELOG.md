@@ -1,3 +1,10 @@
+## [3.15.1](https://github.com/answerbook/vector/compare/v3.15.0...v3.15.1) (2024-04-09)
+
+
+### Bug Fixes
+
+* **classification**: Use the correct SYSLOG pattern order [f5d6b34](https://github.com/answerbook/vector/commit/f5d6b347bb3aa397c29d1773f21ee92a21a9c9dc) - Darin Spivey [LOG-19650](https://logdna.atlassian.net/browse/LOG-19650)
+
 # [3.15.0](https://github.com/answerbook/vector/compare/v3.14.4...v3.15.0) (2024-04-08)
 
 
