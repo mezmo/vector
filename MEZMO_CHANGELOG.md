@@ -1,3 +1,10 @@
+# [3.16.0](https://github.com/answerbook/vector/compare/v3.15.1...v3.16.0) (2024-04-10)
+
+
+### Features
+
+* **sources**: Update `exec` source to execute command or VRL [38622aa](https://github.com/answerbook/vector/commit/38622aa1fb795fa66f955d08fe0b2685c61b6516) - Darin Spivey [LOG-19574](https://logdna.atlassian.net/browse/LOG-19574)
+
 ## [3.15.1](https://github.com/answerbook/vector/compare/v3.15.0...v3.15.1) (2024-04-09)
 
 
