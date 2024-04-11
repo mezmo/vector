@@ -1,3 +1,10 @@
+## [3.16.1](https://github.com/answerbook/vector/compare/v3.16.0...v3.16.1) (2024-04-11)
+
+
+### Bug Fixes
+
+* **ci**: Do no run tests on a release commit [8ac93a9](https://github.com/answerbook/vector/commit/8ac93a9c8bb5f928be5310b9a1c2d9720454fb7a) - Darin Spivey [LOG-19679](https://logdna.atlassian.net/browse/LOG-19679)
+
 # [3.16.0](https://github.com/answerbook/vector/compare/v3.15.1...v3.16.0) (2024-04-10)
 
 
