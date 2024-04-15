@@ -1,3 +1,10 @@
+## [3.17.1](https://github.com/answerbook/vector/compare/v3.17.0...v3.17.1) (2024-04-15)
+
+
+### Bug Fixes
+
+* **kafka source**: Fix vector log with incorrect pipeline ID (#449) [a3212f4](https://github.com/answerbook/vector/commit/a3212f44cfa59ca54a21ba5b99dbf8dcedba661b) - GitHub [LOG-19224](https://logdna.atlassian.net/browse/LOG-19224)
+
 # [3.17.0](https://github.com/answerbook/vector/compare/v3.16.2...v3.17.0) (2024-04-15)
 
 
