@@ -1,3 +1,10 @@
+## [3.16.2](https://github.com/answerbook/vector/compare/v3.16.1...v3.16.2) (2024-04-15)
+
+
+### Bug Fixes
+
+* **ci**: Separate release commit and image publishing [4217922](https://github.com/answerbook/vector/commit/42179221076e6214fdc2418f3b3b96b658e2b8f8) - Darin Spivey [LOG-19686](https://logdna.atlassian.net/browse/LOG-19686)
+
 ## [3.16.1](https://github.com/answerbook/vector/compare/v3.16.0...v3.16.1) (2024-04-11)
 
 
