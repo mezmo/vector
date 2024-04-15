@@ -64,7 +64,12 @@ pipeline {
     ).trim()
   }
   stages {
-    stage('Continue?') {
+    stage('Release Tool') {
+      steps {
+        sh 'make release-tool'
+      }
+    }
+    stage('Needs Testing?') {
       // Do not run the stages on a release commit, unless it's for a sanity build.
       when {
         anyOf {
@@ -73,11 +78,6 @@ pipeline {
         }
       }
       stages {
-        stage('Release Tool') {
-          steps {
-            sh 'make release-tool'
-          }
-        }
         stage('Lint and test release'){
           tools {
             nodejs 'NodeJS 20'
@@ -174,7 +174,7 @@ pipeline {
             sh './release-tool publish'
           }
         }
-        stage('Release and publish') {
+        stage('Release Commit') {
           when {
             branch DEFAULT_BRANCH
             not {
@@ -190,24 +190,38 @@ pipeline {
                 sh 'npm ci'
                 sh 'npm run release'
               }
-
-              def tag = sh (
-                script: "./release-tool debug-RELEASE_VERSION",
-                returnStdout: true
-              ).split(' = ')[1].trim()
-
-              buildx.build(
-                project: PROJECT_NAME
-              , push: true
-              , tags: [tag]
-              , dockerfile: "distribution/docker/mezmo/Dockerfile"
-              )
             }
-            sh './release-tool clean'
-            sh './release-tool build'
-            sh './release-tool publish'
           }
         }
+      }
+    }
+    stage('Publish') {
+      when {
+        allOf {
+          branch DEFAULT_BRANCH
+          expression { env.TOP_COMMIT ==~ /^chore\(release\): \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/ }
+          not {
+            environment name: 'SANITY_BUILD', value: 'true'
+          }
+        }
+      }
+      steps {
+        script {
+          def tag = sh (
+            script: "./release-tool debug-RELEASE_VERSION",
+            returnStdout: true
+          ).split(' = ')[1].trim()
+
+          buildx.build(
+            project: PROJECT_NAME
+          , push: true
+          , tags: [tag]
+          , dockerfile: "distribution/docker/mezmo/Dockerfile"
+          )
+        }
+        sh './release-tool clean'
+        sh './release-tool build'
+        sh './release-tool publish'
       }
     }
   }
