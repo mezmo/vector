@@ -1,3 +1,10 @@
+# [3.17.0](https://github.com/answerbook/vector/compare/v3.16.2...v3.17.0) (2024-04-15)
+
+
+### Features
+
+* Increase the rockdb persistence ttl [09cd6e0](https://github.com/answerbook/vector/commit/09cd6e020c51d55e6c4d5c4f0ea77381f5b30b2a) - Dan Hable [LOG-18683](https://logdna.atlassian.net/browse/LOG-18683)
+
 ## [3.16.2](https://github.com/answerbook/vector/compare/v3.16.1...v3.16.2) (2024-04-15)
 
 
