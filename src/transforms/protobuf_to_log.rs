@@ -421,6 +421,7 @@ mod tests {
                         ])),
                     ),
                     ("dropped_attributes_count".into(), Value::Integer(0)),
+                    ("schema_url".into(), Value::from("")),
                 ])),
             ),
             (
@@ -482,6 +483,7 @@ mod tests {
                         ]))
                     ),
                     ("dropped_attributes_count".into(), Value::Integer(0)),
+                    ("schema_url".into(), Value::from("")),
                 ]))
             ),
             (
