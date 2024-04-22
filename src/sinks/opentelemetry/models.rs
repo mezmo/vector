@@ -91,11 +91,10 @@ pub fn value_to_otlp_array(values: Vec<Value>) -> OtlpArray {
 pub fn value_to_system_time(value: &Value) -> SystemTime {
     match value {
         Value::Timestamp(time) => {
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap();
+            let mut now = SystemTime::now();
+            let now_unix = now.duration_since(SystemTime::UNIX_EPOCH).unwrap();
 
-            let diff = now
+            let diff = now_unix
                 - Duration::from_nanos(
                     time.to_owned()
                         .timestamp_nanos_opt()
@@ -104,18 +103,15 @@ pub fn value_to_system_time(value: &Value) -> SystemTime {
                         .unwrap(),
                 );
 
-            let mut ts = SystemTime::now();
-            ts.sub_assign(diff);
-            ts
+            now.sub_assign(diff);
+            now
         }
         Value::Integer(time) => {
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap();
-            let diff = now - Duration::from_millis((*time).try_into().unwrap());
-            let mut ts = SystemTime::now();
-            ts.sub_assign(diff);
-            ts
+            let mut now = SystemTime::now();
+            let now_unix = now.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+            let diff = now_unix - Duration::from_millis((*time).try_into().unwrap());
+            now.sub_assign(diff);
+            now
         }
         _ => SystemTime::now(),
     }
@@ -229,4 +225,40 @@ pub trait OpentelemetryModelMatch {
     fn maybe_match(event: &Event) -> Option<OpentelemetryModelType>
     where
         Self: Sized;
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+    use chrono::{NaiveDateTime, TimeZone, Utc};
+
+    #[test]
+    fn test_value_to_system_time_timestamp() {
+        let value = Value::Timestamp(
+            Utc.from_utc_datetime(
+                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                    .expect("timestamp should be a valid timestamp"),
+            ),
+        );
+
+        let expected =
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_nanos(1_579_134_612_000_000_011);
+        assert_eq!(value_to_system_time(&value), expected);
+    }
+
+    #[test]
+    fn test_value_to_system_time_int() {
+        let value = Value::Integer(1_579_134_612);
+
+        let expected = SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(1_579_134_612);
+        assert_eq!(value_to_system_time(&value), expected);
+    }
+
+    #[test]
+    fn test_value_to_system_time_invalid_default_now() {
+        let value = Value::from("invalid".to_string());
+
+        assert!(matches!(value_to_system_time(&value), SystemTime { .. }));
+    }
 }
