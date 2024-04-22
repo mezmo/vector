@@ -120,14 +120,15 @@ pub fn value_to_system_time(value: &Value) -> SystemTime {
 #[derive(Debug)]
 pub struct OpentelemetryResource {
     pub attributes: Vec<KeyValue>,
+    pub schema_url: Cow<'static, str>,
 }
 
 impl From<&LogEvent> for OpentelemetryResource {
     fn from(log: &LogEvent) -> Self {
         let mut attributes = vec![];
-
+        let mut schema_url = Cow::from("");
         if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
-            if let Some(Value::Object(obj)) = metadata.get("resource") {
+            if let Some(Value::Object(obj)) = metadata.get("resource.attributes") {
                 for (key, value) in obj.iter() {
                     attributes.push(KeyValue::new(
                         key.to_string(),
@@ -135,15 +136,22 @@ impl From<&LogEvent> for OpentelemetryResource {
                     ));
                 }
             }
+
+            if let Some(Value::Bytes(bytes)) = metadata.get("resource.schema_url") {
+                schema_url = String::from_utf8_lossy(bytes).into_owned().into();
+            }
         }
 
-        OpentelemetryResource { attributes }
+        OpentelemetryResource {
+            attributes,
+            schema_url,
+        }
     }
 }
 
 impl From<OpentelemetryResource> for Resource {
     fn from(val: OpentelemetryResource) -> Self {
-        Resource::new(val.attributes)
+        Resource::from_schema_url(val.attributes, val.schema_url)
     }
 }
 

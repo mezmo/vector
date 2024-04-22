@@ -73,6 +73,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
         SmallVec::with_capacity(trace_count),
         |mut acc, resource_spans| {
             let mut resource_host_name = Value::Null;
+            let resource_schema_url = resource_spans.schema_url;
             let resource = if let Some(resource) = resource_spans.resource.clone() {
                 resource_host_name = string_to_value(
                     extract(resource.attributes.clone(), "host.name")
@@ -88,6 +89,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                 Value::Object(btreemap! {
                     "attributes" => attributes,
                     "dropped_attributes_count" => resource.dropped_attributes_count,
+                    "schema_url" => resource_schema_url,
                 })
             } else {
                 Value::Null
@@ -281,9 +283,9 @@ mod tests {
                             code: StatusCode::STATUS_CODE_OK,
                         }),
                     }],
-                    schema_url: Cow::from("https://some_url.com"),
+                    schema_url: Cow::from("https://scope.example.com"),
                 }],
-                schema_url: Cow::from("https://some_url.com"),
+                schema_url: Cow::from("https://resource.example.com"),
             }],
         };
 
@@ -389,13 +391,14 @@ mod tests {
                             Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("schema_url".into(), "https://resource.example.com".into()),
                     ]))
                 ),
                 (
                     "scope".into(),
                     Value::Object(BTreeMap::from([
                         ("name".into(), "test_name".into()),
-                        ("schema_url".into(), "https://some_url.com".into()),
+                        ("schema_url".into(), "https://scope.example.com".into()),
                         ("version".into(), "1.2.3".into()),
                         (
                             "attributes".into(),
