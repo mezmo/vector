@@ -7,7 +7,7 @@ use vector_lib::{
 
 use opentelemetry::{
     logs::{AnyValue as OtlpAnyValue, LogRecord, Severity},
-    trace::{SpanContext, SpanId, TraceFlags, TraceId, TraceState},
+    trace::{SpanContext, TraceState},
 };
 use opentelemetry_sdk::export::logs::LogData;
 use std::borrow::Cow;
@@ -15,7 +15,8 @@ use std::borrow::Cow;
 use crate::sinks::opentelemetry::{
     models::{
         value_to_otlp_any_value, value_to_system_time, OpentelemetryModelMatch,
-        OpentelemetryModelType, OpentelemetryResource, OpentelemetryScope,
+        OpentelemetryModelType, OpentelemetryResource, OpentelemetryScope, OpentelemetrySpanId,
+        OpentelemetryTraceFlags, OpentelemetryTraceId,
     },
     sink::OpentelemetrySinkError,
 };
@@ -106,49 +107,16 @@ impl TryFrom<Vec<Event>> for OpentelemetryLogsModel {
                 let raw_span_id = metadata.get("span_id");
 
                 if raw_trace_id.or(raw_span_id).is_some() {
-                    let trace_id = if let Some(id) = raw_trace_id {
-                        match &id {
-                            Value::Bytes(bytes) => {
-                                let mut trace_id = [0; 16];
-                                match faster_hex::hex_decode(bytes, &mut trace_id) {
-                                    Ok(_) => TraceId::from_bytes(trace_id),
-                                    Err(_) => TraceId::INVALID,
-                                }
-                            }
-                            _ => TraceId::INVALID,
-                        }
-                    } else {
-                        TraceId::INVALID
-                    };
-
-                    let span_id = if let Some(id) = raw_span_id {
-                        match &id {
-                            Value::Bytes(bytes) => {
-                                let mut span_id = [0; 8];
-                                match faster_hex::hex_decode(bytes, &mut span_id) {
-                                    Ok(_) => SpanId::from_bytes(span_id),
-                                    Err(_) => SpanId::INVALID,
-                                }
-                            }
-                            _ => SpanId::INVALID,
-                        }
-                    } else {
-                        SpanId::INVALID
-                    };
-
-                    let trace_flags = if let Some(flags) = metadata.get("flags") {
-                        match flags {
-                            Value::Integer(flag) => TraceFlags::new(
-                                u8::try_from(*flag).unwrap_or(TraceFlags::NOT_SAMPLED.to_u8()),
-                            ),
-                            _ => TraceFlags::NOT_SAMPLED,
-                        }
-                    } else {
-                        TraceFlags::NOT_SAMPLED
-                    };
-
-                    let context =
-                        SpanContext::new(trace_id, span_id, trace_flags, false, TraceState::NONE);
+                    let trace_id: OpentelemetryTraceId = raw_trace_id.into();
+                    let span_id: OpentelemetrySpanId = raw_span_id.into();
+                    let trace_flags: OpentelemetryTraceFlags = metadata.get("flags").into();
+                    let context = SpanContext::new(
+                        trace_id.into(),
+                        span_id.into(),
+                        trace_flags.into(),
+                        false,
+                        TraceState::NONE,
+                    );
 
                     record_builder = record_builder.with_span_context(&context);
                 }

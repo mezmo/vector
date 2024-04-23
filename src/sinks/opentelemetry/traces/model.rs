@@ -1,18 +1,13 @@
 use crate::sinks::opentelemetry::{
     models::{
-        value_to_otlp_value, value_to_system_time, OpentelemetryModelMatch, OpentelemetryModelType,
-        OpentelemetryResource, OpentelemetryScope,
+        value_to_system_time, OpentelemetryAttributes, OpentelemetryModelMatch,
+        OpentelemetryModelType, OpentelemetryResource, OpentelemetryScope, OpentelemetrySpanId,
+        OpentelemetryTraceFlags, OpentelemetryTraceId, OpentelemetryTraceState,
     },
     sink::OpentelemetrySinkError,
 };
 
-use opentelemetry::{
-    trace::{
-        Event as TraceEvent, Link, SpanContext, SpanId, SpanKind, Status, TraceFlags, TraceId,
-        TraceState,
-    },
-    KeyValue,
-};
+use opentelemetry::trace::{Event as TraceEvent, Link, SpanContext, SpanKind, Status};
 
 use opentelemetry_proto::tonic::trace::v1::status::StatusCode;
 use opentelemetry_sdk::{
@@ -20,7 +15,6 @@ use opentelemetry_sdk::{
     trace::{SpanEvents, SpanLinks},
 };
 use std::borrow::Cow;
-use std::str::FromStr;
 use vector_lib::{
     config::log_schema,
     event::{Event, Value},
@@ -82,18 +76,12 @@ impl TryFrom<Vec<Event>> for OpentelemetryTracesModel {
             let instrumentation_lib = OpentelemetryScope::from(trace);
 
             // Extract span attributes from metadata
-            let mut span_attributes: Vec<KeyValue> = vec![];
-            if let Some(metadata) = trace.get((PathPrefix::Event, log_schema().user_metadata_key()))
-            {
-                if let Some(Value::Object(obj)) = metadata.get("attributes") {
-                    for (key, value) in obj.iter() {
-                        span_attributes.push(KeyValue::new(
-                            key.to_string(),
-                            value_to_otlp_value(value.clone()),
-                        ));
-                    }
-                }
-            }
+            let span_attributes: OpentelemetryAttributes = trace
+                .get((
+                    PathPrefix::Event,
+                    format!("{}.attributes", log_schema().user_metadata_key()).as_str(),
+                ))
+                .into();
 
             // Extract from message
             if let Some(message) = trace.get_message() {
@@ -104,62 +92,25 @@ impl TryFrom<Vec<Event>> for OpentelemetryTracesModel {
                     _ => Cow::from(""),
                 };
 
-                let trace_id = match message.get("trace_id") {
-                    Some(Value::Bytes(bytes)) => {
-                        let mut trace_id = [0; 16];
-                        match faster_hex::hex_decode(bytes, &mut trace_id) {
-                            Ok(_) => TraceId::from_bytes(trace_id),
-                            Err(_) => TraceId::INVALID,
-                        }
-                    }
-                    _ => TraceId::INVALID,
-                };
-
-                let span_id = match message.get("span_id") {
-                    Some(Value::Bytes(bytes)) => {
-                        let mut span_id = [0; 8];
-                        match faster_hex::hex_decode(bytes, &mut span_id) {
-                            Ok(_) => SpanId::from_bytes(span_id),
-                            Err(_) => SpanId::INVALID,
-                        }
-                    }
-                    _ => SpanId::INVALID,
-                };
-
-                let parent_span_id = match message.get("parent_span_id") {
-                    Some(Value::Bytes(bytes)) => {
-                        let mut parent_span_id = [0; 8];
-                        match faster_hex::hex_decode(bytes, &mut parent_span_id) {
-                            Ok(_) => SpanId::from_bytes(parent_span_id),
-                            Err(_) => SpanId::INVALID,
-                        }
-                    }
-                    _ => SpanId::INVALID,
-                };
-
                 // LOG-19724: trace_flags are not currently captured/defined, this field was added
                 // in a more recent version of the protocol, but our source does not include it in the
                 // protocol impl it uses.
                 // https://github.com/open-telemetry/opentelemetry-rust/commit/27b19b60261f342cec0559f26634ca8f02ed02ac#diff-cfa0a91439f7fb81c51a342043e87175f75c5394b0ff5c9aa7e55c3589a7bb11R91-R106
-                let trace_flags = match message.get("flags") {
-                    Some(Value::Integer(flag)) => TraceFlags::new(
-                        u8::try_from(*flag).unwrap_or(TraceFlags::NOT_SAMPLED.to_u8()),
-                    ),
-                    _ => TraceFlags::NOT_SAMPLED,
-                };
-
-                let trace_state = match message.get("trace_state") {
-                    Some(Value::Bytes(state_bytes)) => {
-                        let str = String::from_utf8_lossy(state_bytes);
-                        TraceState::from_str(&str).unwrap_or_default()
-                    }
-                    _ => TraceState::NONE,
-                };
+                let trace_flags: OpentelemetryTraceFlags = message.get("flags").into();
+                let trace_id: OpentelemetryTraceId = message.get("trace_id").into();
+                let trace_state: OpentelemetryTraceState = message.get("trace_state").into();
+                let span_id: OpentelemetrySpanId = message.get("span_id").into();
+                let parent_span_id: OpentelemetrySpanId = message.get("parent_span_id").into();
 
                 // TODO: determine correct value for `is_remote`. This marker is not included
                 // in the incoming request/event.
-                let span_context =
-                    SpanContext::new(trace_id, span_id, trace_flags, false, trace_state);
+                let span_context = SpanContext::new(
+                    trace_id.into(),
+                    span_id.into(),
+                    trace_flags.into(),
+                    false,
+                    trace_state.into(),
+                );
 
                 let start_time =
                     value_to_system_time(message.get("start_timestamp").unwrap_or(&Value::Null));
@@ -245,12 +196,12 @@ impl TryFrom<Vec<Event>> for OpentelemetryTracesModel {
 
                 traces_array.push(SpanData {
                     span_context,
-                    parent_span_id,
+                    parent_span_id: parent_span_id.into(),
                     span_kind,
                     name,
                     start_time,
                     end_time,
-                    attributes: span_attributes,
+                    attributes: span_attributes.into(),
                     dropped_attributes_count,
                     events,
                     links,
@@ -274,66 +225,26 @@ impl TryFrom<Vec<Event>> for OpentelemetryTracesModel {
 fn value_to_link(value: &Value) -> Option<Link> {
     match value {
         Value::Object(link) => {
-            let trace_id = match link.get("trace_id") {
-                Some(Value::Bytes(bytes)) => {
-                    let mut trace_id = [0; 16];
-                    match faster_hex::hex_decode(bytes, &mut trace_id) {
-                        Ok(_) => TraceId::from_bytes(trace_id),
-                        Err(_) => TraceId::INVALID,
-                    }
-                }
-                _ => TraceId::INVALID,
-            };
-
-            let span_id = match link.get("span_id") {
-                Some(Value::Bytes(bytes)) => {
-                    let mut span_id = [0; 8];
-                    match faster_hex::hex_decode(bytes, &mut span_id) {
-                        Ok(_) => SpanId::from_bytes(span_id),
-                        Err(_) => SpanId::INVALID,
-                    }
-                }
-                _ => SpanId::INVALID,
-            };
-
-            let mut span_attributes: Vec<KeyValue> = vec![];
-            if let Some(Value::Object(obj)) = link.get("attributes") {
-                for (key, value) in obj.iter() {
-                    span_attributes.push(KeyValue::new(
-                        key.to_string(),
-                        value_to_otlp_value(value.clone()),
-                    ));
-                }
-            };
-
-            let trace_state = match link.get("trace_state") {
-                Some(Value::Bytes(state_bytes)) => {
-                    let str = String::from_utf8_lossy(state_bytes);
-                    TraceState::from_str(&str).unwrap_or_default()
-                }
-                _ => TraceState::NONE,
-            };
-
+            let trace_flags: OpentelemetryTraceFlags = link.get("flags").into();
+            let trace_state: OpentelemetryTraceState = link.get("trace_state").into();
+            let trace_id: OpentelemetryTraceId = link.get("trace_id").into();
+            let span_id: OpentelemetrySpanId = link.get("span_id").into();
+            let span_attributes: OpentelemetryAttributes = link.get("attributes").into();
             let dropped_attributes_count = match link.get("dropped_attributes_count") {
                 Some(Value::Integer(count)) => *count as u32,
                 _ => 0,
             };
 
-            // LOG-19724: trace_flags are not currently captured/defined, this field was added
-            // in a more recent version of the protocol, and we have diverged from upstream with
-            // our own `opentelemetry-rs` implementation.
-            // https://github.com/open-telemetry/opentelemetry-rust/commit/27b19b60261f342cec0559f26634ca8f02ed02ac#diff-cfa0a91439f7fb81c51a342043e87175f75c5394b0ff5c9aa7e55c3589a7bb11R91-R106
-            let trace_flags = match link.get("flags") {
-                Some(Value::Integer(flag)) => {
-                    TraceFlags::new(u8::try_from(*flag).unwrap_or(TraceFlags::NOT_SAMPLED.to_u8()))
-                }
-                _ => TraceFlags::NOT_SAMPLED,
-            };
-
             // TODO: determine correct value for `is_remote`
-            let span_context = SpanContext::new(trace_id, span_id, trace_flags, false, trace_state);
+            let span_context = SpanContext::new(
+                trace_id.into(),
+                span_id.into(),
+                trace_flags.into(),
+                false,
+                trace_state.into(),
+            );
 
-            let mut link = Link::new(span_context, span_attributes);
+            let mut link = Link::new(span_context, span_attributes.into());
             link.dropped_attributes_count = dropped_attributes_count;
             Some(link)
         }
@@ -352,17 +263,7 @@ fn value_to_event(value: &Value) -> Option<TraceEvent> {
             };
 
             let timestamp = value_to_system_time(event.get("timestamp").unwrap_or(&Value::Null));
-
-            let mut attributes: Vec<KeyValue> = vec![];
-            if let Some(Value::Object(obj)) = event.get("attributes") {
-                for (key, value) in obj.iter() {
-                    attributes.push(KeyValue::new(
-                        key.to_string(),
-                        value_to_otlp_value(value.clone()),
-                    ));
-                }
-            };
-
+            let attributes: OpentelemetryAttributes = event.get("attributes").into();
             let dropped_attributes_count = match event.get("dropped_attributes_count") {
                 Some(Value::Integer(count)) => *count as u32,
                 _ => 0,
@@ -371,7 +272,7 @@ fn value_to_event(value: &Value) -> Option<TraceEvent> {
             Some(TraceEvent::new(
                 name,
                 timestamp,
-                attributes,
+                attributes.into(),
                 dropped_attributes_count,
             ))
         }
@@ -381,16 +282,21 @@ fn value_to_event(value: &Value) -> Option<TraceEvent> {
 
 #[cfg(test)]
 mod test {
-    use std::time::SystemTime;
+    use std::{str::FromStr, time::SystemTime};
 
     use super::*;
 
     use crate::event::Value;
     use chrono::{NaiveDateTime, TimeZone, Utc};
+    use opentelemetry::{
+        trace::{
+            Event as TraceEvent, Link, SpanContext, SpanId, SpanKind, Status, TraceFlags, TraceId,
+            TraceState,
+        },
+        KeyValue,
+    };
     use opentelemetry_sdk::{Resource, Scope};
     use vector_lib::event::{Event, EventMetadata, LogEvent};
-
-    use opentelemetry::trace::{SpanId, TraceFlags, TraceId};
 
     #[test]
     fn test_otlp_sink_trace_model_matcher_matches() {

@@ -1,5 +1,5 @@
 use chrono::SecondsFormat;
-use std::ops::SubAssign;
+use std::{ops::SubAssign, str::FromStr};
 
 use std::collections::HashMap;
 use vector_lib::{
@@ -13,9 +13,11 @@ use super::{
     traces::model::OpentelemetryTracesModel,
 };
 use opentelemetry::{
-    logs::AnyValue as OtlpAnyValue, Array as OtlpArray, InstrumentationLibrary, Key, KeyValue,
-    StringValue, Value as OtlpValue,
+    logs::AnyValue as OtlpAnyValue,
+    trace::{SpanId, TraceFlags, TraceId, TraceState},
+    Array as OtlpArray, InstrumentationLibrary, Key, KeyValue, StringValue, Value as OtlpValue,
 };
+
 use opentelemetry_sdk::Resource;
 use std::{
     borrow::Cow,
@@ -119,8 +121,117 @@ pub fn value_to_system_time(value: &Value) -> SystemTime {
 
 #[derive(Debug)]
 pub struct OpentelemetryResource {
-    pub attributes: Vec<KeyValue>,
+    pub attributes: OpentelemetryAttributes,
     pub schema_url: Cow<'static, str>,
+}
+
+pub struct OpentelemetryTraceId(TraceId);
+
+impl From<Option<&Value>> for OpentelemetryTraceId {
+    fn from(bytes: Option<&Value>) -> Self {
+        match bytes {
+            Some(Value::Bytes(bytes)) => {
+                let mut trace_id = [0; 16];
+                match faster_hex::hex_decode(bytes, &mut trace_id) {
+                    Ok(_) => Self(TraceId::from_bytes(trace_id)),
+                    Err(_) => Self(TraceId::INVALID),
+                }
+            }
+            _ => Self(TraceId::INVALID),
+        }
+    }
+}
+
+impl From<OpentelemetryTraceId> for TraceId {
+    fn from(trace_id: OpentelemetryTraceId) -> TraceId {
+        trace_id.0
+    }
+}
+
+pub struct OpentelemetrySpanId(SpanId);
+
+impl From<Option<&Value>> for OpentelemetrySpanId {
+    fn from(bytes: Option<&Value>) -> Self {
+        match bytes {
+            Some(Value::Bytes(bytes)) => {
+                let mut span_id = [0; 8];
+                match faster_hex::hex_decode(bytes, &mut span_id) {
+                    Ok(_) => Self(SpanId::from_bytes(span_id)),
+                    Err(_) => Self(SpanId::INVALID),
+                }
+            }
+            _ => Self(SpanId::INVALID),
+        }
+    }
+}
+
+impl From<OpentelemetrySpanId> for SpanId {
+    fn from(span_id: OpentelemetrySpanId) -> Self {
+        span_id.0
+    }
+}
+
+pub struct OpentelemetryTraceState(TraceState);
+
+impl From<Option<&Value>> for OpentelemetryTraceState {
+    fn from(bytes: Option<&Value>) -> Self {
+        match bytes {
+            Some(Value::Bytes(bytes)) => {
+                let str = String::from_utf8_lossy(bytes);
+                Self(TraceState::from_str(&str).unwrap_or_default())
+            }
+            _ => Self(TraceState::NONE),
+        }
+    }
+}
+
+impl From<OpentelemetryTraceState> for TraceState {
+    fn from(state: OpentelemetryTraceState) -> Self {
+        state.0
+    }
+}
+
+pub struct OpentelemetryTraceFlags(TraceFlags);
+
+impl From<Option<&Value>> for OpentelemetryTraceFlags {
+    fn from(bytes: Option<&Value>) -> Self {
+        match bytes {
+            Some(Value::Integer(flag)) => Self(TraceFlags::new(
+                u8::try_from(*flag).unwrap_or(TraceFlags::NOT_SAMPLED.to_u8()),
+            )),
+            _ => Self(TraceFlags::NOT_SAMPLED),
+        }
+    }
+}
+
+impl From<OpentelemetryTraceFlags> for TraceFlags {
+    fn from(flags: OpentelemetryTraceFlags) -> Self {
+        flags.0
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct OpentelemetryAttributes(Vec<KeyValue>);
+
+impl From<Option<&Value>> for OpentelemetryAttributes {
+    fn from(value: Option<&Value>) -> Self {
+        match value {
+            Some(Value::Object(obj)) => Self(
+                obj.iter()
+                    .map(|(key, value)| {
+                        KeyValue::new(key.to_string(), value_to_otlp_value(value.clone()))
+                    })
+                    .collect(),
+            ),
+            _ => Self(vec![]),
+        }
+    }
+}
+
+impl From<OpentelemetryAttributes> for Vec<KeyValue> {
+    fn from(attrs: OpentelemetryAttributes) -> Self {
+        attrs.0
+    }
 }
 
 impl From<&LogEvent> for OpentelemetryResource {
@@ -143,7 +254,7 @@ impl From<&LogEvent> for OpentelemetryResource {
         }
 
         OpentelemetryResource {
-            attributes,
+            attributes: OpentelemetryAttributes(attributes),
             schema_url,
         }
     }
@@ -151,7 +262,7 @@ impl From<&LogEvent> for OpentelemetryResource {
 
 impl From<OpentelemetryResource> for Resource {
     fn from(val: OpentelemetryResource) -> Self {
-        Resource::from_schema_url(val.attributes, val.schema_url)
+        Resource::from_schema_url(Into::<Vec<KeyValue>>::into(val.attributes), val.schema_url)
     }
 }
 
@@ -160,7 +271,7 @@ pub struct OpentelemetryScope {
     pub name: Cow<'static, str>,
     pub version: Option<Cow<'static, str>>,
     pub schema_url: Option<Cow<'static, str>>,
-    pub attributes: Vec<KeyValue>,
+    pub attributes: OpentelemetryAttributes,
 }
 
 impl From<&LogEvent> for OpentelemetryScope {
@@ -205,14 +316,19 @@ impl From<&LogEvent> for OpentelemetryScope {
             name,
             version,
             schema_url,
-            attributes,
+            attributes: OpentelemetryAttributes(attributes),
         }
     }
 }
 
 impl From<OpentelemetryScope> for InstrumentationLibrary {
     fn from(val: OpentelemetryScope) -> Self {
-        InstrumentationLibrary::new(val.name, val.version, val.schema_url, Some(val.attributes))
+        InstrumentationLibrary::new(
+            val.name,
+            val.version,
+            val.schema_url,
+            Some(val.attributes.into()),
+        )
     }
 }
 
