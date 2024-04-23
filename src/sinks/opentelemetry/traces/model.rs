@@ -41,8 +41,8 @@ impl OpentelemetryModelMatch for OpentelemetryTracesModel {
             let attributes = metadata.get("attributes");
             let scope = metadata.get("scope");
 
-            let trace_id = message.get("\"trace.id\"");
-            let span_id = message.get("\"span.id\"");
+            let trace_id = message.get("trace_id");
+            let span_id = message.get("span_id");
             let events = message.get("events");
             let links = message.get("links");
 
@@ -104,7 +104,7 @@ impl TryFrom<Vec<Event>> for OpentelemetryTracesModel {
                     _ => Cow::from(""),
                 };
 
-                let trace_id = match message.get("\"trace.id\"") {
+                let trace_id = match message.get("trace_id") {
                     Some(Value::Bytes(bytes)) => {
                         let mut trace_id = [0; 16];
                         match faster_hex::hex_decode(bytes, &mut trace_id) {
@@ -115,7 +115,7 @@ impl TryFrom<Vec<Event>> for OpentelemetryTracesModel {
                     _ => TraceId::INVALID,
                 };
 
-                let span_id = match message.get("\"span.id\"") {
+                let span_id = match message.get("span_id") {
                     Some(Value::Bytes(bytes)) => {
                         let mut span_id = [0; 8];
                         match faster_hex::hex_decode(bytes, &mut span_id) {
@@ -126,7 +126,7 @@ impl TryFrom<Vec<Event>> for OpentelemetryTracesModel {
                     _ => SpanId::INVALID,
                 };
 
-                let parent_span_id = match message.get("\"span.parent_id\"") {
+                let parent_span_id = match message.get("parent_span_id") {
                     Some(Value::Bytes(bytes)) => {
                         let mut parent_span_id = [0; 8];
                         match faster_hex::hex_decode(bytes, &mut parent_span_id) {
@@ -148,7 +148,7 @@ impl TryFrom<Vec<Event>> for OpentelemetryTracesModel {
                     _ => TraceFlags::NOT_SAMPLED,
                 };
 
-                let trace_state = match message.get("\"trace.state\"") {
+                let trace_state = match message.get("trace_state") {
                     Some(Value::Bytes(state_bytes)) => {
                         let str = String::from_utf8_lossy(state_bytes);
                         TraceState::from_str(&str).unwrap_or_default()
@@ -402,8 +402,8 @@ mod test {
                     "scope" => "scope",
                 }),
                 "message" => Value::from(btreemap!{
-                    "trace.id" => "trace.id",
-                    "span.id" => "span.id",
+                    "trace_id" => "trace_id",
+                    "span_id" => "span_id",
                     "events" => "events",
                     "links" => "links",
                 }),
@@ -450,10 +450,10 @@ mod test {
 
         let message = btreemap! {
             "name" => "test_span_name",
-            "trace.id" => Value::from(trace_id_hex.clone()),
-            "trace.state" => "foo=,apple=banana",
-            "span.id" => Value::from(span_id_hex.clone()),
-            "span.parent_id" => Value::from(parent_span_id_hex.clone()),
+            "trace_id" => Value::from(trace_id_hex.clone()),
+            "trace_state" => "foo=,apple=banana",
+            "span_id" => Value::from(span_id_hex.clone()),
+            "parent_span_id" => Value::from(parent_span_id_hex.clone()),
             // LOG-19724: this field is not currently captured/defined in our source impl
             "flags" => 1,
             "start_timestamp" => Utc.from_utc_datetime(
