@@ -21,7 +21,7 @@ impl Encoder<Result<OpentelemetryModel, OpentelemetrySinkError>> for Opentelemet
         let output = match input? {
             OpentelemetryModel::Logs(log_model) => encode_log(&log_model)?,
             OpentelemetryModel::Metrics(metric_model) => encode_metrics(&metric_model)?,
-            OpentelemetryModel::Traces(trace_model) => encode_traces(&trace_model)?,
+            OpentelemetryModel::Traces(trace_model) => encode_traces(trace_model)?,
         };
         let size = as_tracked_write::<_, _, io::Error>(writer, &output, |writer, output| {
             writer.write_all(output)?;

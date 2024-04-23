@@ -20,7 +20,6 @@ use opentelemetry_sdk::{
     trace::{SpanEvents, SpanLinks},
 };
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::str::FromStr;
 use vector_lib::{
     config::log_schema,
@@ -28,10 +27,8 @@ use vector_lib::{
     lookup::PathPrefix,
 };
 
-type DataStore = HashMap<String, Vec<SpanData>>;
-
 #[derive(Debug)]
-pub struct OpentelemetryTracesModel(pub Vec<DataStore>);
+pub struct OpentelemetryTracesModel(pub Vec<SpanData>);
 
 impl OpentelemetryModelMatch for OpentelemetryTracesModel {
     fn maybe_match(event: &Event) -> Option<OpentelemetryModelType> {
@@ -67,10 +64,8 @@ impl OpentelemetryModelMatch for OpentelemetryTracesModel {
 }
 
 impl OpentelemetryTracesModel {
-    pub fn new(traces_data_array: Vec<SpanData>) -> Self {
-        let mut traces_store = DataStore::new();
-        traces_store.insert("traces".to_owned(), traces_data_array);
-        Self(vec![traces_store])
+    pub fn new(traces: Vec<SpanData>) -> Self {
+        Self(traces)
     }
 }
 
@@ -566,11 +561,7 @@ mod test {
         let model =
             OpentelemetryTracesModel::try_from(events).expect("event cannot be coerced into model");
 
-        let span_data = model.0[0]
-            .get("traces")
-            .expect("Traces data store not present")
-            .get(0)
-            .expect("model not present");
+        let span_data = model.0.get(0).expect("event not present in model");
 
         let expected_span_context = SpanContext::new(
             TraceId::from_hex("5f467fe7bf42676c05e20ba4a90e448e").unwrap(),
