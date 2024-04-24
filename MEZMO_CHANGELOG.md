@@ -1,3 +1,28 @@
+# [3.18.0](https://github.com/answerbook/vector/compare/v3.17.1...v3.18.0) (2024-04-24)
+
+
+### Bug Fixes
+
+* **opentelemetry**: ensure timestamps are handled consistently [baea6f6](https://github.com/answerbook/vector/commit/baea6f6d4abc75fbace0dfd0f279e2629fcaa36b) - Mike Del Tito [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+* **opentelemetry**: include resource schema_url in decoder [c9e17ca](https://github.com/answerbook/vector/commit/c9e17ca5633ea7283fd9c3f53a0638c60d6d0fdd) - Mike Del Tito [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+* **opentelemetry**: remove hashmap from traces store [8f02423](https://github.com/answerbook/vector/commit/8f024237e03151e37f43067c898a55dfae584107) - Mike Del Tito [log-19371](https://logdna.atlassian.net/browse/log-19371)
+* **opentelemetry**: rename fields for consistency [86b98dc](https://github.com/answerbook/vector/commit/86b98dce311f30d77787ebc8725edcc51fd78c92) - Mike Del Tito [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+
+
+### Code Refactoring
+
+* consolidate handling of otel type conversion from events [722893a](https://github.com/answerbook/vector/commit/722893ae028cb520292bd7a61b81d779e3a97c39) - Mike Del Tito [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+
+
+### Features
+
+* **opentelemetry**: add traces support for the otel sink [0b12104](https://github.com/answerbook/vector/commit/0b12104951f20ebb09e2969400b566a2b9ed68b0) - Mike Del Tito [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+
+
+### Miscellaneous
+
+* Merge pull request #450 from answerbook/mdeltito/LOG-19371 [ebe48c2](https://github.com/answerbook/vector/commit/ebe48c2398aae214d5ef3314a489e6feba4bc126) - GitHub [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+
 ## [3.17.1](https://github.com/answerbook/vector/compare/v3.17.0...v3.17.1) (2024-04-15)
 
 
