@@ -73,6 +73,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
         SmallVec::with_capacity(trace_count),
         |mut acc, resource_spans| {
             let mut resource_host_name = Value::Null;
+            let resource_schema_url = resource_spans.schema_url;
             let resource = if let Some(resource) = resource_spans.resource.clone() {
                 resource_host_name = string_to_value(
                     extract(resource.attributes.clone(), "host.name")
@@ -88,6 +89,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                 Value::Object(btreemap! {
                     "attributes" => attributes,
                     "dropped_attributes_count" => resource.dropped_attributes_count,
+                    "schema_url" => resource_schema_url,
                 })
             } else {
                 Value::Null
@@ -155,10 +157,10 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                     let mut message = btreemap! {
                         "name" => string_to_value(span.name.into()),
                         "hostname" => resource_host_name.clone(),
-                        "trace.id" => Value::from(faster_hex::hex_string(&span.trace_id)),
-                        "trace.state" => Value::from(span.trace_state),
-                        "span.id" => Value::from(faster_hex::hex_string(&span.span_id)),
-                        "span.parent_id" => Value::from(faster_hex::hex_string(&span.parent_span_id)),
+                        "trace_id" => Value::from(faster_hex::hex_string(&span.trace_id)),
+                        "trace_state" => Value::from(span.trace_state),
+                        "span_id" => Value::from(faster_hex::hex_string(&span.span_id)),
+                        "parent_span_id" => Value::from(faster_hex::hex_string(&span.parent_span_id)),
                         "start_timestamp" => start_time_unix_nano.clone(),
                         "end_timestamp" => nano_to_timestamp(span.end_time_unix_nano),
                         "kind" => Value::from(span.kind as i32),
@@ -281,9 +283,9 @@ mod tests {
                             code: StatusCode::STATUS_CODE_OK,
                         }),
                     }],
-                    schema_url: Cow::from("https://some_url.com"),
+                    schema_url: Cow::from("https://scope.example.com"),
                 }],
-                schema_url: Cow::from("https://some_url.com"),
+                schema_url: Cow::from("https://resource.example.com"),
             }],
         };
 
@@ -299,11 +301,11 @@ mod tests {
                 .deref(),
             Value::Object(BTreeMap::from([
                 ("name".into(), "test_span_name".into()),
-                ("trace.id".into(), Value::from("74726163655f6964")),
-                ("trace.state".into(), Value::from("test_state")),
-                ("span.id".into(), Value::from("7370616e5f6964")),
+                ("trace_id".into(), Value::from("74726163655f6964")),
+                ("trace_state".into(), Value::from("test_state")),
+                ("span_id".into(), Value::from("7370616e5f6964")),
                 (
-                    "span.parent_id".into(),
+                    "parent_span_id".into(),
                     Value::from("706172656e745f7370616e5f6964")
                 ),
                 (
@@ -389,13 +391,14 @@ mod tests {
                             Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("schema_url".into(), "https://resource.example.com".into()),
                     ]))
                 ),
                 (
                     "scope".into(),
                     Value::Object(BTreeMap::from([
                         ("name".into(), "test_name".into()),
-                        ("schema_url".into(), "https://some_url.com".into()),
+                        ("schema_url".into(), "https://scope.example.com".into()),
                         ("version".into(), "1.2.3".into()),
                         (
                             "attributes".into(),
