@@ -257,6 +257,7 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
         let stream = subscription_client.output_events_by_component_id_patterns_subscription(
             vec![component_id.to_string()],
             vec![],
+            None,
             TapEncodingFormat::Json,
             limit as i64,
             SUBSCRIPTION_FLUSH_INTERVAL_MS,
