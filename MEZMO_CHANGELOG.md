@@ -1,3 +1,15 @@
+# [3.19.0](https://github.com/answerbook/vector/compare/v3.18.0...v3.19.0) (2024-04-26)
+
+
+### Features
+
+* **tap**: support VRL for tap event filtering [540f698](https://github.com/answerbook/vector/commit/540f698818ac4056f0f4b14d55296afe0edbd748) - Mike Del Tito [LOG-19753](https://logdna.atlassian.net/browse/LOG-19753)
+
+
+### Miscellaneous
+
+* Merge pull request #451 from answerbook/mdeltito/LOG-19753 [f1cc535](https://github.com/answerbook/vector/commit/f1cc53541ae7a03090b5b5056007050dd24e3302) - GitHub [LOG-19753](https://logdna.atlassian.net/browse/LOG-19753)
+
 # [3.18.0](https://github.com/answerbook/vector/compare/v3.17.1...v3.18.0) (2024-04-24)
 
 
