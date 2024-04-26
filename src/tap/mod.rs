@@ -29,6 +29,10 @@ pub struct Opts {
     #[arg(default_value = "json", short = 'f', long)]
     format: TapEncodingFormat,
 
+    /// VRL filter for tapped events
+    #[arg(short = 'e', long)]
+    event_filter: Option<String>,
+
     /// Components IDs to observe (comma-separated; accepts glob patterns)
     #[arg(value_delimiter(','))]
     component_id_patterns: Vec<String>,

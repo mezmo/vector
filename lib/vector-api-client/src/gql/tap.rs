@@ -59,6 +59,7 @@ pub trait TapSubscriptionExt {
         &self,
         outputs_patterns: Vec<String>,
         inputs_patterns: Vec<String>,
+        filter: Option<String>,
         encoding: TapEncodingFormat,
         limit: i64,
         interval: i64,
@@ -71,6 +72,7 @@ impl TapSubscriptionExt for crate::SubscriptionClient {
         &self,
         outputs_patterns: Vec<String>,
         inputs_patterns: Vec<String>,
+        filter: Option<String>,
         encoding: TapEncodingFormat,
         limit: i64,
         interval: i64,
@@ -79,6 +81,7 @@ impl TapSubscriptionExt for crate::SubscriptionClient {
             output_events_by_component_id_patterns_subscription::Variables {
                 outputs_patterns,
                 inputs_patterns: Some(inputs_patterns),
+                filter,
                 limit,
                 interval,
                 encoding: encoding.into(),

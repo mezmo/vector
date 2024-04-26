@@ -54,6 +54,7 @@ impl EventsSubscription {
         ctx: &'a Context<'a>,
         outputs_patterns: Vec<String>,
         inputs_patterns: Option<Vec<String>>,
+        filter: Option<String>,
         #[graphql(default = 500)] interval: u32,
         #[graphql(default = 100, validator(minimum = 1, maximum = 10_000))] limit: u32,
     ) -> impl Stream<Item = Vec<OutputEventsPayload>> + 'a {
@@ -64,7 +65,7 @@ impl EventsSubscription {
             for_inputs: inputs_patterns.unwrap_or_default().into_iter().collect(),
         };
         // Client input is confined to `u32` to provide sensible bounds.
-        create_events_stream(watch_rx, patterns, interval as u64, limit as usize)
+        create_events_stream(watch_rx, patterns, filter, interval as u64, limit as usize)
     }
 }
 
@@ -74,6 +75,7 @@ impl EventsSubscription {
 pub(crate) fn create_events_stream(
     watch_rx: WatchRx,
     patterns: TapPatterns,
+    filter_source: Option<String>,
     interval: u64,
     limit: usize,
 ) -> impl Stream<Item = Vec<OutputEventsPayload>> {
@@ -91,7 +93,7 @@ pub(crate) fn create_events_stream(
     tokio::spawn(async move {
         // Create a tap controller. When this drops out of scope, clean up will be performed on the
         // event handlers and topology observation that the tap controller provides.
-        let _tap_controller = TapController::new(watch_rx, tap_tx, patterns);
+        let _tap_controller = TapController::new(watch_rx, tap_tx, patterns, filter_source);
 
         // A tick interval to represent when to 'cut' the results back to the client.
         let mut interval = time::interval(time::Duration::from_millis(interval));
