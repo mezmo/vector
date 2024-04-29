@@ -1,3 +1,15 @@
+# [3.20.0](https://github.com/answerbook/vector/compare/v3.19.0...v3.20.0) (2024-04-29)
+
+
+### Features
+
+* **edge**: add support for tap filtering in edge [1797324](https://github.com/answerbook/vector/commit/179732441c7eed7442d6e4ac33c624bf7e941641) - Mike Del Tito [LOG-19757](https://logdna.atlassian.net/browse/LOG-19757)
+
+
+### Miscellaneous
+
+* Merge pull request #452 from answerbook/mdeltito/LOG-19757 [248a767](https://github.com/answerbook/vector/commit/248a767c8a174fe9935d3c789bc7e62859dd65c6) - GitHub [LOG-19757](https://logdna.atlassian.net/browse/LOG-19757)
+
 # [3.19.0](https://github.com/answerbook/vector/compare/v3.18.0...v3.19.0) (2024-04-26)
 
 
