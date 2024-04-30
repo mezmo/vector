@@ -1,3 +1,15 @@
+## [3.20.1](https://github.com/answerbook/vector/compare/v3.20.0...v3.20.1) (2024-04-30)
+
+
+### Bug Fixes
+
+* **user_trace**: log http error responses as captured_data [6870759](https://github.com/answerbook/vector/commit/6870759b55d1dc75b0958761141badbf66ce950c) - Mike Del Tito [LOG-19789](https://logdna.atlassian.net/browse/LOG-19789)
+
+
+### Miscellaneous
+
+* Merge pull request #453 from answerbook/mdeltito/LOG-19789 [ee3fac9](https://github.com/answerbook/vector/commit/ee3fac91454b692f4c4791b6a1d37a208720a068) - GitHub [LOG-19789](https://logdna.atlassian.net/browse/LOG-19789)
+
 # [3.20.0](https://github.com/answerbook/vector/compare/v3.19.0...v3.20.0) (2024-04-29)
 
 
