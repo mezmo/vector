@@ -799,6 +799,12 @@ impl UserLoggingResponse for HttpResponse {
             None
         }
     }
+
+    fn log_captured_data(&self) -> Option<Value> {
+        Some(Value::Object(btreemap! {
+            "response" => self.http_response.body().to_owned()
+        }))
+    }
 }
 
 impl UserLoggingError for crate::Error {
