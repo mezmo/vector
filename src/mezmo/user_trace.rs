@@ -287,6 +287,10 @@ pub trait UserLoggingResponse {
     fn log_msg(&self) -> Option<Value> {
         None
     }
+
+    fn log_captured_data(&self) -> Option<Value> {
+        None
+    }
 }
 
 pub trait UserLoggingError {
@@ -330,7 +334,14 @@ where
             match &res {
                 Ok(response) => {
                     if let Some(msg) = response.log_msg() {
-                        user_log_error!(ctx, msg);
+                        match response.log_captured_data() {
+                            Some(captured_data) => {
+                                user_log_error!(ctx, msg, captured_data: captured_data);
+                            }
+                            None => {
+                                user_log_error!(ctx, msg);
+                            }
+                        }
                     }
                 }
                 Err(err) => {
@@ -748,6 +759,12 @@ mod tests {
         fn log_msg(&self) -> Option<Value> {
             Some("log_msg(): response".into())
         }
+
+        fn log_captured_data(&self) -> Option<Value> {
+            Some(Value::Object(btreemap! {
+                "response" => r#"{"error": "badness"}"#
+            }))
+        }
     }
 
     struct MockWrapperService {
@@ -828,5 +845,16 @@ mod tests {
 
         let msg = log_res.get(".message").unwrap().as_str().unwrap();
         assert_eq!(msg, "log_msg(): response");
+
+        let captured_data = log_res
+            .get(".meta.mezmo.captured_data")
+            .expect("captured data should exist");
+
+        assert_eq!(
+            captured_data,
+            &Value::Object(btreemap! {
+                "response" => r#"{"error": "badness"}"#
+            })
+        );
     }
 }
