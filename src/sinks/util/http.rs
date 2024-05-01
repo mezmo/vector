@@ -787,16 +787,26 @@ where
 
 impl UserLoggingResponse for HttpResponse {
     fn log_msg(&self) -> Option<Value> {
-        if !self.http_response.status().is_success() {
+        let status = self.http_response.status();
+        if status.is_success() {
+            match status {
+                StatusCode::MULTI_STATUS => Some(
+                    format!(
+                        "Partial error returned from destination with status code: {}",
+                        status
+                    )
+                    .into(),
+                ),
+                _ => None,
+            }
+        } else {
             Some(
                 format!(
                     "Error returned from destination with status code: {}",
-                    self.http_response.status()
+                    status
                 )
                 .into(),
             )
-        } else {
-            None
         }
     }
 
