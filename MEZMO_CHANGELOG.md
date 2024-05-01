@@ -1,3 +1,15 @@
+## [3.20.4](https://github.com/answerbook/vector/compare/v3.20.3...v3.20.4) (2024-05-01)
+
+
+### Bug Fixes
+
+* **s3**: multipart file consolidation newlines [14f17f6](https://github.com/answerbook/vector/commit/14f17f6f0ed49e8b75e0b7c71e82078fd81ea857) - dominic-mcallister-logdna [LOG-19797](https://logdna.atlassian.net/browse/LOG-19797)
+
+
+### Miscellaneous
+
+* Merge pull request #455 from answerbook/dominic/LOG-19797 [406dc17](https://github.com/answerbook/vector/commit/406dc174fba5f135eb5ea2477de902cc3fe87df5) - GitHub [LOG-19797](https://logdna.atlassian.net/browse/LOG-19797)
+
 ## [3.20.3](https://github.com/answerbook/vector/compare/v3.20.2...v3.20.3) (2024-05-01)
 
 
