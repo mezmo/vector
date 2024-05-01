@@ -336,7 +336,9 @@ where
                     if let Some(msg) = response.log_msg() {
                         match response.log_captured_data() {
                             Some(captured_data) => {
-                                user_log_error!(ctx, msg, captured_data: captured_data);
+                                user_log_error!(ctx, msg, captured_data: Value::from(btreemap! {
+                                    "captured_data" => captured_data
+                                }));
                             }
                             None => {
                                 user_log_error!(ctx, msg);
@@ -853,7 +855,9 @@ mod tests {
         assert_eq!(
             captured_data,
             &Value::Object(btreemap! {
-                "response" => r#"{"error": "badness"}"#
+                "captured_data" => btreemap!{
+                    "response" => r#"{"error": "badness"}"#
+                }
             })
         );
     }
