@@ -111,13 +111,9 @@ impl FunctionExpression for UserLogFn {
             Some(expr) => u64::try_from(expr.resolve(ctx)?.try_integer()?).ok(),
             None => None,
         };
-        // To preserve data types of the `captured data``, AND to ensure data type consistency
-        // with the DB that stores this data, make `captured_data` into a `Object::Value` always.
-        // Then, we can expect the DB column to be `JSONB`.
+        // Resolve captured data as an Option<Value> if it exists
         let captured_data = match &self.captured_data {
-            Some(expr) => Some(Value::from(btreemap! {
-                "captured_data" => expr.resolve(ctx)?
-            })),
+            Some(expr) => Some(expr.resolve(ctx)?),
             None => None,
         };
 
