@@ -1,3 +1,15 @@
+## [3.20.2](https://github.com/answerbook/vector/compare/v3.20.1...v3.20.2) (2024-05-01)
+
+
+### Bug Fixes
+
+* **user_trace**: captured_data shape incorrect [0300ddc](https://github.com/answerbook/vector/commit/0300ddc5824234dd064151086aab11b1ad47b390) - Mike Del Tito [LOG-19789](https://logdna.atlassian.net/browse/LOG-19789)
+
+
+### Miscellaneous
+
+* Merge pull request #454 from answerbook/mdeltito/LOG-19789-fix [c5fffba](https://github.com/answerbook/vector/commit/c5fffbaa9b2f5bb69361bfe2592f60f8b3df4c7e) - GitHub [LOG-19789](https://logdna.atlassian.net/browse/LOG-19789)
+
 ## [3.20.1](https://github.com/answerbook/vector/compare/v3.20.0...v3.20.1) (2024-04-30)
 
 
