@@ -1,3 +1,10 @@
+## [3.20.5](https://github.com/answerbook/vector/compare/v3.20.4...v3.20.5) (2024-05-01)
+
+
+### Bug Fixes
+
+* **user_trace**: Move the `captured_data` wrapper to the log fn [27e1f9a](https://github.com/answerbook/vector/commit/27e1f9ae137979795849cf0d58c10108f0f9fcb5) - Darin Spivey [LOG-19802](https://logdna.atlassian.net/browse/LOG-19802)
+
 ## [3.20.4](https://github.com/answerbook/vector/compare/v3.20.3...v3.20.4) (2024-05-01)
 
 
