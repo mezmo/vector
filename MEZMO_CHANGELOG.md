@@ -1,3 +1,15 @@
+## [3.20.3](https://github.com/answerbook/vector/compare/v3.20.2...v3.20.3) (2024-05-01)
+
+
+### Bug Fixes
+
+* **http**: handle and report partial failures with 207 status [744386a](https://github.com/answerbook/vector/commit/744386a8ac8bfb149470fab88bd888256ad8dc4e) - Mike Del Tito [LOG-19799](https://logdna.atlassian.net/browse/LOG-19799)
+
+
+### Miscellaneous
+
+* Merge pull request #456 from answerbook/mdeltito/LOG-19799 [0d680df](https://github.com/answerbook/vector/commit/0d680df777b29525103bd1b7f109aa676cc97af4) - GitHub [LOG-19799](https://logdna.atlassian.net/browse/LOG-19799)
+
 ## [3.20.2](https://github.com/answerbook/vector/compare/v3.20.1...v3.20.2) (2024-05-01)
 
 
