@@ -273,10 +273,13 @@ impl<'a> FileConsolidationProcessor<'a> {
 
                     upload_file_parts.reverse(); //reverse the list so we can pop off in the correct order
                     while let Some(file) = upload_file_parts.pop() {
+                        let consolidated_file_has_data =
+                            !files_to_delete.is_empty() || !buf_files.is_empty();
+
                         let (trim_open_bracket, trim_close_bracket, prepend_char) =
                             determine_download_properties(
                                 self.output_format.clone(),
-                                &buf_files,
+                                consolidated_file_has_data,
                                 &upload_file_parts,
                             );
 
@@ -693,8 +696,9 @@ async fn download_all_files_as_bytes(
 
     (*files).reverse(); // reverse the list so we can pop off it and maintain order
     while let Some(file) = (*files).pop() {
+        let consolidated_file_has_data = !files_to_delete.is_empty();
         let (trim_open_bracket, trim_close_bracket, prepend_char) =
-            determine_download_properties(output_format.clone(), files_to_delete, files);
+            determine_download_properties(output_format.clone(), consolidated_file_has_data, files);
 
         let b: Bytes = match download_file_as_bytes(
             client,
@@ -793,19 +797,32 @@ async fn download_file_as_bytes(
     Ok(buf.freeze())
 }
 
+/*
+    Determines how we should handle the file when downloading by
+    automatically aoppending commas or newlines between data as well
+    as trimming brackets to handle json files
+    @output_format: the type of file being written
+    @consolidated_file_has_data: indicates if we've already written data
+    @upload_file_parts: the remaining parts for the file
+    @@returns: tuple containing [
+        trim_open_bracket (bool),
+        trim_close_bracket (bool),
+        prepend_char (Option<char>)
+    ]
+*/
 fn determine_download_properties(
     output_format: String,
-    files_to_delete: &Vec<String>,
+    consolidated_file_has_data: bool,
     upload_file_parts: &Vec<ConsolidationFile>,
 ) -> (bool, bool, Option<char>) {
     let is_standard_json_file: bool = output_format == "json";
 
-    let trim_open_bracket = is_standard_json_file && !files_to_delete.is_empty();
+    let trim_open_bracket = is_standard_json_file && consolidated_file_has_data;
     let trim_close_bracket = is_standard_json_file && !upload_file_parts.is_empty();
 
-    let prepend_char: Option<char> = if is_standard_json_file && !files_to_delete.is_empty() {
+    let prepend_char: Option<char> = if is_standard_json_file && consolidated_file_has_data {
         Some(',')
-    } else if !files_to_delete.is_empty() {
+    } else if consolidated_file_has_data {
         Some('\n')
     } else {
         None
