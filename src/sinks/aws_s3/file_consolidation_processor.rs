@@ -18,8 +18,6 @@ use aws_sdk_s3::{
 };
 
 use aws_smithy_types::DateTime as AwsDateTime;
-use base64::prelude::{Engine as _, BASE64_STANDARD};
-use md5::Digest;
 
 const TWO_HOURS_IN_SECONDS: u64 = 2 * 60 * 60;
 const MULTIPART_FILE_MIN_MB_I64: i64 = 5 * 1024 * 1024;
@@ -154,235 +152,99 @@ impl<'a> FileConsolidationProcessor<'a> {
 
                 let content_type = "text/x-log".to_owned();
 
-                //calculate the size of all the files
-                //we make no assumptions about compression here if the file is gzip'd
-                let mut total_bytes_of_all_files: i64 = 0;
-                for record in upload_file_parts.iter() {
-                    total_bytes_of_all_files += record.size;
-                }
-
-                // there is a mimimum size of a multipart upload so we'll just upload a single file
-                // if the directory has less than that amount.
-                if total_bytes_of_all_files <= MULTIPART_FILE_MIN_MB_I64 {
-                    let bytes = match download_all_files_as_bytes(
-                        self.s3_client,
-                        self.bucket.clone(),
-                        self.output_format.clone(),
-                        &mut upload_file_parts,
-                        &mut files_to_delete,
-                    )
+                // use a multi-part upload for all the files that we need to process
+                // set an expiration time for the file in case things go awry (vector dies, sink reloads, etc)
+                // with the expiration time, the file will be auto-deleted if necessary.
+                // we'll build the files up to the maximum size requested
+                let expires = time_since_epoch + (TWO_HOURS_IN_SECONDS);
+                let aws_time = AwsDateTime::from_secs(expires as i64);
+                let multi_part_upload = match self
+                    .s3_client
+                    .create_multipart_upload()
+                    .bucket(self.bucket.clone())
+                    .key(new_file_key.clone())
+                    .set_content_type(Some(content_type))
+                    .set_tagging(Some(tags))
+                    .set_expires(Some(aws_time))
+                    .send()
                     .await
-                    {
-                        Ok(data) => data,
-                        Err(e) => {
-                            error!(
-                                ?e,
-                                "bucket={}, Failed to download files",
-                                self.bucket.clone(),
-                            );
-                            continue;
-                        }
-                    };
-
-                    if bytes.is_empty() {
+                {
+                    Ok(m) => {
                         info!(
-                            "bucket={}, Failed to download files={:?}",
+                            "bucket={}, Successfully created multipart doc for file={}",
                             self.bucket.clone(),
-                            upload_file_parts,
+                            new_file_key.clone(),
+                        );
+                        m
+                    }
+                    Err(e) => {
+                        error!(
+                            ?e,
+                            "bucket={}, Failed to invoke multipart upload file={}",
+                            self.bucket.clone(),
+                            new_file_key.clone(),
                         );
                         continue;
                     }
+                };
 
-                    let content_md5 = BASE64_STANDARD.encode(md5::Md5::digest(bytes.clone()));
-                    match self
-                        .s3_client
-                        .put_object()
-                        .body(bytes_to_bytestream(bytes))
-                        .bucket(self.bucket.clone())
-                        .key(new_file_key.clone())
-                        .set_content_type(Some(content_type))
-                        .set_tagging(Some(tags))
-                        .content_md5(content_md5)
-                        .send()
-                        .await
+                let upload_id: String = multi_part_upload.upload_id().unwrap().to_owned();
+
+                // The minimum file size for upload parts and copy parts 5 MB, so we'll manually consolidate
+                // small files into one larger to fill the void. Using 5 MB files will allow us to achieve
+                // 50 GB total over 10_000 parts
+                let mut part_num: i32 = 0;
+                let mut buf = BytesMut::with_capacity(0);
+                let mut buf_files: Vec<String> = Vec::new();
+
+                upload_file_parts.reverse(); //reverse the list so we can pop off in the correct order
+                while let Some(file) = upload_file_parts.pop() {
+                    let consolidated_file_has_data =
+                        !files_to_delete.is_empty() || !buf_files.is_empty();
+
+                    let (trim_open_bracket, trim_close_bracket, prepend_char) =
+                        determine_download_properties(
+                            self.output_format.clone(),
+                            consolidated_file_has_data,
+                            &upload_file_parts,
+                        );
+
+                    // if the file is compressed, we need to pull and decompress it
+                    // so we can join it with other files
+                    let file_bytes = match download_file_as_bytes(
+                        self.s3_client,
+                        self.bucket.clone(),
+                        &file,
+                        trim_open_bracket,
+                        trim_close_bracket,
+                        prepend_char,
+                    )
+                    .await
                     {
-                        Ok(f) => {
-                            info!(
-                                "bucket={}, Successfully put single consolidated file={} for files={:?}",
-                                self.bucket.clone(),
-                                new_file_key.clone(),
-                                upload_file_parts
-                            );
-                            f
+                        Ok(v) => {
+                            info!("bucket={}, Downloaded file={:?}", self.bucket.clone(), file);
+                            v
                         }
                         Err(e) => {
                             error!(
                                 ?e,
-                                "bucket={}, Failed to put single consolidated file={}",
+                                "bucket={}, Failed to download file={}",
                                 self.bucket.clone(),
-                                new_file_key.clone(),
-                            );
-                            continue;
-                        }
-                    };
-                } else {
-                    // use a multi-part upload for all the files that we need to process
-                    // set an expiration time for the file in case things go awry (vector dies, sink reloads, etc)
-                    // with the expiration time, the file will be auto-deleted if necessary.
-                    // we'll build the files up to the maximum size requested
-                    let expires = time_since_epoch + (TWO_HOURS_IN_SECONDS);
-                    let aws_time = AwsDateTime::from_secs(expires as i64);
-                    let multi_part_upload = match self
-                        .s3_client
-                        .create_multipart_upload()
-                        .bucket(self.bucket.clone())
-                        .key(new_file_key.clone())
-                        .set_content_type(Some(content_type))
-                        .set_tagging(Some(tags))
-                        .set_expires(Some(aws_time))
-                        .send()
-                        .await
-                    {
-                        Ok(m) => {
-                            info!(
-                                "bucket={}, Successfully created multipart doc for file={}",
-                                self.bucket.clone(),
-                                new_file_key.clone(),
-                            );
-                            m
-                        }
-                        Err(e) => {
-                            error!(
-                                ?e,
-                                "bucket={}, Failed to invoke multipart upload file={}",
-                                self.bucket.clone(),
-                                new_file_key.clone(),
+                                file.key.clone(),
                             );
                             continue;
                         }
                     };
 
-                    let upload_id: String = multi_part_upload.upload_id().unwrap().to_owned();
+                    buf.extend_from_slice(&file_bytes);
+                    buf_files.push(file.key.clone());
 
-                    // The minimum file size for upload parts and copy parts 5 MB, so we'll manually consolidate
-                    // small files into one larger to fill the void. Using 5 MB files will allow us to achieve
-                    // 50 GB total over 10_000 parts
-                    let mut part_num: i32 = 0;
-                    let mut buf = BytesMut::with_capacity(0);
-                    let mut buf_files: Vec<String> = Vec::new();
-
-                    upload_file_parts.reverse(); //reverse the list so we can pop off in the correct order
-                    while let Some(file) = upload_file_parts.pop() {
-                        let consolidated_file_has_data =
-                            !files_to_delete.is_empty() || !buf_files.is_empty();
-
-                        let (trim_open_bracket, trim_close_bracket, prepend_char) =
-                            determine_download_properties(
-                                self.output_format.clone(),
-                                consolidated_file_has_data,
-                                &upload_file_parts,
-                            );
-
-                        // if the file is compressed, we need to pull and decompress it
-                        // so we can join it with other files
-                        let file_bytes = match download_file_as_bytes(
-                            self.s3_client,
-                            self.bucket.clone(),
-                            &file,
-                            trim_open_bracket,
-                            trim_close_bracket,
-                            prepend_char,
-                        )
-                        .await
-                        {
-                            Ok(v) => {
-                                info!("bucket={}, Downloaded file={:?}", self.bucket.clone(), file);
-                                v
-                            }
-                            Err(e) => {
-                                error!(
-                                    ?e,
-                                    "bucket={}, Failed to download file={}",
-                                    self.bucket.clone(),
-                                    file.key.clone(),
-                                );
-                                continue;
-                            }
-                        };
-
-                        buf.extend_from_slice(&file_bytes);
-                        buf_files.push(file.key.clone());
-
-                        // if we've got the minimum for a multipart chunk, send it on to the server
-                        if buf.len() as i64 >= MULTIPART_FILE_MIN_MB_I64 {
-                            part_num += 1;
-
-                            // cloning the buffer so its not moved
-                            let body = bytes_to_bytestream(Bytes::from(buf.clone()));
-                            let upload = match self
-                                .s3_client
-                                .upload_part()
-                                .bucket(self.bucket.clone())
-                                .key(new_file_key.clone())
-                                .upload_id(upload_id.clone())
-                                .part_number(part_num)
-                                .body(body)
-                                .send()
-                                .await
-                            {
-                                Ok(u) => {
-                                    info!(
-                                        "bucket={}, upload_id={}, Uploaded part={} for file={}",
-                                        self.bucket.clone(),
-                                        upload_id.clone(),
-                                        part_num,
-                                        new_file_key.clone(),
-                                    );
-                                    u
-                                }
-                                Err(e) => {
-                                    error!(
-                                        ?e,
-                                        "bucket={}, upload_id={}, Failed to upload new part={} for file={}",
-                                        self.bucket.clone(),
-                                        upload_id.clone(),
-                                        part_num,
-                                        new_file_key.clone(),
-                                    );
-                                    part_num -= 1;
-                                    continue;
-                                }
-                            };
-
-                            // keep track of the part for completion
-                            completed_parts.push(
-                                CompletedPart::builder()
-                                    .e_tag(upload.e_tag().unwrap())
-                                    .part_number(part_num)
-                                    .build(),
-                            );
-
-                            for file in &buf_files {
-                                files_to_delete.push(file.clone())
-                            }
-
-                            // reset the buffer by clearing the memory
-                            buf = BytesMut::with_capacity(0);
-                            buf_files.clear();
-                        }
-
-                        // make sure to not go over the max parts and leave
-                        // one slot for any buffer that hasn't been pushed
-                        if (part_num + 1) >= MAX_PARTS_MULTIPART_FILE {
-                            break;
-                        }
-                    }
-
-                    // there's still data in the buffer, so make that the final part.
-                    // the final upload part doesn't have to be the 5 MB min
-                    if !buf.is_empty() {
+                    // if we've got the minimum for a multipart chunk, send it on to the server
+                    if buf.len() as i64 >= MULTIPART_FILE_MIN_MB_I64 {
                         part_num += 1;
 
+                        // cloning the buffer so its not moved
+                        let body = bytes_to_bytestream(Bytes::from(buf.clone()));
                         let upload = match self
                             .s3_client
                             .upload_part()
@@ -390,7 +252,7 @@ impl<'a> FileConsolidationProcessor<'a> {
                             .key(new_file_key.clone())
                             .upload_id(upload_id.clone())
                             .part_number(part_num)
-                            .body(bytes_to_bytestream(Bytes::from(buf)))
+                            .body(body)
                             .send()
                             .await
                         {
@@ -411,8 +273,9 @@ impl<'a> FileConsolidationProcessor<'a> {
                                     self.bucket.clone(),
                                     upload_id.clone(),
                                     part_num,
-                                    new_file_key.clone()
+                                    new_file_key.clone(),
                                 );
+                                part_num -= 1;
                                 continue;
                             }
                         };
@@ -428,55 +291,117 @@ impl<'a> FileConsolidationProcessor<'a> {
                         for file in &buf_files {
                             files_to_delete.push(file.clone())
                         }
+
+                        // reset the buffer by clearing the memory
+                        buf = BytesMut::with_capacity(0);
+                        buf_files.clear();
                     }
 
-                    // time to mark the entire file as complete
-                    match self
+                    // make sure to not go over the max parts and leave
+                    // one slot for any buffer that hasn't been pushed
+                    if (part_num + 1) >= MAX_PARTS_MULTIPART_FILE {
+                        break;
+                    }
+                }
+
+                // there's still data in the buffer, so make that the final part.
+                // the final upload part doesn't have to be the 5 MB min
+                if !buf.is_empty() {
+                    part_num += 1;
+
+                    let upload = match self
                         .s3_client
-                        .complete_multipart_upload()
+                        .upload_part()
                         .bucket(self.bucket.clone())
                         .key(new_file_key.clone())
                         .upload_id(upload_id.clone())
-                        .request_payer(RequestPayer::Requester)
-                        .multipart_upload(
-                            CompletedMultipartUpload::builder()
-                                .set_parts(Some(completed_parts))
-                                .build(),
-                        )
+                        .part_number(part_num)
+                        .body(bytes_to_bytestream(Bytes::from(buf)))
                         .send()
                         .await
                     {
                         Ok(u) => {
                             info!(
-                                "bucket={}, upload_id={}, Completed multipart upload for file={}",
+                                "bucket={}, upload_id={}, Uploaded part={} for file={}",
                                 self.bucket.clone(),
                                 upload_id.clone(),
-                                new_file_key.clone()
+                                part_num,
+                                new_file_key.clone(),
                             );
                             u
                         }
                         Err(e) => {
-                            error!(?e, "bucket={}, upload_id={}, Failed to complete multipart upload for file={}", self.bucket.clone(), upload_id.clone(), new_file_key.clone());
-
-                            // completing the file didn't work out, so abort it completely.
-                            match self
-                                .s3_client
-                                .abort_multipart_upload()
-                                .bucket(self.bucket.clone())
-                                .key(new_file_key.clone())
-                                .upload_id(upload_id.clone())
-                                .request_payer(RequestPayer::Requester)
-                                .send()
-                                .await
-                            {
-                                Ok(_v) => info!("bucket={}, upload_id={}, Aborted multipart upload for file={}", self.bucket.clone(), upload_id.clone(), new_file_key.clone()),
-                                Err(e) => error!(?e, "bucket={}, upload_id={}, Failed to abort multipart upload for file={}", self.bucket.clone(), upload_id.clone(), new_file_key.clone()),
-                            };
-
+                            error!(
+                                ?e,
+                                "bucket={}, upload_id={}, Failed to upload new part={} for file={}",
+                                self.bucket.clone(),
+                                upload_id.clone(),
+                                part_num,
+                                new_file_key.clone()
+                            );
                             continue;
                         }
                     };
+
+                    // keep track of the part for completion
+                    completed_parts.push(
+                        CompletedPart::builder()
+                            .e_tag(upload.e_tag().unwrap())
+                            .part_number(part_num)
+                            .build(),
+                    );
+
+                    for file in &buf_files {
+                        files_to_delete.push(file.clone())
+                    }
                 }
+
+                // time to mark the entire file as complete
+                match self
+                    .s3_client
+                    .complete_multipart_upload()
+                    .bucket(self.bucket.clone())
+                    .key(new_file_key.clone())
+                    .upload_id(upload_id.clone())
+                    .request_payer(RequestPayer::Requester)
+                    .multipart_upload(
+                        CompletedMultipartUpload::builder()
+                            .set_parts(Some(completed_parts))
+                            .build(),
+                    )
+                    .send()
+                    .await
+                {
+                    Ok(u) => {
+                        info!(
+                            "bucket={}, upload_id={}, Completed multipart upload for file={}",
+                            self.bucket.clone(),
+                            upload_id.clone(),
+                            new_file_key.clone()
+                        );
+                        u
+                    }
+                    Err(e) => {
+                        error!(?e, "bucket={}, upload_id={}, Failed to complete multipart upload for file={}", self.bucket.clone(), upload_id.clone(), new_file_key.clone());
+
+                        // completing the file didn't work out, so abort it completely.
+                        match self
+                            .s3_client
+                            .abort_multipart_upload()
+                            .bucket(self.bucket.clone())
+                            .key(new_file_key.clone())
+                            .upload_id(upload_id.clone())
+                            .request_payer(RequestPayer::Requester)
+                            .send()
+                            .await
+                        {
+                            Ok(_v) => info!("bucket={}, upload_id={}, Aborted multipart upload for file={}", self.bucket.clone(), upload_id.clone(), new_file_key.clone()),
+                            Err(e) => error!(?e, "bucket={}, upload_id={}, Failed to abort multipart upload for file={}", self.bucket.clone(), upload_id.clone(), new_file_key.clone()),
+                        };
+
+                        continue;
+                    }
+                };
 
                 // remove all the files from S3 that have been merged into the larger file
                 for file in files_to_delete {
@@ -504,7 +429,7 @@ impl<'a> FileConsolidationProcessor<'a> {
                             file.clone()
                         ),
                     };
-                } // end else multipart logic
+                }
             } // end files to consolidate loop
         } // end files by directory loop
     }
@@ -671,62 +596,6 @@ pub async fn get_files_to_consolidate(
 
     files_to_consolidate.sort_by_key(|x| x.last_modified);
     Ok(files_to_consolidate)
-}
-
-/*
-    Handles downloading the byte data from all the provided files.
-    Internally handles failures to retrieve a file by only populating
-    the files_to_delete with files which were successfully downloaded.
-    If the file is compressed, handles also decompressing the document
-    via gzip compression.
-    @client: the s3 client
-    @bucket: the s3 bucket
-    @output_format: the requested format to download
-    @files_to_delete: populated with the files which were successfully downloaded
-    @@returns: Bytes, the byte data representing all the downloaded files
-*/
-async fn download_all_files_as_bytes(
-    client: &S3Client,
-    bucket: String,
-    output_format: String,
-    files: &mut Vec<ConsolidationFile>,
-    files_to_delete: &mut Vec<String>,
-) -> Result<Bytes, Error> {
-    let mut buf = BytesMut::with_capacity(0);
-
-    (*files).reverse(); // reverse the list so we can pop off it and maintain order
-    while let Some(file) = (*files).pop() {
-        let consolidated_file_has_data = !files_to_delete.is_empty();
-        let (trim_open_bracket, trim_close_bracket, prepend_char) =
-            determine_download_properties(output_format.clone(), consolidated_file_has_data, files);
-
-        let b: Bytes = match download_file_as_bytes(
-            client,
-            bucket.clone(),
-            &file,
-            trim_open_bracket,
-            trim_close_bracket,
-            prepend_char,
-        )
-        .await
-        {
-            Ok(b) => b,
-            Err(e) => {
-                error!(
-                    ?e,
-                    "bucket={}, Failed to download file={}",
-                    bucket.clone(),
-                    file.key.clone(),
-                );
-                continue;
-            }
-        };
-
-        buf.extend_from_slice(&b);
-        files_to_delete.push(file.key.clone());
-    }
-
-    Ok(buf.freeze())
 }
 
 /*
