@@ -1,3 +1,15 @@
+## [3.20.6](https://github.com/answerbook/vector/compare/v3.20.5...v3.20.6) (2024-05-06)
+
+
+### Bug Fixes
+
+* **source**: Convert OTLP metric into Mezmo metric format. [c639196](https://github.com/answerbook/vector/commit/c6391965d347a5452307285feae8b447c467ce82) - Sergey Opria [LOG-19601](https://logdna.atlassian.net/browse/LOG-19601)
+
+
+### Miscellaneous
+
+* Merge pull request #458 from answerbook/sopria/LOG-19601 [f73d4d0](https://github.com/answerbook/vector/commit/f73d4d01212c9f16871d2c9fd161537f2e5f1453) - GitHub [LOG-19601](https://logdna.atlassian.net/browse/LOG-19601)
+
 ## [3.20.5](https://github.com/answerbook/vector/compare/v3.20.4...v3.20.5) (2024-05-01)
 
 
