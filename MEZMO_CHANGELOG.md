@@ -1,3 +1,15 @@
+## [3.20.7](https://github.com/answerbook/vector/compare/v3.20.6...v3.20.7) (2024-05-06)
+
+
+### Bug Fixes
+
+* **s3 consolidation**: memory usage [b7379ba](https://github.com/answerbook/vector/commit/b7379ba7d9c51c348eb408c1a7c48ad0e3749dca) - dominic-mcallister-logdna [LOG-19824](https://logdna.atlassian.net/browse/LOG-19824)
+
+
+### Miscellaneous
+
+* Merge pull request #459 from answerbook/dominic/LOG-19824 [140e475](https://github.com/answerbook/vector/commit/140e47503513605bc441d0cf436654a99d40659a) - GitHub [LOG-19824](https://logdna.atlassian.net/browse/LOG-19824)
+
 ## [3.20.6](https://github.com/answerbook/vector/compare/v3.20.5...v3.20.6) (2024-05-06)
 
 
