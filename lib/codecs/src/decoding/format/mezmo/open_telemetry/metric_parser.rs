@@ -15,9 +15,9 @@ use vector_core::{
     config::log_schema,
     event::{
         metric::mezmo::{
-            from_f64_or_zero, IntoTagValue, IntoValue, MetricTags, MetricTagsAccessor,
-            MetricToLogEvent, MetricValueAccessor, MetricValuePairs, MetricValueSerializable,
-            MezmoMetric,
+            from_f64_or_zero, IntoTagValue, IntoValue, MetricArbitraryAccessor, MetricTags,
+            MetricTagsAccessor, MetricToLogEvent, MetricValueAccessor, MetricValuePairs,
+            MetricValueSerializable, MezmoMetric,
         },
         Event, LogEvent, MetricKind, Value,
     },
@@ -29,11 +29,42 @@ use crate::decoding::format::mezmo::open_telemetry::{
     nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
 };
 
-const METRIC_TIMESTAMP_KEY: &str = "message.value.value.time_unix_nano";
+const METRIC_TIMESTAMP_KEY: &str = "message.value.time_unix_nano";
 
 #[derive(Debug, Default, PartialEq)]
-pub struct GaugeMetricValue<'a> {
+pub struct GaugeMetricValue {
     pub value: NumberDataPointOneOfValue,
+}
+
+impl<'a> GaugeMetricValue {
+    fn new(gauge_metric: NumberDataPoint<'a>) -> Self {
+        GaugeMetricValue {
+            value: NumberDataPointOneOfValue {
+                value: gauge_metric.value,
+            },
+        }
+    }
+
+    fn kind(&'a self) -> &'a MetricKind {
+        &MetricKind::Absolute
+    }
+}
+
+impl<'a> MetricValueAccessor<'a> for GaugeMetricValue {
+    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 0>;
+
+    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
+        Some(Cow::from("gauge"))
+    }
+
+    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+        MetricValueSerializable::Single(&self.value as &dyn IntoValue)
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct GaugeMetricArbitrary<'a> {
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
@@ -42,16 +73,13 @@ pub struct GaugeMetricValue<'a> {
     pub flags: u32,
 }
 
-impl<'a> GaugeMetricValue<'a> {
+impl<'a> GaugeMetricArbitrary<'a> {
     fn new(
         gauge_metric: NumberDataPoint<'a>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
     ) -> Self {
-        GaugeMetricValue {
-            value: NumberDataPointOneOfValue {
-                value: gauge_metric.value,
-            },
+        GaugeMetricArbitrary {
             description,
             unit,
             exemplars: ExemplarsMetricValue {
@@ -62,24 +90,14 @@ impl<'a> GaugeMetricValue<'a> {
             flags: gauge_metric.flags,
         }
     }
-
-    fn kind(&'a self) -> &'a MetricKind {
-        &MetricKind::Absolute
-    }
 }
 
-impl<'a> MetricValueAccessor<'a> for GaugeMetricValue<'_> {
-    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 7>;
+impl<'a> MetricArbitraryAccessor<'a> for GaugeMetricArbitrary<'_> {
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 6>;
 
-    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
-        Some(Cow::from("gauge"))
-    }
-
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
-        MetricValueSerializable::Object(MetricValuePairs {
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        MetricValuePairs {
             elements: [
-                (&"value" as &dyn ToString, &self.value as &dyn IntoValue),
                 (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
@@ -100,7 +118,7 @@ impl<'a> MetricValueAccessor<'a> for GaugeMetricValue<'_> {
                 (&"flags" as &dyn ToString, &self.flags as &dyn IntoValue),
             ]
             .into_iter(),
-        })
+        }
     }
 }
 
@@ -109,6 +127,8 @@ pub struct GaugeMetricMetadata<'a> {
     pub resource: ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
+    original_type: Cow<'a, str>,
+    data_provider: Cow<'a, str>,
 }
 
 impl<'a> GaugeMetricMetadata<'a> {
@@ -123,21 +143,26 @@ impl<'a> GaugeMetricMetadata<'a> {
             attributes: OpenTelemetryKeyValue {
                 attributes: gauge_metric.attributes,
             },
+            original_type: Cow::from("gauge"),
+            data_provider: Cow::from("otlp"),
         }
     }
 }
 
-impl<'a> MetricValueAccessor<'a> for GaugeMetricMetadata<'_> {
-    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+impl<'a> MetricArbitraryAccessor<'a> for GaugeMetricMetadata<'_> {
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 5>;
 
-    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
-        None
-    }
-
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
-        MetricValueSerializable::Object(MetricValuePairs {
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        MetricValuePairs {
             elements: [
+                (
+                    &"original_type" as &dyn ToString,
+                    &self.original_type as &dyn IntoValue,
+                ),
+                (
+                    &"data_provider" as &dyn ToString,
+                    &self.data_provider as &dyn IntoValue,
+                ),
                 (
                     &"resource" as &dyn ToString,
                     &self.resource as &dyn IntoValue,
@@ -149,13 +174,59 @@ impl<'a> MetricValueAccessor<'a> for GaugeMetricMetadata<'_> {
                 ),
             ]
             .into_iter(),
-        })
+        }
     }
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct SumMetricValue<'a> {
+pub struct SumMetricValue {
     pub value: NumberDataPointOneOfValue,
+    pub is_monotonic: bool,
+}
+
+impl<'a> SumMetricValue {
+    fn new(sum_metric: NumberDataPoint<'a>, is_monotonic: bool) -> Self {
+        // TODO LOG-19828 It's not clear how to handle aggregation_temporality.delta flag.
+        // Based on documentation we have to convert a data point from delta
+        // to cumulative.
+        // https://opentelemetry.io/docs/specs/otel/metrics/data-model/#sums-delta-to-cumulative
+
+        SumMetricValue {
+            value: NumberDataPointOneOfValue {
+                value: sum_metric.value,
+            },
+            is_monotonic,
+        }
+    }
+
+    fn kind(&'a self) -> &'a MetricKind {
+        if self.is_monotonic {
+            &MetricKind::Incremental
+        } else {
+            &MetricKind::Absolute
+        }
+    }
+}
+
+impl<'a> MetricValueAccessor<'a> for SumMetricValue {
+    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 0>;
+
+    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
+        if self.is_monotonic {
+            Some(Cow::from("counter"))
+        } else {
+            Some(Cow::from("gauge"))
+        }
+    }
+
+    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+        MetricValueSerializable::Single(&self.value as &dyn IntoValue)
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct SumMetricArbitrary<'a> {
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
@@ -166,7 +237,7 @@ pub struct SumMetricValue<'a> {
     pub aggregation_temporality: i32,
 }
 
-impl<'a> SumMetricValue<'a> {
+impl<'a> SumMetricArbitrary<'a> {
     fn new(
         sum_metric: NumberDataPoint<'a>,
         description: Cow<'a, str>,
@@ -174,10 +245,7 @@ impl<'a> SumMetricValue<'a> {
         aggregation_temporality: AggregationTemporality,
         is_monotonic: bool,
     ) -> Self {
-        SumMetricValue {
-            value: NumberDataPointOneOfValue {
-                value: sum_metric.value,
-            },
+        SumMetricArbitrary {
             description,
             unit,
             exemplars: ExemplarsMetricValue {
@@ -190,30 +258,14 @@ impl<'a> SumMetricValue<'a> {
             aggregation_temporality: aggregation_temporality as i32,
         }
     }
-
-    fn kind(&'a self) -> &'a MetricKind {
-        if self.aggregation_temporality
-            == AggregationTemporality::AGGREGATION_TEMPORALITY_CUMULATIVE as i32
-        {
-            &MetricKind::Incremental
-        } else {
-            &MetricKind::Absolute
-        }
-    }
 }
 
-impl<'a> MetricValueAccessor<'a> for SumMetricValue<'_> {
-    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 9>;
+impl<'a> MetricArbitraryAccessor<'a> for SumMetricArbitrary<'_> {
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 8>;
 
-    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
-        Some(Cow::from("sum"))
-    }
-
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
-        MetricValueSerializable::Object(MetricValuePairs {
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        MetricValuePairs {
             elements: [
-                (&"value" as &dyn ToString, &self.value as &dyn IntoValue),
                 (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
@@ -242,7 +294,7 @@ impl<'a> MetricValueAccessor<'a> for SumMetricValue<'_> {
                 ),
             ]
             .into_iter(),
-        })
+        }
     }
 }
 
@@ -251,6 +303,8 @@ pub struct SumMetricMetadata<'a> {
     pub resource: ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
+    original_type: Cow<'a, str>,
+    data_provider: Cow<'a, str>,
 }
 
 impl<'a> SumMetricMetadata<'a> {
@@ -265,21 +319,26 @@ impl<'a> SumMetricMetadata<'a> {
             attributes: OpenTelemetryKeyValue {
                 attributes: sum_metric.attributes,
             },
+            original_type: Cow::from("sum"),
+            data_provider: Cow::from("otlp"),
         }
     }
 }
 
-impl<'a> MetricValueAccessor<'a> for SumMetricMetadata<'_> {
-    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+impl<'a> MetricArbitraryAccessor<'a> for SumMetricMetadata<'_> {
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 5>;
 
-    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
-        None
-    }
-
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
-        MetricValueSerializable::Object(MetricValuePairs {
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        MetricValuePairs {
             elements: [
+                (
+                    &"original_type" as &dyn ToString,
+                    &self.original_type as &dyn IntoValue,
+                ),
+                (
+                    &"data_provider" as &dyn ToString,
+                    &self.data_provider as &dyn IntoValue,
+                ),
                 (
                     &"resource" as &dyn ToString,
                     &self.resource as &dyn IntoValue,
@@ -291,19 +350,72 @@ impl<'a> MetricValueAccessor<'a> for SumMetricMetadata<'_> {
                 ),
             ]
             .into_iter(),
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct HistogramMetricValue {
+    pub count: u64,
+    pub sum: f64,
+    pub buckets: Vec<HistogramBucketValue>,
+}
+
+impl<'a> HistogramMetricValue {
+    fn new(histogram_metric: HistogramDataPoint<'a>) -> Self {
+        let bucket_counts = histogram_metric.bucket_counts.into_owned();
+        let explicit_bounds = histogram_metric.explicit_bounds.into_owned();
+
+        let buckets: Vec<HistogramBucketValue> = bucket_counts
+            .into_iter()
+            .zip(explicit_bounds.into_iter())
+            .map(|(count, upper_limit)| HistogramBucketValue { count, upper_limit })
+            .collect();
+
+        // TODO LOG-19828 It's not clear how to handle aggregation_temporality.delta flag.
+        // Based on documentation we have to convert a data point from delta
+        // to cumulative.
+        // https://opentelemetry.io/docs/specs/otel/metrics/data-model/#histogram
+
+        HistogramMetricValue {
+            count: histogram_metric.count,
+            sum: histogram_metric.sum,
+            buckets,
+        }
+    }
+
+    fn kind(&'a self) -> &'a MetricKind {
+        &MetricKind::Absolute
+    }
+}
+
+impl<'a> MetricValueAccessor<'a> for HistogramMetricValue {
+    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+
+    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
+        Some(Cow::from("histogram"))
+    }
+
+    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+        MetricValueSerializable::Object(MetricValuePairs {
+            elements: [
+                (&"count" as &dyn ToString, &self.count as &dyn IntoValue),
+                (&"sum" as &dyn ToString, &self.sum as &dyn IntoValue),
+                (&"buckets" as &dyn ToString, &self.buckets as &dyn IntoValue),
+            ]
+            .into_iter(),
         })
     }
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct HistogramMetricValue<'a> {
+pub struct HistogramMetricArbitrary<'a> {
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
     pub start_time_unix_nano: u64,
     pub time_unix_nano: u64,
-    pub count: u64,
-    pub sum: f64,
     pub bucket_counts: Cow<'a, [u64]>,
     pub explicit_bounds: Cow<'a, [f64]>,
     pub flags: u32,
@@ -312,14 +424,14 @@ pub struct HistogramMetricValue<'a> {
     pub aggregation_temporality: i32,
 }
 
-impl<'a> HistogramMetricValue<'a> {
+impl<'a> HistogramMetricArbitrary<'a> {
     fn new(
         histogram_metric: HistogramDataPoint<'a>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
         aggregation_temporality: AggregationTemporality,
     ) -> Self {
-        HistogramMetricValue {
+        HistogramMetricArbitrary {
             description,
             unit,
             exemplars: ExemplarsMetricValue {
@@ -327,8 +439,6 @@ impl<'a> HistogramMetricValue<'a> {
             },
             start_time_unix_nano: histogram_metric.start_time_unix_nano,
             time_unix_nano: histogram_metric.time_unix_nano,
-            count: histogram_metric.count,
-            sum: histogram_metric.sum,
             bucket_counts: histogram_metric.bucket_counts,
             explicit_bounds: histogram_metric.explicit_bounds,
             flags: histogram_metric.flags,
@@ -337,28 +447,13 @@ impl<'a> HistogramMetricValue<'a> {
             aggregation_temporality: aggregation_temporality as i32,
         }
     }
-
-    fn kind(&'a self) -> &'a MetricKind {
-        if self.aggregation_temporality
-            == AggregationTemporality::AGGREGATION_TEMPORALITY_CUMULATIVE as i32
-        {
-            &MetricKind::Incremental
-        } else {
-            &MetricKind::Absolute
-        }
-    }
 }
 
-impl<'a> MetricValueAccessor<'a> for HistogramMetricValue<'_> {
-    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 13>;
+impl<'a> MetricArbitraryAccessor<'a> for HistogramMetricArbitrary<'_> {
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 11>;
 
-    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
-        Some(Cow::from("histogram"))
-    }
-
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
-        MetricValueSerializable::Object(MetricValuePairs {
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        MetricValuePairs {
             elements: [
                 (
                     &"description" as &dyn ToString,
@@ -377,8 +472,6 @@ impl<'a> MetricValueAccessor<'a> for HistogramMetricValue<'_> {
                     &"time_unix_nano" as &dyn ToString,
                     &self.time_unix_nano as &dyn IntoValue,
                 ),
-                (&"count" as &dyn ToString, &self.count as &dyn IntoValue),
-                (&"sum" as &dyn ToString, &self.sum as &dyn IntoValue),
                 (
                     &"bucket_counts" as &dyn ToString,
                     &self.bucket_counts as &dyn IntoValue,
@@ -396,7 +489,7 @@ impl<'a> MetricValueAccessor<'a> for HistogramMetricValue<'_> {
                 ),
             ]
             .into_iter(),
-        })
+        }
     }
 }
 
@@ -405,6 +498,8 @@ pub struct HistogramMetricMetadata<'a> {
     pub resource: ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
+    original_type: Cow<'a, str>,
+    data_provider: Cow<'a, str>,
 }
 
 impl<'a> HistogramMetricMetadata<'a> {
@@ -419,21 +514,26 @@ impl<'a> HistogramMetricMetadata<'a> {
             attributes: OpenTelemetryKeyValue {
                 attributes: histogram_metric.attributes,
             },
+            original_type: Cow::from("histogram"),
+            data_provider: Cow::from("otlp"),
         }
     }
 }
 
-impl<'a> MetricValueAccessor<'a> for HistogramMetricMetadata<'_> {
-    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+impl<'a> MetricArbitraryAccessor<'a> for HistogramMetricMetadata<'_> {
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 5>;
 
-    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
-        None
-    }
-
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
-        MetricValueSerializable::Object(MetricValuePairs {
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        MetricValuePairs {
             elements: [
+                (
+                    &"original_type" as &dyn ToString,
+                    &self.original_type as &dyn IntoValue,
+                ),
+                (
+                    &"data_provider" as &dyn ToString,
+                    &self.data_provider as &dyn IntoValue,
+                ),
                 (
                     &"resource" as &dyn ToString,
                     &self.resource as &dyn IntoValue,
@@ -445,12 +545,48 @@ impl<'a> MetricValueAccessor<'a> for HistogramMetricMetadata<'_> {
                 ),
             ]
             .into_iter(),
-        })
+        }
     }
 }
 
 #[derive(Debug, Default, PartialEq)]
 pub struct ExponentialHistogramMetricValue<'a> {
+    pub exp_histogram_metric: ExponentialHistogramDataPoint<'a>,
+}
+
+impl<'a> ExponentialHistogramMetricValue<'a> {
+    fn new(exp_histogram_metric: ExponentialHistogramDataPoint<'a>) -> Self {
+        // TODO LOG-19828 It's not clear how to handle aggregation_temporality.delta flag.
+        // Based on documentation we have to convert a data point from delta
+        // to cumulative.
+
+        ExponentialHistogramMetricValue {
+            exp_histogram_metric,
+        }
+    }
+
+    fn kind(&'a self) -> &'a MetricKind {
+        &MetricKind::Absolute
+    }
+}
+
+impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricValue<'_> {
+    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 0>;
+
+    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
+        Some(Cow::from("exponential_histogram"))
+    }
+
+    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+        MetricValueSerializable::Object(MetricValuePairs {
+            elements: [].into_iter(),
+        })
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct ExponentialHistogramMetricArbitrary<'a> {
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
@@ -469,14 +605,14 @@ pub struct ExponentialHistogramMetricValue<'a> {
     pub aggregation_temporality: i32,
 }
 
-impl<'a> ExponentialHistogramMetricValue<'a> {
+impl<'a> ExponentialHistogramMetricArbitrary<'a> {
     fn new(
         exp_histogram_metric: ExponentialHistogramDataPoint<'a>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
         aggregation_temporality: AggregationTemporality,
     ) -> Self {
-        ExponentialHistogramMetricValue {
+        ExponentialHistogramMetricArbitrary {
             description,
             unit,
             exemplars: ExemplarsMetricValue {
@@ -497,28 +633,13 @@ impl<'a> ExponentialHistogramMetricValue<'a> {
             aggregation_temporality: aggregation_temporality as i32,
         }
     }
-
-    fn kind(&'a self) -> &'a MetricKind {
-        if self.aggregation_temporality
-            == AggregationTemporality::AGGREGATION_TEMPORALITY_CUMULATIVE as i32
-        {
-            &MetricKind::Incremental
-        } else {
-            &MetricKind::Absolute
-        }
-    }
 }
 
-impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricValue<'_> {
-    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+impl<'a> MetricArbitraryAccessor<'a> for ExponentialHistogramMetricArbitrary<'_> {
     type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 16>;
 
-    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
-        Some(Cow::from("exponential_histogram"))
-    }
-
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
-        MetricValueSerializable::Object(MetricValuePairs {
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        MetricValuePairs {
             elements: [
                 (
                     &"description" as &dyn ToString,
@@ -565,7 +686,7 @@ impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricValue<'_> {
                 ),
             ]
             .into_iter(),
-        })
+        }
     }
 }
 
@@ -592,16 +713,11 @@ impl<'a> ExponentialHistogramMetricMetadata<'a> {
     }
 }
 
-impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricMetadata<'_> {
-    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+impl<'a> MetricArbitraryAccessor<'a> for ExponentialHistogramMetricMetadata<'_> {
     type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
 
-    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
-        None
-    }
-
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
-        MetricValueSerializable::Object(MetricValuePairs {
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        MetricValuePairs {
             elements: [
                 (
                     &"resource" as &dyn ToString,
@@ -614,12 +730,56 @@ impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricMetadata<'_> {
                 ),
             ]
             .into_iter(),
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct SummaryMetricValue {
+    pub count: u64,
+    pub sum: f64,
+    pub quantile_values: QuantileValuesMetricValue,
+}
+
+impl<'a> SummaryMetricValue {
+    fn new(summary_metric: SummaryDataPoint<'a>) -> Self {
+        SummaryMetricValue {
+            count: summary_metric.count,
+            sum: summary_metric.sum,
+            quantile_values: QuantileValuesMetricValue(summary_metric.quantile_values),
+        }
+    }
+
+    fn kind(&'a self) -> &'a MetricKind {
+        &MetricKind::Absolute
+    }
+}
+
+impl<'a> MetricValueAccessor<'a> for SummaryMetricValue {
+    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+
+    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
+        Some(Cow::from("summary"))
+    }
+
+    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+        MetricValueSerializable::Object(MetricValuePairs {
+            elements: [
+                (&"count" as &dyn ToString, &self.count as &dyn IntoValue),
+                (&"sum" as &dyn ToString, &self.sum as &dyn IntoValue),
+                (
+                    &"quantiles" as &dyn ToString,
+                    &self.quantile_values as &dyn IntoValue,
+                ),
+            ]
+            .into_iter(),
         })
     }
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct SummaryMetricValue<'a> {
+pub struct SummaryMetricArbitrary<'a> {
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub start_time_unix_nano: u64,
@@ -630,41 +790,30 @@ pub struct SummaryMetricValue<'a> {
     pub flags: u32,
 }
 
-impl<'a> SummaryMetricValue<'a> {
+impl<'a> SummaryMetricArbitrary<'a> {
     fn new(
         summary_metric: SummaryDataPoint<'a>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
     ) -> Self {
-        SummaryMetricValue {
+        SummaryMetricArbitrary {
             description,
             unit,
             start_time_unix_nano: summary_metric.start_time_unix_nano,
             time_unix_nano: summary_metric.time_unix_nano,
             count: summary_metric.count,
             sum: summary_metric.sum,
-            quantile_values: QuantileValuesMetricValue {
-                quantile_values: summary_metric.quantile_values,
-            },
+            quantile_values: QuantileValuesMetricValue(summary_metric.quantile_values),
             flags: summary_metric.flags,
         }
     }
-
-    fn kind(&'a self) -> &'a MetricKind {
-        &MetricKind::Absolute
-    }
 }
 
-impl<'a> MetricValueAccessor<'a> for SummaryMetricValue<'_> {
-    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
+impl<'a> MetricArbitraryAccessor<'a> for SummaryMetricArbitrary<'_> {
     type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 8>;
 
-    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
-        Some(Cow::from("summary"))
-    }
-
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
-        MetricValueSerializable::Object(MetricValuePairs {
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        MetricValuePairs {
             elements: [
                 (
                     &"description" as &dyn ToString,
@@ -688,7 +837,7 @@ impl<'a> MetricValueAccessor<'a> for SummaryMetricValue<'_> {
                 (&"flags" as &dyn ToString, &self.flags as &dyn IntoValue),
             ]
             .into_iter(),
-        })
+        }
     }
 }
 
@@ -697,6 +846,8 @@ pub struct SummaryMetricMetadata<'a> {
     pub resource: ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
+    original_type: Cow<'a, str>,
+    data_provider: Cow<'a, str>,
 }
 
 impl<'a> SummaryMetricMetadata<'a> {
@@ -711,21 +862,26 @@ impl<'a> SummaryMetricMetadata<'a> {
             attributes: OpenTelemetryKeyValue {
                 attributes: summary_metric.attributes,
             },
+            original_type: Cow::from("summary"),
+            data_provider: Cow::from("otlp"),
         }
     }
 }
 
-impl<'a> MetricValueAccessor<'a> for SummaryMetricMetadata<'_> {
-    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+impl<'a> MetricArbitraryAccessor<'a> for SummaryMetricMetadata<'_> {
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 5>;
 
-    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
-        None
-    }
-
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
-        MetricValueSerializable::Object(MetricValuePairs {
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        MetricValuePairs {
             elements: [
+                (
+                    &"original_type" as &dyn ToString,
+                    &self.original_type as &dyn IntoValue,
+                ),
+                (
+                    &"data_provider" as &dyn ToString,
+                    &self.data_provider as &dyn IntoValue,
+                ),
                 (
                     &"resource" as &dyn ToString,
                     &self.resource as &dyn IntoValue,
@@ -737,7 +893,7 @@ impl<'a> MetricValueAccessor<'a> for SummaryMetricMetadata<'_> {
                 ),
             ]
             .into_iter(),
-        })
+        }
     }
 }
 
@@ -837,15 +993,32 @@ impl IntoValue for ResourceMetricValue<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
-pub struct QuantileValuesMetricValue {
-    pub quantile_values: Vec<SummaryDataPointValueAtQuantile>,
+#[derive(Debug, Default, PartialEq, PartialOrd)]
+pub struct HistogramBucketValue {
+    pub upper_limit: f64,
+    pub count: u64,
 }
+
+impl IntoValue for HistogramBucketValue {
+    fn to_value(&self) -> Value {
+        Value::Object(
+            [
+                ("upper_limit".to_owned(), from_f64_or_zero(self.upper_limit)),
+                ("count".to_owned(), self.count.into()),
+            ]
+            .into_iter()
+            .collect(),
+        )
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct QuantileValuesMetricValue(Vec<SummaryDataPointValueAtQuantile>);
 
 impl IntoValue for QuantileValuesMetricValue {
     fn to_value(&self) -> Value {
         Value::Array(
-            self.quantile_values
+            self.0
                 .iter()
                 .map(|quantile_value| {
                     Value::Object(btreemap! {
@@ -1004,7 +1177,9 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                         .data_points
                         .iter()
                         .map(|data_point| {
-                            let metric_value = GaugeMetricValue::new(
+                            let metric_value = GaugeMetricValue::new(data_point.clone());
+
+                            let metric_arbitrary = GaugeMetricArbitrary::new(
                                 data_point.clone(),
                                 metric.description.clone(),
                                 metric.unit.clone(),
@@ -1024,6 +1199,7 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                         kind: metric_value.kind(),
                                         tags: Some(&tags),
                                         user_metadata: Some(&metric_metadata),
+                                        arbitrary_data: Some(&metric_arbitrary),
                                         value: &metric_value,
                                     }
                                 }
@@ -1035,7 +1211,10 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                         .data_points
                         .iter()
                         .map(|data_point| {
-                            let metric_value = SumMetricValue::new(
+                            let metric_value =
+                                SumMetricValue::new(data_point.clone(), sum.is_monotonic);
+
+                            let metric_arbitrary = SumMetricArbitrary::new(
                                 data_point.clone(),
                                 metric.description.clone(),
                                 metric.unit.clone(),
@@ -1057,6 +1236,7 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                         kind: metric_value.kind(),
                                         tags: Some(&tags),
                                         user_metadata: Some(&metric_metadata),
+                                        arbitrary_data: Some(&metric_arbitrary),
                                         value: &metric_value,
                                     }
                                 }
@@ -1068,7 +1248,9 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                         .data_points
                         .iter()
                         .map(|data_point| {
-                            let metric_value = HistogramMetricValue::new(
+                            let metric_value = HistogramMetricValue::new(data_point.clone());
+
+                            let metric_arbitrary = HistogramMetricArbitrary::new(
                                 data_point.clone(),
                                 metric.description.clone(),
                                 metric.unit.clone(),
@@ -1089,6 +1271,7 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                         kind: metric_value.kind(),
                                         tags: Some(&tags),
                                         user_metadata: Some(&metric_metadata),
+                                        arbitrary_data: Some(&metric_arbitrary),
                                         value: &metric_value,
                                     }
                                 }
@@ -1100,7 +1283,10 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                         .data_points
                         .iter()
                         .map(|data_point| {
-                            let metric_value = ExponentialHistogramMetricValue::new(
+                            let metric_value =
+                                ExponentialHistogramMetricValue::new(data_point.clone());
+
+                            let metric_arbitrary = ExponentialHistogramMetricArbitrary::new(
                                 data_point.clone(),
                                 metric.description.clone(),
                                 metric.unit.clone(),
@@ -1113,26 +1299,29 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
 
-                            out.push(make_event(
-                                {
-                                    MezmoMetric {
-                                        name: metric.name.clone(),
-                                        namespace: None,
-                                        kind: metric_value.kind(),
-                                        tags: Some(&tags),
-                                        user_metadata: Some(&metric_metadata),
-                                        value: &metric_value,
-                                    }
-                                }
-                                .to_log_event(),
-                            ));
+                            let _mezmo_metric = MezmoMetric {
+                                name: metric.name.clone(),
+                                namespace: None,
+                                kind: metric_value.kind(),
+                                tags: Some(&tags),
+                                user_metadata: Some(&metric_metadata),
+                                arbitrary_data: Some(&metric_arbitrary),
+                                value: &metric_value,
+                            };
+
+                            // TODO LOG-19820 Exponential histogram has to be converted to
+                            // a native histogram to be able to be handled by any metric sinks.
+                            // For now we just skip this exponential histogram metrics.
+                            // out.push(make_event({mezmo_metric}.to_log_event()));
                         })
                         .collect(),
                     MetricOneOfdata::summary(summary) => summary
                         .data_points
                         .iter()
                         .map(|data_point| {
-                            let metric_value = SummaryMetricValue::new(
+                            let metric_value = SummaryMetricValue::new(data_point.clone());
+
+                            let metric_arbitrary = SummaryMetricArbitrary::new(
                                 data_point.clone(),
                                 metric.description.clone(),
                                 metric.unit.clone(),
@@ -1152,6 +1341,7 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                         kind: metric_value.kind(),
                                         tags: Some(&tags),
                                         user_metadata: Some(&metric_metadata),
+                                        arbitrary_data: Some(&metric_arbitrary),
                                         value: &metric_value,
                                     }
                                 }
@@ -1187,8 +1377,12 @@ fn make_event(mut log_event: LogEvent) -> Event {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{NaiveDateTime, TimeZone, Utc};
     use std::collections::BTreeMap;
     use std::ops::Deref;
+
+    use vector_core::event::metric::{mezmo::to_metric, Bucket, Quantile};
+    use vector_core::event::{MetricKind, MetricValue};
 
     use opentelemetry_rs::opentelemetry::metrics::{
         AnyValue, AnyValueOneOfvalue, ExportMetricsServiceRequest, KeyValue, Metric,
@@ -1284,41 +1478,36 @@ mod tests {
                     "value".into(),
                     Value::Object(BTreeMap::from([
                         ("type".into(), "gauge".into()),
+                        ("value".into(), Value::Integer(10)),
+                        ("description".into(), "test_description".into()),
+                        ("unit".into(), "123.[psi]".into()),
                         (
-                            "value".into(),
-                            Value::Object(BTreeMap::from([
-                                ("value".into(), Value::Integer(10)),
-                                ("description".into(), "test_description".into()),
-                                ("unit".into(), "123.[psi]".into()),
+                            "exemplars".into(),
+                            Value::Array(Vec::from([Value::Object(BTreeMap::from([
                                 (
-                                    "exemplars".into(),
-                                    Value::Array(Vec::from([Value::Object(BTreeMap::from([
-                                        (
-                                            "filtered_attributes".into(),
-                                            Value::Object(BTreeMap::from([
-                                                ("foo".into(), "bar".into()),
-                                                ("empty".into(), Value::Null),
-                                            ]))
-                                        ),
-                                        ("span_id".into(), "74657374".into()),
-                                        (
-                                            "time_unix_nano".into(),
-                                            Value::Integer(1_579_134_612_000_000_011)
-                                        ),
-                                        ("trace_id".into(), "74657374".into()),
-                                        ("value".into(), Value::Integer(10)),
-                                    ]))]))
+                                    "filtered_attributes".into(),
+                                    Value::Object(BTreeMap::from([
+                                        ("foo".into(), "bar".into()),
+                                        ("empty".into(), Value::Null),
+                                    ]))
                                 ),
-                                ("flags".into(), Value::Integer(1)),
-                                (
-                                    "start_time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
-                                ),
+                                ("span_id".into(), "74657374".into()),
                                 (
                                     "time_unix_nano".into(),
                                     Value::Integer(1_579_134_612_000_000_011)
                                 ),
-                            ]))
+                                ("trace_id".into(), "74657374".into()),
+                                ("value".into(), Value::Integer(10)),
+                            ]))]))
+                        ),
+                        ("flags".into(), Value::Integer(1)),
+                        (
+                            "start_time_unix_nano".into(),
+                            Value::Integer(1_579_134_612_000_000_011)
+                        ),
+                        (
+                            "time_unix_nano".into(),
+                            Value::Integer(1_579_134_612_000_000_011)
                         ),
                     ]))
                 ),
@@ -1334,6 +1523,8 @@ mod tests {
                 .unwrap()
                 .deref(),
             Value::Object(BTreeMap::from([
+                ("original_type".into(), "gauge".into()),
+                ("data_provider".into(), "otlp".into()),
                 (
                     "resource".into(),
                     Value::Object(BTreeMap::from([
@@ -1371,11 +1562,22 @@ mod tests {
                 ),
             ]))
         );
+
+        let metric =
+            to_metric(&metrics[0].clone().into_log()).expect("Failed to convert lot to metric");
+
+        assert_eq!(metric.value(), &MetricValue::Gauge { value: 10.0 });
+        assert_eq!(metric.kind(), MetricKind::Absolute);
+        assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
+        assert_eq!(
+            metric.timestamp().unwrap(),
+            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+        );
     }
 
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn otlp_metrics_deserialize_sum() {
+    fn otlp_metrics_deserialize_monotonic_sum() {
         use opentelemetry_rs::opentelemetry::metrics::{
             AggregationTemporality, Exemplar, ExemplarOneOfvalue, InstrumentationScope,
             NumberDataPoint, NumberDataPointOneOfvalue, Resource, ResourceMetrics, ScopeMetrics,
@@ -1455,7 +1657,7 @@ mod tests {
                 .unwrap()
                 .deref(),
             Value::Object(BTreeMap::from([
-                ("kind".into(), "absolute".into()),
+                ("kind".into(), "incremental".into()),
                 ("name".into(), "test_name".into()),
                 (
                     "tags".into(),
@@ -1464,45 +1666,40 @@ mod tests {
                 (
                     "value".into(),
                     Value::Object(BTreeMap::from([
-                        ("type".into(), "sum".into()),
+                        ("type".into(), "counter".into()),
+                        ("value".into(), from_f64_or_zero(10_f64)),
+                        ("description".into(), "test_description".into()),
+                        ("unit".into(), "123.[psi]".into()),
                         (
-                            "value".into(),
-                            Value::Object(BTreeMap::from([
-                                ("description".into(), "test_description".into()),
-                                ("unit".into(), "123.[psi]".into()),
+                            "exemplars".into(),
+                            Value::Array(Vec::from([Value::Object(BTreeMap::from([
                                 (
-                                    "exemplars".into(),
-                                    Value::Array(Vec::from([Value::Object(BTreeMap::from([
-                                        (
-                                            "filtered_attributes".into(),
-                                            Value::Object(BTreeMap::from([
-                                                ("foo".into(), "bar".into()),
-                                                ("empty".into(), Value::Null),
-                                            ]))
-                                        ),
-                                        ("span_id".into(), "74657374".into()),
-                                        (
-                                            "time_unix_nano".into(),
-                                            Value::Integer(1_579_134_612_000_000_011)
-                                        ),
-                                        ("trace_id".into(), "74657374".into()),
-                                        ("value".into(), Value::Integer(10)),
-                                    ]))]))
+                                    "filtered_attributes".into(),
+                                    Value::Object(BTreeMap::from([
+                                        ("foo".into(), "bar".into()),
+                                        ("empty".into(), Value::Null),
+                                    ]))
                                 ),
-                                ("flags".into(), Value::Integer(1)),
-                                (
-                                    "start_time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
-                                ),
+                                ("span_id".into(), "74657374".into()),
                                 (
                                     "time_unix_nano".into(),
                                     Value::Integer(1_579_134_612_000_000_011)
                                 ),
-                                ("value".into(), from_f64_or_zero(10_f64)),
-                                ("aggregation_temporality".into(), Value::Integer(0)),
-                                ("is_monotonic".into(), Value::Boolean(true)),
-                            ]))
+                                ("trace_id".into(), "74657374".into()),
+                                ("value".into(), Value::Integer(10)),
+                            ]))]))
                         ),
+                        ("flags".into(), Value::Integer(1)),
+                        (
+                            "start_time_unix_nano".into(),
+                            Value::Integer(1_579_134_612_000_000_011)
+                        ),
+                        (
+                            "time_unix_nano".into(),
+                            Value::Integer(1_579_134_612_000_000_011)
+                        ),
+                        ("aggregation_temporality".into(), Value::Integer(0)),
+                        ("is_monotonic".into(), Value::Boolean(true)),
                     ]))
                 ),
             ]))
@@ -1517,6 +1714,8 @@ mod tests {
                 .unwrap()
                 .deref(),
             Value::Object(BTreeMap::from([
+                ("original_type".into(), "sum".into()),
+                ("data_provider".into(), "otlp".into()),
                 (
                     "resource".into(),
                     Value::Object(BTreeMap::from([
@@ -1553,6 +1752,208 @@ mod tests {
                     ]))
                 ),
             ]))
+        );
+
+        let metric =
+            to_metric(&metrics[0].clone().into_log()).expect("Failed to convert lot to metric");
+
+        assert_eq!(metric.value(), &MetricValue::Counter { value: 10.0 });
+        assert_eq!(metric.kind(), MetricKind::Incremental);
+        assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
+        assert_eq!(
+            metric.timestamp().unwrap(),
+            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn otlp_metrics_deserialize_non_monotonic_sum() {
+        use opentelemetry_rs::opentelemetry::metrics::{
+            AggregationTemporality, Exemplar, ExemplarOneOfvalue, InstrumentationScope,
+            NumberDataPoint, NumberDataPointOneOfvalue, Resource, ResourceMetrics, ScopeMetrics,
+            Sum,
+        };
+
+        let key_value_str = KeyValue {
+            key: Cow::from("foo"),
+            value: Some(AnyValue {
+                value: AnyValueOneOfvalue::string_value(Cow::from("bar")),
+            }),
+        };
+        let key_value_empty_str = KeyValue {
+            key: Cow::from("empty"),
+            value: Some(AnyValue {
+                value: AnyValueOneOfvalue::string_value(Cow::from("")),
+            }),
+        };
+
+        let metrics_data = ExportMetricsServiceRequest {
+            resource_metrics: vec![ResourceMetrics {
+                resource: Some(Resource {
+                    attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
+                    dropped_attributes_count: 10,
+                }),
+                scope_metrics: vec![ScopeMetrics {
+                    scope: Some(InstrumentationScope {
+                        name: Cow::from("test_name"),
+                        version: Cow::from("1.2.3"),
+                        attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
+                        dropped_attributes_count: 10,
+                    }),
+                    metrics: vec![Metric {
+                        name: Cow::from("test_name"),
+                        description: Cow::from("test_description"),
+                        unit: Cow::from("123.[psi]"),
+                        data: MetricOneOfdata::sum(Sum {
+                            data_points: vec![NumberDataPoint {
+                                attributes: vec![
+                                    key_value_str.clone(),
+                                    key_value_empty_str.clone(),
+                                ],
+                                start_time_unix_nano: 1_579_134_612_000_000_011,
+                                time_unix_nano: 1_579_134_612_000_000_011,
+                                value: NumberDataPointOneOfvalue::as_double(10_f64),
+                                exemplars: vec![Exemplar {
+                                    filtered_attributes: vec![
+                                        key_value_str.clone(),
+                                        key_value_empty_str.clone(),
+                                    ],
+                                    time_unix_nano: 1_579_134_612_000_000_011,
+                                    value: ExemplarOneOfvalue::as_int(10),
+                                    span_id: Cow::from("test".as_bytes()),
+                                    trace_id: Cow::from("test".as_bytes()),
+                                }],
+                                flags: 1,
+                            }],
+                            aggregation_temporality:
+                                AggregationTemporality::AGGREGATION_TEMPORALITY_UNSPECIFIED,
+                            is_monotonic: false,
+                        }),
+                    }],
+                    schema_url: Cow::from("https://some_url.com"),
+                }],
+                schema_url: Cow::from("https://some_url.com"),
+            }],
+        };
+
+        let metrics = to_events(metrics_data.clone());
+
+        assert_eq!(
+            *metrics[0]
+                .clone()
+                .into_log()
+                .value()
+                .get("message")
+                .unwrap()
+                .deref(),
+            Value::Object(BTreeMap::from([
+                ("kind".into(), "absolute".into()),
+                ("name".into(), "test_name".into()),
+                (
+                    "tags".into(),
+                    Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
+                ),
+                (
+                    "value".into(),
+                    Value::Object(BTreeMap::from([
+                        ("type".into(), "gauge".into()),
+                        ("value".into(), from_f64_or_zero(10_f64)),
+                        ("description".into(), "test_description".into()),
+                        ("unit".into(), "123.[psi]".into()),
+                        (
+                            "exemplars".into(),
+                            Value::Array(Vec::from([Value::Object(BTreeMap::from([
+                                (
+                                    "filtered_attributes".into(),
+                                    Value::Object(BTreeMap::from([
+                                        ("foo".into(), "bar".into()),
+                                        ("empty".into(), Value::Null),
+                                    ]))
+                                ),
+                                ("span_id".into(), "74657374".into()),
+                                (
+                                    "time_unix_nano".into(),
+                                    Value::Integer(1_579_134_612_000_000_011)
+                                ),
+                                ("trace_id".into(), "74657374".into()),
+                                ("value".into(), Value::Integer(10)),
+                            ]))]))
+                        ),
+                        ("flags".into(), Value::Integer(1)),
+                        (
+                            "start_time_unix_nano".into(),
+                            Value::Integer(1_579_134_612_000_000_011)
+                        ),
+                        (
+                            "time_unix_nano".into(),
+                            Value::Integer(1_579_134_612_000_000_011)
+                        ),
+                        ("aggregation_temporality".into(), Value::Integer(0)),
+                        ("is_monotonic".into(), Value::Boolean(false)),
+                    ]))
+                ),
+            ]))
+        );
+
+        assert_eq!(
+            *metrics[0]
+                .clone()
+                .into_log()
+                .value()
+                .get("metadata")
+                .unwrap()
+                .deref(),
+            Value::Object(BTreeMap::from([
+                ("original_type".into(), "sum".into()),
+                ("data_provider".into(), "otlp".into()),
+                (
+                    "resource".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                    ]))
+                ),
+                (
+                    "scope".into(),
+                    Value::Object(BTreeMap::from([
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
+                        ),
+                        ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("name".into(), "test_name".into()),
+                        ("version".into(), "1.2.3".into()),
+                    ]))
+                ),
+                (
+                    "attributes".into(),
+                    Value::Object(BTreeMap::from([
+                        ("foo".into(), "bar".into()),
+                        ("empty".into(), Value::Null),
+                    ]))
+                ),
+            ]))
+        );
+
+        let metric =
+            to_metric(&metrics[0].clone().into_log()).expect("Failed to convert lot to metric");
+
+        assert_eq!(metric.value(), &MetricValue::Gauge { value: 10.0 });
+        assert_eq!(metric.kind(), MetricKind::Absolute);
+        assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
+        assert_eq!(
+            metric.timestamp().unwrap(),
+            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
         );
     }
 
@@ -1604,8 +2005,14 @@ mod tests {
                                 time_unix_nano: 1_579_134_612_000_000_011,
                                 count: 10,
                                 sum: 3.7_f64,
-                                bucket_counts: Cow::from(vec![1, 2, 3]),
-                                explicit_bounds: Cow::from(vec![1.3_f64, 5.9_f64]),
+                                bucket_counts: Cow::from(vec![
+                                    214, 6, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                ]),
+                                explicit_bounds: Cow::from(vec![
+                                    0.005_f64, 0.01_f64, 0.025_f64, 0.05_f64, 0.075_f64, 0.1_f64,
+                                    0.25_f64, 0.5_f64, 0.75_f64, 1.0_f64, 2.5_f64, 5.0_f64,
+                                    7.5_f64, 10.0_f64,
+                                ]),
                                 exemplars: vec![Exemplar {
                                     filtered_attributes: vec![
                                         key_value_str.clone(),
@@ -1641,7 +2048,7 @@ mod tests {
                 .unwrap()
                 .deref(),
             Value::Object(BTreeMap::from([
-                ("kind".into(), "incremental".into()),
+                ("kind".into(), "absolute".into()),
                 ("name".into(), "test_name".into()),
                 (
                     "tags".into(),
@@ -1654,58 +2061,143 @@ mod tests {
                         (
                             "value".into(),
                             Value::Object(BTreeMap::from([
-                                ("description".into(), "test_description".into()),
-                                ("unit".into(), "123.[psi]".into()),
-                                (
-                                    "bucket_counts".into(),
-                                    Value::Array(Vec::from([
-                                        Value::Integer(1),
-                                        Value::Integer(2),
-                                        Value::Integer(3),
-                                    ]))
-                                ),
                                 ("count".into(), Value::Integer(10)),
+                                ("sum".into(), from_f64_or_zero(3.7)),
                                 (
-                                    "exemplars".into(),
-                                    Value::Array(Vec::from([Value::Object(BTreeMap::from([
-                                        (
-                                            "filtered_attributes".into(),
-                                            Value::Object(BTreeMap::from([
-                                                ("foo".into(), "bar".into()),
-                                                ("empty".into(), Value::Null),
-                                            ]))
-                                        ),
-                                        ("span_id".into(), "74657374".into()),
-                                        (
-                                            "time_unix_nano".into(),
-                                            Value::Integer(1_579_134_612_000_000_011)
-                                        ),
-                                        ("trace_id".into(), "74657374".into()),
-                                        ("value".into(), from_f64_or_zero(10.5)),
-                                    ]))]))
-                                ),
-                                (
-                                    "explicit_bounds".into(),
+                                    "buckets".into(),
                                     Value::Array(Vec::from([
-                                        from_f64_or_zero(1.3),
-                                        from_f64_or_zero(5.9),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 0.005,
+                                            "count" => 214,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 0.01,
+                                            "count" => 6,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 0.025,
+                                            "count" => 1,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 0.05,
+                                            "count" => 1,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 0.075,
+                                            "count" => 2,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 0.1,
+                                            "count" => 0,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 0.25,
+                                            "count" => 0,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 0.5,
+                                            "count" => 0,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 0.75,
+                                            "count" => 0,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 1.0,
+                                            "count" => 0,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 2.5,
+                                            "count" => 0,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 5.0,
+                                            "count" => 0,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 7.5,
+                                            "count" => 0,
+                                        }),
+                                        Value::Object(btreemap! {
+                                            "upper_limit" => 10.0,
+                                            "count" => 0,
+                                        }),
                                     ]))
                                 ),
-                                ("flags".into(), Value::Integer(1)),
+                            ]))
+                        ),
+                        ("description".into(), "test_description".into()),
+                        ("unit".into(), "123.[psi]".into()),
+                        (
+                            "bucket_counts".into(),
+                            Value::Array(Vec::from([
+                                Value::Integer(214),
+                                Value::Integer(6),
+                                Value::Integer(1),
+                                Value::Integer(1),
+                                Value::Integer(2),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                            ]))
+                        ),
+                        (
+                            "explicit_bounds".into(),
+                            Value::Array(Vec::from([
+                                from_f64_or_zero(0.005),
+                                from_f64_or_zero(0.01),
+                                from_f64_or_zero(0.025),
+                                from_f64_or_zero(0.05),
+                                from_f64_or_zero(0.075),
+                                from_f64_or_zero(0.1),
+                                from_f64_or_zero(0.25),
+                                from_f64_or_zero(0.5),
+                                from_f64_or_zero(0.75),
+                                from_f64_or_zero(1.0),
+                                from_f64_or_zero(2.5),
+                                from_f64_or_zero(5.0),
+                                from_f64_or_zero(7.5),
+                                from_f64_or_zero(10.0),
+                            ]))
+                        ),
+                        (
+                            "exemplars".into(),
+                            Value::Array(Vec::from([Value::Object(BTreeMap::from([
                                 (
-                                    "start_time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
+                                    "filtered_attributes".into(),
+                                    Value::Object(BTreeMap::from([
+                                        ("foo".into(), "bar".into()),
+                                        ("empty".into(), Value::Null),
+                                    ]))
                                 ),
+                                ("span_id".into(), "74657374".into()),
                                 (
                                     "time_unix_nano".into(),
                                     Value::Integer(1_579_134_612_000_000_011)
                                 ),
-                                ("max".into(), from_f64_or_zero(9.9)),
-                                ("min".into(), from_f64_or_zero(0.1)),
-                                ("sum".into(), from_f64_or_zero(3.7)),
-                                ("aggregation_temporality".into(), Value::Integer(2)),
-                            ]))
+                                ("trace_id".into(), "74657374".into()),
+                                ("value".into(), from_f64_or_zero(10.5)),
+                            ]))]))
                         ),
+                        ("flags".into(), Value::Integer(1)),
+                        (
+                            "start_time_unix_nano".into(),
+                            Value::Integer(1_579_134_612_000_000_011)
+                        ),
+                        (
+                            "time_unix_nano".into(),
+                            Value::Integer(1_579_134_612_000_000_011)
+                        ),
+                        ("max".into(), from_f64_or_zero(9.9)),
+                        ("min".into(), from_f64_or_zero(0.1)),
+                        ("aggregation_temporality".into(), Value::Integer(2)),
                     ]))
                 ),
             ]))
@@ -1720,6 +2212,8 @@ mod tests {
                 .unwrap()
                 .deref(),
             Value::Object(BTreeMap::from([
+                ("original_type".into(), "histogram".into()),
+                ("data_provider".into(), "otlp".into()),
                 (
                     "resource".into(),
                     Value::Object(BTreeMap::from([
@@ -1756,6 +2250,81 @@ mod tests {
                     ]))
                 ),
             ]))
+        );
+
+        let metric =
+            to_metric(&metrics[0].clone().into_log()).expect("Failed to convert lot to metric");
+
+        assert_eq!(
+            metric.value(),
+            &MetricValue::AggregatedHistogram {
+                buckets: vec![
+                    Bucket {
+                        upper_limit: 0.005,
+                        count: 214
+                    },
+                    Bucket {
+                        upper_limit: 0.01,
+                        count: 6
+                    },
+                    Bucket {
+                        upper_limit: 0.025,
+                        count: 1
+                    },
+                    Bucket {
+                        upper_limit: 0.05,
+                        count: 1
+                    },
+                    Bucket {
+                        upper_limit: 0.075,
+                        count: 2
+                    },
+                    Bucket {
+                        upper_limit: 0.1,
+                        count: 0
+                    },
+                    Bucket {
+                        upper_limit: 0.25,
+                        count: 0
+                    },
+                    Bucket {
+                        upper_limit: 0.5,
+                        count: 0
+                    },
+                    Bucket {
+                        upper_limit: 0.75,
+                        count: 0
+                    },
+                    Bucket {
+                        upper_limit: 1.0,
+                        count: 0
+                    },
+                    Bucket {
+                        upper_limit: 2.5,
+                        count: 0
+                    },
+                    Bucket {
+                        upper_limit: 5.0,
+                        count: 0
+                    },
+                    Bucket {
+                        upper_limit: 7.5,
+                        count: 0
+                    },
+                    Bucket {
+                        upper_limit: 10.0,
+                        count: 0
+                    },
+                ],
+                count: 10,
+                sum: 3.7,
+            }
+        );
+        assert_eq!(metric.kind(), MetricKind::Absolute);
+        assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
+        assert_eq!(
+            metric.timestamp().unwrap(),
+            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
         );
     }
 
@@ -1851,148 +2420,148 @@ mod tests {
         };
 
         let metrics = to_events(metrics_data.clone());
+        assert!(metrics.is_empty());
 
-        assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("message")
-                .unwrap()
-                .deref(),
-            Value::Object(BTreeMap::from([
-                ("kind".into(), "incremental".into()),
-                ("name".into(), "test_name".into()),
-                (
-                    "tags".into(),
-                    Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
-                ),
-                (
-                    "value".into(),
-                    Value::Object(BTreeMap::from([
-                        ("type".into(), "exponential_histogram".into()),
-                        (
-                            "value".into(),
-                            Value::Object(BTreeMap::from([
-                                ("description".into(), "test_description".into()),
-                                ("unit".into(), "123.[psi]".into()),
-                                ("count".into(), Value::Integer(10)),
-                                (
-                                    "exemplars".into(),
-                                    Value::Array(Vec::from([Value::Object(BTreeMap::from([
-                                        (
-                                            "filtered_attributes".into(),
-                                            Value::Object(BTreeMap::from([
-                                                ("foo".into(), "bar".into()),
-                                                ("empty".into(), Value::Null),
-                                            ]))
-                                        ),
-                                        ("span_id".into(), "74657374".into()),
-                                        (
-                                            "time_unix_nano".into(),
-                                            Value::Integer(1_579_134_612_000_000_011)
-                                        ),
-                                        ("trace_id".into(), "74657374".into()),
-                                        ("value".into(), Value::Integer(10)),
-                                    ]))]))
-                                ),
-                                ("flags".into(), Value::Integer(1)),
-                                ("max".into(), from_f64_or_zero(9.9)),
-                                ("min".into(), from_f64_or_zero(0.1)),
-                                (
-                                    "positive".into(),
-                                    Value::Object(BTreeMap::from([
-                                        (
-                                            "bucket_counts".into(),
-                                            Value::Array(Vec::from([
-                                                Value::Integer(1_579_134_612_000_000_011),
-                                                Value::Integer(9_223_372_036_854_775_807),
-                                            ]))
-                                        ),
-                                        ("offset".into(), Value::Integer(1)),
-                                    ]))
-                                ),
-                                (
-                                    "negative".into(),
-                                    Value::Object(BTreeMap::from([
-                                        // TODO This should be Vec<u64> but Value::Integer is i64
-                                        //  All u64 fields should be converted into Value::Float
-                                        (
-                                            "bucket_counts".into(),
-                                            Value::Array(Vec::from([
-                                                Value::Integer(1_579_134_612_000_000_011),
-                                                Value::Integer(9_223_372_036_854_775_807),
-                                            ]))
-                                        ),
-                                        ("offset".into(), Value::Integer(1)),
-                                    ]))
-                                ),
-                                ("scale".into(), Value::Integer(10)),
-                                ("sum".into(), from_f64_or_zero(3.7)),
-                                (
-                                    "start_time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
-                                ),
-                                (
-                                    "time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
-                                ),
-                                ("zero_count".into(), Value::Integer(12)),
-                                ("zero_threshold".into(), from_f64_or_zero(3.3)),
-                                ("aggregation_temporality".into(), Value::Integer(2)),
-                            ]))
-                        ),
-                    ]))
-                ),
-            ]))
-        );
+        // TODO LOG-19820 Exponential histogram has to be converted to
+        // a native histogram to be able to be handled by any metric sinks.
+        // For now we just skip this exponential histogram metrics.
+        // assert_eq!(
+        //     *metrics[0]
+        //         .clone()
+        //         .into_log()
+        //         .value()
+        //         .get("message")
+        //         .unwrap()
+        //         .deref(),
+        //     Value::Object(BTreeMap::from([
+        //         ("kind".into(), "absolute".into()),
+        //         ("name".into(), "test_name".into()),
+        //         (
+        //             "tags".into(),
+        //             Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
+        //         ),
+        //         (
+        //             "value".into(),
+        //             Value::Object(BTreeMap::from([
+        //                 ("type".into(), "exponential_histogram".into()),
+        //                 ("value".into(), Value::Object(BTreeMap::from([]))),
+        //                 ("description".into(), "test_description".into()),
+        //                 ("unit".into(), "123.[psi]".into()),
+        //                 ("count".into(), Value::Integer(10)),
+        //                 (
+        //                     "exemplars".into(),
+        //                     Value::Array(Vec::from([Value::Object(BTreeMap::from([
+        //                         (
+        //                             "filtered_attributes".into(),
+        //                             Value::Object(BTreeMap::from([
+        //                                 ("foo".into(), "bar".into()),
+        //                                 ("empty".into(), Value::Null),
+        //                             ]))
+        //                         ),
+        //                         ("span_id".into(), "74657374".into()),
+        //                         (
+        //                             "time_unix_nano".into(),
+        //                             Value::Integer(1_579_134_612_000_000_011)
+        //                         ),
+        //                         ("trace_id".into(), "74657374".into()),
+        //                         ("value".into(), Value::Integer(10)),
+        //                     ]))]))
+        //                 ),
+        //                 ("flags".into(), Value::Integer(1)),
+        //                 ("max".into(), from_f64_or_zero(9.9)),
+        //                 ("min".into(), from_f64_or_zero(0.1)),
+        //                 (
+        //                     "positive".into(),
+        //                     Value::Object(BTreeMap::from([
+        //                         (
+        //                             "bucket_counts".into(),
+        //                             Value::Array(Vec::from([
+        //                                 Value::Integer(1_579_134_612_000_000_011),
+        //                                 Value::Integer(9_223_372_036_854_775_807),
+        //                             ]))
+        //                         ),
+        //                         ("offset".into(), Value::Integer(1)),
+        //                     ]))
+        //                 ),
+        //                 (
+        //                     "negative".into(),
+        //                     Value::Object(BTreeMap::from([
+        //                         // TODO This should be Vec<u64> but Value::Integer is i64
+        //                         //  All u64 fields should be converted into Value::Float
+        //                         (
+        //                             "bucket_counts".into(),
+        //                             Value::Array(Vec::from([
+        //                                 Value::Integer(1_579_134_612_000_000_011),
+        //                                 Value::Integer(9_223_372_036_854_775_807),
+        //                             ]))
+        //                         ),
+        //                         ("offset".into(), Value::Integer(1)),
+        //                     ]))
+        //                 ),
+        //                 ("scale".into(), Value::Integer(10)),
+        //                 ("sum".into(), from_f64_or_zero(3.7)),
+        //                 (
+        //                     "start_time_unix_nano".into(),
+        //                     Value::Integer(1_579_134_612_000_000_011)
+        //                 ),
+        //                 (
+        //                     "time_unix_nano".into(),
+        //                     Value::Integer(1_579_134_612_000_000_011)
+        //                 ),
+        //                 ("zero_count".into(), Value::Integer(12)),
+        //                 ("zero_threshold".into(), from_f64_or_zero(3.3)),
+        //                 ("aggregation_temporality".into(), Value::Integer(2)),
+        //             ]))
+        //         ),
+        //     ]))
+        // );
 
-        assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
-            Value::Object(BTreeMap::from([
-                (
-                    "resource".into(),
-                    Value::Object(BTreeMap::from([
-                        (
-                            "attributes".into(),
-                            Value::Object(BTreeMap::from([
-                                ("foo".into(), "bar".into()),
-                                ("empty".into(), Value::Null),
-                            ]))
-                        ),
-                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                    ]))
-                ),
-                (
-                    "scope".into(),
-                    Value::Object(BTreeMap::from([
-                        (
-                            "attributes".into(),
-                            Value::Object(BTreeMap::from([
-                                ("foo".into(), "bar".into()),
-                                ("empty".into(), Value::Null),
-                            ]))
-                        ),
-                        ("dropped_attributes_count".into(), Value::Integer(10)),
-                        ("name".into(), "test_name".into()),
-                        ("version".into(), "1.2.3".into()),
-                    ]))
-                ),
-                (
-                    "attributes".into(),
-                    Value::Object(BTreeMap::from([
-                        ("foo".into(), "bar".into()),
-                        ("empty".into(), Value::Null),
-                    ]))
-                ),
-            ]))
-        );
+        // assert_eq!(
+        //     *metrics[0]
+        //         .clone()
+        //         .into_log()
+        //         .value()
+        //         .get("metadata")
+        //         .unwrap()
+        //         .deref(),
+        //     Value::Object(BTreeMap::from([
+        //         (
+        //             "resource".into(),
+        //             Value::Object(BTreeMap::from([
+        //                 (
+        //                     "attributes".into(),
+        //                     Value::Object(BTreeMap::from([
+        //                         ("foo".into(), "bar".into()),
+        //                         ("empty".into(), Value::Null),
+        //                     ]))
+        //                 ),
+        //                 ("dropped_attributes_count".into(), Value::Integer(10)),
+        //             ]))
+        //         ),
+        //         (
+        //             "scope".into(),
+        //             Value::Object(BTreeMap::from([
+        //                 (
+        //                     "attributes".into(),
+        //                     Value::Object(BTreeMap::from([
+        //                         ("foo".into(), "bar".into()),
+        //                         ("empty".into(), Value::Null),
+        //                     ]))
+        //                 ),
+        //                 ("dropped_attributes_count".into(), Value::Integer(10)),
+        //                 ("name".into(), "test_name".into()),
+        //                 ("version".into(), "1.2.3".into()),
+        //             ]))
+        //         ),
+        //         (
+        //             "attributes".into(),
+        //             Value::Object(BTreeMap::from([
+        //                 ("foo".into(), "bar".into()),
+        //                 ("empty".into(), Value::Null),
+        //             ]))
+        //         ),
+        //     ]))
+        // );
     }
 
     #[test]
@@ -2081,27 +2650,36 @@ mod tests {
                         (
                             "value".into(),
                             Value::Object(BTreeMap::from([
-                                ("description".into(), "test_description".into()),
-                                ("unit".into(), "123.[psi]".into()),
                                 ("count".into(), Value::Integer(10)),
-                                ("flags".into(), Value::Integer(1)),
+                                ("sum".into(), from_f64_or_zero(3.7)),
                                 (
-                                    "quantile_values".into(),
+                                    "quantiles".into(),
                                     Value::Array(Vec::from([Value::Object(BTreeMap::from([
                                         ("quantile".into(), from_f64_or_zero(1.0)),
                                         ("value".into(), from_f64_or_zero(2.0)),
                                     ]))]))
                                 ),
-                                ("sum".into(), from_f64_or_zero(3.7)),
-                                (
-                                    "start_time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
-                                ),
-                                (
-                                    "time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
-                                ),
                             ]))
+                        ),
+                        ("description".into(), "test_description".into()),
+                        ("unit".into(), "123.[psi]".into()),
+                        ("count".into(), Value::Integer(10)),
+                        ("flags".into(), Value::Integer(1)),
+                        (
+                            "quantile_values".into(),
+                            Value::Array(Vec::from([Value::Object(BTreeMap::from([
+                                ("quantile".into(), from_f64_or_zero(1.0)),
+                                ("value".into(), from_f64_or_zero(2.0)),
+                            ]))]))
+                        ),
+                        ("sum".into(), from_f64_or_zero(3.7)),
+                        (
+                            "start_time_unix_nano".into(),
+                            Value::Integer(1_579_134_612_000_000_011)
+                        ),
+                        (
+                            "time_unix_nano".into(),
+                            Value::Integer(1_579_134_612_000_000_011)
                         ),
                     ]))
                 ),
@@ -2117,6 +2695,8 @@ mod tests {
                 .unwrap()
                 .deref(),
             Value::Object(BTreeMap::from([
+                ("original_type".into(), "summary".into()),
+                ("data_provider".into(), "otlp".into()),
                 (
                     "resource".into(),
                     Value::Object(BTreeMap::from([
@@ -2154,6 +2734,27 @@ mod tests {
                 ),
             ]))
         );
+
+        let metric =
+            to_metric(&metrics[0].clone().into_log()).expect("Failed to convert lot to metric");
+
+        assert_eq!(
+            metric.value(),
+            &MetricValue::AggregatedSummary {
+                quantiles: vec![Quantile {
+                    quantile: 1.0,
+                    value: 2.0
+                },],
+                count: 10,
+                sum: 3.7,
+            }
+        );
+        assert_eq!(metric.kind(), MetricKind::Absolute);
+        assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
+        assert_eq!(
+            metric.timestamp().unwrap(),
+            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+        );
     }
 
     #[test]
@@ -2169,6 +2770,11 @@ mod tests {
             .get("message.value.type")
             .expect("Metric type is missed");
 
-        assert_eq!(*metric_type, Value::from("sum"));
+        let is_monotonic = log
+            .get("message.value.is_monotonic")
+            .expect("Metric is_monotonic is missed");
+
+        assert_eq!(*metric_type, Value::from("counter"));
+        assert_eq!(*is_monotonic, Value::from(true));
     }
 }
