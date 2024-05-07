@@ -21,11 +21,15 @@ mod s3 {
         pub should_log: bool,
     }
 
+    impl SqsMessageProcessingError<'_> {
+        pub const MESSAGE: &'static str = "Failed to process SQS message.";
+    }
+
     impl<'a> InternalEvent for SqsMessageProcessingError<'a> {
         fn emit(self) {
             if self.should_log {
                 error!(
-                    message = "Failed to process SQS message.",
+                    message = Self::MESSAGE,
                     message_id = %self.message_id,
                     error = %self.error,
                     error_code = "failed_processing_sqs_message",
@@ -68,11 +72,15 @@ mod s3 {
         pub should_log: bool,
     }
 
+    impl SqsMessageDeletePartialError {
+        pub const MESSAGE: &'static str = "Deletion of SQS message(s) failed.";
+    }
+
     impl InternalEvent for SqsMessageDeletePartialError {
         fn emit(self) {
             if self.should_log {
                 error!(
-                    message = "Deletion of SQS message(s) failed.",
+                    message = Self::MESSAGE,
                     message_ids = %self.entries.iter()
                         .map(|x| format!("{}/{}", x.id.clone().unwrap_or_default(), x.code.clone().unwrap_or_default()))
                         .collect::<Vec<_>>()
@@ -100,11 +108,15 @@ mod s3 {
         pub should_log: bool,
     }
 
+    impl<E> SqsMessageDeleteBatchError<E> {
+        pub const MESSAGE: &'static str = "Deletion of SQS message(s) failed.";
+    }
+
     impl<E: std::fmt::Display> InternalEvent for SqsMessageDeleteBatchError<E> {
         fn emit(self) {
             if self.should_log {
                 error!(
-                    message = "Deletion of SQS message(s) failed.",
+                    message = Self::MESSAGE,
                     message_ids = %self.entries.iter()
                         .map(|x| x.id.clone().unwrap_or_default())
                         .collect::<Vec<_>>()
@@ -132,10 +144,15 @@ pub struct SqsMessageReceiveError<'a, E> {
     pub error: &'a E,
 }
 
+impl<'a, E> SqsMessageReceiveError<'a, E> {
+    pub const MESSAGE: &'static str =
+        "Failed to fetch SQS events, please check your credentials and queue URL.";
+}
+
 impl<'a, E: std::fmt::Display> InternalEvent for SqsMessageReceiveError<'a, E> {
     fn emit(self) {
         error!(
-            message = "Failed to fetch SQS events.",
+            message = Self::MESSAGE,
             error = %self.error,
             error_code = "failed_fetching_sqs_events",
             error_type = error_type::REQUEST_FAILED,
@@ -184,11 +201,15 @@ pub struct SqsMessageDeleteError<'a, E> {
     pub error: &'a E,
 }
 
+impl<E> SqsMessageDeleteError<'_, E> {
+    pub const MESSAGE: &'static str = "Failed to delete SQS events.";
+}
+
 #[cfg(feature = "sources-aws_sqs")]
 impl<'a, E: std::fmt::Display> InternalEvent for SqsMessageDeleteError<'a, E> {
     fn emit(self) {
         error!(
-            message = "Failed to delete SQS events.",
+            message = Self::MESSAGE,
             error = %self.error,
             error_type = error_type::WRITER_FAILED,
             stage = error_stage::PROCESSING,
