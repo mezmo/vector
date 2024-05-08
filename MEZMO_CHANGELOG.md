@@ -1,3 +1,15 @@
+## [3.20.8](https://github.com/answerbook/vector/compare/v3.20.7...v3.20.8) (2024-05-08)
+
+
+### Bug Fixes
+
+* **s3-source**: expose errors in user logs [acf5400](https://github.com/answerbook/vector/commit/acf54002233399171d918e2d8305bdd0834a0771) - Mike Del Tito [LOG-19534](https://logdna.atlassian.net/browse/LOG-19534)
+
+
+### Miscellaneous
+
+* Merge pull request #460 from answerbook/mdeltito/LOG-19534 [00c1add](https://github.com/answerbook/vector/commit/00c1add454c43408ff3cf036b3855543c0e30e65) - GitHub [LOG-19534](https://logdna.atlassian.net/browse/LOG-19534)
+
 ## [3.20.7](https://github.com/answerbook/vector/compare/v3.20.6...v3.20.7) (2024-05-06)
 
 
