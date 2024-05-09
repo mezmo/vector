@@ -13,19 +13,25 @@ use crate::{
     event::Event,
     http::get_http_scheme_from_uri,
     internal_events::SinkRequestBuildError,
-    mezmo::user_trace::UserLoggingError,
+    mezmo::{
+        user_trace::{MezmoUserLog, UserLoggingError},
+        MezmoContext,
+    },
     sinks::util::{
         metadata::RequestMetadataBuilder, request_builder::EncodeResult, Compression,
         RequestBuilder, SinkBuilderExt,
     },
+    user_log_error,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::{BoxStream, StreamExt};
 use tower::Service;
 use vector_lib::{
+    config::log_schema,
     event::Value,
     finalization::{EventFinalizers, Finalizable},
+    lookup::PathPrefix,
     partition::Partitioner,
     request_metadata::RequestMetadata,
     sink::StreamSink,
@@ -91,6 +97,7 @@ impl UserLoggingError for OpentelemetrySinkError {
 struct OpentelemetryRequestBuilder {
     encoder: OpentelemetryEncoder,
     compression: Compression,
+    mezmo_ctx: Option<MezmoContext>,
 }
 
 impl RequestBuilder<(OpentelemetryModelType, Vec<Event>)> for OpentelemetryRequestBuilder {
@@ -114,21 +121,96 @@ impl RequestBuilder<(OpentelemetryModelType, Vec<Event>)> for OpentelemetryReque
         input: (OpentelemetryModelType, Vec<Event>),
     ) -> (Self::Metadata, RequestMetadataBuilder, Self::Events) {
         let (model_type, mut events) = input;
-        let builder = RequestMetadataBuilder::from_events(&events);
+
+        let mut dropped_events_indeces = vec![];
+
+        let model: Self::Events = match model_type {
+            OpentelemetryModelType::Logs => {
+                let mut logs: Vec<OpentelemetryLogsModel> = vec![];
+                for (i, event) in events.iter().enumerate() {
+                    match OpentelemetryLogsModel::try_from(event.clone()) {
+                        Ok(m) => logs.push(m),
+                        Err(err) => {
+                            let mut captured_data = Value::from([]);
+                            if let Some(log) = event.maybe_as_log() {
+                                captured_data = Value::from(btreemap! {
+                                    "message" => log.get_message().unwrap_or(&Value::Null).clone(),
+                                    "metadata" =>  log.get((PathPrefix::Event, log_schema().user_metadata_key())).unwrap_or(&Value::Null).clone(),
+                                    "timestamp" =>  log.get_timestamp().unwrap_or(&Value::Null).clone(),
+                                })
+                            }
+
+                            user_log_error!(
+                                self.mezmo_ctx,
+                                Value::from(format!("{err}")),
+                                captured_data: captured_data
+                            );
+
+                            dropped_events_indeces.push(i);
+                        }
+                    }
+                }
+                Ok(OpentelemetryModel::Logs(logs))
+            }
+            OpentelemetryModelType::Traces => {
+                let mut traces: Vec<OpentelemetryTracesModel> = vec![];
+                for (i, event) in events.iter().enumerate() {
+                    match OpentelemetryTracesModel::try_from(event.clone()) {
+                        Ok(m) => traces.push(m),
+                        Err(err) => {
+                            let mut captured_data = Value::from([]);
+                            if let Some(log) = event.maybe_as_log() {
+                                captured_data = Value::from(btreemap! {
+                                    "message" => log.get_message().unwrap_or(&Value::Null).clone(),
+                                    "metadata" =>  log.get((PathPrefix::Event, log_schema().user_metadata_key())).unwrap_or(&Value::Null).clone(),
+                                    "timestamp" =>  log.get_timestamp().unwrap_or(&Value::Null).clone(),
+                                })
+                            }
+
+                            user_log_error!(
+                                self.mezmo_ctx,
+                                Value::from(format!("{err}")),
+                                captured_data: captured_data
+                            );
+
+                            dropped_events_indeces.push(i);
+                        }
+                    }
+                }
+                Ok(OpentelemetryModel::Traces(traces))
+            }
+            OpentelemetryModelType::Metrics => {
+                let mut metrics: Vec<OpentelemetryMetricsModel> = vec![];
+                for (i, event) in events.iter().enumerate() {
+                    match OpentelemetryMetricsModel::try_from(event.clone()) {
+                        Ok(m) => metrics.push(m),
+                        Err(err) => {
+                            user_log_error!(self.mezmo_ctx, Value::from(format!("{err}")));
+                            dropped_events_indeces.push(i);
+                        }
+                    }
+                }
+                Ok(OpentelemetryModel::Metrics(metrics))
+            }
+            OpentelemetryModelType::Unknown => {
+                let err = OpentelemetrySinkError::new(&format!(
+                    "Unknown events detected, {}",
+                    events.len()
+                ));
+
+                user_log_error!(self.mezmo_ctx, Value::from(format!("{err}")));
+                Err(err)
+            }
+        };
+
+        // Remove events which failed to be converted to a model
+        // to be able to get correct finalizers further ahead.
+        for i in dropped_events_indeces {
+            events.remove(i);
+        }
 
         let finalizers = events.take_finalizers();
-        let model: Result<OpentelemetryModel, OpentelemetrySinkError> = match model_type {
-            OpentelemetryModelType::Logs => Ok(OpentelemetryModel::Logs(
-                OpentelemetryLogsModel::try_from(events).expect("error with log events input"),
-            )),
-            OpentelemetryModelType::Metrics => Ok(OpentelemetryModel::Metrics(
-                OpentelemetryMetricsModel::try_from(events)
-                    .expect("error with metric events input"),
-            )),
-            OpentelemetryModelType::Traces => Ok(OpentelemetryModel::Traces(
-                OpentelemetryTracesModel::try_from(events).expect("error with trace events input"),
-            )),
-        };
+        let builder = RequestMetadataBuilder::from_events(&events);
 
         ((model_type, finalizers), builder, model)
     }
@@ -166,7 +248,7 @@ impl Partitioner for OpentelemetryTypePartitioner {
             return model_type;
         }
 
-        panic!("Unexpected event type")
+        OpentelemetryModelType::Unknown
     }
 }
 
@@ -175,6 +257,7 @@ pub struct OpentelemetrySink<S> {
     pub encoder: OpentelemetryEncoder,
     pub compression: Compression,
     pub batcher_settings: BatcherSettings,
+    pub mezmo_ctx: Option<MezmoContext>,
 }
 
 impl<S> OpentelemetrySink<S>
@@ -189,6 +272,7 @@ where
         let request_builder = OpentelemetryRequestBuilder {
             encoder: self.encoder,
             compression: self.compression,
+            mezmo_ctx: self.mezmo_ctx,
         };
 
         use http::Uri;
@@ -202,13 +286,11 @@ where
             .request_builder(builder_limit, request_builder)
             .filter_map(
                 |request: Result<OpentelemetryApiRequest, OpentelemetrySinkError>| async move {
-                    match request {
-                        Err(error) => {
+                    request
+                        .map_err(|error| {
                             emit!(SinkRequestBuildError { error });
-                            None
-                        }
-                        Ok(req) => Some(req),
-                    }
+                        })
+                        .ok()
                 },
             )
             .into_driver(self.service)

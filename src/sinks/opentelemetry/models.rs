@@ -333,9 +333,9 @@ impl From<OpentelemetryScope> for InstrumentationLibrary {
 }
 
 pub enum OpentelemetryModel {
-    Logs(OpentelemetryLogsModel),
-    Metrics(OpentelemetryMetricsModel),
-    Traces(OpentelemetryTracesModel),
+    Logs(Vec<OpentelemetryLogsModel>),
+    Metrics(Vec<OpentelemetryMetricsModel>),
+    Traces(Vec<OpentelemetryTracesModel>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -343,6 +343,7 @@ pub enum OpentelemetryModelType {
     Logs,
     Metrics,
     Traces,
+    Unknown,
 }
 
 pub trait OpentelemetryModelMatch {

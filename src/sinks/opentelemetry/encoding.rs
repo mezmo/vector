@@ -19,9 +19,9 @@ impl Encoder<Result<OpentelemetryModel, OpentelemetrySinkError>> for Opentelemet
         writer: &mut dyn io::Write,
     ) -> io::Result<(usize, GroupedCountByteSize)> {
         let output = match input? {
-            OpentelemetryModel::Logs(log_model) => encode_log(&log_model)?,
-            OpentelemetryModel::Metrics(metric_model) => encode_metrics(&metric_model)?,
-            OpentelemetryModel::Traces(trace_model) => encode_traces(trace_model)?,
+            OpentelemetryModel::Logs(log_models) => encode_log(log_models)?,
+            OpentelemetryModel::Metrics(metric_models) => encode_metrics(metric_models)?,
+            OpentelemetryModel::Traces(trace_models) => encode_traces(trace_models)?,
         };
         let size = as_tracked_write::<_, _, io::Error>(writer, &output, |writer, output| {
             writer.write_all(output)?;

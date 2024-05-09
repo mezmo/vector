@@ -22,34 +22,35 @@ use vector_lib::{
 };
 
 #[derive(Debug)]
-pub struct OpentelemetryTracesModel(pub Vec<SpanData>);
+pub struct OpentelemetryTracesModel(pub SpanData);
 
 impl OpentelemetryModelMatch for OpentelemetryTracesModel {
     fn maybe_match(event: &Event) -> Option<OpentelemetryModelType> {
-        let trace = event.as_log();
-        let message = trace.get_message();
-        let metadata = trace.get((PathPrefix::Event, log_schema().user_metadata_key()));
+        if let Some(trace) = event.maybe_as_log() {
+            let message = trace.get_message();
+            let metadata = trace.get((PathPrefix::Event, log_schema().user_metadata_key()));
 
-        if let (Some(metadata), Some(message)) = (metadata, message) {
-            let resource = metadata.get("resource");
-            let attributes = metadata.get("attributes");
-            let scope = metadata.get("scope");
+            if let (Some(metadata), Some(message)) = (metadata, message) {
+                let resource = metadata.get("resource");
+                let attributes = metadata.get("attributes");
+                let scope = metadata.get("scope");
 
-            let trace_id = message.get("trace_id");
-            let span_id = message.get("span_id");
-            let events = message.get("events");
-            let links = message.get("links");
+                let trace_id = message.get("trace_id");
+                let span_id = message.get("span_id");
+                let events = message.get("events");
+                let links = message.get("links");
 
-            if resource
-                .and(attributes)
-                .and(scope)
-                .and(trace_id)
-                .and(span_id)
-                .and(events)
-                .and(links)
-                .is_some()
-            {
-                return Some(OpentelemetryModelType::Traces);
+                if resource
+                    .and(attributes)
+                    .and(scope)
+                    .and(trace_id)
+                    .and(span_id)
+                    .and(events)
+                    .and(links)
+                    .is_some()
+                {
+                    return Some(OpentelemetryModelType::Traces);
+                }
             }
         }
 
@@ -58,167 +59,159 @@ impl OpentelemetryModelMatch for OpentelemetryTracesModel {
 }
 
 impl OpentelemetryTracesModel {
-    pub fn new(traces: Vec<SpanData>) -> Self {
-        Self(traces)
+    pub const fn new(trace: SpanData) -> Self {
+        Self(trace)
     }
 }
 
-impl TryFrom<Vec<Event>> for OpentelemetryTracesModel {
+impl TryFrom<Event> for OpentelemetryTracesModel {
     type Error = OpentelemetrySinkError;
 
-    fn try_from(buf_events: Vec<Event>) -> Result<Self, Self::Error> {
-        let mut traces_array = vec![];
-        for buf_event in buf_events {
-            let trace = buf_event.as_log();
+    fn try_from(buf_event: Event) -> Result<Self, Self::Error> {
+        let trace = buf_event.as_log();
 
-            // Extract SpanData.resource and SpanData.instrumentation_lib from event
-            let resource = OpentelemetryResource::from(trace);
-            let instrumentation_lib = OpentelemetryScope::from(trace);
+        // Extract SpanData.resource and SpanData.instrumentation_lib from event
+        let resource = OpentelemetryResource::from(trace);
+        let instrumentation_lib = OpentelemetryScope::from(trace);
 
-            // Extract span attributes from metadata
-            let span_attributes: OpentelemetryAttributes = trace
-                .get((
-                    PathPrefix::Event,
-                    format!("{}.attributes", log_schema().user_metadata_key()).as_str(),
-                ))
-                .into();
+        // Extract span attributes from metadata
+        let span_attributes: OpentelemetryAttributes = trace
+            .get((
+                PathPrefix::Event,
+                format!("{}.attributes", log_schema().user_metadata_key()).as_str(),
+            ))
+            .into();
 
-            // Extract from message
-            if let Some(message) = trace.get_message() {
-                let name = match message.get("name") {
-                    Some(Value::Bytes(name_bytes)) => {
-                        Cow::from(String::from_utf8_lossy(name_bytes).into_owned())
-                    }
-                    _ => Cow::from(""),
-                };
+        // Extract from message
+        if let Some(message) = trace.get_message() {
+            let name = match message.get("name") {
+                Some(Value::Bytes(name_bytes)) => {
+                    Cow::from(String::from_utf8_lossy(name_bytes).into_owned())
+                }
+                _ => Cow::from(""),
+            };
 
-                // LOG-19724: trace_flags are not currently captured/defined, this field was added
-                // in a more recent version of the protocol, but our source does not include it in the
-                // protocol impl it uses.
-                // https://github.com/open-telemetry/opentelemetry-rust/commit/27b19b60261f342cec0559f26634ca8f02ed02ac#diff-cfa0a91439f7fb81c51a342043e87175f75c5394b0ff5c9aa7e55c3589a7bb11R91-R106
-                let trace_flags: OpentelemetryTraceFlags = message.get("flags").into();
-                let trace_id: OpentelemetryTraceId = message.get("trace_id").into();
-                let trace_state: OpentelemetryTraceState = message.get("trace_state").into();
-                let span_id: OpentelemetrySpanId = message.get("span_id").into();
-                let parent_span_id: OpentelemetrySpanId = message.get("parent_span_id").into();
+            // LOG-19724: trace_flags are not currently captured/defined, this field was added
+            // in a more recent version of the protocol, but our source does not include it in the
+            // protocol impl it uses.
+            // https://github.com/open-telemetry/opentelemetry-rust/commit/27b19b60261f342cec0559f26634ca8f02ed02ac#diff-cfa0a91439f7fb81c51a342043e87175f75c5394b0ff5c9aa7e55c3589a7bb11R91-R106
+            let trace_flags: OpentelemetryTraceFlags = message.get("flags").into();
+            let trace_id: OpentelemetryTraceId = message.get("trace_id").into();
+            let trace_state: OpentelemetryTraceState = message.get("trace_state").into();
+            let span_id: OpentelemetrySpanId = message.get("span_id").into();
+            let parent_span_id: OpentelemetrySpanId = message.get("parent_span_id").into();
 
-                // TODO: determine correct value for `is_remote`. This marker is not included
-                // in the incoming request/event.
-                let span_context = SpanContext::new(
-                    trace_id.into(),
-                    span_id.into(),
-                    trace_flags.into(),
-                    false,
-                    trace_state.into(),
-                );
+            // TODO: determine correct value for `is_remote`. This marker is not included
+            // in the incoming request/event.
+            let span_context = SpanContext::new(
+                trace_id.into(),
+                span_id.into(),
+                trace_flags.into(),
+                false,
+                trace_state.into(),
+            );
 
-                let start_time =
-                    value_to_system_time(message.get("start_timestamp").unwrap_or(&Value::Null));
-                let end_time =
-                    value_to_system_time(message.get("end_timestamp").unwrap_or(&Value::Null));
+            let start_time =
+                value_to_system_time(message.get("start_timestamp").unwrap_or(&Value::Null));
+            let end_time =
+                value_to_system_time(message.get("end_timestamp").unwrap_or(&Value::Null));
 
-                let status = if let Some(status) = message.get("status") {
-                    match status {
-                        Value::Object(_status) => {
-                            let code = match status.get("code") {
-                                Some(Value::Integer(code_int)) => {
-                                    StatusCode::try_from(*code_int as i32)
-                                        .unwrap_or(StatusCode::Unset)
-                                }
-                                _ => StatusCode::Unset,
-                            };
-
-                            let description = match status.get("message") {
-                                Some(Value::Bytes(message_bytes)) => {
-                                    Cow::from(String::from_utf8_lossy(message_bytes).into_owned())
-                                }
-                                _ => Cow::from(""),
-                            };
-
-                            match code {
-                                StatusCode::Unset => Status::Unset,
-                                StatusCode::Ok => Status::Ok,
-                                StatusCode::Error => Status::Error { description },
+            let status = if let Some(status) = message.get("status") {
+                match status {
+                    Value::Object(_status) => {
+                        let code = match status.get("code") {
+                            Some(Value::Integer(code_int)) => {
+                                StatusCode::try_from(*code_int as i32).unwrap_or(StatusCode::Unset)
                             }
+                            _ => StatusCode::Unset,
+                        };
+
+                        let description = match status.get("message") {
+                            Some(Value::Bytes(message_bytes)) => {
+                                Cow::from(String::from_utf8_lossy(message_bytes).into_owned())
+                            }
+                            _ => Cow::from(""),
+                        };
+
+                        match code {
+                            StatusCode::Unset => Status::Unset,
+                            StatusCode::Ok => Status::Ok,
+                            StatusCode::Error => Status::Error { description },
                         }
-                        _ => Status::default(),
                     }
-                } else {
-                    Status::default()
-                };
-
-                // The protocol/transport defines an `Unspecified` SpanKind, but this is no longer a valid
-                // SDK/API variant. SpanKind::Internal is the default for the type and is used as such here.
-                // https://github.com/open-telemetry/opentelemetry-rust/blob/6386f4599f7abc541dd46dc6d901044e45b59406/opentelemetry-stdout/src/trace/transform.rs#L122-L130
-                let span_kind = match message.get("kind") {
-                    Some(Value::Integer(kind_int)) => match kind_int {
-                        2 => SpanKind::Server,
-                        3 => SpanKind::Client,
-                        4 => SpanKind::Producer,
-                        5 => SpanKind::Consumer,
-                        _ => SpanKind::Internal,
-                    },
-                    _ => SpanKind::Internal,
-                };
-
-                let dropped_links_count = match message.get("dropped_links_count") {
-                    Some(Value::Integer(count)) => *count as u32,
-                    _ => 0,
-                };
-                let dropped_events_count = match message.get("dropped_events_count") {
-                    Some(Value::Integer(count)) => *count as u32,
-                    _ => 0,
-                };
-                let dropped_attributes_count = match message.get("dropped_attributes_count") {
-                    Some(Value::Integer(count)) => *count as u32,
-                    _ => 0,
-                };
-
-                // LOG-19721: determine correct behavior for the scenario where a subset of `link` or
-                // `event` objects are not valid. Currently this discards any links that are not valid.
-                let mut links = SpanLinks::default();
-                links.links = match message.get("links") {
-                    Some(Value::Array(links)) => {
-                        links.iter().filter_map(value_to_link).collect::<Vec<_>>()
-                    }
-                    _ => vec![],
-                };
-                links.dropped_count = dropped_links_count;
-
-                let mut events = SpanEvents::default();
-                events.events = match message.get("events") {
-                    Some(Value::Array(events)) => {
-                        events.iter().filter_map(value_to_event).collect::<Vec<_>>()
-                    }
-                    _ => vec![],
-                };
-                events.dropped_count = dropped_events_count;
-
-                traces_array.push(SpanData {
-                    span_context,
-                    parent_span_id: parent_span_id.into(),
-                    span_kind,
-                    name,
-                    start_time,
-                    end_time,
-                    attributes: span_attributes.into(),
-                    dropped_attributes_count,
-                    events,
-                    links,
-                    status,
-                    resource: Cow::Owned(resource.into()),
-                    instrumentation_lib: instrumentation_lib.into(),
-                });
+                    _ => Status::default(),
+                }
             } else {
-                // LOG-19721: Handle case where trace event is malformed.
-                // We don't currently have a MezmoContext passed through from the
-                // sink, so reporting converasion errors is not possible. We should avoid
-                // rejecting an entire patch of events when one is malformed.
-                todo!();
-            }
-        }
+                Status::default()
+            };
 
-        Ok(Self::new(traces_array))
+            // The protocol/transport defines an `Unspecified` SpanKind, but this is no longer a valid
+            // SDK/API variant. SpanKind::Internal is the default for the type and is used as such here.
+            // https://github.com/open-telemetry/opentelemetry-rust/blob/6386f4599f7abc541dd46dc6d901044e45b59406/opentelemetry-stdout/src/trace/transform.rs#L122-L130
+            let span_kind = match message.get("kind") {
+                Some(Value::Integer(kind_int)) => match kind_int {
+                    2 => SpanKind::Server,
+                    3 => SpanKind::Client,
+                    4 => SpanKind::Producer,
+                    5 => SpanKind::Consumer,
+                    _ => SpanKind::Internal,
+                },
+                _ => SpanKind::Internal,
+            };
+
+            let dropped_links_count = match message.get("dropped_links_count") {
+                Some(Value::Integer(count)) => *count as u32,
+                _ => 0,
+            };
+            let dropped_events_count = match message.get("dropped_events_count") {
+                Some(Value::Integer(count)) => *count as u32,
+                _ => 0,
+            };
+            let dropped_attributes_count = match message.get("dropped_attributes_count") {
+                Some(Value::Integer(count)) => *count as u32,
+                _ => 0,
+            };
+
+            // LOG-19721: determine correct behavior for the scenario where a subset of `link` or
+            // `event` objects are not valid. Currently this discards any links that are not valid.
+            let mut links = SpanLinks::default();
+            links.links = match message.get("links") {
+                Some(Value::Array(links)) => {
+                    links.iter().filter_map(value_to_link).collect::<Vec<_>>()
+                }
+                _ => vec![],
+            };
+            links.dropped_count = dropped_links_count;
+
+            let mut events = SpanEvents::default();
+            events.events = match message.get("events") {
+                Some(Value::Array(events)) => {
+                    events.iter().filter_map(value_to_event).collect::<Vec<_>>()
+                }
+                _ => vec![],
+            };
+            events.dropped_count = dropped_events_count;
+
+            Ok(Self::new(SpanData {
+                span_context,
+                parent_span_id: parent_span_id.into(),
+                span_kind,
+                name,
+                start_time,
+                end_time,
+                attributes: span_attributes.into(),
+                dropped_attributes_count,
+                events,
+                links,
+                status,
+                resource: Cow::Owned(resource.into()),
+                instrumentation_lib: instrumentation_lib.into(),
+            }))
+        } else {
+            Err(OpentelemetrySinkError::new(
+                "Trace even is invalid. No message found",
+            ))
+        }
     }
 }
 
@@ -463,11 +456,10 @@ mod test {
             "event matcher does not match expected event"
         );
 
-        let events = vec![event];
         let model =
-            OpentelemetryTracesModel::try_from(events).expect("event cannot be coerced into model");
+            OpentelemetryTracesModel::try_from(event).expect("event cannot be coerced into model");
 
-        let span_data = model.0.get(0).expect("event not present in model");
+        let span_data = model.0;
 
         let expected_span_context = SpanContext::new(
             TraceId::from_hex("5f467fe7bf42676c05e20ba4a90e448e").unwrap(),
