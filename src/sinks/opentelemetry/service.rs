@@ -95,15 +95,25 @@ impl Service<OpentelemetryApiRequest> for OpentelemetryService {
 
     fn call(&mut self, mut request: OpentelemetryApiRequest) -> Self::Future {
         let mut client = self.client.clone();
-        let uri = self.endpoint.endpoint(request.get_model_type());
+        let uri: http::Uri;
+
+        match self.endpoint.endpoint(request.get_model_type()) {
+            Some(val) => uri = val,
+            None => {
+                return Box::pin(async move {
+                    Err(OpentelemetrySinkError::new(&format!(
+                        "Endpoint is not defined for model type: {}",
+                        "Unknown"
+                    )))
+                })
+            }
+        };
 
         let metadata = std::mem::take(request.metadata_mut());
         let events_byte_size = metadata
             .clone()
             .into_events_estimated_json_encoded_byte_size();
         let http_request = Request::post(&uri);
-
-        let http_request = http_request.header(CONTENT_TYPE, "application/x-protobuf");
 
         let http_request = if let Some(ca) = request.compression.content_encoding() {
             http_request.header(CONTENT_ENCODING, ca)
@@ -113,6 +123,7 @@ impl Service<OpentelemetryApiRequest> for OpentelemetryService {
 
         let mut http_request = http_request
             .header(CONTENT_LENGTH, request.payload.len())
+            .header(CONTENT_TYPE, "application/x-protobuf")
             .body(Body::from(request.payload))
             .expect("building HTTP request failed unexpectedly");
 

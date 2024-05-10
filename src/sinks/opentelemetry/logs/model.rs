@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use vector_lib::{
     config::log_schema,
     event::{Event, Value},
@@ -21,27 +20,24 @@ use crate::sinks::opentelemetry::{
     sink::OpentelemetrySinkError,
 };
 
-type DataStore = HashMap<String, Vec<LogData>>;
-
 #[derive(Debug)]
-pub struct OpentelemetryLogsModel(pub Vec<DataStore>);
+pub struct OpentelemetryLogsModel(pub LogData);
 
 impl OpentelemetryModelMatch for OpentelemetryLogsModel {
     fn maybe_match(event: &Event) -> Option<OpentelemetryModelType> {
-        let log = event.clone().into_log();
-        let message = log.get_message();
-        let metadata = log.get((PathPrefix::Event, log_schema().user_metadata_key()));
+        if let Some(log) = event.maybe_as_log() {
+            let message = log.get_message();
+            let metadata = log.get((PathPrefix::Event, log_schema().user_metadata_key()));
 
-        if metadata.and(message).is_some() {
-            let scope = metadata.unwrap().get("scope");
+            if let Some(metadata) = metadata {
+                let scope = metadata.get("scope");
+                let trace_id = metadata.get("trace_id");
+                let span_id = metadata.get("span_id");
+                let severity_number = metadata.get("severity_number");
+                let flags = metadata.get("flags");
 
-            if scope.is_some() {
-                let trace_id = metadata.unwrap().get("trace_id");
-                let span_id = metadata.unwrap().get("span_id");
-                let severity_number = metadata.unwrap().get("severity_number");
-                let flags = metadata.unwrap().get("flags");
-
-                if scope
+                if message
+                    .and(scope)
                     .and(trace_id)
                     .and(span_id)
                     .and(severity_number)
@@ -58,125 +54,118 @@ impl OpentelemetryModelMatch for OpentelemetryLogsModel {
 }
 
 impl OpentelemetryLogsModel {
-    pub fn new(log_data_array: Vec<LogData>) -> Self {
-        let mut logs_store = DataStore::new();
-        logs_store.insert("logs".to_owned(), log_data_array);
-        Self(vec![logs_store])
+    pub const fn new(log: LogData) -> Self {
+        Self(log)
     }
 }
 
-impl TryFrom<Vec<Event>> for OpentelemetryLogsModel {
+impl TryFrom<Event> for OpentelemetryLogsModel {
     type Error = OpentelemetrySinkError;
 
-    fn try_from(buf_events: Vec<Event>) -> Result<Self, Self::Error> {
-        let mut logs_array = vec![];
-        for buf_event in buf_events {
-            let log = &buf_event.into_log();
+    fn try_from(buf_event: Event) -> Result<Self, Self::Error> {
+        let log = &buf_event.into_log();
 
-            let mut record_builder = LogRecord::builder();
+        let mut record_builder = LogRecord::builder();
 
-            if let Some(message) = log.get_message() {
-                record_builder = record_builder.with_body(OtlpAnyValue::from(message.to_string()));
-            }
-
-            let mut severity_number = None;
-
-            if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
-                if let Some(value) = metadata.get("attributes") {
-                    if let OtlpAnyValue::Map(attrs) = value_to_otlp_any_value(value.clone()) {
-                        let attributes = attrs
-                            .clone()
-                            .into_iter()
-                            .map(|(key, val)| (key, val))
-                            .collect::<Vec<_>>();
-
-                        record_builder = record_builder.with_attributes(attributes);
-                    }
-                }
-
-                if let Some(timestamp) = metadata.get("time") {
-                    record_builder = record_builder.with_timestamp(value_to_system_time(timestamp));
-                }
-
-                if let Some(timestamp) = metadata.get("observed_timestamp") {
-                    record_builder =
-                        record_builder.with_observed_timestamp(value_to_system_time(timestamp));
-                }
-
-                let raw_trace_id = metadata.get("trace_id");
-                let raw_span_id = metadata.get("span_id");
-
-                if raw_trace_id.or(raw_span_id).is_some() {
-                    let trace_id: OpentelemetryTraceId = raw_trace_id.into();
-                    let span_id: OpentelemetrySpanId = raw_span_id.into();
-                    let trace_flags: OpentelemetryTraceFlags = metadata.get("flags").into();
-                    let context = SpanContext::new(
-                        trace_id.into(),
-                        span_id.into(),
-                        trace_flags.into(),
-                        false,
-                        TraceState::NONE,
-                    );
-
-                    record_builder = record_builder.with_span_context(&context);
-                }
-
-                if let Some(value) = metadata.get("severity_text") {
-                    let severity_text = if let Value::Bytes(bytes) = value {
-                        Cow::from(String::from_utf8_lossy(bytes).into_owned())
-                    } else {
-                        Cow::from("")
-                    };
-
-                    record_builder = record_builder.with_severity_text(severity_text);
-                };
-
-                if let Some(Value::Integer(number)) = metadata.get("severity_number") {
-                    severity_number = match *number {
-                        1 => Some(Severity::Trace),
-                        2 => Some(Severity::Trace2),
-                        3 => Some(Severity::Trace3),
-                        4 => Some(Severity::Trace4),
-                        5 => Some(Severity::Debug),
-                        6 => Some(Severity::Debug2),
-                        7 => Some(Severity::Debug3),
-                        8 => Some(Severity::Debug4),
-                        9 => Some(Severity::Info),
-                        10 => Some(Severity::Info2),
-                        11 => Some(Severity::Info3),
-                        12 => Some(Severity::Info4),
-                        13 => Some(Severity::Warn),
-                        14 => Some(Severity::Warn2),
-                        15 => Some(Severity::Warn3),
-                        16 => Some(Severity::Warn4),
-                        17 => Some(Severity::Error),
-                        18 => Some(Severity::Error2),
-                        19 => Some(Severity::Error3),
-                        20 => Some(Severity::Error4),
-                        21 => Some(Severity::Fatal),
-                        22 => Some(Severity::Fatal2),
-                        23 => Some(Severity::Fatal3),
-                        24 => Some(Severity::Fatal4),
-                        _ => None,
-                    };
-                };
-            }
-
-            let resource = OpentelemetryResource::from(log);
-            let scope = OpentelemetryScope::from(log);
-
-            let mut log_record = record_builder.build();
-
-            log_record.severity_number = severity_number;
-
-            logs_array.push(LogData {
-                record: log_record,
-                resource: Cow::Owned(resource.into()),
-                instrumentation: scope.into(),
-            });
+        if let Some(message) = log.get_message() {
+            record_builder = record_builder.with_body(OtlpAnyValue::from(message.to_string()));
         }
 
-        Ok(Self::new(logs_array))
+        let mut severity_number = None;
+
+        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
+            if let Some(value) = metadata.get("attributes") {
+                if let OtlpAnyValue::Map(attrs) = value_to_otlp_any_value(value.clone()) {
+                    let attributes = attrs
+                        .clone()
+                        .into_iter()
+                        .map(|(key, val)| (key, val))
+                        .collect::<Vec<_>>();
+
+                    record_builder = record_builder.with_attributes(attributes);
+                }
+            }
+
+            if let Some(timestamp) = metadata.get("time") {
+                record_builder = record_builder.with_timestamp(value_to_system_time(timestamp));
+            }
+
+            if let Some(timestamp) = metadata.get("observed_timestamp") {
+                record_builder =
+                    record_builder.with_observed_timestamp(value_to_system_time(timestamp));
+            }
+
+            let raw_trace_id = metadata.get("trace_id");
+            let raw_span_id = metadata.get("span_id");
+
+            if raw_trace_id.or(raw_span_id).is_some() {
+                let trace_id: OpentelemetryTraceId = raw_trace_id.into();
+                let span_id: OpentelemetrySpanId = raw_span_id.into();
+                let trace_flags: OpentelemetryTraceFlags = metadata.get("flags").into();
+                let context = SpanContext::new(
+                    trace_id.into(),
+                    span_id.into(),
+                    trace_flags.into(),
+                    false,
+                    TraceState::NONE,
+                );
+
+                record_builder = record_builder.with_span_context(&context);
+            }
+
+            if let Some(value) = metadata.get("severity_text") {
+                let severity_text = if let Value::Bytes(bytes) = value {
+                    Cow::from(String::from_utf8_lossy(bytes).into_owned())
+                } else {
+                    Cow::from("")
+                };
+
+                record_builder = record_builder.with_severity_text(severity_text);
+            };
+
+            if let Some(Value::Integer(number)) = metadata.get("severity_number") {
+                severity_number = match *number {
+                    1 => Some(Severity::Trace),
+                    2 => Some(Severity::Trace2),
+                    3 => Some(Severity::Trace3),
+                    4 => Some(Severity::Trace4),
+                    5 => Some(Severity::Debug),
+                    6 => Some(Severity::Debug2),
+                    7 => Some(Severity::Debug3),
+                    8 => Some(Severity::Debug4),
+                    9 => Some(Severity::Info),
+                    10 => Some(Severity::Info2),
+                    11 => Some(Severity::Info3),
+                    12 => Some(Severity::Info4),
+                    13 => Some(Severity::Warn),
+                    14 => Some(Severity::Warn2),
+                    15 => Some(Severity::Warn3),
+                    16 => Some(Severity::Warn4),
+                    17 => Some(Severity::Error),
+                    18 => Some(Severity::Error2),
+                    19 => Some(Severity::Error3),
+                    20 => Some(Severity::Error4),
+                    21 => Some(Severity::Fatal),
+                    22 => Some(Severity::Fatal2),
+                    23 => Some(Severity::Fatal3),
+                    24 => Some(Severity::Fatal4),
+                    _ => None,
+                };
+            };
+        }
+
+        let resource = OpentelemetryResource::from(log);
+        let scope = OpentelemetryScope::from(log);
+
+        let mut log_record = record_builder.build();
+
+        log_record.severity_number = severity_number;
+
+        Ok(Self::new(LogData {
+            record: log_record,
+            resource: Cow::Owned(resource.into()),
+            instrumentation: scope.into(),
+        }))
     }
 }
 
@@ -305,12 +294,15 @@ mod test {
             event
         };
 
-        let events = generate_events(generator, 1);
-        let model = OpentelemetryLogsModel::try_from(events).unwrap();
+        let mut logs: Vec<OpentelemetryLogsModel> = vec![];
+        for event in generate_events(generator, 1) {
+            match OpentelemetryLogsModel::try_from(event.clone()) {
+                Ok(m) => logs.push(m),
+                Err(err) => panic!("Log event cannot be converted to a model: {:#?}", err),
+            }
+        }
 
-        let logs = model.0[0].get("logs").expect("Logs data store not present");
-
-        let log_data: LogData = logs[0].clone();
+        let log_data: LogData = logs[0].0.clone();
         let record: LogRecord = log_data.record;
         let _resource: Resource = log_data.resource.into_owned();
         let _instrumentation: InstrumentationLibrary = log_data.instrumentation;

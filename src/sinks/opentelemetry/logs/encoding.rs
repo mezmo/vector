@@ -4,11 +4,9 @@ use crate::sinks::opentelemetry::{
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use prost::Message;
 
-pub fn encode(model: &OpentelemetryLogsModel) -> Result<Vec<u8>, OpentelemetrySinkError> {
-    let logs = model.0[0].get("logs").unwrap().clone();
-
+pub fn encode(models: Vec<OpentelemetryLogsModel>) -> Result<Vec<u8>, OpentelemetrySinkError> {
     let req = ExportLogsServiceRequest {
-        resource_logs: logs.into_iter().map(Into::into).collect(),
+        resource_logs: models.into_iter().map(|model| model.0.into()).collect(),
     };
 
     let mut buf = vec![];

@@ -53,6 +53,49 @@ impl SinkBatchSettings for OpentelemetryDefaultBatchSettings {
     const TIMEOUT_SECS: f64 = 1.0;
 }
 
+#[derive(Debug)]
+pub struct OpentelemetrySinkEndpointError {
+    message: String,
+}
+
+impl OpentelemetrySinkEndpointError {
+    pub fn new(msg: &str) -> Self {
+        OpentelemetrySinkEndpointError {
+            message: String::from(msg),
+        }
+    }
+}
+
+impl From<InvalidUri> for OpentelemetrySinkEndpointError {
+    fn from(error: InvalidUri) -> Self {
+        Self::new(&error.to_string())
+    }
+}
+
+impl From<&str> for OpentelemetrySinkEndpointError {
+    fn from(error: &str) -> Self {
+        Self::new(error)
+    }
+}
+
+impl From<http::Error> for OpentelemetrySinkEndpointError {
+    fn from(error: http::Error) -> Self {
+        Self::new(&error.to_string())
+    }
+}
+
+impl std::fmt::Display for OpentelemetrySinkEndpointError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for OpentelemetrySinkEndpointError {
+    fn description(&self) -> &str {
+        &self.message
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct OpentelemetryEndpoint {
     healthcheck_uri: Uri,
@@ -62,66 +105,69 @@ pub struct OpentelemetryEndpoint {
 }
 
 impl OpentelemetryEndpoint {
-    pub fn new(endpoint: Uri) -> Self {
-        let scheme = endpoint.scheme_str().unwrap();
-        let authority = endpoint.authority().map(|a| a.as_str()).unwrap();
-        let host = endpoint.host().unwrap().to_owned();
+    pub fn healthcheck(&self) -> Uri {
+        self.healthcheck_uri.clone()
+    }
+
+    pub fn endpoint(&self, model_type: OpentelemetryModelType) -> Option<Uri> {
+        match model_type {
+            OpentelemetryModelType::Logs => Some(self.logs_uri.clone()),
+            OpentelemetryModelType::Metrics => Some(self.metrics_uri.clone()),
+            OpentelemetryModelType::Traces => Some(self.traces_uri.clone()),
+            OpentelemetryModelType::Unknown => None,
+        }
+    }
+}
+
+impl TryFrom<String> for OpentelemetryEndpoint {
+    type Error = OpentelemetrySinkEndpointError;
+
+    fn try_from(endpoint: String) -> Result<Self, Self::Error> {
+        let uri = endpoint
+            .parse::<Uri>()
+            .map_err(OpentelemetrySinkEndpointError::from)?;
+
+        let scheme = uri.scheme_str().ok_or("Endpoint scheme is invalid")?;
+        let authority = uri
+            .authority()
+            .map(|a| a.as_str())
+            .ok_or("Endpoint authority is invalid")?;
+        let host = uri.host().ok_or("Endpoint host is invalid")?;
 
         let healthcheck_uri = Uri::builder()
             .scheme(scheme)
-            .authority(host + ":" + OPENTELEMETRY_HEALTHCHECK_PORT)
+            .authority(host.to_owned() + ":" + OPENTELEMETRY_HEALTHCHECK_PORT)
             .path_and_query("/")
             .build()
-            .unwrap();
+            .map_err(OpentelemetrySinkEndpointError::from)?;
 
         let logs_uri = Uri::builder()
             .scheme(scheme)
             .authority(authority)
             .path_and_query("/v1/logs")
             .build()
-            .unwrap();
+            .map_err(OpentelemetrySinkEndpointError::from)?;
 
         let metrics_uri = Uri::builder()
             .scheme(scheme)
             .authority(authority)
             .path_and_query("/v1/metrics")
             .build()
-            .unwrap();
+            .map_err(OpentelemetrySinkEndpointError::from)?;
 
         let traces_uri = Uri::builder()
             .scheme(scheme)
             .authority(authority)
             .path_and_query("/v1/traces")
             .build()
-            .unwrap();
+            .map_err(OpentelemetrySinkEndpointError::from)?;
 
-        Self {
+        Ok(Self {
             healthcheck_uri,
             logs_uri,
             metrics_uri,
             traces_uri,
-        }
-    }
-
-    pub fn healthcheck(&self) -> Uri {
-        self.healthcheck_uri.clone()
-    }
-
-    pub fn endpoint(&self, model_type: OpentelemetryModelType) -> Uri {
-        match model_type {
-            OpentelemetryModelType::Logs => self.logs_uri.clone(),
-            OpentelemetryModelType::Metrics => self.metrics_uri.clone(),
-            OpentelemetryModelType::Traces => self.traces_uri.clone(),
-        }
-    }
-}
-
-impl TryFrom<String> for OpentelemetryEndpoint {
-    type Error = InvalidUri;
-
-    fn try_from(endpoint: String) -> Result<Self, Self::Error> {
-        let uri = endpoint.parse::<Uri>()?;
-        Ok(Self::new(uri))
+        })
     }
 }
 
@@ -224,7 +270,7 @@ impl SinkConfig for OpentelemetrySinkConfig {
                     client,
                     auth,
                 },
-                ctx.mezmo_ctx,
+                ctx.mezmo_ctx.clone(),
             ));
 
         let compression = self.compression;
@@ -233,6 +279,7 @@ impl SinkConfig for OpentelemetrySinkConfig {
             encoder: OpentelemetryEncoder,
             compression,
             batcher_settings,
+            mezmo_ctx: ctx.mezmo_ctx,
         };
         Ok((VectorSink::from_event_streamsink(sink), healthcheck))
     }
