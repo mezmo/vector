@@ -1,3 +1,15 @@
+## [3.20.9](https://github.com/answerbook/vector/compare/v3.20.8...v3.20.9) (2024-05-10)
+
+
+### Bug Fixes
+
+* **sink**: OTLP sink panics when event is invalid or cannot be detected [2d8647f](https://github.com/answerbook/vector/commit/2d8647f0fa8e2434ba255283878556b2d0f29a55) - Sergey Opria [LOG-19721](https://logdna.atlassian.net/browse/LOG-19721)
+
+
+### Miscellaneous
+
+* Merge pull request #461 from answerbook/sopria/LOG-19721 [d70590a](https://github.com/answerbook/vector/commit/d70590ab04d19421043c9b488c32b9559dce97f5) - GitHub [LOG-19721](https://logdna.atlassian.net/browse/LOG-19721)
+
 ## [3.20.8](https://github.com/answerbook/vector/compare/v3.20.7...v3.20.8) (2024-05-08)
 
 
