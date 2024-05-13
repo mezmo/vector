@@ -114,6 +114,15 @@ mod tests {
         },
     };
 
+    // The exitence of the captured data wrapper is a hidden implementation detail.
+    // This function will create the wrapper so the values can be tested more directly
+    // against what the value of the `.meta.mezmo.captured_data` field will be.
+    fn captured_data_wrapper(captured_data: Value) -> Value {
+        Value::from(btreemap! {
+            "captured_data" => captured_data
+        })
+    }
+
     #[test]
     fn generates_config() {
         crate::test_util::test_generate_config::<MezmoUserLogsConfig>();
@@ -174,21 +183,45 @@ mod tests {
                 ("INFO", "info msg", None),
                 ("WARN", "warn msg", None),
                 ("ERROR", "error msg", None),
-                ("DEBUG", "captured debug", Some("captured string".into())),
-                ("INFO", "captured info", Some(12345.into())),
-                ("WARN", "captured warn", Some(false.into())),
+                (
+                    "DEBUG",
+                    "captured debug",
+                    Some(captured_data_wrapper(Value::from("captured string"))),
+                ),
+                (
+                    "INFO",
+                    "captured info",
+                    Some(captured_data_wrapper(Value::from(12345))),
+                ),
+                (
+                    "WARN",
+                    "captured warn",
+                    Some(captured_data_wrapper(Value::from(false))),
+                ),
                 (
                     "ERROR",
                     "captured error",
-                    Some(btreemap! { "my_key" => "my_val"}.into()),
+                    Some(captured_data_wrapper(Value::from(
+                        btreemap! { "my_key" => "my_val"},
+                    ))),
                 ),
-                ("ERROR", "captured array error", Some(vec![1, 2, 3].into())),
+                (
+                    "ERROR",
+                    "captured array error",
+                    Some(captured_data_wrapper(Value::from(vec![1, 2, 3]))),
+                ),
                 (
                     "WARN",
                     "overloaded warn msg",
-                    Some("overloaded captured string".into()),
+                    Some(captured_data_wrapper(Value::from(
+                        "overloaded captured string",
+                    ))),
                 ),
-                ("ERROR", "overloaded error msg", Some(54321.into())),
+                (
+                    "ERROR",
+                    "overloaded error msg",
+                    Some(captured_data_wrapper(Value::from(54321))),
+                ),
             ];
 
             sleep(Duration::from_millis(1)).await;

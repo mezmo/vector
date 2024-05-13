@@ -239,6 +239,12 @@ impl From<MetricArray> for EventArray {
     }
 }
 
+impl From<TraceArray> for EventArray {
+    fn from(array: TraceArray) -> Self {
+        Self::Traces(array)
+    }
+}
+
 impl AddBatchNotifier for EventArray {
     fn add_batch_notifier(&mut self, batch: BatchNotifier) {
         match self {

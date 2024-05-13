@@ -321,7 +321,7 @@ stream-cancel = { version = "0.8.2", default-features = false }
 strip-ansi-escapes = { version = "0.2.0", default-features = false }
 syslog = { version = "6.1.0", default-features = false, optional = true }
 urlencoding = { version = "2.1.0", default-features = false }
-tikv-jemallocator = { version = "0.5.4", default-features = false, features = ["unprefixed_malloc_on_supported_platforms"], optional = true }
+tikv-jemallocator = { version = "0.5.4", default-features = false, features = ["profiling", "unprefixed_malloc_on_supported_platforms"], optional = true }
 tokio-postgres = { version = "0.7.10", default-features = false, features = ["runtime", "with-chrono-0_4"], optional = true }
 tokio-tungstenite = {version = "0.20.1", default-features = false, features = ["connect"], optional = true}
 toml = { version = "0.8.8", default-features = false, features = ["parse", "display"] }
@@ -345,6 +345,12 @@ mlua = { version = "0.9.2", default-features = false, features = ["lua54", "send
 
 # MEZMO: added dependency for s3-sink file consolidation
 gethostname = "0.4.3"
+
+# Opentelemetry Dependencies
+opentelemetry = { version = "0.22", features = ["trace", "logs", "metrics", "logs_level_enabled"] }
+opentelemetry_sdk = { version = "0.22", features = ["trace", "logs", "logs_level_enabled", "metrics"] }
+opentelemetry-proto = { version = "0.5", features = ["gen-tonic", "gen-tonic-messages", "hex", "logs", "metrics", "prost", "schemars", "serde", "tonic", "trace", "with-schemars", "with-serde", "zpages"] }
+faster-hex = "0.9.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.6.0"
@@ -769,6 +775,7 @@ sinks-logs-mezmo = [
   "sinks-sumo_logic",
   "sinks-vector",
   "sinks-postgresql",
+  "sinks-opentelemetry",
 ]
 sinks-metrics = [
   "sinks-appsignal",
@@ -847,6 +854,7 @@ sinks-vector = ["sinks-utils-udp", "dep:tonic", "protobuf-build"]
 sinks-websocket = ["dep:tokio-tungstenite"]
 sinks-sumo_logic = []
 sinks-webhdfs = ["dep:opendal"]
+sinks-opentelemetry = []
 
 # Datadog integration
 enterprise = [
@@ -904,6 +912,7 @@ all-integration-tests = [
   "sumo-logic-integration-tests",
   "dnstap-integration-tests",
   "webhdfs-integration-tests",
+  "opentelemetry-sink-integration-tests",
 ]
 
 amqp-integration-tests = ["sources-amqp", "sinks-amqp"]
@@ -968,6 +977,7 @@ pulsar-integration-tests = ["sinks-pulsar"]
 redis-integration-tests = ["sinks-redis", "sources-redis"]
 splunk-integration-tests = ["sinks-splunk_hec"]
 sumo-logic-integration-tests = ["sinks-sumo_logic"]
+opentelemetry-sink-integration-tests = ["sinks-opentelemetry"]
 dnstap-integration-tests = ["sources-dnstap", "dep:bollard"]
 webhdfs-integration-tests = ["sinks-webhdfs"]
 disable-resolv-conf = []

@@ -1,3 +1,252 @@
+## [3.20.9](https://github.com/answerbook/vector/compare/v3.20.8...v3.20.9) (2024-05-10)
+
+
+### Bug Fixes
+
+* **sink**: OTLP sink panics when event is invalid or cannot be detected [2d8647f](https://github.com/answerbook/vector/commit/2d8647f0fa8e2434ba255283878556b2d0f29a55) - Sergey Opria [LOG-19721](https://logdna.atlassian.net/browse/LOG-19721)
+
+
+### Miscellaneous
+
+* Merge pull request #461 from answerbook/sopria/LOG-19721 [d70590a](https://github.com/answerbook/vector/commit/d70590ab04d19421043c9b488c32b9559dce97f5) - GitHub [LOG-19721](https://logdna.atlassian.net/browse/LOG-19721)
+
+## [3.20.8](https://github.com/answerbook/vector/compare/v3.20.7...v3.20.8) (2024-05-08)
+
+
+### Bug Fixes
+
+* **s3-source**: expose errors in user logs [acf5400](https://github.com/answerbook/vector/commit/acf54002233399171d918e2d8305bdd0834a0771) - Mike Del Tito [LOG-19534](https://logdna.atlassian.net/browse/LOG-19534)
+
+
+### Miscellaneous
+
+* Merge pull request #460 from answerbook/mdeltito/LOG-19534 [00c1add](https://github.com/answerbook/vector/commit/00c1add454c43408ff3cf036b3855543c0e30e65) - GitHub [LOG-19534](https://logdna.atlassian.net/browse/LOG-19534)
+
+## [3.20.7](https://github.com/answerbook/vector/compare/v3.20.6...v3.20.7) (2024-05-06)
+
+
+### Bug Fixes
+
+* **s3 consolidation**: memory usage [b7379ba](https://github.com/answerbook/vector/commit/b7379ba7d9c51c348eb408c1a7c48ad0e3749dca) - dominic-mcallister-logdna [LOG-19824](https://logdna.atlassian.net/browse/LOG-19824)
+
+
+### Miscellaneous
+
+* Merge pull request #459 from answerbook/dominic/LOG-19824 [140e475](https://github.com/answerbook/vector/commit/140e47503513605bc441d0cf436654a99d40659a) - GitHub [LOG-19824](https://logdna.atlassian.net/browse/LOG-19824)
+
+## [3.20.6](https://github.com/answerbook/vector/compare/v3.20.5...v3.20.6) (2024-05-06)
+
+
+### Bug Fixes
+
+* **source**: Convert OTLP metric into Mezmo metric format. [c639196](https://github.com/answerbook/vector/commit/c6391965d347a5452307285feae8b447c467ce82) - Sergey Opria [LOG-19601](https://logdna.atlassian.net/browse/LOG-19601)
+
+
+### Miscellaneous
+
+* Merge pull request #458 from answerbook/sopria/LOG-19601 [f73d4d0](https://github.com/answerbook/vector/commit/f73d4d01212c9f16871d2c9fd161537f2e5f1453) - GitHub [LOG-19601](https://logdna.atlassian.net/browse/LOG-19601)
+
+## [3.20.5](https://github.com/answerbook/vector/compare/v3.20.4...v3.20.5) (2024-05-01)
+
+
+### Bug Fixes
+
+* **user_trace**: Move the `captured_data` wrapper to the log fn [27e1f9a](https://github.com/answerbook/vector/commit/27e1f9ae137979795849cf0d58c10108f0f9fcb5) - Darin Spivey [LOG-19802](https://logdna.atlassian.net/browse/LOG-19802)
+
+## [3.20.4](https://github.com/answerbook/vector/compare/v3.20.3...v3.20.4) (2024-05-01)
+
+
+### Bug Fixes
+
+* **s3**: multipart file consolidation newlines [14f17f6](https://github.com/answerbook/vector/commit/14f17f6f0ed49e8b75e0b7c71e82078fd81ea857) - dominic-mcallister-logdna [LOG-19797](https://logdna.atlassian.net/browse/LOG-19797)
+
+
+### Miscellaneous
+
+* Merge pull request #455 from answerbook/dominic/LOG-19797 [406dc17](https://github.com/answerbook/vector/commit/406dc174fba5f135eb5ea2477de902cc3fe87df5) - GitHub [LOG-19797](https://logdna.atlassian.net/browse/LOG-19797)
+
+## [3.20.3](https://github.com/answerbook/vector/compare/v3.20.2...v3.20.3) (2024-05-01)
+
+
+### Bug Fixes
+
+* **http**: handle and report partial failures with 207 status [744386a](https://github.com/answerbook/vector/commit/744386a8ac8bfb149470fab88bd888256ad8dc4e) - Mike Del Tito [LOG-19799](https://logdna.atlassian.net/browse/LOG-19799)
+
+
+### Miscellaneous
+
+* Merge pull request #456 from answerbook/mdeltito/LOG-19799 [0d680df](https://github.com/answerbook/vector/commit/0d680df777b29525103bd1b7f109aa676cc97af4) - GitHub [LOG-19799](https://logdna.atlassian.net/browse/LOG-19799)
+
+## [3.20.2](https://github.com/answerbook/vector/compare/v3.20.1...v3.20.2) (2024-05-01)
+
+
+### Bug Fixes
+
+* **user_trace**: captured_data shape incorrect [0300ddc](https://github.com/answerbook/vector/commit/0300ddc5824234dd064151086aab11b1ad47b390) - Mike Del Tito [LOG-19789](https://logdna.atlassian.net/browse/LOG-19789)
+
+
+### Miscellaneous
+
+* Merge pull request #454 from answerbook/mdeltito/LOG-19789-fix [c5fffba](https://github.com/answerbook/vector/commit/c5fffbaa9b2f5bb69361bfe2592f60f8b3df4c7e) - GitHub [LOG-19789](https://logdna.atlassian.net/browse/LOG-19789)
+
+## [3.20.1](https://github.com/answerbook/vector/compare/v3.20.0...v3.20.1) (2024-04-30)
+
+
+### Bug Fixes
+
+* **user_trace**: log http error responses as captured_data [6870759](https://github.com/answerbook/vector/commit/6870759b55d1dc75b0958761141badbf66ce950c) - Mike Del Tito [LOG-19789](https://logdna.atlassian.net/browse/LOG-19789)
+
+
+### Miscellaneous
+
+* Merge pull request #453 from answerbook/mdeltito/LOG-19789 [ee3fac9](https://github.com/answerbook/vector/commit/ee3fac91454b692f4c4791b6a1d37a208720a068) - GitHub [LOG-19789](https://logdna.atlassian.net/browse/LOG-19789)
+
+# [3.20.0](https://github.com/answerbook/vector/compare/v3.19.0...v3.20.0) (2024-04-29)
+
+
+### Features
+
+* **edge**: add support for tap filtering in edge [1797324](https://github.com/answerbook/vector/commit/179732441c7eed7442d6e4ac33c624bf7e941641) - Mike Del Tito [LOG-19757](https://logdna.atlassian.net/browse/LOG-19757)
+
+
+### Miscellaneous
+
+* Merge pull request #452 from answerbook/mdeltito/LOG-19757 [248a767](https://github.com/answerbook/vector/commit/248a767c8a174fe9935d3c789bc7e62859dd65c6) - GitHub [LOG-19757](https://logdna.atlassian.net/browse/LOG-19757)
+
+# [3.19.0](https://github.com/answerbook/vector/compare/v3.18.0...v3.19.0) (2024-04-26)
+
+
+### Features
+
+* **tap**: support VRL for tap event filtering [540f698](https://github.com/answerbook/vector/commit/540f698818ac4056f0f4b14d55296afe0edbd748) - Mike Del Tito [LOG-19753](https://logdna.atlassian.net/browse/LOG-19753)
+
+
+### Miscellaneous
+
+* Merge pull request #451 from answerbook/mdeltito/LOG-19753 [f1cc535](https://github.com/answerbook/vector/commit/f1cc53541ae7a03090b5b5056007050dd24e3302) - GitHub [LOG-19753](https://logdna.atlassian.net/browse/LOG-19753)
+
+# [3.18.0](https://github.com/answerbook/vector/compare/v3.17.1...v3.18.0) (2024-04-24)
+
+
+### Bug Fixes
+
+* **opentelemetry**: ensure timestamps are handled consistently [baea6f6](https://github.com/answerbook/vector/commit/baea6f6d4abc75fbace0dfd0f279e2629fcaa36b) - Mike Del Tito [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+* **opentelemetry**: include resource schema_url in decoder [c9e17ca](https://github.com/answerbook/vector/commit/c9e17ca5633ea7283fd9c3f53a0638c60d6d0fdd) - Mike Del Tito [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+* **opentelemetry**: remove hashmap from traces store [8f02423](https://github.com/answerbook/vector/commit/8f024237e03151e37f43067c898a55dfae584107) - Mike Del Tito [log-19371](https://logdna.atlassian.net/browse/log-19371)
+* **opentelemetry**: rename fields for consistency [86b98dc](https://github.com/answerbook/vector/commit/86b98dce311f30d77787ebc8725edcc51fd78c92) - Mike Del Tito [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+
+
+### Code Refactoring
+
+* consolidate handling of otel type conversion from events [722893a](https://github.com/answerbook/vector/commit/722893ae028cb520292bd7a61b81d779e3a97c39) - Mike Del Tito [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+
+
+### Features
+
+* **opentelemetry**: add traces support for the otel sink [0b12104](https://github.com/answerbook/vector/commit/0b12104951f20ebb09e2969400b566a2b9ed68b0) - Mike Del Tito [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+
+
+### Miscellaneous
+
+* Merge pull request #450 from answerbook/mdeltito/LOG-19371 [ebe48c2](https://github.com/answerbook/vector/commit/ebe48c2398aae214d5ef3314a489e6feba4bc126) - GitHub [LOG-19371](https://logdna.atlassian.net/browse/LOG-19371)
+
+## [3.17.1](https://github.com/answerbook/vector/compare/v3.17.0...v3.17.1) (2024-04-15)
+
+
+### Bug Fixes
+
+* **kafka source**: Fix vector log with incorrect pipeline ID (#449) [a3212f4](https://github.com/answerbook/vector/commit/a3212f44cfa59ca54a21ba5b99dbf8dcedba661b) - GitHub [LOG-19224](https://logdna.atlassian.net/browse/LOG-19224)
+
+# [3.17.0](https://github.com/answerbook/vector/compare/v3.16.2...v3.17.0) (2024-04-15)
+
+
+### Features
+
+* Increase the rockdb persistence ttl [09cd6e0](https://github.com/answerbook/vector/commit/09cd6e020c51d55e6c4d5c4f0ea77381f5b30b2a) - Dan Hable [LOG-18683](https://logdna.atlassian.net/browse/LOG-18683)
+
+## [3.16.2](https://github.com/answerbook/vector/compare/v3.16.1...v3.16.2) (2024-04-15)
+
+
+### Bug Fixes
+
+* **ci**: Separate release commit and image publishing [4217922](https://github.com/answerbook/vector/commit/42179221076e6214fdc2418f3b3b96b658e2b8f8) - Darin Spivey [LOG-19686](https://logdna.atlassian.net/browse/LOG-19686)
+
+## [3.16.1](https://github.com/answerbook/vector/compare/v3.16.0...v3.16.1) (2024-04-11)
+
+
+### Bug Fixes
+
+* **ci**: Do no run tests on a release commit [8ac93a9](https://github.com/answerbook/vector/commit/8ac93a9c8bb5f928be5310b9a1c2d9720454fb7a) - Darin Spivey [LOG-19679](https://logdna.atlassian.net/browse/LOG-19679)
+
+# [3.16.0](https://github.com/answerbook/vector/compare/v3.15.1...v3.16.0) (2024-04-10)
+
+
+### Features
+
+* **sources**: Update `exec` source to execute command or VRL [38622aa](https://github.com/answerbook/vector/commit/38622aa1fb795fa66f955d08fe0b2685c61b6516) - Darin Spivey [LOG-19574](https://logdna.atlassian.net/browse/LOG-19574)
+
+## [3.15.1](https://github.com/answerbook/vector/compare/v3.15.0...v3.15.1) (2024-04-09)
+
+
+### Bug Fixes
+
+* **classification**: Use the correct SYSLOG pattern order [f5d6b34](https://github.com/answerbook/vector/commit/f5d6b347bb3aa397c29d1773f21ee92a21a9c9dc) - Darin Spivey [LOG-19650](https://logdna.atlassian.net/browse/LOG-19650)
+
+# [3.15.0](https://github.com/answerbook/vector/compare/v3.14.4...v3.15.0) (2024-04-08)
+
+
+### Features
+
+* **sink**: OTLP sink - Log implementation [df954e0](https://github.com/answerbook/vector/commit/df954e01b89298876f9bb03a76878fe74baba51c) - Sergey Opria [LOG-19370](https://logdna.atlassian.net/browse/LOG-19370)
+
+
+### Miscellaneous
+
+* Merge pull request #436 from answerbook/sopria/LOG-19370 [0f6c03d](https://github.com/answerbook/vector/commit/0f6c03dcf63dbe20b9e6f9244dcaa19e979a5f0c) - GitHub [LOG-19370](https://logdna.atlassian.net/browse/LOG-19370)
+
+## [3.14.4](https://github.com/answerbook/vector/compare/v3.14.3...v3.14.4) (2024-04-08)
+
+
+### Bug Fixes
+
+* **classifier**: avoid reallocating grok pattern names/strings [379d51f](https://github.com/answerbook/vector/commit/379d51fe4c04ef7d6b52f7a21c0934606b57695f) - Mike Del Tito [LOG-19646](https://logdna.atlassian.net/browse/LOG-19646)
+
+
+### Miscellaneous
+
+* Merge pull request #444 from answerbook/feature/LOG-19646 [caef31c](https://github.com/answerbook/vector/commit/caef31cbdac83693e8e11d31b75f3fa399b19b3b) - GitHub [LOG-19646](https://logdna.atlassian.net/browse/LOG-19646)
+
+## [3.14.3](https://github.com/answerbook/vector/compare/v3.14.2...v3.14.3) (2024-04-08)
+
+
+### Bug Fixes
+
+* **ci**: Make all vector dev volumnes unique [ee0749c](https://github.com/answerbook/vector/commit/ee0749c296fdeef2220b889b6bce8ec74771f040) - Darin Spivey [LOG-19643](https://logdna.atlassian.net/browse/LOG-19643)
+
+## [3.14.2](https://github.com/answerbook/vector/compare/v3.14.1...v3.14.2) (2024-04-05)
+
+
+### Chores
+
+* reenable `profiling` feature for jemalloc [6e3e3d5](https://github.com/answerbook/vector/commit/6e3e3d57f9c67e4a4683cba22cf838e0f33588d5) - Mike Del Tito [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647)
+
+
+### Miscellaneous
+
+* Merge pull request #442 from answerbook/mdeltito/LOG-19647 [10e26f6](https://github.com/answerbook/vector/commit/10e26f6e4cb0d7fd311f4c3ab0e432f208903414) - GitHub [LOG-19647](https://logdna.atlassian.net/browse/LOG-19647)
+
+## [3.14.1](https://github.com/answerbook/vector/compare/v3.14.0...v3.14.1) (2024-04-03)
+
+
+### Bug Fixes
+
+* **ci**: Clean disk space after ci runs [ci skip] [7963582](https://github.com/answerbook/vector/commit/796358215aaa5eecd597addbd39a6e5fad998a13) - Darin Spivey [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590)
+
+
+### Miscellaneous
+
+* Merge pull request #439 from answerbook/darinspivey/LOG-19590 [b658874](https://github.com/answerbook/vector/commit/b658874d925621326410d26a187ef3087efa24a1) - GitHub [LOG-19590](https://logdna.atlassian.net/browse/LOG-19590)
+
 # [3.14.0](https://github.com/answerbook/vector/compare/v3.13.3...v3.14.0) (2024-04-02)
 
 

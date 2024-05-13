@@ -94,6 +94,10 @@ export VERSION ?= $(shell command -v cargo >/dev/null && cargo vdev version || e
 # Set if you are on the CI and actually want the things to happen. (Non-CI users should never set this.)
 export CI ?= false
 
+export VECTOR_TARGET ?= vector-target
+export VECTOR_CARGO_CACHE ?= vector-cargo-cache
+export VECTOR_RUSTUP_CACHE ?= vector-rustup-cache
+
 export RUST_VERSION ?= $(shell grep channel rust-toolchain.toml | cut -d '"' -f 2)
 
 FORMATTING_BEGIN_YELLOW = \033[0;33m
@@ -147,6 +151,7 @@ BUILD_TAG ?=
 CONTAINER_ID = vector-environment-$(shell echo $(BUILD_TAG) | sed -E 's/[^a-zA-Z0-9_.-]/-/g')$(shell date +%s)-$(shell echo $$PPID)
 
 # We use a volume here as non-Linux hosts are extremely slow to share disks, and Linux hosts tend to get permissions clobbered.
+# Note that `--rm` does not remove named volumes, so these will provide caching until removed with `evironment-clean`
 define ENVIRONMENT_EXEC
 	${ENVIRONMENT_PREPARE}
 	@echo "Entering environment..."
@@ -164,9 +169,9 @@ define ENVIRONMENT_EXEC
 			--mount type=bind,source=${CURRENT_DIR},target=/git/vectordotdev/vector \
 			--mount type=bind,source=${CURRENT_DIR}/scripts/environment/entrypoint.sh,target=/entrypoint.sh \
 			$(if $(findstring docker,$(CONTAINER_TOOL)),--mount type=bind$(COMMA)source=/var/run/docker.sock$(COMMA)target=/var/run/docker.sock,) \
-			--mount type=volume,source=vector-target,target=/git/vectordotdev/vector/target \
-			--mount type=volume,source=vector-cargo-cache,target=/root/.cargo \
-			--mount type=volume,source=vector-rustup-cache,target=/root/.rustup \
+			--mount type=volume,source=${VECTOR_TARGET},target=/git/vectordotdev/vector/target \
+			--mount type=volume,source=${VECTOR_CARGO_CACHE},target=/root/.cargo \
+			--mount type=volume,source=${VECTOR_RUSTUP_CACHE},target=/root/.rustup \
 			$(foreach publish,$(ENVIRONMENT_PUBLISH),--publish $(publish)) \
 			$(ENVIRONMENT_UPSTREAM)
 endef
@@ -210,7 +215,15 @@ environment-prepare: ## Prepare the Vector dev shell using $CONTAINER_TOOL.
 
 .PHONY: environment-clean
 environment-clean: ## Clean the Vector dev shell using $CONTAINER_TOOL.
-	@$(CONTAINER_TOOL) volume rm -f vector-target vector-cargo-cache vector-rustup-cache
+	@echo "\nList of active volumes"
+	@$(CONTAINER_TOOL) volume ls
+	@echo "\nList of all containers"
+	@$(CONTAINER_TOOL) ps -a
+	@echo "\nRemoving vector dev volumes"
+	@$(CONTAINER_TOOL) volume rm -f ${VECTOR_TARGET} ${VECTOR_CARGO_CACHE} ${VECTOR_RUSTUP_CACHE}
+	@echo "\nRemoving stopped containers"
+	@$(CONTAINER_TOOL) container prune
+	@echo "\nRemoving vector dev image (if possible)"
 	@$(CONTAINER_TOOL) rmi $(ENVIRONMENT_UPSTREAM) || true
 
 .PHONY: environment-push

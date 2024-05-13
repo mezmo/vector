@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::time::SystemTime;
 use vector_core::event::metric::mezmo::IntoValue;
 
 use smallvec::SmallVec;
@@ -9,11 +8,13 @@ use opentelemetry_rs::opentelemetry::logs::{ExportLogsServiceRequest, Validate};
 
 use vector_core::{
     config::log_schema,
-    event::{Event, EventMetadata, LogEvent, Value},
+    event::{Event, EventMetadata, KeyString, LogEvent, Value},
 };
 
+use vector_common::btreemap;
+
 use crate::decoding::format::mezmo::open_telemetry::{
-    DeserializerError, OpenTelemetryAnyValue, OpenTelemetryKeyValue,
+    nano_to_timestamp, DeserializerError, OpenTelemetryAnyValue, OpenTelemetryKeyValue,
 };
 
 pub fn parse_logs_request(bytes: &[u8]) -> vector_common::Result<smallvec::SmallVec<[Event; 1]>> {
@@ -28,7 +29,6 @@ pub fn parse_logs_request(bytes: &[u8]) -> vector_common::Result<smallvec::Small
 }
 
 const MAX_LOG_LEVEL_LEN: usize = 80;
-const NANOS_IN_MILLIS: u64 = 1_000_000;
 
 #[allow(clippy::too_many_lines)]
 pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> {
@@ -41,7 +41,6 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
     log_request.resource_logs.into_iter().fold(
         SmallVec::with_capacity(log_count),
         |mut acc, resource_logs| {
-            // process resource
             let resource = resource_logs.resource;
 
             let mut resource_attrs = Value::from(BTreeMap::new());
@@ -52,49 +51,44 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                 .to_value();
             }
 
-            // done changing resource_attrs
             let resource_attrs = resource_attrs;
 
             for scope_logs in resource_logs.scope_logs.into_iter() {
-                // Scope attributes
-                let mut scope_attrs = Value::from(BTreeMap::new());
-                if let Some(scope) = &scope_logs.scope {
-                    scope_attrs = (OpenTelemetryKeyValue {
-                        attributes: scope.attributes.clone(),
-                    })
-                    .to_value();
-                }
+                let mut scope: BTreeMap<KeyString, Value> = BTreeMap::new();
+                if let Some(s) = &scope_logs.scope {
+                    let attributes = OpenTelemetryKeyValue {
+                        attributes: s.attributes.clone(),
+                    };
 
-                // done changing scope_attrs
-                let scope_attrs = scope_attrs;
+                    scope = btreemap! {
+                        KeyString::from("name") => Value::from(s.name.clone()),
+                        KeyString::from("version") => Value::from(s.version.clone()),
+                        KeyString::from("attributes") => attributes.to_value(),
+                    }
+                }
+                scope.insert("schema_url".into(), Value::from(scope_logs.schema_url));
+
+                let scope = Value::from(scope);
 
                 for log_record in scope_logs.log_records.into_iter() {
-                    // Assemble metadata
-                    let mut metadata = BTreeMap::new();
+                    let attributes = OpenTelemetryKeyValue {
+                        attributes: log_record.attributes,
+                    };
 
-                    metadata.insert("resource".into(), Value::from(resource_attrs.clone()));
-                    metadata.insert("scope".into(), Value::from(scope_attrs.clone()));
+                    let time = nano_to_timestamp(log_record.time_unix_nano);
 
-                    // "time":"2023-10-31T13:32:42.240772879-04:00",
-                    let time_unix_millis = Value::from(if log_record.time_unix_nano == 0 {
-                        SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .map(|t| t.as_millis())
-                            .unwrap_or(0)
-                            .try_into()
-                            .unwrap_or(u64::MAX)
-                    } else {
-                        log_record.time_unix_nano / NANOS_IN_MILLIS
-                    });
-                    metadata.insert("time".into(), Value::from(time_unix_millis.clone()));
-                    // "observed_timestamp": "2023-10-31T13:32:42.240772879-04:00",
-                    if log_record.observed_time_unix_nano != 0 {
-                        metadata.insert(
-                            "observed_timestamp".into(),
-                            Value::from(log_record.observed_time_unix_nano / NANOS_IN_MILLIS),
-                        );
-                    }
-                    // "severity_text": "ERROR",
+                    let mut metadata: BTreeMap<KeyString, _> = btreemap! {
+                        KeyString::from("resource") => resource_attrs.clone(),
+                        KeyString::from("scope") => scope.clone(),
+                        KeyString::from("time") => time.clone(),
+                        KeyString::from("observed_timestamp") => nano_to_timestamp(log_record.observed_time_unix_nano),
+                        KeyString::from("severity_number") => log_record.severity_number as i32,
+                        KeyString::from("trace_id") => faster_hex::hex_string(&log_record.trace_id),
+                        KeyString::from("span_id") => faster_hex::hex_string(&log_record.span_id),
+                        KeyString::from("flags") => log_record.flags,
+                        KeyString::from("attributes") => attributes.to_value(),
+                    };
+
                     let sev = log_record.severity_text;
                     if !sev.is_empty() {
                         metadata.insert("severity_text".into(), Value::from(sev.clone()));
@@ -105,51 +99,21 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                             )),
                         );
                     }
-                    // "severity_number": 17,
-                    metadata.insert(
-                        "severity_number".into(),
-                        Value::from(log_record.severity_number as i32),
-                    );
-                    // "trace_id": "0x5b8aa5a2d2c872e8321cf37308d69df2",
-                    metadata.insert(
-                        "trace_id".into(),
-                        Value::from(faster_hex::hex_string(&log_record.trace_id)),
-                    );
-                    // "span_id": "0x051581bf3cb55c13",
-                    metadata.insert(
-                        "span_id".into(),
-                        Value::from(faster_hex::hex_string(&log_record.span_id)),
-                    );
-                    // "trace_flags": "00",
-                    metadata.insert("flags".into(), Value::from(log_record.flags));
-
-                    // LogRecord attributes
-                    let attributes = OpenTelemetryKeyValue {
-                        attributes: log_record.attributes,
-                    };
-                    metadata.insert("attributes".into(), attributes.to_value());
 
                     let line = match log_record.body {
                         Some(av) => OpenTelemetryAnyValue { value: av }.to_value(),
                         None => Value::Null,
                     };
 
-                    let log_line = BTreeMap::from_iter([
-                        // Add the user metadata
-                        (
-                            log_schema().user_metadata_key().into(),
-                            Value::from(metadata),
-                        ),
-                        // Add the actual line
-                        (log_schema().message_key().unwrap().to_string().into(), line),
-                    ]);
+                    let message_key = log_schema().message_key().unwrap();
 
-                    // Wrap line in mezmo format
-                    let mut log_event = LogEvent::from_map(log_line, EventMetadata::default());
+                    let mut log_event = LogEvent::from_map(btreemap! {
+                        log_schema().user_metadata_key() => Value::Object(metadata),
+                        KeyString::from(message_key.to_string().as_str()) => line,
+                    }, EventMetadata::default());
 
                     if let Some(timestamp_key) = log_schema().timestamp_key() {
-                        log_event
-                            .insert((lookup::PathPrefix::Event, timestamp_key), time_unix_millis);
+                        log_event.insert((lookup::PathPrefix::Event, timestamp_key), time);
                     }
 
                     acc.insert(i, Event::Log(log_event));
@@ -165,6 +129,7 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
 mod tests {
     use super::*;
 
+    use chrono::{NaiveDateTime, TimeZone, Utc};
     use std::borrow::Cow;
     use std::collections::BTreeMap;
     use std::ops::Deref;
@@ -241,11 +206,21 @@ mod tests {
                 ("flags".into(), Value::from(1)),
                 (
                     "observed_timestamp".into(),
-                    Value::from(1_579_134_612_000_000_011_i64 / 1_000_000)
+                    Value::from(
+                        Utc.from_utc_datetime(
+                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                .expect("timestamp should be a valid timestamp"),
+                        )
+                    )
                 ),
                 (
                     "time".into(),
-                    Value::from(1_579_134_612_000_000_011_i64 / 1_000_000)
+                    Value::from(
+                        Utc.from_utc_datetime(
+                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                .expect("timestamp should be a valid timestamp"),
+                        )
+                    )
                 ),
                 ("severity_number".into(), 1.into()),
                 ("severity_text".into(), "ERROR".into()),
@@ -262,8 +237,16 @@ mod tests {
                 (
                     "scope".into(),
                     Value::Object(BTreeMap::from([
-                        ("foo".into(), "bar".into()),
-                        ("empty".into(), Value::Null),
+                        ("name".into(), "test_name".into()),
+                        ("schema_url".into(), "https://some_url.com".into()),
+                        ("version".into(), "1.2.3".into()),
+                        (
+                            "attributes".into(),
+                            Value::Object(BTreeMap::from([
+                                ("foo".into(), "bar".into()),
+                                ("empty".into(), Value::Null),
+                            ]))
+                        )
                     ]))
                 ),
             ]))

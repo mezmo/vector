@@ -12,6 +12,8 @@ def slugify(str) {
   s
 }
 
+def BRANCH_BUILD = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
+
 def CREDS = [
   string(
     credentialsId: 'github-api-token',
@@ -53,139 +55,158 @@ pipeline {
     ENVIRONMENT_AUTOBUILD = 'false'
     ENVIRONMENT_TTY = 'false'
     CI = 'true'
-  }
-  post {
-    always {
-      script {
-        if (env.SANITY_BUILD == 'true') {
-          notifySlack(
-            currentBuild.currentResult,
-            [
-              channel: '#pipeline-bots',
-              tokenCredentialId: 'qa-slack-token'
-            ],
-            "`${PROJECT_NAME}` sanity build took ${currentBuild.durationString.replaceFirst(' and counting', '')}."
-          )
-        }
-      }
-    }
+    VECTOR_TARGET = "${BRANCH_BUILD}-target"
+    VECTOR_CARGO_CACHE = "${BRANCH_BUILD}-cargo"
+    VECTOR_RUSTUP_CACHE = "${BRANCH_BUILD}-rustup"
+    TOP_COMMIT = sh(
+      script: 'git log --pretty="format:%s by %cn" HEAD | head -1',
+      returnStdout: true
+    ).trim()
   }
   stages {
-    stage('Setup') {
+    stage('Release Tool') {
       steps {
         sh 'make release-tool'
       }
     }
-    stage('Check'){
-      steps {
-        sh """
-          make check ENVIRONMENT=true
-          make check-fmt ENVIRONMENT=true
-        """
-      }
-    }
-    stage('Lint and test release'){
-      tools {
-        nodejs 'NodeJS 16'
-      }
-      environment {
-        GIT_BRANCH = "${CURRENT_BRANCH}"
-        // This is not populated on PR builds and is needed for the release dry runs
-        BRANCH_NAME = "${CURRENT_BRANCH}"
-        CHANGE_ID = ""
-      }
-      steps {
-        script {
-          configFileProvider(NPMRC) {
-            sh 'npm ci'
-            sh 'npm run release:dry'
-          }
+    stage('Needs Testing?') {
+      // Do not run the stages on a release commit, unless it's for a sanity build.
+      when {
+        anyOf {
+          expression { !(env.TOP_COMMIT ==~ /^chore\(release\): \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/) }
+          environment name: 'SANITY_BUILD', value: 'true'
         }
-        sh './release-tool lint'
-        sh './release-tool test'
       }
-    }
-    stage('Lint and Test'){
-      parallel {
-        stage('Lint'){
-          steps {
-            sh """
-              make check-clippy ENVIRONMENT=true
-              make check-scripts ENVIRONMENT=true
-            """
+      stages {
+        stage('Lint and test release'){
+          tools {
+            nodejs 'NodeJS 20'
           }
-        }
-        stage('Deny'){
+          environment {
+            GIT_BRANCH = "${CURRENT_BRANCH}"
+            // This is not populated on PR builds and is needed for the release dry runs
+            BRANCH_NAME = "${CURRENT_BRANCH}"
+            CHANGE_ID = ""
+          }
           steps {
-            catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-              sh """
-                make check-deny ENVIRONMENT=true
-              """
+            script {
+              configFileProvider(NPMRC) {
+                sh 'npm ci'
+                sh 'npm run release:dry'
+              }
             }
+            sh './release-tool lint'
+            sh './release-tool test'
           }
         }
         stage('Unit test'){
+          // Important: do one step serially since it'll be the one to prepare the testing container
+          // and install the rust toolchain in it. Volume mounts are created here, too.
           steps {
             sh """
               make test ENVIRONMENT=true
             """
           }
         }
-        stage('Test build container image') {
+        stage('Checks') {
+          // All `make ENVIRONMENT=true` steps should now use the existing container
+          parallel {
+            stage('check-clippy'){
+              steps {
+                sh """
+                  make check-clippy ENVIRONMENT=true
+                  make check-scripts ENVIRONMENT=true
+                """
+              }
+            }
+            stage('check-fmt'){
+              steps {
+                sh """
+                  make check ENVIRONMENT=true
+                  make check-fmt ENVIRONMENT=true
+                """
+              }
+            }
+            stage('check-deny'){
+              steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                  sh """
+                    make check-deny ENVIRONMENT=true
+                  """
+                }
+              }
+            }
+            stage('image test') {
+              when {
+                changeRequest() // Only do this during PRs because it can take 30 minutes
+              }
+              steps {
+                script {
+                  buildx.build(
+                    project: PROJECT_NAME
+                  , push: false
+                  , tags: [BRANCH_BUILD]
+                  , dockerfile: "distribution/docker/mezmo/Dockerfile"
+                  )
+                }
+              }
+            }
+          }
+        }
+        stage('Feature build and publish') {
           when {
-            changeRequest() // Only do this during PRs because it can take 30 minutes
+            expression {
+              CURRENT_BRANCH ==~ /feature\/LOG-\d+/
+            }
           }
           steps {
             script {
+              def tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
               buildx.build(
                 project: PROJECT_NAME
-              , push: false
-              , tags: [slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")]
+              , push: true
+              , tags: [tag]
               , dockerfile: "distribution/docker/mezmo/Dockerfile"
               )
+            }
+            sh './release-tool clean'
+            sh './release-tool build'
+            sh './release-tool publish'
+          }
+        }
+        stage('Release Commit') {
+          when {
+            branch DEFAULT_BRANCH
+            not {
+              environment name: 'SANITY_BUILD', value: 'true'
+            }
+          }
+          tools {
+            nodejs 'NodeJS 20'
+          }
+          steps {
+            script {
+              configFileProvider(NPMRC) {
+                sh 'npm ci'
+                sh 'npm run release'
+              }
             }
           }
         }
       }
     }
-    stage('Feature build and publish') {
+    stage('Publish') {
       when {
-        expression {
-          CURRENT_BRANCH ==~ /feature\/LOG-\d+/
-        }
-      }
-      steps {
-        script {
-          def tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
-          buildx.build(
-            project: PROJECT_NAME
-          , push: true
-          , tags: [tag]
-          , dockerfile: "distribution/docker/mezmo/Dockerfile"
-          )
-        }
-        sh './release-tool clean'
-        sh './release-tool build'
-        sh './release-tool publish'
-      }
-    }
-    stage('Release and publish') {
-      when {
-        branch DEFAULT_BRANCH
-        not {
-          environment name: 'SANITY_BUILD', value: 'true'
-        }
-      }
-      tools {
-        nodejs 'NodeJS 16'
-      }
-      steps {
-        script {
-          configFileProvider(NPMRC) {
-            sh 'npm ci'
-            sh 'npm run release'
+        allOf {
+          branch DEFAULT_BRANCH
+          expression { env.TOP_COMMIT ==~ /^chore\(release\): \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/ }
+          not {
+            environment name: 'SANITY_BUILD', value: 'true'
           }
-
+        }
+      }
+      steps {
+        script {
           def tag = sh (
             script: "./release-tool debug-RELEASE_VERSION",
             returnStdout: true
@@ -201,6 +222,26 @@ pipeline {
         sh './release-tool clean'
         sh './release-tool build'
         sh './release-tool publish'
+      }
+    }
+  }
+  post {
+    always {
+      // Clear disk space by removing the test container and all of its volumes.
+      // The container and volumes are unique to the current build, so there should be no "in use" errors.
+      sh 'make environment-clean'
+
+      script {
+        if (env.SANITY_BUILD == 'true') {
+          notifySlack(
+            currentBuild.currentResult,
+            [
+              channel: '#pipeline-bots',
+              tokenCredentialId: 'qa-slack-token'
+            ],
+            "`${PROJECT_NAME}` sanity build took ${currentBuild.durationString.replaceFirst(' and counting', '')}."
+          )
+        }
       }
     }
   }

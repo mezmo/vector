@@ -22,7 +22,7 @@ const ROCKSDB_BLOCK_CACHE_SIZE: usize = 1024 * 500;
 // backend in a best-effort as soon as possible after the TTL elapses.
 // In the future this may need to be configurable per-component, but for now all records
 // are subject to the same TTL.
-const ROCKSDB_TTL_SECS: u64 = 43200; // 12 hours
+const ROCKSDB_TTL_SECS: u64 = 90_000; // 25 hours
 
 // Global registry of RocksDB connections.
 // Connections/databases are partitioned by account. Each component for a given account

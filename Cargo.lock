@@ -2244,7 +2244,7 @@ dependencies = [
  "csv-core",
  "derivative",
  "dyn-clone",
- "faster-hex",
+ "faster-hex 0.8.1",
  "futures 0.3.30",
  "indoc",
  "memchr",
@@ -3498,6 +3498,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "faster-hex"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2a2b11eda1d40935b26cf18f6833c526845ae8c41e58d09af6adeb6f0269183"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "fastrand"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4505,7 +4514,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2 0.5.5",
  "tokio",
  "tower-service",
  "tracing 0.1.40",
@@ -6439,6 +6448,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "900d57987be3f2aeb70d385fff9b27fb74c5723cc9a52d904d4f9c807a0667bf"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "js-sys",
+ "once_cell",
+ "pin-project-lite",
+ "thiserror",
+ "urlencoding",
+]
+
+[[package]]
 name = "opentelemetry-proto"
 version = "0.1.0"
 dependencies = [
@@ -6456,6 +6480,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry-proto"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a8fddc9b68f5b80dae9d6f510b88e02396f006ad48cac349411fbecc80caae4"
+dependencies = [
+ "hex",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "prost 0.12.3",
+ "schemars",
+ "serde",
+ "tonic 0.11.0",
+]
+
+[[package]]
 name = "opentelemetry-rs"
 version = "1.2.1"
 source = "git+https://github.com/mezmo/opentelemetry-rs.git?tag=v1.2.4#6fcba210603007d85fa16cc9d6db1aedb420a004"
@@ -6467,6 +6506,27 @@ dependencies = [
  "thiserror",
  "url",
  "walkdir",
+]
+
+[[package]]
+name = "opentelemetry_sdk"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e90c7113be649e31e9a0f8b5ee24ed7a16923b322c3c5ab6367469c049d6b7e"
+dependencies = [
+ "async-trait",
+ "crossbeam-channel",
+ "futures-channel",
+ "futures-executor",
+ "futures-util",
+ "glob",
+ "once_cell",
+ "opentelemetry",
+ "ordered-float 4.2.0",
+ "percent-encoding",
+ "rand 0.8.5",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -8420,6 +8480,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "schemars"
+version = "0.8.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc6e7ed6919cb46507fb01ff1654309219f62b4d603822501b0b80d42f6f21ef"
+dependencies = [
+ "dyn-clone",
+ "schemars_derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "0.8.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "185f2b7aa7e02d418e453790dde16890256bbd2bcd04b7dc5348811052b53f49"
+dependencies = [
+ "proc-macro2 1.0.74",
+ "quote 1.0.35",
+ "serde_derive_internals",
+ "syn 2.0.46",
+]
+
+[[package]]
 name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9867,6 +9951,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "tonic"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76c4eb7a4e9ef9d4763600161f12f5070b92a578e1b634db88a6887844c91a13"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "axum",
+ "base64 0.21.5",
+ "bytes 1.5.0",
+ "h2 0.3.24",
+ "http 0.2.9",
+ "http-body",
+ "hyper",
+ "hyper-timeout",
+ "percent-encoding",
+ "pin-project",
+ "prost 0.12.3",
+ "tokio",
+ "tokio-stream",
+ "tower",
+ "tower-layer",
+ "tower-service",
+ "tracing 0.1.40",
+]
+
+[[package]]
 name = "tonic-build"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10564,6 +10675,7 @@ dependencies = [
  "enum_dispatch",
  "exitcode",
  "fakedata",
+ "faster-hex 0.9.0",
  "flate2",
  "futures 0.3.30",
  "futures-util",
@@ -10621,6 +10733,9 @@ dependencies = [
  "openssl",
  "openssl-probe",
  "openssl-src",
+ "opentelemetry",
+ "opentelemetry-proto 0.5.0",
+ "opentelemetry_sdk",
  "ordered-float 4.2.0",
  "paste",
  "percent-encoding",
@@ -10950,7 +11065,7 @@ dependencies = [
  "codecs",
  "enrichment",
  "file-source",
- "opentelemetry-proto",
+ "opentelemetry-proto 0.1.0",
  "prometheus-parser",
  "vector-api-client",
  "vector-buffers",

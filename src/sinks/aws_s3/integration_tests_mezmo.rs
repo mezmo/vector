@@ -905,7 +905,7 @@ async fn s3_file_consolidation_large_files() {
     // 1 file of 60000 lines
     // newlines between each added file
     let response_lines = get_lines(obj).await;
-    assert_eq!(response_lines.len(), 675_025);
+    assert_eq!(response_lines.len(), 675_026);
 }
 
 #[tokio::test]
@@ -965,11 +965,11 @@ async fn s3_file_consolidation_lots_of_10mb_files() {
         let obj = get_object(&bucket, k).await;
         assert_eq!(obj.content_encoding, Some("identity".to_string()));
         assert_eq!(obj.content_type, Some("text/x-log".to_string()));
-        assert_eq!(obj.content_length, 151_500_000);
+        assert_eq!(obj.content_length, 151_500_014);
 
         // 15 files of 100_000 lines that are all bashed together
         let response_lines = get_lines(obj).await;
-        assert_eq!(response_lines.len(), 1_500_000);
+        assert_eq!(response_lines.len(), 1_500_014);
     } else {
         panic!("did not find the merged file as expected");
     }

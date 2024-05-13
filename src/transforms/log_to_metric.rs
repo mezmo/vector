@@ -12,7 +12,6 @@ use vector_lib::{
         metric::Sample,
         metric::{Bucket, Quantile},
     },
-    OutputId, TransformOutput,
 };
 use vrl::path::{parse_target_path, PathParseError};
 use vrl::{event_path, path};
@@ -20,7 +19,10 @@ use vrl::{event_path, path};
 use crate::config::schema::Definition;
 use crate::transforms::log_to_metric::TransformError::PathNotFound;
 use crate::{
-    config::{DataType, GenerateConfig, Input, TransformConfig, TransformContext},
+    config::{
+        DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext,
+        TransformOutput,
+    },
     event::{
         metric::{Metric, MetricKind, MetricTags, MetricValue, StatisticKind, TagValue},
         Event, Value,

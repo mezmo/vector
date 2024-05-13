@@ -200,7 +200,7 @@ impl FunctionTransform for ProtobufToLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{DateTime, Utc};
+    use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
     use std::collections::BTreeMap;
     use std::time::Duration;
     use tokio::sync::mpsc;
@@ -255,24 +255,35 @@ mod tests {
     async fn metric_protobuf_test() {
         let logs: &[u8] = b"\n\x85\x06\x12\x82\x06\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 0\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 1\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 2\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 3\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 4\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 5\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 6\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 7\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 8\x12$\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x12\n\x10test log line: 9\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 10\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 11\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 12\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 13\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 14\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 15\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 16\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 17\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 18\x12%\t@B\x0f\x00\x00\x00\x00\x00\x1a\x05ERROR*\x13\n\x11test log line: 19";
 
-        let expect_metadata = Value::Object(BTreeMap::from([
+        let mut expect_metadata = BTreeMap::from([
             (
                 "headers".into(),
                 Value::Object(BTreeMap::from([("key".into(), "value".into())])),
             ),
             ("attributes".into(), Value::Object(BTreeMap::from([]))),
             ("resource".into(), Value::Object(BTreeMap::from([]))),
-            ("scope".into(), Value::Object(BTreeMap::from([]))),
+            (
+                "scope".into(),
+                Value::Object(BTreeMap::from([("schema_url".into(), "".into())])),
+            ),
             ("flags".into(), Value::Integer(0)),
             ("severity_number".into(), Value::Integer(0)),
             ("severity_text".into(), "ERROR".into()),
             ("level".into(), "ERROR".into()),
             ("span_id".into(), "".into()),
             ("trace_id".into(), "".into()),
-            ("time".into(), Value::Integer(1)),
-        ]));
+            (
+                "time".into(),
+                Value::from(
+                    Utc.from_utc_datetime(
+                        &NaiveDateTime::from_timestamp_opt(0_i64, 1000000_u32)
+                            .expect("timestamp should be a valid timestamp"),
+                    ),
+                ),
+            ),
+        ]);
 
-        let event = log_event_from_bytes(logs, &expect_metadata);
+        let event = log_event_from_bytes(logs, &Value::Object(expect_metadata.clone()));
 
         let result = do_transform(
             event.into(),
@@ -289,7 +300,11 @@ mod tests {
             let log = &event.into_log();
             let event_metadata = log.get("metadata").expect("Metadata is empty");
 
-            assert_eq!(*event_metadata, expect_metadata);
+            if let Some(Value::Timestamp(ts)) = event_metadata.get("observed_timestamp") {
+                expect_metadata.insert("observed_timestamp".into(), Value::from(*ts));
+            }
+
+            assert_eq!(*event_metadata, Value::Object(expect_metadata.clone()));
         }
     }
 
@@ -406,14 +421,15 @@ mod tests {
                         ])),
                     ),
                     ("dropped_attributes_count".into(), Value::Integer(0)),
+                    ("schema_url".into(), Value::from("")),
                 ])),
             ),
             (
                 "scope".into(),
                 Value::Object(BTreeMap::from([
                     ("attributes".into(), Value::Object(BTreeMap::new())),
-                    ("dropped_attributes_count".into(), Value::Integer(0)),
                     ("name".into(), Value::from("opentelemetry_phoenix")),
+                    ("schema_url".into(), Value::from("")),
                     ("version".into(), Value::from("1.0.0")),
                 ])),
             ),
@@ -467,14 +483,15 @@ mod tests {
                         ]))
                     ),
                     ("dropped_attributes_count".into(), Value::Integer(0)),
+                    ("schema_url".into(), Value::from("")),
                 ]))
             ),
             (
                 "scope".into(),
                 Value::Object(BTreeMap::from([
                     ("attributes".into(), Value::Object(BTreeMap::new())),
-                    ("dropped_attributes_count".into(), Value::Integer(0)),
                     ("name".into(), Value::from("opentelemetry_ecto")),
+                    ("schema_url".into(), Value::from("")),
                     ("version".into(), Value::from("1.0.0")),
                 ])),
             ),
