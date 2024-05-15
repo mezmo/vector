@@ -74,7 +74,7 @@ pipeline {
       // Do not run the stages on a release commit, unless it's for a sanity build.
       when {
         anyOf {
-          expression { !(env.TOP_COMMIT ==~ /^chore\(release\): \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/) }
+          expression { !(env.TOP_COMMIT ==~ /^release: 20\d\d-\d\d-\d\d, Version \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/) }
           environment name: 'SANITY_BUILD', value: 'true'
         }
       }
@@ -93,8 +93,7 @@ pipeline {
             script {
               configFileProvider(NPMRC) {
                 sh 'npm ci --ignore-scripts'
-                // Turn commitlint on when answerbook implements the same version of commitlint
-                // sh 'npm run commitlint'
+                sh 'npm run commitlint'
                 if (!env.CHANGE_FORK) {
                   sh 'npm run release:dry'
                 }
@@ -208,7 +207,7 @@ pipeline {
       when {
         allOf {
           branch DEFAULT_BRANCH
-          expression { env.TOP_COMMIT ==~ /^chore\(release\): \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/ }
+          expression { env.TOP_COMMIT ==~ /^release: 20\d\d-\d\d-\d\d, Version \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/ }
           not {
             environment name: 'SANITY_BUILD', value: 'true'
           }
