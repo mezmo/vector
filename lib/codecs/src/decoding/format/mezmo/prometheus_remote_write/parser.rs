@@ -9,8 +9,9 @@ use vector_core::{
     config::log_schema,
     event::{
         metric::mezmo::{
-            IntoTagValue, IntoValue, MetricTags, MetricTagsAccessor, MetricToLogEvent,
-            MetricValueAccessor, MetricValueSerializable, MezmoMetric,
+            IntoTagValue, IntoValue, MetricArbitraryAccessor, MetricTags, MetricTagsAccessor,
+            MetricToLogEvent, MetricValueAccessor, MetricValuePairs, MetricValueSerializable,
+            MezmoMetric,
         },
         Event, MetricKind,
     },
@@ -209,20 +210,16 @@ where
     }
 }
 
-// Blank Metadata Accessor
-struct Metadata<'a> {
-    value: Cow<'a, str>,
-}
+// Blank Arbitrary Accessor
+struct BlankArbitraryAccessor {}
 
-impl<'a> MetricValueAccessor<'a> for Metadata<'a> {
-    type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+impl<'a> MetricArbitraryAccessor<'a> for BlankArbitraryAccessor {
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 0>;
 
-    fn metric_type(&'a self) -> Option<Cow<'a, str>> {
-        None
-    }
-    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
-        MetricValueSerializable::Single(&self.value as &dyn IntoValue)
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        MetricValuePairs {
+            elements: [].into_iter(),
+        }
     }
 }
 
@@ -352,7 +349,8 @@ impl<'a> TypedSampleGroupMap<'a> {
                     namespace: None,             // TODO
                     kind: &MetricKind::Absolute, // All prom metrics are Absolute?
                     tags: Some(&tags),
-                    user_metadata: None::<&Metadata>,
+                    user_metadata: None::<&BlankArbitraryAccessor>,
+                    arbitrary_data: None::<&BlankArbitraryAccessor>,
                     value: &value,
                 }
                 .to_log_event()

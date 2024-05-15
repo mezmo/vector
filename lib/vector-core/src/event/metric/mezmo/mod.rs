@@ -22,13 +22,14 @@ pub fn from_f64_or_zero(value: f64) -> Value {
 }
 
 #[derive(Debug)]
-pub struct MezmoMetric<'a, 'b, 'c, 'd, 'e, 'f, T, U, V, M> {
+pub struct MezmoMetric<'a, 'b, 'c, 'd, 'e, 'f, 'j, T, U, V, M, A> {
     pub name: Cow<'a, str>,
     pub namespace: Option<Cow<'b, str>>,
     pub kind: &'c T,
     pub tags: Option<&'d U>,
     pub value: &'e V,
     pub user_metadata: Option<&'f M>,
+    pub arbitrary_data: Option<&'j A>,
 }
 
 pub trait MetricKindAccessor {
@@ -331,17 +332,30 @@ impl<'a, M: MetricValueAccessor<'a> + ?Sized> MetricValueAccessor<'a> for Box<M>
     }
 }
 
+pub trait MetricArbitraryAccessor<'a> {
+    type ObjIter: Iterator<Item = (&'a dyn ToString, &'a dyn IntoValue)> + Clone;
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter>;
+}
+
+impl<'a, M: MetricArbitraryAccessor<'a> + ?Sized> MetricArbitraryAccessor<'a> for &M {
+    type ObjIter = M::ObjIter;
+    fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+        (**self).value()
+    }
+}
+
 pub trait MetricToLogEvent {
     fn to_log_event(&self) -> LogEvent;
 }
 
-impl<'a, 'b, 'c, 'd, 'e, 'f, T, U, V, M> MetricToLogEvent
-    for MezmoMetric<'a, 'b, 'c, 'd, 'e, 'f, T, U, V, M>
+impl<'a, 'b, 'c, 'd, 'e, 'f, 'j, T, U, V, M, A> MetricToLogEvent
+    for MezmoMetric<'a, 'b, 'c, 'd, 'e, 'f, 'j, T, U, V, M, A>
 where
     T: MetricKindAccessor,
     U: MetricTagsAccessor<'d>,
     V: MetricValueAccessor<'e>,
-    M: MetricValueAccessor<'f>,
+    M: MetricArbitraryAccessor<'f>,
+    A: MetricArbitraryAccessor<'j>,
 {
     fn to_log_event(&self) -> LogEvent {
         let value = match self.value.value() {
@@ -349,7 +363,7 @@ where
             MetricValueSerializable::Array(value_elements) => value_elements.to_value(),
             MetricValueSerializable::Object(value_elements) => value_elements.to_value(),
         };
-        let value = if let Some(metric_type) = self.value.metric_type() {
+        let mut value = if let Some(metric_type) = self.value.metric_type() {
             Value::Object(
                 [
                     ("type".to_string(), Value::from(metric_type)),
@@ -365,6 +379,14 @@ where
                     .collect::<BTreeMap<_, _>>(),
             )
         };
+
+        if let Some(arbitrary_data) = self.arbitrary_data {
+            if let Value::Object(data) = arbitrary_data.value().to_value() {
+                for (key, val) in data.iter() {
+                    value.insert(key.as_str(), val.clone());
+                }
+            }
+        }
 
         let mut values = BTreeMap::<String, Value>::new();
         values.insert("name".to_owned(), self.name.clone().into());
@@ -394,13 +416,10 @@ where
         event.insert("message".to_owned(), Value::Object(values));
 
         if let Some(user_metadata) = self.user_metadata {
-            let value = match user_metadata.value() {
-                MetricValueSerializable::Single(value) => value.to_value(),
-                MetricValueSerializable::Array(value_elements) => value_elements.to_value(),
-                MetricValueSerializable::Object(value_elements) => value_elements.to_value(),
-            };
-
-            event.insert(log_schema().user_metadata_key().to_string(), value);
+            event.insert(
+                log_schema().user_metadata_key().to_string(),
+                user_metadata.value().to_value(),
+            );
         }
 
         LogEvent::from_map(event, Default::default())
@@ -417,8 +436,8 @@ mod tests {
     use crate::event::LogEvent;
 
     use super::{
-        IntoTagValue, IntoValue, MetricTags, MetricTagsAccessor, MetricToLogEvent,
-        MetricValueAccessor, MetricValuePairs, MetricValueSerializable,
+        IntoTagValue, IntoValue, MetricArbitraryAccessor, MetricTags, MetricTagsAccessor,
+        MetricToLogEvent, MetricValueAccessor, MetricValuePairs, MetricValueSerializable,
     };
 
     impl<'a> MetricTagsAccessor<'a> for String {
@@ -455,11 +474,11 @@ mod tests {
         }
     }
 
-    struct DummyObject<'a> {
+    struct DummyValue<'a> {
         value: &'a str,
     }
 
-    impl<'a> MetricValueAccessor<'a> for DummyObject<'a> {
+    impl<'a> MetricValueAccessor<'a> for DummyValue<'a> {
         type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
         type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
 
@@ -478,6 +497,25 @@ mod tests {
         }
     }
 
+    struct DummyArbitrary<'a> {
+        value: &'a str,
+    }
+
+    impl<'a> MetricArbitraryAccessor<'a> for DummyArbitrary<'a> {
+        type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
+
+        fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
+            MetricValuePairs {
+                elements: [
+                    (&"complex" as &dyn ToString, &self.value as &dyn IntoValue),
+                    (&"with" as &dyn ToString, &"multiple" as &dyn IntoValue),
+                    (&"kv" as &dyn ToString, &"pairs" as &dyn IntoValue),
+                ]
+                .into_iter(),
+            }
+        }
+    }
+
     #[test]
     fn mezmo_metric() {
         use super::MezmoMetric;
@@ -489,7 +527,8 @@ mod tests {
             namespace: Some(Cow::from("ns")),
             kind: &MetricKind::Absolute,
             tags: Some(&tag),
-            user_metadata: Some(&DummyObject { value: "object" }),
+            user_metadata: Some(&DummyArbitrary { value: "object" }),
+            arbitrary_data: Some(&DummyArbitrary { value: "object" }),
             value: &String::new(),
         };
         let log_event = metric.to_log_event();
@@ -503,7 +542,10 @@ mod tests {
                      "tags": { "key": "test" },
                      "value": {
                         "type": "str",
-                        "value": ""
+                        "value": "",
+                        "complex": "object",
+                        "with": "multiple",
+                        "kv": "pairs"
                      }
                 },
                 "metadata": {
@@ -523,8 +565,9 @@ mod tests {
             namespace: Some(Cow::from("ns")),
             kind: &MetricKind::Absolute,
             tags: None::<&String>,
-            user_metadata: None::<&String>,
-            value: &DummyObject { value: "object" },
+            user_metadata: None::<&DummyArbitrary>,
+            arbitrary_data: None::<&DummyArbitrary>,
+            value: &DummyValue { value: "object" },
         };
         let log_event = metric.to_log_event();
 

@@ -1,0 +1,18 @@
+features:
+- opentelemetry-sink-integration-tests
+
+test_filter: '::opentelemetry::'
+
+runner:
+  env:
+    TEST_OPENTELEMETRY_ENDPOINT: http://opentelemetry-collector:9876
+    RUST_BACKTRACE: true
+
+matrix:
+  version: [0.56.0]
+
+# changes to these files/paths will invoke the integration test in CI
+# expressions are evaluated using https://github.com/micromatch/picomatch
+paths:
+- "src/sinks/opentelemetry/**"
+- "scripts/integration/opentelemetry-sink/**"
