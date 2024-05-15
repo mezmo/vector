@@ -1,3 +1,10 @@
+## [3.20.10](https://github.com/answerbook/vector/compare/v3.20.9...v3.20.10) (2024-05-15)
+
+
+### Bug Fixes
+
+* **ci**: Turn on commitlint [a03e9c6](https://github.com/answerbook/vector/commit/a03e9c6c43d34ea2d6763a747384ed77891b1a2d) - Darin Spivey [LOG-19886](https://logdna.atlassian.net/browse/LOG-19886)
+
 ## [3.20.9](https://github.com/answerbook/vector/compare/v3.20.8...v3.20.9) (2024-05-10)
 
 
