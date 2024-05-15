@@ -4,16 +4,16 @@ use std::{collections::HashMap, num::ParseFloatError};
 use chrono::Utc;
 use indexmap::IndexMap;
 use vector_lib::configurable::configurable_component;
-use vector_lib::{
-    config::LogNamespace, event::DatadogMetricOriginMetadata, LogNamespace, OutputId,
-    TransformOutput,
-};
+use vector_lib::{config::LogNamespace, event::DatadogMetricOriginMetadata};
 use vrl::path::parse_target_path;
 
 use crate::config::schema::Definition;
 use crate::transforms::log_to_metric::TransformError::FieldNotFound;
 use crate::{
-    config::{DataType, GenerateConfig, Input, TransformConfig, TransformContext},
+    config::{
+        DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext,
+        TransformOutput,
+    },
     event::{
         metric::{Metric, MetricKind, MetricTags, MetricValue, StatisticKind, TagValue},
         Event, Value,

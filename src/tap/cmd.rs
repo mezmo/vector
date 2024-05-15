@@ -92,6 +92,7 @@ async fn run(
         let stream = subscription_client.output_events_by_component_id_patterns_subscription(
             outputs_patterns,
             opts.inputs_of.clone(),
+            opts.event_filter.clone(),
             opts.format,
             opts.limit as i64,
             opts.interval as i64,

@@ -258,10 +258,18 @@ impl MezmoUserLog for Option<MezmoContext> {
                 Value::from(&ctx.component_kind),
             );
             event.insert("meta.mezmo.internal", Value::from(ctx.internal));
-            // `captured_data` should always have a value for the sink to insert
+
+            // To preserve data types of the `captured data`, AND to ensure data type consistency
+            // with the DB that stores this data, wrap the real `captured_data` value within
+            // a btreemap! keyed by "captured_data". This way, the JSONB column in the DB
+            // can store captured data of any data type.
             event.insert(
                 "meta.mezmo.captured_data",
-                captured_data.unwrap_or(Value::Null),
+                // `captured_data` should always have a value for the postgres sink to insert.
+                captured_data.map_or_else(
+                    || Value::Null,
+                    |v| Value::from(btreemap! { "captured_data" => v }),
+                ),
             );
             event.insert("message", msg);
             try_send_user_log(
@@ -285,6 +293,10 @@ impl MezmoUserLog for Option<MezmoContext> {
 // For others, the message or status code must be extracted from the response.
 pub trait UserLoggingResponse {
     fn log_msg(&self) -> Option<Value> {
+        None
+    }
+
+    fn log_captured_data(&self) -> Option<Value> {
         None
     }
 }
@@ -330,7 +342,14 @@ where
             match &res {
                 Ok(response) => {
                     if let Some(msg) = response.log_msg() {
-                        user_log_error!(ctx, msg);
+                        match response.log_captured_data() {
+                            Some(captured_data) => {
+                                user_log_error!(ctx, msg, captured_data: captured_data);
+                            }
+                            None => {
+                                user_log_error!(ctx, msg);
+                            }
+                        }
                     }
                 }
                 Err(err) => {
@@ -464,6 +483,15 @@ mod tests {
         assert_request_eq,
         mock::{self as service_mock, Mock},
     };
+
+    // The exitence of the captured data wrapper is a hidden implementation detail.
+    // This function will create the wrapper so the values can be tested more directly
+    // against what the value of the `.meta.mezmo.captured_data` field will be.
+    fn captured_data_wrapper(captured_data: Value) -> Value {
+        Value::from(btreemap! {
+            "captured_data" => captured_data
+        })
+    }
 
     #[tokio::test]
     #[serial]
@@ -652,37 +680,29 @@ mod tests {
 
         assert_eq!(res.len(), 7, "number of log events is correct");
         assert_eq!(
-            res[0]
-                .get(".meta.mezmo.captured_data")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "some string captured_data",
+            res[0].get(".meta.mezmo.captured_data").unwrap(),
+            &captured_data_wrapper(Value::from("some string captured_data")),
             "captured_data can be a string"
         );
         assert_eq!(
             res[1].get(".meta.mezmo.captured_data").unwrap(),
-            &Value::from(vec![1, 2, 3]),
+            &captured_data_wrapper(Value::from(vec![1, 2, 3])),
             "captured_data can be an array"
         );
         assert_eq!(
             res[2].get(".meta.mezmo.captured_data").unwrap(),
-            &Value::from(btreemap! {
+            &captured_data_wrapper(Value::from(btreemap! {
                 "message" => "some event message",
                 "metadata" => btreemap! {
                     "status" => 2,
                     "method" => "POST",
                 }
-            }),
+            })),
             "captured_data can be an object"
         );
         assert_eq!(
-            res[3]
-                .get(".meta.mezmo.captured_data")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "a debug captured_data",
+            res[3].get(".meta.mezmo.captured_data").unwrap(),
+            &captured_data_wrapper(Value::from("a debug captured_data")),
             "explicit debug call has captured_data"
         );
         assert_eq!(
@@ -691,12 +711,8 @@ mod tests {
             "explicit debug call has level"
         );
         assert_eq!(
-            res[4]
-                .get(".meta.mezmo.captured_data")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "an info captured_data",
+            res[4].get(".meta.mezmo.captured_data").unwrap(),
+            &captured_data_wrapper(Value::from("an info captured_data")),
             "explicit info call has captured_data"
         );
         assert_eq!(
@@ -705,12 +721,8 @@ mod tests {
             "explicit info call has level"
         );
         assert_eq!(
-            res[5]
-                .get(".meta.mezmo.captured_data")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "a warn captured_data",
+            res[5].get(".meta.mezmo.captured_data").unwrap(),
+            &captured_data_wrapper(Value::from("a warn captured_data")),
             "explicit warn call has captured_data"
         );
         assert_eq!(
@@ -719,12 +731,8 @@ mod tests {
             "explicit warn call has level"
         );
         assert_eq!(
-            res[6]
-                .get(".meta.mezmo.captured_data")
-                .unwrap()
-                .as_str()
-                .unwrap(),
-            "an error captured_data",
+            res[6].get(".meta.mezmo.captured_data").unwrap(),
+            &captured_data_wrapper(Value::from("an error captured_data")),
             "explicit error call has captured_data"
         );
         assert_eq!(
@@ -747,6 +755,12 @@ mod tests {
     impl UserLoggingResponse for ServiceTestResponse {
         fn log_msg(&self) -> Option<Value> {
             Some("log_msg(): response".into())
+        }
+
+        fn log_captured_data(&self) -> Option<Value> {
+            Some(Value::Object(btreemap! {
+                "response" => r#"{"error": "badness"}"#
+            }))
         }
     }
 
@@ -828,5 +842,16 @@ mod tests {
 
         let msg = log_res.get(".message").unwrap().as_str().unwrap();
         assert_eq!(msg, "log_msg(): response");
+
+        let captured_data = log_res
+            .get(".meta.mezmo.captured_data")
+            .expect("captured data should exist");
+
+        assert_eq!(
+            captured_data,
+            &captured_data_wrapper(Value::Object(btreemap! {
+                "response" => r#"{"error": "badness"}"#
+            }))
+        );
     }
 }

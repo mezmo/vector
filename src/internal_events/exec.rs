@@ -222,3 +222,29 @@ impl InternalEvent for ExecChannelClosedError {
         });
     }
 }
+
+#[derive(Debug)]
+pub struct ExecVrlEventsReceived<'a> {
+    pub count: usize,
+    pub source: &'a str,
+    pub byte_size: JsonSize,
+}
+
+impl InternalEvent for ExecVrlEventsReceived<'_> {
+    fn emit(self) {
+        trace!(
+            message = "Events received.",
+            count = self.count,
+            byte_size = self.byte_size.get(),
+            command = %self.source,
+        );
+        counter!(
+            "component_received_events_total", self.count as u64,
+            "source" => self.source.to_owned(),
+        );
+        counter!(
+            "component_received_event_bytes_total", self.byte_size.get() as u64,
+            "source" => self.source.to_owned(),
+        );
+    }
+}

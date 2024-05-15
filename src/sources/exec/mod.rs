@@ -1,4 +1,5 @@
 use std::{
+    borrow::BorrowMut,
     collections::HashMap,
     io::{Error, ErrorKind},
     path::PathBuf,
@@ -17,28 +18,38 @@ use tokio::{
 };
 use tokio_stream::wrappers::IntervalStream;
 use tokio_util::codec::FramedRead;
-use vector_lib::codecs::{
-    decoding::{DeserializerConfig, FramingConfig},
-    StreamDecodingError,
-};
 use vector_lib::configurable::configurable_component;
 use vector_lib::internal_event::{ByteSize, BytesReceived, InternalEventHandle as _, Protocol};
-use vector_lib::{config::LegacyKey, EstimatedJsonEncodedSizeOf};
-use vrl::path::OwnedValuePath;
+use vector_lib::{
+    codecs::{
+        decoding::{DeserializerConfig, FramingConfig},
+        StreamDecodingError,
+    },
+    config::LegacyKey,
+    event::{LogEvent, TargetEvents},
+    schema, ByteSizeOf, EstimatedJsonEncodedSizeOf, TimeZone,
+};
 use vrl::value::Kind;
+use vrl::{
+    compiler::{runtime::Runtime, Program},
+    path::OwnedValuePath,
+};
 
 use crate::{
     codecs::{Decoder, DecodingConfig},
     config::{SourceConfig, SourceContext, SourceOutput},
-    event::Event,
+    event::{Event, VrlTarget},
     internal_events::{
         ExecChannelClosedError, ExecCommandExecuted, ExecEventsReceived, ExecFailedError,
-        ExecFailedToSignalChild, ExecFailedToSignalChildError, ExecTimeoutError, StreamClosedError,
+        ExecFailedToSignalChild, ExecFailedToSignalChildError, ExecTimeoutError,
+        ExecVrlEventsReceived, StreamClosedError,
     },
     serde::default_decoding,
     shutdown::ShutdownSignal,
+    transforms::remap::RemapConfig,
     SourceSender,
 };
+use async_trait::async_trait;
 use futures::FutureExt;
 use vector_lib::config::{log_schema, LogNamespace};
 use vector_lib::lookup::{owned_value_path, path};
@@ -62,7 +73,11 @@ pub struct ExecConfig {
 
     /// The command to run, plus any arguments required.
     #[configurable(metadata(docs::examples = "echo", docs::examples = "Hello World!"))]
-    pub command: Vec<String>,
+    pub command: Option<Vec<String>>,
+
+    /// The VRL program to execute
+    #[configurable(derived)]
+    source: Option<String>,
 
     /// Custom environment variables to set or update when running the command.
     /// If a variable name already exists in the environment, its value is replaced.
@@ -144,6 +159,12 @@ pub enum ExecConfigError {
     CommandEmpty,
     #[snafu(display("The maximum buffer size must be greater than zero"))]
     ZeroBuffer,
+    #[snafu(display("A non-empty VRL source must be provided"))]
+    VrlSourceEmpty,
+    #[snafu(display("A command or VRL source to execute must be provided"))]
+    CommandAndSourceEmpty,
+    #[snafu(display("One of command or VRL source must be provided"))]
+    CommandAndVrlProvided,
 }
 
 impl Default for ExecConfig {
@@ -154,7 +175,8 @@ impl Default for ExecConfig {
                 exec_interval_secs: default_exec_interval_secs(),
             }),
             streaming: None,
-            command: vec!["echo".to_owned(), "Hello World!".to_owned()],
+            command: Some(vec!["echo".to_owned(), "Hello World!".to_owned()]),
+            source: None,
             environment: None,
             clear_environment: default_clear_environment(),
             working_directory: None,
@@ -209,22 +231,31 @@ const STDERR: &str = "stderr";
 const STREAM_KEY: &str = "stream";
 const PID_KEY: &str = "pid";
 const COMMAND_KEY: &str = "command";
+const EXEC_TYPE_KEY: &str = "exec_type";
 
 impl_generate_config_from_default!(ExecConfig);
 
 impl ExecConfig {
     fn validate(&self) -> Result<(), ExecConfigError> {
-        if self.command.is_empty() {
-            Err(ExecConfigError::CommandEmpty)
-        } else if self.maximum_buffer_size_bytes == 0 {
-            Err(ExecConfigError::ZeroBuffer)
-        } else {
-            Ok(())
+        let script_mode = self.is_script_mode();
+
+        if script_mode && self.command.is_some() {
+            return Err(ExecConfigError::CommandAndVrlProvided);
         }
+        if script_mode && self.source.as_ref().unwrap().is_empty() {
+            return Err(ExecConfigError::VrlSourceEmpty);
+        }
+        if !script_mode && (self.command.is_none() || self.command.as_ref().unwrap().is_empty()) {
+            return Err(ExecConfigError::CommandEmpty);
+        }
+        if self.maximum_buffer_size_bytes == 0 {
+            return Err(ExecConfigError::ZeroBuffer);
+        }
+        Ok(())
     }
 
     fn command_line(&self) -> String {
-        self.command.join(" ")
+        self.command.as_ref().unwrap().join(" ")
     }
 
     const fn exec_interval_secs_or_default(&self) -> u64 {
@@ -247,6 +278,10 @@ impl ExecConfig {
             Some(config) => config.respawn_interval_secs,
         }
     }
+
+    const fn is_script_mode(&self) -> bool {
+        self.source.is_some()
+    }
 }
 
 #[async_trait::async_trait]
@@ -263,21 +298,18 @@ impl SourceConfig for ExecConfig {
             .unwrap_or_else(|| self.decoding.default_stream_framing());
         let decoder =
             DecodingConfig::new(framing, self.decoding.clone(), LogNamespace::Legacy).build()?;
+        let program = maybe_compile_vrl_script(self, &cx)?;
 
         match &self.mode {
-            Mode::Scheduled => {
-                let exec_interval_secs = self.exec_interval_secs_or_default();
-
-                Ok(Box::pin(run_scheduled(
-                    self.clone(),
-                    hostname,
-                    exec_interval_secs,
-                    decoder,
-                    cx.shutdown,
-                    cx.out,
-                    log_namespace,
-                )))
-            }
+            Mode::Scheduled => Ok(Box::pin(run_scheduled(
+                self.clone(),
+                hostname,
+                decoder,
+                cx.shutdown,
+                cx.out,
+                log_namespace,
+                program.clone(),
+            ))),
             Mode::Streaming => {
                 let respawn_on_exit = self.respawn_on_exit_or_default();
                 let respawn_interval_secs = self.respawn_interval_secs_or_default();
@@ -291,6 +323,7 @@ impl SourceConfig for ExecConfig {
                     cx.shutdown,
                     cx.out,
                     log_namespace,
+                    program.clone(),
                 )))
             }
         }
@@ -334,6 +367,13 @@ impl SourceConfig for ExecConfig {
                 &owned_value_path!(COMMAND_KEY),
                 Kind::bytes(),
                 None,
+            )
+            .with_source_metadata(
+                Self::NAME,
+                Some(LegacyKey::InsertIfEmpty(owned_value_path!(EXEC_TYPE_KEY))),
+                &owned_value_path!(EXEC_TYPE_KEY),
+                Kind::bytes(),
+                None,
             );
 
         vec![SourceOutput::new_logs(
@@ -350,31 +390,32 @@ impl SourceConfig for ExecConfig {
 async fn run_scheduled(
     config: ExecConfig,
     hostname: Option<String>,
-    exec_interval_secs: u64,
     decoder: Decoder,
     shutdown: ShutdownSignal,
     out: SourceSender,
     log_namespace: LogNamespace,
+    program: Option<Program>,
 ) -> Result<(), ()> {
     debug!("Starting scheduled exec runs.");
+    let exec_interval_secs = config.exec_interval_secs_or_default();
     let schedule = Duration::from_secs(exec_interval_secs);
 
     let mut interval = IntervalStream::new(time::interval(schedule)).take_until(shutdown.clone());
 
     while interval.next().await.is_some() {
+        let mut executor = create_executor(
+            config.clone(),
+            hostname.clone(),
+            decoder.clone(),
+            shutdown.clone(),
+            out.clone(),
+            log_namespace,
+            program.clone(),
+        );
+
         // Wait for our task to finish, wrapping it in a timeout
-        let timeout = tokio::time::timeout(
-            schedule,
-            run_command(
-                config.clone(),
-                hostname.clone(),
-                decoder.clone(),
-                shutdown.clone(),
-                out.clone(),
-                log_namespace,
-            ),
-        )
-        .await;
+        let timeout: Result<Result<Option<ExitStatus>, Error>, time::error::Elapsed> =
+            tokio::time::timeout(schedule, executor.run()).await;
 
         match timeout {
             Ok(output) => {
@@ -409,21 +450,24 @@ async fn run_streaming(
     mut shutdown: ShutdownSignal,
     out: SourceSender,
     log_namespace: LogNamespace,
+    program: Option<Program>,
 ) -> Result<(), ()> {
-    if respawn_on_exit {
+    // respawn only applies to command execution
+    let mut executor = create_executor(
+        config.clone(),
+        hostname.clone(),
+        decoder.clone(),
+        shutdown.clone(),
+        out.clone(),
+        log_namespace,
+        program.clone(),
+    );
+    if !config.is_script_mode() && respawn_on_exit {
         let duration = Duration::from_secs(respawn_interval_secs);
 
         // Continue to loop while not shutdown
         loop {
-            let output = run_command(
-                config.clone(),
-                hostname.clone(),
-                decoder.clone(),
-                shutdown.clone(),
-                out.clone(),
-                log_namespace,
-            )
-            .await;
+            let output = executor.run().await;
 
             // handle command finished
             if let Err(command_error) = output {
@@ -439,15 +483,7 @@ async fn run_streaming(
             }
         }
     } else {
-        let output = run_command(
-            config.clone(),
-            hostname,
-            decoder,
-            shutdown,
-            out,
-            log_namespace,
-        )
-        .await;
+        let output = executor.run().await;
 
         if let Err(command_error) = output {
             emit!(ExecFailedError {
@@ -460,112 +496,252 @@ async fn run_streaming(
     Ok(())
 }
 
-async fn run_command(
+fn create_executor(
     config: ExecConfig,
     hostname: Option<String>,
     decoder: Decoder,
-    #[allow(unused_mut)] mut shutdown: ShutdownSignal,
-    mut out: SourceSender,
+    shutdown: ShutdownSignal,
+    out: SourceSender,
     log_namespace: LogNamespace,
-) -> Result<Option<ExitStatus>, Error> {
-    debug!("Starting command run.");
-    let mut command = build_command(&config);
+    program: Option<Program>,
+) -> Box<dyn ExecInner + Send> {
+    if config.is_script_mode() {
+        Box::new(VrlExecInner {
+            config,
+            log_namespace,
+            out,
+            program: program.unwrap(),
+        })
+    } else {
+        Box::new(CommandExecInner {
+            config,
+            decoder,
+            hostname,
+            log_namespace,
+            out,
+            shutdown,
+        })
+    }
+}
 
-    // Mark the start time just before spawning the process as
-    // this seems to be the best approximation of exec duration
-    let start = Instant::now();
+#[async_trait]
+trait ExecInner {
+    async fn run(&mut self) -> Result<Option<ExitStatus>, Error>;
+}
 
-    let mut child = command.spawn()?;
+#[derive(Clone)]
+struct CommandExecInner {
+    config: ExecConfig,
+    hostname: Option<String>,
+    decoder: Decoder,
+    shutdown: ShutdownSignal,
+    out: SourceSender,
+    log_namespace: LogNamespace,
+}
+#[async_trait]
+impl ExecInner for CommandExecInner {
+    async fn run(&mut self) -> Result<Option<ExitStatus>, Error> {
+        debug!("Starting command run.");
+        let mut command = build_command(&self.config);
 
-    // Set up communication channels
-    let (sender, mut receiver) = channel(1024);
+        // Mark the start time just before spawning the process as
+        // this seems to be the best approximation of exec duration
+        let start = Instant::now();
 
-    // Optionally include stderr
-    if config.include_stderr {
-        let stderr = child.stderr.take().ok_or_else(|| {
-            Error::new(ErrorKind::Other, "Unable to take stderr of spawned process")
+        let mut child = command.spawn()?;
+
+        // Set up communication channels
+        let (sender, mut receiver) = channel(1024);
+
+        // Optionally include stderr
+        if self.config.include_stderr {
+            let stderr = child.stderr.take().ok_or_else(|| {
+                Error::new(ErrorKind::Other, "Unable to take stderr of spawned process")
+            })?;
+
+            // Create stderr async reader
+            let stderr_reader = BufReader::new(stderr);
+
+            spawn_reader_thread(stderr_reader, self.decoder.clone(), STDERR, sender.clone());
+        }
+
+        let stdout = child.stdout.take().ok_or_else(|| {
+            Error::new(ErrorKind::Other, "Unable to take stdout of spawned process")
         })?;
 
-        // Create stderr async reader
-        let stderr_reader = BufReader::new(stderr);
+        // Create stdout async reader
+        let stdout_reader = BufReader::new(stdout);
 
-        spawn_reader_thread(stderr_reader, decoder.clone(), STDERR, sender.clone());
-    }
+        let pid = child.id();
 
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| Error::new(ErrorKind::Other, "Unable to take stdout of spawned process"))?;
+        spawn_reader_thread(stdout_reader, self.decoder.clone(), STDOUT, sender);
 
-    // Create stdout async reader
-    let stdout_reader = BufReader::new(stdout);
+        let bytes_received = register!(BytesReceived::from(Protocol::NONE));
 
-    let pid = child.id();
+        // LOG-17649: Due to the `shutdown_child` call in the shutdown arm in the select! macro,
+        // we need to fuse shutdown so shutdown.poll() won't be called after it produces a ready
+        // response. Without the fuse call, the test sources::exec::tests::test_graceful_shutdown
+        // will fail.
+        let mut shutdown = self.shutdown.borrow_mut().fuse();
+        'outer: loop {
+            tokio::select! {
+                _ = &mut shutdown => {
+                    if !shutdown_child(&mut child, &command).await {
+                            break 'outer; // couldn't signal, exit early
+                    }
+                }
+                v = receiver.recv() => {
+                    match v {
+                        None => break 'outer,
+                        Some(((mut events, byte_size), stream)) => {
+                            bytes_received.emit(ByteSize(byte_size));
 
-    spawn_reader_thread(stdout_reader, decoder.clone(), STDOUT, sender);
+                            let count = events.len();
+                            emit!(ExecEventsReceived {
+                                count,
+                                command: self.config.command_line().as_str(),
+                                byte_size: events.estimated_json_encoded_size_of(),
+                            });
 
-    let bytes_received = register!(BytesReceived::from(Protocol::NONE));
-
-    // LOG-17649: Due to the `shutdown_child` call in the shutdown arm in the select! macro,
-    // we need to fuse shutdown so shutdown.poll() won't be called after it produces a ready
-    // response. Without the fuse call, the test sources::exec::tests::test_graceful_shutdown
-    // will fail.
-    let mut shutdown = shutdown.fuse();
-    'outer: loop {
-        tokio::select! {
-            _ = &mut shutdown => {
-                if !shutdown_child(&mut child, &command).await {
-                        break 'outer; // couldn't signal, exit early
+                            for event in &mut events {
+                                handle_event(&self.config, &self.hostname, &Some(stream.to_string()), pid, event, self.log_namespace);
+                            }
+                            if (self.out.send_batch(events).await).is_err() {
+                                emit!(StreamClosedError { count });
+                                break;
+                            }
+                        },
+                    }
                 }
             }
-            v = receiver.recv() => {
-                match v {
-                    None => break 'outer,
-                    Some(((mut events, byte_size), stream)) => {
-                        bytes_received.emit(ByteSize(byte_size));
+        }
 
-                        let count = events.len();
-                        emit!(ExecEventsReceived {
-                            count,
-                            command: config.command_line().as_str(),
-                            byte_size: events.estimated_json_encoded_size_of(),
+        let elapsed = start.elapsed();
+
+        let result = match child.try_wait() {
+            Ok(Some(exit_status)) => {
+                handle_exit_status(&self.config, exit_status.code(), elapsed);
+                Ok(Some(exit_status))
+            }
+            Ok(None) => {
+                handle_exit_status(&self.config, None, elapsed);
+                Ok(None)
+            }
+            Err(error) => {
+                error!(message = "Unable to obtain exit status.", %error);
+
+                handle_exit_status(&self.config, None, elapsed);
+                Ok(None)
+            }
+        };
+
+        debug!("Finished command run.");
+
+        result
+    }
+}
+
+struct VrlExecInner {
+    config: ExecConfig,
+    out: SourceSender,
+    log_namespace: LogNamespace,
+    program: Program,
+}
+
+#[async_trait]
+impl ExecInner for VrlExecInner {
+    async fn run(&mut self) -> Result<Option<ExitStatus>, Error> {
+        debug!("Starting vrl execution.");
+
+        let event = LogEvent::default();
+        let timezone = TimeZone::parse("UTC").unwrap();
+        let mut target = VrlTarget::new(Event::Log(event), self.program.info(), false);
+        let result = Runtime::default().resolve(&mut target, &self.program, &timezone);
+
+        let bytes_received = register!(BytesReceived::from(Protocol::NONE));
+        let source = self.config.source.as_ref().unwrap();
+
+        // handle the result error
+        if let Err(err) = result {
+            error!("VRL execution terminated: {}", err)
+        } else {
+            match target.into_events(self.log_namespace) {
+                TargetEvents::One(mut event) => {
+                    bytes_received.emit(ByteSize(event.allocated_bytes()));
+                    emit!(ExecVrlEventsReceived {
+                        count: 1,
+                        byte_size: event.estimated_json_encoded_size_of(),
+                        source: source.as_str(),
+                    });
+                    handle_event(
+                        &self.config,
+                        &None,
+                        &None,
+                        None,
+                        &mut event,
+                        self.log_namespace,
+                    );
+
+                    if (self.out.send_event(event).await).is_err() {
+                        emit!(StreamClosedError { count: 1 });
+                    }
+                }
+                TargetEvents::Logs(mut events) => {
+                    let mut count = 0;
+                    for mut event in &mut events {
+                        emit!(ExecVrlEventsReceived {
+                            count: 1,
+                            byte_size: event.estimated_json_encoded_size_of(),
+                            source: source.as_str(),
                         });
+                        handle_event(
+                            &self.config,
+                            &None,
+                            &None,
+                            None,
+                            &mut event,
+                            self.log_namespace,
+                        );
 
-                        for event in &mut events {
-                            handle_event(&config, &hostname, &Some(stream.to_string()), pid, event, log_namespace);
-                        }
-                        if (out.send_batch(events).await).is_err() {
+                        if (self.out.send_event(event).await).is_err() {
+                            count += 1;
                             emit!(StreamClosedError { count });
-                            break;
                         }
-                    },
+                    }
                 }
+                // for traces do nothing
+                _ => panic!("VRL execution must return logs, not traces"),
             }
         }
+
+        debug!("Finished vrl execution.");
+        Ok(None)
     }
+}
 
-    let elapsed = start.elapsed();
-
-    let result = match child.try_wait() {
-        Ok(Some(exit_status)) => {
-            handle_exit_status(&config, exit_status.code(), elapsed);
-            Ok(Some(exit_status))
-        }
-        Ok(None) => {
-            handle_exit_status(&config, None, elapsed);
-            Ok(None)
-        }
-        Err(error) => {
-            error!(message = "Unable to obtain exit status.", %error);
-
-            handle_exit_status(&config, None, elapsed);
-            Ok(None)
-        }
+fn maybe_compile_vrl_script(
+    config: &ExecConfig,
+    ctx: &SourceContext,
+) -> Result<Option<Program>, Error> {
+    if !config.is_script_mode() {
+        return Ok(None);
+    }
+    let remap_config = RemapConfig {
+        source: config.source.clone(),
+        ..Default::default()
     };
-
-    debug!("Finished command run.");
-
-    result
+    let result = remap_config.compile_vrl_program(
+        Default::default(),
+        schema::Definition::any(),
+        ctx.mezmo_ctx.clone(),
+    );
+    match result {
+        Ok((program, _, _, _)) => Ok(Some(program)),
+        Err(err) => Err(Error::new(
+            ErrorKind::Other,
+            format!("Error compiling VRL program. Reason: {}", err),
+        )),
+    }
 }
 
 fn handle_exit_status(config: &ExecConfig, exit_status: Option<i32>, exec_duration: Duration) {
@@ -633,12 +809,20 @@ async fn shutdown_child(
 }
 
 fn build_command(config: &ExecConfig) -> Command {
-    let command = &config.command[0];
+    let command = config
+        .command
+        .clone()
+        .expect("Expected command to be present");
+    let command_args = if command.len() > 1 {
+        Some(&command[1..])
+    } else {
+        None
+    };
 
-    let mut command = Command::new(command);
+    let mut command = Command::new(&command[0]);
 
-    if config.command.len() > 1 {
-        command.args(&config.command[1..]);
+    if let Some(args) = command_args {
+        command.args(args);
     };
 
     command.kill_on_drop(true);
@@ -719,12 +903,27 @@ fn handle_event(
         }
 
         // Add command
+        if config.command.is_some() {
+            log_namespace.insert_source_metadata(
+                ExecConfig::NAME,
+                log,
+                Some(LegacyKey::InsertIfEmpty(path!(COMMAND_KEY))),
+                path!(COMMAND_KEY),
+                config.command.clone(),
+            );
+        }
+
+        let exec_type = if config.is_script_mode() {
+            "vrl".to_owned()
+        } else {
+            "shell".to_owned()
+        };
         log_namespace.insert_source_metadata(
             ExecConfig::NAME,
             log,
-            Some(LegacyKey::InsertIfEmpty(path!(COMMAND_KEY))),
-            path!(COMMAND_KEY),
-            config.command.clone(),
+            Some(LegacyKey::InsertIfEmpty(path!(EXEC_TYPE_KEY))),
+            path!(EXEC_TYPE_KEY),
+            exec_type,
         );
     }
 }

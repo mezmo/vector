@@ -39,8 +39,8 @@ const DEFAULT_LOG_EVENT_TYPES: [&str; 67] = [
     "HTTPD_COMMONLOG",
     "HTTPD_ERRORLOG",
     "SYSLOG5424LINE",
-    "SYSLOGLINE", // This is overridden by a custom pattern. The default is not strict enough and is causing false positives.
     "SYSLOGPAMSESSION",
+    "SYSLOGLINE", // This is overridden by a custom pattern. The default is not strict enough and is causing false positives.
     "CRONLOG",
     "MONGO3_LOG",
     "NAGIOSLOGLINE",
@@ -105,16 +105,16 @@ const DEFAULT_LOG_EVENT_TYPES: [&str; 67] = [
 ];
 
 fn grok_patterns() -> &'static BTreeMap<String, grok::Pattern> {
-    let mut parser = grok::Grok::with_default_patterns();
-
-    // Add aliases and custom grok patterns prior to referencing them during `.compile()`
-    for (alias, pattern) in CUSTOM_GROK_DEFINITIONS.iter() {
-        parser.add_pattern(alias.to_string(), pattern.to_string());
-    }
-
     static GROK_PATTERNS: OnceLock<BTreeMap<String, grok::Pattern>> = OnceLock::new();
     GROK_PATTERNS.get_or_init(|| {
         let mut m = BTreeMap::new();
+        let mut parser = grok::Grok::with_default_patterns();
+
+        // Add aliases and custom grok patterns prior to referencing them during `.compile()`
+        for (alias, pattern) in CUSTOM_GROK_DEFINITIONS.iter() {
+            parser.add_pattern(alias.to_string(), pattern.to_string());
+        }
+
         for s in DEFAULT_LOG_EVENT_TYPES.iter() {
             let pattern_str = format!("%{{{s}}}");
             let pattern = parser
@@ -516,6 +516,59 @@ mod tests {
         assert_eq!(
             output.as_log().get(log_schema().annotations_key()),
             Some(&annotations)
+        );
+    }
+
+    #[tokio::test]
+    async fn syslog_pattern_order() {
+        // Since variations of syslog lines can potentially match more than one pattern,
+        // we rely heavily on our ordering. This makes sure that `SYSLOGPAMSESSION` is not
+        // clobbered by `SYSLOGLINE`. Send separately so we don't have a "first one wins" situation.
+
+        let message_key = "message".to_string();
+
+        let syslog_line = r#"2024-04-08T22:01:18Z <2897.2454> 10.8.201.201 oldsmsdashboard[4972]: Decade impact various door few look important."#;
+        let syslog_event = Event::Log(LogEvent::from(Value::Object(
+            btreemap!(message_key.clone() => Value::Bytes(syslog_line.into())),
+        )));
+
+        let pam_session_line = r#"Apr 08 22:01:18 <7106.8433> 10.66.13.97 bigqueryprocessor[1118]: conference(legacy_bigquery): session open for user robertssharon by (uid=8764)"#;
+        let pam_session_event = Event::Log(LogEvent::from(Value::Object(
+            btreemap!(message_key.clone() => Value::Bytes(pam_session_line.into())),
+        )));
+
+        let config = LogClassificationConfig {
+            line_fields: None,
+            grok_patterns: default_grok_patterns(),
+            app_fields: default_app_fields(),
+            host_fields: default_host_fields(),
+            level_fields: default_level_fields(),
+        };
+        let output_syslog = do_transform(config.clone(), syslog_event.clone().into())
+            .await
+            .unwrap();
+        let annotations_syslog =
+            make_expected_annotations(&syslog_event, None, vec!["SYSLOGLINE".to_string()]);
+
+        assert_eq!(
+            output_syslog.as_log().get(log_schema().annotations_key()),
+            Some(&annotations_syslog)
+        );
+
+        let output_pam_session = do_transform(config.clone(), pam_session_event.clone().into())
+            .await
+            .unwrap();
+        let annotations_pam_session = make_expected_annotations(
+            &pam_session_event,
+            None,
+            vec!["SYSLOGPAMSESSION".to_string()],
+        );
+
+        assert_eq!(
+            output_pam_session
+                .as_log()
+                .get(log_schema().annotations_key()),
+            Some(&annotations_pam_session),
         );
     }
 

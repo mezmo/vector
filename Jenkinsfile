@@ -53,6 +53,10 @@ pipeline {
     VECTOR_TARGET = "${BRANCH_BUILD}-target"
     VECTOR_CARGO_CACHE = "${BRANCH_BUILD}-cargo"
     VECTOR_RUSTUP_CACHE = "${BRANCH_BUILD}-rustup"
+    TOP_COMMIT = sh(
+      script: 'git log --pretty="format:%s by %cn" HEAD | head -1',
+      returnStdout: true
+    ).trim()
   }
   stages {
     stage('Validate PR Author') {
@@ -66,109 +70,148 @@ pipeline {
         error("A maintainer needs to approve this PR for CI by commenting")
       }
     }
-
-    stage('Lint and test release'){
-      tools {
-        nodejs 'NodeJS 20'
-      }
-      environment {
-        GIT_BRANCH = "${CURRENT_BRANCH}"
-        // This is not populated on PR builds and is needed for the release dry runs
-        BRANCH_NAME = "${CURRENT_BRANCH}"
-        CHANGE_ID = ""
-      }
-      steps {
-        script {
-          configFileProvider(NPMRC) {
-            sh 'npm ci --ignore-scripts'
-            sh 'npm run commitlint'
-            sh 'npm run release:dry'
-          }
+    stage('Needs Testing?') {
+      // Do not run the stages on a release commit, unless it's for a sanity build.
+      when {
+        anyOf {
+          expression { !(env.TOP_COMMIT ==~ /^chore\(release\): \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/) }
+          environment name: 'SANITY_BUILD', value: 'true'
         }
       }
-    }
-    stage('Unit test'){
-      // Important: do one step serially since it'll be the one to prepare the testing container
-      // and install the rust toolchain in it. Volume mounts are created here, too.
-      steps {
-        sh """
-          make test ENVIRONMENT=true
-        """
-      }
-    }
-
-    stage('Checks'){
-      // All `make ENVIRONMENT=true` steps should now use the existing container
-      parallel {
-        stage('check-clippy'){
-          steps {
-            sh """
-              make check-clippy ENVIRONMENT=true
-              make check-scripts ENVIRONMENT=true
-            """
+      stages {
+        stage('Lint and test release'){
+          tools {
+            nodejs 'NodeJS 20'
           }
-        }
-        stage('check-fmt'){
-          steps {
-            sh """
-              make check ENVIRONMENT=true
-              make check-fmt ENVIRONMENT=true
-            """
-          }
-        }
-        stage('check-deny'){
-          steps {
-            catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-              sh """
-                make check-deny ENVIRONMENT=true
-              """
-            }
-          }
-        }
-        stage('image test') {
-          when {
-            changeRequest() // Only do this during PRs because it can take 30 minutes
+          environment {
+            GIT_BRANCH = "${CURRENT_BRANCH}"
+            // This is not populated on PR builds and is needed for the release dry runs
+            BRANCH_NAME = "${CURRENT_BRANCH}"
+            CHANGE_ID = ""
           }
           steps {
             script {
+              configFileProvider(NPMRC) {
+                sh 'npm ci --ignore-scripts'
+                // Turn commitlint on when answerbook implements the same version of commitlint
+                // sh 'npm run commitlint'
+                if (!env.CHANGE_FORK) {
+                  sh 'npm run release:dry'
+                }
+              }
+            }
+          }
+        }
+
+        stage('Unit test'){
+          // Important: do one step serially since it'll be the one to prepare the testing container
+          // and install the rust toolchain in it. Volume mounts are created here, too.
+          steps {
+            sh """
+              make test ENVIRONMENT=true
+            """
+          }
+        }
+
+        stage('Checks') {
+          // All `make ENVIRONMENT=true` steps should now use the existing container
+          parallel {
+            stage('check-clippy'){
+              steps {
+                sh """
+                  make check-clippy ENVIRONMENT=true
+                  make check-scripts ENVIRONMENT=true
+                """
+              }
+            }
+            stage('check-fmt'){
+              steps {
+                sh """
+                  make check ENVIRONMENT=true
+                  make check-fmt ENVIRONMENT=true
+                """
+              }
+            }
+            stage('check-deny'){
+              steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+                  sh """
+                    make check-deny ENVIRONMENT=true
+                  """
+                }
+              }
+            }
+            stage('image test') {
+              when {
+                changeRequest() // Only do this during PRs because it can take 30 minutes
+              }
+              steps {
+                script {
+                  buildx.build(
+                    project: PROJECT_NAME
+                  , push: false
+                  , tags: [BRANCH_BUILD]
+                  , dockerfile: "distribution/docker/mezmo/Dockerfile"
+                  , docker_repo: DOCKER_REPO
+                  )
+                }
+              }
+            }
+          }
+        } // End Checks
+
+        stage('Feature build and publish') {
+          when {
+            expression {
+              CURRENT_BRANCH ==~ /feature\/LOG-\d+/
+            }
+          }
+          steps {
+            script {
+              def feature_tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
               buildx.build(
                 project: PROJECT_NAME
-              , push: false
-              , tags: [BRANCH_BUILD]
+              , push: true
+              , tags: [feature_tag]
               , dockerfile: "distribution/docker/mezmo/Dockerfile"
               , docker_repo: DOCKER_REPO
               )
             }
           }
-        }
-      }
-    }
+        } // End Feature build and publish
 
-    stage('Feature build and publish') {
-      when {
-        expression {
-          CURRENT_BRANCH ==~ /feature\/LOG-\d+/
-        }
-      }
-      steps {
-        script {
-          def feature_tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
-          buildx.build(
-            project: PROJECT_NAME
-          , push: true
-          , tags: [feature_tag]
-          , dockerfile: "distribution/docker/mezmo/Dockerfile"
-          , docker_repo: DOCKER_REPO
-          )
-        }
-      }
-    }
+        stage('Release Commit') {
+          when {
+            branch DEFAULT_BRANCH
+            not {
+              environment name: 'SANITY_BUILD', value: 'true'
+            }
+          }
+          tools {
+            nodejs 'NodeJS 20'
+          }
+          steps {
+            script {
+              configFileProvider(NPMRC) {
+                sh 'npm ci'
+                sh 'npm run release'
+              }
+            }
+          }
+        } // End release commit
 
-    stage('Release and publish') {
+      } // End stages
+
+    } // End Needs testing
+
+    stage('Publish') {
       when {
-        branch DEFAULT_BRANCH
-        not {
-          environment name: 'SANITY_BUILD', value: 'true'
+        allOf {
+          branch DEFAULT_BRANCH
+          expression { env.TOP_COMMIT ==~ /^chore\(release\): \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/ }
+          not {
+            environment name: 'SANITY_BUILD', value: 'true'
+          }
         }
       }
       tools {
@@ -176,25 +219,16 @@ pipeline {
       }
       steps {
         script {
-          def version_before = npm.semver().version
-          configFileProvider(NPMRC) {
-            sh 'npm ci'
-            sh 'npm run release'
-          }
-
-          def semver = npm.semver()
-          if (version_before != semver.version) {
-            buildx.build(
-              project: PROJECT_NAME
-            , push: true
-            , tags: [semver.version]
-            , dockerfile: "distribution/docker/mezmo/Dockerfile"
-            , docker_repo: DOCKER_REPO
-            )
-          }
+          buildx.build(
+            project: PROJECT_NAME
+          , push: true
+          , tags: [semver.version]
+          , dockerfile: "distribution/docker/mezmo/Dockerfile"
+          , docker_repo: DOCKER_REPO
+          )
         }
       }
-    }
+    } // End Publish
   }
   post {
     always {
@@ -215,5 +249,5 @@ pipeline {
         }
       }
     }
-  }
-}
+  } // End post
+} // End pipeline

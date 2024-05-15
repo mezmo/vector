@@ -26,9 +26,11 @@ use vector_lib::configurable::configurable_component;
 use vector_lib::internal_event::{
     ByteSize, BytesReceived, CountByteSize, InternalEventHandle as _, Protocol, Registered,
 };
+use vrl::core::Value;
 
 use crate::codecs::Decoder;
 use crate::event::{Event, LogEvent};
+use crate::mezmo::{user_trace::MezmoUserLog, MezmoContext};
 use crate::sources::util::backoff::LogBackoff;
 use crate::tls::TlsConfig;
 use crate::{
@@ -44,7 +46,7 @@ use crate::{
     shutdown::ShutdownSignal,
     sources::aws_s3::AwsS3Config,
     sources::util::backoff::Backoff,
-    SourceSender,
+    user_log_error, SourceSender,
 };
 use vector_lib::config::{log_schema, LegacyKey, LogNamespace};
 use vector_lib::event::MaybeAsLogMut;
@@ -185,7 +187,7 @@ pub enum ProcessingError {
     },
     #[snafu(display("Unsupported S3 event version: {}.", version,))]
     UnsupportedS3EventVersion { version: semver::Version },
-    #[snafu(display("Sink reported an error sending events"))]
+    #[snafu(display("Destination reported an error sending events"))]
     ErrorAcknowledgement,
 }
 
@@ -258,6 +260,7 @@ impl Ingestor {
                 cx.shutdown.clone(),
                 log_namespace,
                 acknowledgements,
+                cx.mezmo_ctx.clone(),
             );
             let fut = process.run();
             let handle = tokio::spawn(fut.in_current_span());
@@ -288,6 +291,7 @@ pub struct IngestorProcess {
     log_namespace: LogNamespace,
     bytes_received: Registered<BytesReceived>,
     events_received: Registered<EventsReceived>,
+    mezmo_ctx: Option<MezmoContext>,
 }
 
 impl IngestorProcess {
@@ -297,6 +301,7 @@ impl IngestorProcess {
         shutdown: ShutdownSignal,
         log_namespace: LogNamespace,
         acknowledgements: bool,
+        mezmo_ctx: Option<MezmoContext>,
     ) -> Self {
         Self {
             state,
@@ -308,6 +313,7 @@ impl IngestorProcess {
             log_namespace,
             bytes_received: register!(BytesReceived::from(Protocol::HTTP)),
             events_received: register!(EventsReceived),
+            mezmo_ctx,
         }
     }
 
@@ -328,6 +334,10 @@ impl IngestorProcess {
 
         if let Err(ref e) = messages {
             emit!(SqsMessageReceiveError { error: e });
+            user_log_error!(
+                self.mezmo_ctx,
+                Value::from(SqsMessageReceiveError::<SdkError<ReceiveMessageError>>::MESSAGE)
+            );
             // Sleep for a while before returning
             sleep(self.backoff.next()).await;
             return;
@@ -381,6 +391,8 @@ impl IngestorProcess {
                         error: &err,
                         should_log: self.log.should_log(),
                     });
+
+                    user_log_error!(self.mezmo_ctx, Value::from(err.to_string()));
                 }
             }
         }
@@ -406,6 +418,10 @@ impl IngestorProcess {
                                 entries: result.failed.unwrap_or_default(),
                                 should_log: self.log.should_log(),
                             });
+                            user_log_error!(
+                                self.mezmo_ctx,
+                                Value::from(SqsMessageDeletePartialError::MESSAGE)
+                            );
                         }
                     }
                 }
@@ -415,6 +431,10 @@ impl IngestorProcess {
                         error: err,
                         should_log: self.log.should_log(),
                     });
+                    user_log_error!(
+                        self.mezmo_ctx,
+                        Value::from(SqsMessageDeleteBatchError::<SdkError<DeleteMessageBatchError>>::MESSAGE)
+                    );
                 }
             }
         }

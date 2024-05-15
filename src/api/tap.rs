@@ -19,10 +19,15 @@ use super::{
     },
     ShutdownRx, ShutdownTx,
 };
+
 use crate::{
+    conditions::{Condition, ConditionalConfig, VrlConfig},
     config::ComponentKey,
     event::{EventArray, LogArray, MetricArray, TraceArray},
-    topology::{fanout, fanout::ControlChannel, TapOutput, TapResource, WatchRx},
+    topology::{
+        fanout::{ControlChannel, ControlMessage},
+        TapOutput, TapResource, WatchRx,
+    },
 };
 
 /// A tap sender is the control channel used to surface tap payloads to a client.
@@ -130,14 +135,20 @@ impl TapPayload {
 pub struct TapTransformer {
     tap_tx: TapSender,
     output: TapOutput,
+    filter: Option<Condition>,
 }
 
 impl TapTransformer {
-    pub const fn new(tap_tx: TapSender, output: TapOutput) -> Self {
-        Self { tap_tx, output }
+    pub const fn new(tap_tx: TapSender, output: TapOutput, filter: Option<Condition>) -> Self {
+        Self {
+            tap_tx,
+            output,
+            filter,
+        }
     }
 
     pub fn try_send(&mut self, events: EventArray) {
+        let events = apply_filter(&self.filter, events);
         let payload = match events {
             EventArray::Logs(logs) => TapPayload::Log(self.output.clone(), logs),
             EventArray::Metrics(metrics) => TapPayload::Metric(self.output.clone(), metrics),
@@ -154,6 +165,39 @@ impl TapTransformer {
     }
 }
 
+/// Filters an [EventArray] based on a [Condition]
+fn apply_filter(filter: &Option<Condition>, events: EventArray) -> EventArray {
+    match filter {
+        Some(condition) => match events {
+            EventArray::Logs(logs) => logs
+                .into_iter()
+                .filter_map(|event| match condition.check(event.into()) {
+                    (true, event) => Some(event.into_log()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .into(),
+            EventArray::Metrics(metrics) => metrics
+                .into_iter()
+                .filter_map(|event| match condition.check(event.into()) {
+                    (true, event) => Some(event.into_metric()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .into(),
+            EventArray::Traces(traces) => traces
+                .into_iter()
+                .filter_map(|event| match condition.check(event.into()) {
+                    (true, event) => Some(event.into_trace()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .into(),
+        },
+        None => events,
+    }
+}
+
 /// A tap sink spawns a process for listening for topology changes. If topology changes,
 /// sinks are rewired to accommodate matched/unmatched patterns.
 #[derive(Debug)]
@@ -165,10 +209,31 @@ impl TapController {
     /// Creates a new tap sink, and spawns a handler for watching for topology changes
     /// and a separate inner handler for events. Uses a oneshot channel to trigger shutdown
     /// of handlers when the `TapSink` drops out of scope.
-    pub fn new(watch_rx: WatchRx, tap_tx: TapSender, patterns: TapPatterns) -> Self {
+    pub fn new(
+        watch_rx: WatchRx,
+        tap_tx: TapSender,
+        patterns: TapPatterns,
+        filter_source: Option<String>,
+    ) -> Self {
         let (_shutdown, shutdown_rx) = oneshot::channel();
 
-        tokio::spawn(tap_handler(patterns, tap_tx, watch_rx, shutdown_rx));
+        let mut filter = None;
+        if let Some(source) = filter_source {
+            let config = VrlConfig {
+                source,
+                runtime: Default::default(),
+            };
+
+            filter = match config.build(&Default::default(), Default::default()) {
+                Ok(condition) => Some(condition),
+                Err(err) => {
+                    error!(message = "Failed to build tap filter condition.", ?err,);
+                    None
+                }
+            }
+        }
+
+        tokio::spawn(tap_handler(patterns, tap_tx, filter, watch_rx, shutdown_rx));
 
         Self { _shutdown }
     }
@@ -181,7 +246,7 @@ fn shutdown_trigger(control_tx: ControlChannel, sink_id: ComponentKey) -> Shutdo
     tokio::spawn(async move {
         _ = shutdown_rx.await;
         if control_tx
-            .send(fanout::ControlMessage::Remove(sink_id.clone()))
+            .send(ControlMessage::Remove(sink_id.clone()))
             .is_err()
         {
             debug!(message = "Couldn't disconnect sink.", ?sink_id);
@@ -238,6 +303,7 @@ async fn send_invalid_output_pattern_match(
 async fn tap_handler(
     patterns: TapPatterns,
     tx: TapSender,
+    filter: Option<Condition>,
     mut watch_rx: WatchRx,
     mut shutdown_rx: ShutdownRx,
 ) {
@@ -321,7 +387,7 @@ async fn tap_handler(
                             // wrap each event payload with the necessary metadata before forwarding
                             // it to our global tap receiver.
                             let (tap_buffer_tx, mut tap_buffer_rx) = TopologyBuilder::standalone_memory(TAP_BUFFER_SIZE, WhenFull::DropNewest).await;
-                            let mut tap_transformer = TapTransformer::new(tx.clone(), output.clone());
+                            let mut tap_transformer = TapTransformer::new(tx.clone(), output.clone(), filter.clone());
 
                             tokio::spawn(async move {
                                 while let Some(events) = tap_buffer_rx.next().await {
@@ -336,7 +402,7 @@ async fn tap_handler(
                             // this point.
                             let sink_id = Uuid::new_v4().to_string();
                             match control_tx
-                                .send(fanout::ControlMessage::Add(ComponentKey::from(sink_id.as_str()), tap_buffer_tx))
+                                .send(ControlMessage::Add(ComponentKey::from(sink_id.as_str()), tap_buffer_tx))
                             {
                                 Ok(_) => {
                                     debug!(
@@ -425,7 +491,6 @@ async fn tap_handler(
     test,
     feature = "sinks-blackhole",
     feature = "sources-demo_logs",
-    feature = "transforms-log_to_metric",
     feature = "transforms-remap",
 ))]
 mod tests {
@@ -442,6 +507,7 @@ mod tests {
     use crate::sinks::blackhole::BlackholeConfig;
     use crate::sources::demo_logs::{DemoLogsConfig, OutputFormat};
     use crate::test_util::{start_topology, trace_init};
+    use crate::topology::fanout::Fanout;
     use crate::transforms::log_to_metric::{LogToMetricConfig, MetricConfig, MetricTypeConfig};
     use crate::transforms::remap::RemapConfig;
 
@@ -469,7 +535,7 @@ mod tests {
         let pattern_not_matched = "xyz";
         let id = OutputId::from(&ComponentKey::from("test"));
 
-        let (mut fanout, control_tx) = fanout::Fanout::new();
+        let (mut fanout, control_tx) = Fanout::new();
         let mut outputs = HashMap::new();
         outputs.insert(
             TapOutput {
@@ -497,6 +563,7 @@ mod tests {
                 HashSet::from([pattern_matched.to_string(), pattern_not_matched.to_string()]),
                 HashSet::new(),
             ),
+            None,
         );
 
         // Add the outputs to trigger a change event.
@@ -607,6 +674,7 @@ mod tests {
         let source_tap_stream = create_events_stream(
             topology.watch(),
             TapPatterns::new(HashSet::from(["in".to_string()]), HashSet::new()),
+            None,
             500,
             100,
         );
@@ -665,6 +733,7 @@ mod tests {
         let source_tap_stream = create_events_stream(
             topology.watch(),
             TapPatterns::new(HashSet::from(["to_metric".to_string()]), HashSet::new()),
+            None,
             500,
             100,
         );
@@ -715,6 +784,7 @@ mod tests {
         let transform_tap_stream = create_events_stream(
             topology.watch(),
             TapPatterns::new(HashSet::from(["transform".to_string()]), HashSet::new()),
+            None,
             500,
             100,
         );
@@ -772,6 +842,7 @@ mod tests {
                 HashSet::new(),
                 HashSet::from(["transform".to_string(), "in".to_string()]),
             ),
+            None,
             500,
             100,
         );
@@ -843,6 +914,7 @@ mod tests {
         let tap_stream = create_events_stream(
             topology.watch(),
             TapPatterns::new(HashSet::new(), HashSet::from(["out".to_string()])),
+            None,
             500,
             100,
         );
@@ -906,6 +978,7 @@ mod tests {
                 HashSet::from(["transform.dropped".to_string()]),
                 HashSet::new(),
             ),
+            None,
             500,
             100,
         );
@@ -979,6 +1052,7 @@ mod tests {
         let mut transform_tap_all_outputs_stream = create_events_stream(
             topology.watch(),
             TapPatterns::new(HashSet::from(["transform*".to_string()]), HashSet::new()),
+            None,
             500,
             100,
         );
@@ -1016,5 +1090,53 @@ mod tests {
         }
 
         assert!(default_output_found && dropped_output_found);
+    }
+
+    #[tokio::test]
+    async fn integration_test_source_log_with_filter() {
+        trace_init();
+
+        let mut config = Config::builder();
+        config.add_source(
+            "in",
+            DemoLogsConfig {
+                interval: Duration::from_secs_f64(0.01),
+                count: 200,
+                format: OutputFormat::Json,
+                ..Default::default()
+            },
+        );
+        config.add_sink(
+            "out",
+            &["in"],
+            BlackholeConfig {
+                print_interval_secs: Duration::from_secs(1),
+                rate: None,
+                acknowledgements: Default::default(),
+            },
+        );
+
+        let (topology, _) = start_topology(config.build().unwrap(), false).await;
+
+        let source_tap_stream = create_events_stream(
+            topology.watch(),
+            TapPatterns::new(HashSet::from(["in".to_string()]), HashSet::new()),
+            Some(r#"contains(string!(.message), "PUT")"#.to_string()),
+            500,
+            100,
+        );
+
+        let source_tap_events: Vec<_> = source_tap_stream.take(2).collect().await;
+
+        assert_eq!(
+            assert_notification(source_tap_events[0][0].clone()),
+            Notification::Matched(Matched::new("in".to_string()))
+        );
+        let log = assert_log(source_tap_events[1][0].clone());
+        let message = log.get_message().unwrap_or_default();
+        assert!(
+            message.contains(r#""method":"PUT"#),
+            "tapped event does not match pattern"
+        );
     }
 }
