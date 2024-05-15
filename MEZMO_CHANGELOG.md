@@ -1,5 +1,12 @@
 ## Changelog
 
+## [3.15.1](https://github.com/mezmo/vector/compare/v3.15.0...v3.15.1) (2024-05-15)
+
+
+### Bug Fixes
+
+* **ci**: Turn back on commitlint and fix release regex [b227588](https://github.com/mezmo/vector/commit/b227588ca4b17e24216595b62a7ac0bcb94c3fdd) - Darin Spivey [LOG-19889](https://logdna.atlassian.net/browse/LOG-19889)
+
 # [3.15.0](https://github.com/mezmo/vector/compare/v3.14.2...v3.15.0) (2024-05-15)
 
 
