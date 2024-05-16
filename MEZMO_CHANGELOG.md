@@ -1,5 +1,12 @@
 ## Changelog
 
+## [3.15.2](https://github.com/mezmo/vector/compare/v3.15.1...v3.15.2) (2024-05-16)
+
+
+### Bug Fixes
+
+* **ci**: Get semver tag during Publish stage [aec66ed](https://github.com/mezmo/vector/commit/aec66ed8cab5eaf06f6a4439d32d1d2b9aa0d9cd) - Darin Spivey [LOG-19889](https://logdna.atlassian.net/browse/LOG-19889)
+
 ## [3.15.1](https://github.com/mezmo/vector/compare/v3.15.0...v3.15.1) (2024-05-15)
 
 
