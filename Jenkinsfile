@@ -218,6 +218,8 @@ pipeline {
       }
       steps {
         script {
+          def semver = npm.semver() // get the tag
+
           buildx.build(
             project: PROJECT_NAME
           , push: true
