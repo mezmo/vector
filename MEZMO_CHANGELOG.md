@@ -1,3 +1,15 @@
+## [3.20.11](https://github.com/answerbook/vector/compare/v3.20.10...v3.20.11) (2024-05-21)
+
+
+### Bug Fixes
+
+* **sink**: otlp metrics tags and name normalize [458f099](https://github.com/answerbook/vector/commit/458f0994dbe97d5cfac8e1e39084ece947011445) - Sergey Opria [LOG-19601](https://logdna.atlassian.net/browse/LOG-19601)
+
+
+### Miscellaneous
+
+* Merge pull request #462 from answerbook/sopria/LOG-19601 [71cdf9e](https://github.com/answerbook/vector/commit/71cdf9e47c6395b3b996e6d803a911f8689f55ed) - GitHub [LOG-19601](https://logdna.atlassian.net/browse/LOG-19601)
+
 ## [3.20.10](https://github.com/answerbook/vector/compare/v3.20.9...v3.20.10) (2024-05-15)
 
 
