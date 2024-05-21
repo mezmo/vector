@@ -357,12 +357,9 @@ impl SourceConfig for KafkaSourceConfig {
             );
         }
 
-        let (consumer, callback_rx) = create_consumer(self, acknowledgements)?;
-
         Ok(Box::pin(kafka_source(
             self.clone(),
-            consumer,
-            callback_rx,
+            acknowledgements,
             decoder,
             cx.out,
             cx.shutdown,
@@ -436,57 +433,74 @@ impl SourceConfig for KafkaSourceConfig {
 #[allow(clippy::too_many_arguments)]
 async fn kafka_source(
     config: KafkaSourceConfig,
-    consumer: StreamConsumer<KafkaSourceContext>,
-    callback_rx: UnboundedReceiver<KafkaCallback>,
+    acknowledgements: bool,
     decoder: Decoder,
     out: SourceSender,
     shutdown: ShutdownSignal,
     eof: bool,
     log_namespace: LogNamespace,
 ) -> Result<(), ()> {
-    let span = info_span!("kafka_source");
-    let consumer = Arc::new(consumer);
+    loop {
+        let span = info_span!("kafka_source");
+        let config = config.clone();
+        let decoder = decoder.clone();
+        let out = out.clone();
+        let shutdown = shutdown.clone();
+        let (consumer, callback_rx) = create_consumer(&config, acknowledgements).map_err(|e| {
+            error!("Failed to create consumer {}", e);
+        })?;
 
-    consumer
-        .context()
-        .consumer
-        .set(Arc::downgrade(&consumer))
-        .expect("Error setting up consumer context.");
+        let consumer = Arc::new(consumer);
 
-    // EOF signal allowing the coordination task to tell the kafka client task when all partitions have reached EOF
-    let (eof_tx, eof_rx) = eof.then(oneshot::channel::<()>).unzip();
+        consumer
+            .context()
+            .consumer
+            .set(Arc::downgrade(&consumer))
+            .expect("Error setting up consumer context.");
 
-    let coordination_task = {
-        let span = span.clone();
-        let consumer = Arc::clone(&consumer);
-        let drain_timeout_ms = config
-            .drain_timeout_ms
-            .map_or(config.session_timeout_ms / 2, Duration::from_millis);
-        let consumer_state =
-            ConsumerStateInner::<Consuming>::new(config, decoder, out, log_namespace, span);
-        tokio::spawn(async move {
-            coordinate_kafka_callbacks(
-                consumer,
-                callback_rx,
-                consumer_state,
-                drain_timeout_ms,
-                eof_tx,
-            )
-            .await;
-        })
-    };
+        // EOF signal allowing the coordination task to tell the kafka client task when all partitions have reached EOF
+        let (eof_tx, eof_rx) = eof.then(oneshot::channel::<()>).unzip();
 
-    let client_task = {
-        let consumer = Arc::clone(&consumer);
-        tokio::task::spawn_blocking(move || {
-            let _enter = span.enter();
-            drive_kafka_consumer(consumer, shutdown, eof_rx);
-        })
-    };
+        let coordination_task = {
+            let span = span.clone();
+            let consumer = Arc::clone(&consumer);
+            let drain_timeout_ms = config
+                .drain_timeout_ms
+                .map_or(config.session_timeout_ms / 2, Duration::from_millis);
+            let consumer_state =
+                ConsumerStateInner::<Consuming>::new(config, decoder, out, log_namespace, span);
+            tokio::spawn(async move {
+                coordinate_kafka_callbacks(
+                    consumer,
+                    callback_rx,
+                    consumer_state,
+                    drain_timeout_ms,
+                    eof_tx,
+                )
+                .await;
+            })
+        };
 
-    _ = tokio::join!(client_task, coordination_task);
-    consumer.context().commit_consumer_state();
+        let client_task = {
+            let consumer = Arc::clone(&consumer);
+            tokio::task::spawn_blocking(move || {
+                let _enter = span.enter();
+                drive_kafka_consumer(consumer, shutdown, eof_rx)
+            })
+        };
 
+        let (client_result, _) = tokio::join!(client_task, coordination_task);
+
+        match client_result {
+            Ok(true) => {
+                info!("Received fatal error in client task. Creating new consumer.");
+            }
+            _ => {
+                consumer.context().commit_consumer_state();
+                break;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -628,7 +642,9 @@ impl ConsumerStateInner<Consuming> {
                                 status = PartitionConsumerStatus::PartitionEOF;
                                 finalizer.take();
                             },
-                            _ => emit!(KafkaReadError { error }),
+                            _ => {
+                                emit!(KafkaReadError { error })
+                            }
                         },
                         Some(Ok(msg)) => {
                             emit!(KafkaBytesReceived {
@@ -917,7 +933,8 @@ fn drive_kafka_consumer(
     consumer: Arc<StreamConsumer<KafkaSourceContext>>,
     mut shutdown: ShutdownSignal,
     eof: Option<oneshot::Receiver<()>>,
-) {
+) -> bool // returns true on fatal error where client should be restarted
+{
     Handle::current().block_on(async move {
         let mut eof: OptionFuture<_> = eof.into();
         let mut stream = consumer.stream();
@@ -937,14 +954,21 @@ fn drive_kafka_consumer(
                 // the consumer to serve client callbacks, such as rebalance notifications
                 message = stream.next() => match message {
                     None => unreachable!("MessageStream never returns Ready(None)"),
-                    Some(Err(error)) => emit!(KafkaReadError { error }),
+                    Some(Err(error)) => {
+                        emit!(KafkaReadError { error: error.clone() });
+                        if matches!(error.rdkafka_error_code(), Some(rdkafka::error::RDKafkaErrorCode::Fatal)) {
+                            consumer.context().shutdown();
+                            return true;
+                        }
+                    },
                     Some(Ok(_msg)) => {
                         unreachable!("Messages are consumed in dedicated tasks for each partition.")
                     }
                 },
             }
         }
-    });
+        false
+    })
 }
 
 async fn parse_message(
@@ -1828,12 +1852,9 @@ mod integration_test {
         .build()
         .unwrap();
 
-        let (consumer, callback_rx) = create_consumer(&config, acknowledgements).unwrap();
-
         tokio::spawn(kafka_source(
             config,
-            consumer,
-            callback_rx,
+            acknowledgements,
             decoder,
             out,
             shutdown,
