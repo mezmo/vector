@@ -1,3 +1,15 @@
+## [3.20.12](https://github.com/answerbook/vector/compare/v3.20.11...v3.20.12) (2024-05-22)
+
+
+### Bug Fixes
+
+* **kafka source**: loop on fatal error, creating new client [4441930](https://github.com/answerbook/vector/commit/4441930bc9cca6080127be5ff0dacc4c682a0ecc) - Adam Holmberg [LOG-19805](https://logdna.atlassian.net/browse/LOG-19805)
+
+
+### Miscellaneous
+
+* Merge pull request #464 from answerbook/holmberg/LOG-19805 [6cb65fd](https://github.com/answerbook/vector/commit/6cb65fd522243bac7e139f4012db328456790bd0) - GitHub [LOG-19805](https://logdna.atlassian.net/browse/LOG-19805)
+
 ## [3.20.11](https://github.com/answerbook/vector/compare/v3.20.10...v3.20.11) (2024-05-21)
 
 
