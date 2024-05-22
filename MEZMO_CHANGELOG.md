@@ -1,3 +1,10 @@
+## [3.20.13](https://github.com/answerbook/vector/compare/v3.20.12...v3.20.13) (2024-05-22)
+
+
+### Bug Fixes
+
+* **postgresql**: Remove unicode nulls from values [dce512c](https://github.com/answerbook/vector/commit/dce512ce943693b30f3536a130e3ef91bfe68242) - Darin Spivey [LOG-19926](https://logdna.atlassian.net/browse/LOG-19926)
+
 ## [3.20.12](https://github.com/answerbook/vector/compare/v3.20.11...v3.20.12) (2024-05-22)
 
 
