@@ -1,3 +1,41 @@
+## [3.20.13](https://github.com/answerbook/vector/compare/v3.20.12...v3.20.13) (2024-05-22)
+
+
+### Bug Fixes
+
+* **postgresql**: Remove unicode nulls from values [dce512c](https://github.com/answerbook/vector/commit/dce512ce943693b30f3536a130e3ef91bfe68242) - Darin Spivey [LOG-19926](https://logdna.atlassian.net/browse/LOG-19926)
+
+## [3.20.12](https://github.com/answerbook/vector/compare/v3.20.11...v3.20.12) (2024-05-22)
+
+
+### Bug Fixes
+
+* **kafka source**: loop on fatal error, creating new client [4441930](https://github.com/answerbook/vector/commit/4441930bc9cca6080127be5ff0dacc4c682a0ecc) - Adam Holmberg [LOG-19805](https://logdna.atlassian.net/browse/LOG-19805)
+
+
+### Miscellaneous
+
+* Merge pull request #464 from answerbook/holmberg/LOG-19805 [6cb65fd](https://github.com/answerbook/vector/commit/6cb65fd522243bac7e139f4012db328456790bd0) - GitHub [LOG-19805](https://logdna.atlassian.net/browse/LOG-19805)
+
+## [3.20.11](https://github.com/answerbook/vector/compare/v3.20.10...v3.20.11) (2024-05-21)
+
+
+### Bug Fixes
+
+* **sink**: otlp metrics tags and name normalize [458f099](https://github.com/answerbook/vector/commit/458f0994dbe97d5cfac8e1e39084ece947011445) - Sergey Opria [LOG-19601](https://logdna.atlassian.net/browse/LOG-19601)
+
+
+### Miscellaneous
+
+* Merge pull request #462 from answerbook/sopria/LOG-19601 [71cdf9e](https://github.com/answerbook/vector/commit/71cdf9e47c6395b3b996e6d803a911f8689f55ed) - GitHub [LOG-19601](https://logdna.atlassian.net/browse/LOG-19601)
+
+## [3.20.10](https://github.com/answerbook/vector/compare/v3.20.9...v3.20.10) (2024-05-15)
+
+
+### Bug Fixes
+
+* **ci**: Turn on commitlint [a03e9c6](https://github.com/answerbook/vector/commit/a03e9c6c43d34ea2d6763a747384ed77891b1a2d) - Darin Spivey [LOG-19886](https://logdna.atlassian.net/browse/LOG-19886)
+
 ## [3.20.9](https://github.com/answerbook/vector/compare/v3.20.8...v3.20.9) (2024-05-10)
 
 

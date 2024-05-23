@@ -164,8 +164,16 @@ impl ToSql for ValueSqlAdapter<'_> {
                 <bool as ToSql>::to_sql(&raw_value, ty, out)
             }
             "map" => {
-                let raw_value: SerdeValue = json!(value.as_object().expect("object"));
-                <SerdeValue as ToSql>::to_sql(&raw_value, ty, out)
+                let serde_value: SerdeValue = json!(value.as_object().expect("object"));
+                if ty.name() == "jsonb" || ty.name() == "json" {
+                    // Serialize and strip any unicode null chars. They will throw for a JSON(B) column.
+                    let sanitized_string = serde_value.to_string().replace("\\u0000", "");
+                    let sanitized_json: SerdeValue =
+                        serde_json::from_str(sanitized_string.as_str())
+                            .expect("not a valid JSON string");
+                    return <SerdeValue as ToSql>::to_sql(&sanitized_json, ty, out);
+                }
+                <SerdeValue as ToSql>::to_sql(&serde_value, ty, out)
             }
             _ => {
                 // Treat unhandled cases, map, array and null as null values
