@@ -1,3 +1,10 @@
+# [3.21.0](https://github.com/answerbook/vector/compare/v3.20.13...v3.21.0) (2024-05-28)
+
+
+### Features
+
+* **aggregate**: Increase default cardinality limit [2726250](https://github.com/answerbook/vector/commit/27262506dc617cab2eddef719b9198920776ec6b) - Dan Hable [LOG-19908](https://logdna.atlassian.net/browse/LOG-19908)
+
 ## [3.20.13](https://github.com/answerbook/vector/compare/v3.20.12...v3.20.13) (2024-05-22)
 
 
