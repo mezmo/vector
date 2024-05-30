@@ -1,3 +1,15 @@
+## [3.21.2](https://github.com/answerbook/vector/compare/v3.21.1...v3.21.2) (2024-05-30)
+
+
+### Bug Fixes
+
+* **consolidation**: bad connection string failures [a7a643e](https://github.com/answerbook/vector/commit/a7a643e48c5661dd41aa207f833fb5cb330d8812) - dominic-mcallister-logdna [LOG-19993](https://logdna.atlassian.net/browse/LOG-19993)
+
+
+### Miscellaneous
+
+* Merge pull request #468 from answerbook/dominic/LOG-19993 [13927de](https://github.com/answerbook/vector/commit/13927ded7e1b59f93d35641e259c606407dff354) - GitHub [LOG-19993](https://logdna.atlassian.net/browse/LOG-19993)
+
 ## [3.21.1](https://github.com/answerbook/vector/compare/v3.21.0...v3.21.1) (2024-05-30)
 
 
