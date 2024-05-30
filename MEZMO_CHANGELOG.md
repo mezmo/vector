@@ -1,3 +1,10 @@
+## [3.21.1](https://github.com/answerbook/vector/compare/v3.21.0...v3.21.1) (2024-05-30)
+
+
+### Bug Fixes
+
+* **postgresql**: Nullify bad JSON serialization [a603ae4](https://github.com/answerbook/vector/commit/a603ae4ea895c71399f41ab908cb4b6050d5a2fa) - Darin Spivey [LOG-19992](https://logdna.atlassian.net/browse/LOG-19992)
+
 # [3.21.0](https://github.com/answerbook/vector/compare/v3.20.13...v3.21.0) (2024-05-28)
 
 
