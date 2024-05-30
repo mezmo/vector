@@ -169,8 +169,7 @@ impl ToSql for ValueSqlAdapter<'_> {
                     // Serialize and strip any unicode null chars. They will throw for a JSON(B) column.
                     let sanitized_string = serde_value.to_string().replace("\\u0000", "");
                     let sanitized_json: SerdeValue =
-                        serde_json::from_str(sanitized_string.as_str())
-                            .expect("not a valid JSON string");
+                        serde_json::from_str(sanitized_string.as_str()).unwrap_or(SerdeValue::Null);
                     return <SerdeValue as ToSql>::to_sql(&sanitized_json, ty, out);
                 }
                 <SerdeValue as ToSql>::to_sql(&serde_value, ty, out)
