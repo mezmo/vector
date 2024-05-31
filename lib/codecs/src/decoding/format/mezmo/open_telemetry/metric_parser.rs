@@ -1,3 +1,5 @@
+use rand::Rng;
+
 use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 use std::borrow::Cow;
@@ -31,7 +33,7 @@ use crate::decoding::format::mezmo::open_telemetry::{
     nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
 };
 
-const METRIC_TIMESTAMP_KEY: &str = "message.value.time_unix_nano";
+const METRIC_TIMESTAMP_KEY: &str = "message.value.time_unix";
 static UNIT_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     vec![
         // Time
@@ -82,7 +84,7 @@ static PER_UNIT_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     .collect()
 });
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct GaugeMetricValue {
     pub value: NumberDataPointOneOfValue,
 }
@@ -114,14 +116,14 @@ impl<'a> MetricValueAccessor<'a> for GaugeMetricValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct GaugeMetricArbitrary<'a> {
     pub name: Cow<'a, str>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
-    pub start_time_unix_nano: u64,
-    pub time_unix_nano: u64,
+    pub start_time_unix: Value,
+    pub time_unix: Value,
     pub flags: u32,
 }
 
@@ -139,8 +141,8 @@ impl<'a> GaugeMetricArbitrary<'a> {
             exemplars: ExemplarsMetricValue {
                 exemplars: gauge_metric.exemplars,
             },
-            start_time_unix_nano: gauge_metric.start_time_unix_nano,
-            time_unix_nano: gauge_metric.time_unix_nano,
+            start_time_unix: nano_to_timestamp(gauge_metric.start_time_unix_nano),
+            time_unix: nano_to_timestamp(gauge_metric.time_unix_nano),
             flags: gauge_metric.flags,
         }
     }
@@ -163,12 +165,12 @@ impl<'a> MetricArbitraryAccessor<'a> for GaugeMetricArbitrary<'_> {
                     &self.exemplars as &dyn IntoValue,
                 ),
                 (
-                    &"start_time_unix_nano" as &dyn ToString,
-                    &self.start_time_unix_nano as &dyn IntoValue,
+                    &"start_time_unix" as &dyn ToString,
+                    &self.start_time_unix as &dyn IntoValue,
                 ),
                 (
-                    &"time_unix_nano" as &dyn ToString,
-                    &self.time_unix_nano as &dyn IntoValue,
+                    &"time_unix" as &dyn ToString,
+                    &self.time_unix as &dyn IntoValue,
                 ),
                 (&"flags" as &dyn ToString, &self.flags as &dyn IntoValue),
             ]
@@ -177,9 +179,9 @@ impl<'a> MetricArbitraryAccessor<'a> for GaugeMetricArbitrary<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct GaugeMetricMetadata<'a> {
-    pub resource: ResourceMetricValue<'a>,
+    pub resource: &'a ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
     original_type: Cow<'a, str>,
@@ -189,7 +191,7 @@ pub struct GaugeMetricMetadata<'a> {
 impl<'a> GaugeMetricMetadata<'a> {
     fn new(
         gauge_metric: NumberDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
+        resource: &'a ResourceMetricValue<'a>,
         scope: ScopeMetricValue<'a>,
     ) -> Self {
         GaugeMetricMetadata {
@@ -220,7 +222,7 @@ impl<'a> MetricArbitraryAccessor<'a> for GaugeMetricMetadata<'_> {
                 ),
                 (
                     &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
+                    self.resource as &dyn IntoValue,
                 ),
                 (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
                 (
@@ -233,7 +235,7 @@ impl<'a> MetricArbitraryAccessor<'a> for GaugeMetricMetadata<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SumMetricValue {
     pub value: NumberDataPointOneOfValue,
     pub is_monotonic: bool,
@@ -280,14 +282,14 @@ impl<'a> MetricValueAccessor<'a> for SumMetricValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SumMetricArbitrary<'a> {
     pub name: Cow<'a, str>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
-    pub start_time_unix_nano: u64,
-    pub time_unix_nano: u64,
+    pub start_time_unix: Value,
+    pub time_unix: Value,
     pub flags: u32,
     pub is_monotonic: bool,
     pub aggregation_temporality: i32,
@@ -309,8 +311,8 @@ impl<'a> SumMetricArbitrary<'a> {
             exemplars: ExemplarsMetricValue {
                 exemplars: sum_metric.exemplars,
             },
-            start_time_unix_nano: sum_metric.start_time_unix_nano,
-            time_unix_nano: sum_metric.time_unix_nano,
+            start_time_unix: nano_to_timestamp(sum_metric.start_time_unix_nano),
+            time_unix: nano_to_timestamp(sum_metric.time_unix_nano),
             flags: sum_metric.flags,
             is_monotonic,
             aggregation_temporality: aggregation_temporality as i32,
@@ -335,12 +337,12 @@ impl<'a> MetricArbitraryAccessor<'a> for SumMetricArbitrary<'_> {
                     &self.exemplars as &dyn IntoValue,
                 ),
                 (
-                    &"start_time_unix_nano" as &dyn ToString,
-                    &self.start_time_unix_nano as &dyn IntoValue,
+                    &"start_time_unix" as &dyn ToString,
+                    &self.start_time_unix as &dyn IntoValue,
                 ),
                 (
-                    &"time_unix_nano" as &dyn ToString,
-                    &self.time_unix_nano as &dyn IntoValue,
+                    &"time_unix" as &dyn ToString,
+                    &self.time_unix as &dyn IntoValue,
                 ),
                 (&"flags" as &dyn ToString, &self.flags as &dyn IntoValue),
                 (
@@ -357,9 +359,9 @@ impl<'a> MetricArbitraryAccessor<'a> for SumMetricArbitrary<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SumMetricMetadata<'a> {
-    pub resource: ResourceMetricValue<'a>,
+    pub resource: &'a ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
     original_type: Cow<'a, str>,
@@ -369,7 +371,7 @@ pub struct SumMetricMetadata<'a> {
 impl<'a> SumMetricMetadata<'a> {
     fn new(
         sum_metric: NumberDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
+        resource: &'a ResourceMetricValue<'a>,
         scope: ScopeMetricValue<'a>,
     ) -> Self {
         SumMetricMetadata {
@@ -400,7 +402,7 @@ impl<'a> MetricArbitraryAccessor<'a> for SumMetricMetadata<'_> {
                 ),
                 (
                     &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
+                    self.resource as &dyn IntoValue,
                 ),
                 (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
                 (
@@ -413,7 +415,7 @@ impl<'a> MetricArbitraryAccessor<'a> for SumMetricMetadata<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct HistogramMetricValue {
     pub count: u64,
     pub sum: f64,
@@ -468,14 +470,14 @@ impl<'a> MetricValueAccessor<'a> for HistogramMetricValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct HistogramMetricArbitrary<'a> {
     pub name: Cow<'a, str>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
-    pub start_time_unix_nano: u64,
-    pub time_unix_nano: u64,
+    pub start_time_unix: Value,
+    pub time_unix: Value,
     pub bucket_counts: Cow<'a, [u64]>,
     pub explicit_bounds: Cow<'a, [f64]>,
     pub flags: u32,
@@ -499,8 +501,8 @@ impl<'a> HistogramMetricArbitrary<'a> {
             exemplars: ExemplarsMetricValue {
                 exemplars: histogram_metric.exemplars,
             },
-            start_time_unix_nano: histogram_metric.start_time_unix_nano,
-            time_unix_nano: histogram_metric.time_unix_nano,
+            start_time_unix: nano_to_timestamp(histogram_metric.start_time_unix_nano),
+            time_unix: nano_to_timestamp(histogram_metric.time_unix_nano),
             bucket_counts: histogram_metric.bucket_counts,
             explicit_bounds: histogram_metric.explicit_bounds,
             flags: histogram_metric.flags,
@@ -528,12 +530,12 @@ impl<'a> MetricArbitraryAccessor<'a> for HistogramMetricArbitrary<'_> {
                     &self.exemplars as &dyn IntoValue,
                 ),
                 (
-                    &"start_time_unix_nano" as &dyn ToString,
-                    &self.start_time_unix_nano as &dyn IntoValue,
+                    &"start_time_unix" as &dyn ToString,
+                    &self.start_time_unix as &dyn IntoValue,
                 ),
                 (
-                    &"time_unix_nano" as &dyn ToString,
-                    &self.time_unix_nano as &dyn IntoValue,
+                    &"time_unix" as &dyn ToString,
+                    &self.time_unix as &dyn IntoValue,
                 ),
                 (
                     &"bucket_counts" as &dyn ToString,
@@ -556,9 +558,9 @@ impl<'a> MetricArbitraryAccessor<'a> for HistogramMetricArbitrary<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct HistogramMetricMetadata<'a> {
-    pub resource: ResourceMetricValue<'a>,
+    pub resource: &'a ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
     original_type: Cow<'a, str>,
@@ -568,7 +570,7 @@ pub struct HistogramMetricMetadata<'a> {
 impl<'a> HistogramMetricMetadata<'a> {
     fn new(
         histogram_metric: HistogramDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
+        resource: &'a ResourceMetricValue<'a>,
         scope: ScopeMetricValue<'a>,
     ) -> Self {
         HistogramMetricMetadata {
@@ -599,7 +601,7 @@ impl<'a> MetricArbitraryAccessor<'a> for HistogramMetricMetadata<'_> {
                 ),
                 (
                     &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
+                    self.resource as &dyn IntoValue,
                 ),
                 (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
                 (
@@ -612,7 +614,7 @@ impl<'a> MetricArbitraryAccessor<'a> for HistogramMetricMetadata<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ExponentialHistogramMetricValue<'a> {
     pub exp_histogram_metric: ExponentialHistogramDataPoint<'a>,
 }
@@ -648,14 +650,14 @@ impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricValue<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ExponentialHistogramMetricArbitrary<'a> {
     pub name: Cow<'a, str>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
-    pub start_time_unix_nano: u64,
-    pub time_unix_nano: u64,
+    pub start_time_unix: Value,
+    pub time_unix: Value,
     pub count: u64,
     pub sum: f64,
     pub scale: i32,
@@ -684,8 +686,8 @@ impl<'a> ExponentialHistogramMetricArbitrary<'a> {
             exemplars: ExemplarsMetricValue {
                 exemplars: exp_histogram_metric.exemplars,
             },
-            start_time_unix_nano: exp_histogram_metric.start_time_unix_nano,
-            time_unix_nano: exp_histogram_metric.time_unix_nano,
+            start_time_unix: nano_to_timestamp(exp_histogram_metric.start_time_unix_nano),
+            time_unix: nano_to_timestamp(exp_histogram_metric.time_unix_nano),
             count: exp_histogram_metric.count,
             sum: exp_histogram_metric.sum,
             scale: exp_histogram_metric.scale,
@@ -718,12 +720,12 @@ impl<'a> MetricArbitraryAccessor<'a> for ExponentialHistogramMetricArbitrary<'_>
                     &self.exemplars as &dyn IntoValue,
                 ),
                 (
-                    &"start_time_unix_nano" as &dyn ToString,
-                    &self.start_time_unix_nano as &dyn IntoValue,
+                    &"start_time_unix" as &dyn ToString,
+                    &self.start_time_unix as &dyn IntoValue,
                 ),
                 (
-                    &"time_unix_nano" as &dyn ToString,
-                    &self.time_unix_nano as &dyn IntoValue,
+                    &"time_unix" as &dyn ToString,
+                    &self.time_unix as &dyn IntoValue,
                 ),
                 (&"count" as &dyn ToString, &self.count as &dyn IntoValue),
                 (&"sum" as &dyn ToString, &self.sum as &dyn IntoValue),
@@ -757,9 +759,9 @@ impl<'a> MetricArbitraryAccessor<'a> for ExponentialHistogramMetricArbitrary<'_>
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ExponentialHistogramMetricMetadata<'a> {
-    pub resource: ResourceMetricValue<'a>,
+    pub resource: &'a ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
 }
@@ -767,7 +769,7 @@ pub struct ExponentialHistogramMetricMetadata<'a> {
 impl<'a> ExponentialHistogramMetricMetadata<'a> {
     fn new(
         exp_histogram_metric: ExponentialHistogramDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
+        resource: &'a ResourceMetricValue<'a>,
         scope: ScopeMetricValue<'a>,
     ) -> Self {
         ExponentialHistogramMetricMetadata {
@@ -788,7 +790,7 @@ impl<'a> MetricArbitraryAccessor<'a> for ExponentialHistogramMetricMetadata<'_> 
             elements: [
                 (
                     &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
+                    self.resource as &dyn IntoValue,
                 ),
                 (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
                 (
@@ -801,7 +803,7 @@ impl<'a> MetricArbitraryAccessor<'a> for ExponentialHistogramMetricMetadata<'_> 
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SummaryMetricValue {
     pub count: u64,
     pub sum: f64,
@@ -845,13 +847,13 @@ impl<'a> MetricValueAccessor<'a> for SummaryMetricValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SummaryMetricArbitrary<'a> {
     pub name: Cow<'a, str>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub start_time_unix_nano: u64,
-    pub time_unix_nano: u64,
+    pub start_time_unix: Value,
+    pub time_unix: Value,
     pub count: u64,
     pub sum: f64,
     pub quantile_values: QuantileValuesMetricValue,
@@ -869,8 +871,8 @@ impl<'a> SummaryMetricArbitrary<'a> {
             name,
             description,
             unit,
-            start_time_unix_nano: summary_metric.start_time_unix_nano,
-            time_unix_nano: summary_metric.time_unix_nano,
+            start_time_unix: nano_to_timestamp(summary_metric.start_time_unix_nano),
+            time_unix: nano_to_timestamp(summary_metric.time_unix_nano),
             count: summary_metric.count,
             sum: summary_metric.sum,
             quantile_values: QuantileValuesMetricValue(summary_metric.quantile_values),
@@ -892,12 +894,12 @@ impl<'a> MetricArbitraryAccessor<'a> for SummaryMetricArbitrary<'_> {
                 ),
                 (&"unit" as &dyn ToString, &self.unit as &dyn IntoValue),
                 (
-                    &"start_time_unix_nano" as &dyn ToString,
-                    &self.start_time_unix_nano as &dyn IntoValue,
+                    &"start_time_unix" as &dyn ToString,
+                    &self.start_time_unix as &dyn IntoValue,
                 ),
                 (
-                    &"time_unix_nano" as &dyn ToString,
-                    &self.time_unix_nano as &dyn IntoValue,
+                    &"time_unix" as &dyn ToString,
+                    &self.time_unix as &dyn IntoValue,
                 ),
                 (&"count" as &dyn ToString, &self.count as &dyn IntoValue),
                 (&"sum" as &dyn ToString, &self.sum as &dyn IntoValue),
@@ -912,9 +914,9 @@ impl<'a> MetricArbitraryAccessor<'a> for SummaryMetricArbitrary<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SummaryMetricMetadata<'a> {
-    pub resource: ResourceMetricValue<'a>,
+    pub resource: &'a ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
     original_type: Cow<'a, str>,
@@ -924,7 +926,7 @@ pub struct SummaryMetricMetadata<'a> {
 impl<'a> SummaryMetricMetadata<'a> {
     fn new(
         summary_metric: SummaryDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
+        resource: &'a ResourceMetricValue<'a>,
         scope: ScopeMetricValue<'a>,
     ) -> Self {
         SummaryMetricMetadata {
@@ -955,7 +957,7 @@ impl<'a> MetricArbitraryAccessor<'a> for SummaryMetricMetadata<'_> {
                 ),
                 (
                     &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
+                    self.resource as &dyn IntoValue,
                 ),
                 (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
                 (
@@ -968,7 +970,7 @@ impl<'a> MetricArbitraryAccessor<'a> for SummaryMetricMetadata<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ScopeMetricValue<'a> {
     pub name: Option<String>,
     pub version: Option<String>,
@@ -1030,22 +1032,25 @@ impl IntoValue for ScopeMetricValue<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ResourceMetricValue<'a> {
+    pub uniq_id: &'a Value,
     pub attributes: OpenTelemetryKeyValue<'a>,
     pub dropped_attributes_count: Option<u32>,
 }
 
 impl<'a> ResourceMetricValue<'a> {
-    fn new(opt: Option<Resource<'a>>) -> Self {
+    fn new(opt: Option<Resource<'a>>, uniq_id: &'a Value) -> Self {
         match opt {
             Some(resource) => ResourceMetricValue {
+                uniq_id,
                 attributes: OpenTelemetryKeyValue {
                     attributes: resource.attributes,
                 },
                 dropped_attributes_count: Some(resource.dropped_attributes_count),
             },
             None => ResourceMetricValue {
+                uniq_id,
                 attributes: OpenTelemetryKeyValue {
                     attributes: Vec::new(),
                 },
@@ -1058,13 +1063,14 @@ impl<'a> ResourceMetricValue<'a> {
 impl IntoValue for ResourceMetricValue<'_> {
     fn to_value(&self) -> Value {
         Value::Object(btreemap! {
+            "uniq_id" => self.uniq_id.clone(),
             "attributes" => self.attributes.to_value(),
             "dropped_attributes_count" => self.dropped_attributes_count,
         })
     }
 }
 
-#[derive(Debug, Default, PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub struct HistogramBucketValue {
     pub upper_limit: f64,
     pub count: u64,
@@ -1083,7 +1089,7 @@ impl IntoValue for HistogramBucketValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct QuantileValuesMetricValue(Vec<SummaryDataPointValueAtQuantile>);
 
 impl IntoValue for QuantileValuesMetricValue {
@@ -1102,7 +1108,7 @@ impl IntoValue for QuantileValuesMetricValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ExemplarsMetricValue<'a> {
     pub exemplars: Vec<Exemplar<'a>>,
 }
@@ -1126,7 +1132,7 @@ impl IntoValue for ExemplarsMetricValue<'_> {
                     Value::Object(btreemap! {
                         "filtered_attributes" => filtered_attributes.to_value(),
                         "value" => exemplar_value,
-                        "time_unix_nano" => exemplar.time_unix_nano,
+                        "time_unix" => nano_to_timestamp(exemplar.time_unix_nano),
                         "span_id" => faster_hex::hex_string(&exemplar.span_id),
                         "trace_id" => faster_hex::hex_string(&exemplar.trace_id),
                     })
@@ -1136,7 +1142,7 @@ impl IntoValue for ExemplarsMetricValue<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct DataPointBucketsMetricValue {
     pub offset: Option<i32>,
     pub bucket_counts: Vec<u64>,
@@ -1171,7 +1177,7 @@ impl IntoValue for DataPointBucketsMetricValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct NumberDataPointOneOfValue {
     pub value: NumberDataPointOneOfvalue,
 }
@@ -1206,20 +1212,36 @@ impl<'a> MetricTagsAccessor<'a> for MetricTagsWrapper<'a> {
                     Some(AnyValue {
                         value: AnyValueOneOfvalue::string_value(val),
                     }) if val.is_empty() => None,
-                    Some(ref any_value) => Some((
+                    Some(AnyValue {
+                        value: AnyValueOneOfvalue::string_value(val),
+                    }) => Some((
                         &key_value.key as &'a dyn ToString,
-                        &any_value.value as &'a dyn IntoTagValue,
+                        val as &'a dyn IntoTagValue,
                     )),
+                    Some(AnyValue {
+                        value: AnyValueOneOfvalue::array_value(array_val),
+                    }) => Some((
+                        &key_value.key as &'a dyn ToString,
+                        array_val as &'a dyn IntoTagValue,
+                    )),
+                    Some(_) => None,
                     None => None,
                 }),
         }
     }
 }
 
-pub fn sanitize_tags<'a>(tags: Vec<KeyValue<'a>>) -> Vec<KeyValue<'a>> {
-    tags.iter()
+pub fn sanitize_tags<'a>(
+    tags: Vec<KeyValue<'a>>,
+    additional_tags: Vec<KeyValue<'a>>,
+) -> Vec<KeyValue<'a>> {
+    let mut super_tags = tags;
+    super_tags.extend(additional_tags.into_iter());
+
+    super_tags
+        .into_iter()
         .map(|key_value| {
-            let mut key = key_value.key.clone();
+            let mut key = key_value.key;
             if !key.is_empty() {
                 let mut sanitized_key: String = key
                     .chars()
@@ -1244,7 +1266,7 @@ pub fn sanitize_tags<'a>(tags: Vec<KeyValue<'a>>) -> Vec<KeyValue<'a>> {
 
             KeyValue {
                 key,
-                value: key_value.value.clone(),
+                value: key_value.value,
             }
         })
         .collect::<Vec<KeyValue>>()
@@ -1371,14 +1393,17 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
             .fold(acc, |acc, sms| acc + sms.metrics.len())
     });
     let mut out = SmallVec::with_capacity(metric_count);
+    let resource_uniq_id: [u8; 8] = rand::thread_rng().gen();
+    let resource_uniq_id: Value = Value::from(faster_hex::hex_string(&resource_uniq_id));
 
     for resource_metric in metric_request.resource_metrics {
-        let tags = MetricTagsWrapper {
-            tags: &sanitize_tags(resource_metric.resource.clone().unwrap().attributes),
-        };
+        let recource =
+            ResourceMetricValue::new(resource_metric.resource.clone(), &resource_uniq_id);
 
         for scope_metric in resource_metric.scope_metrics {
             for metric in scope_metric.metrics {
+                // Create a uniq ID and put it into a arbitrary or metadata
+                // To track group of metrics is in OTLP destination
                 match metric.data {
                     MetricOneOfdata::gauge(gauge) => gauge
                         .data_points
@@ -1395,9 +1420,16 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_metadata = GaugeMetricMetadata::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                &recource,
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
+
+                            let tags = MetricTagsWrapper {
+                                tags: &sanitize_tags(
+                                    recource.attributes.attributes.clone(),
+                                    data_point.clone().attributes,
+                                ),
+                            };
 
                             out.push(make_event(
                                 {
@@ -1433,9 +1465,16 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_metadata = SumMetricMetadata::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                &recource,
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
+
+                            let tags = MetricTagsWrapper {
+                                tags: &sanitize_tags(
+                                    recource.attributes.attributes.clone(),
+                                    data_point.clone().attributes,
+                                ),
+                            };
 
                             out.push(make_event(
                                 {
@@ -1469,9 +1508,16 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_metadata = HistogramMetricMetadata::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                &recource,
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
+
+                            let tags = MetricTagsWrapper {
+                                tags: &sanitize_tags(
+                                    recource.attributes.attributes.clone(),
+                                    data_point.clone().attributes,
+                                ),
+                            };
 
                             out.push(make_event(
                                 {
@@ -1506,9 +1552,16 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_metadata = ExponentialHistogramMetricMetadata::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                &recource,
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
+
+                            let tags = MetricTagsWrapper {
+                                tags: &sanitize_tags(
+                                    recource.attributes.attributes.clone(),
+                                    data_point.clone().attributes,
+                                ),
+                            };
 
                             let _mezmo_metric = MezmoMetric {
                                 name: metric.name.clone(),
@@ -1541,9 +1594,16 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_metadata = SummaryMetricMetadata::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                &recource,
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
+
+                            let tags = MetricTagsWrapper {
+                                tags: &sanitize_tags(
+                                    recource.attributes.attributes.clone(),
+                                    data_point.clone().attributes,
+                                ),
+                            };
 
                             out.push(make_event(
                                 {
@@ -1603,8 +1663,8 @@ fn make_event(mut log_event: LogEvent) -> Event {
     if let Some(timestamp_key) = log_schema().timestamp_key() {
         let metric_timestamp_target = (lookup::PathPrefix::Event, METRIC_TIMESTAMP_KEY);
 
-        let timestamp = if let Some(Value::Integer(time)) = log_event.get(metric_timestamp_target) {
-            nano_to_timestamp(time.to_owned().try_into().unwrap_or(0))
+        let timestamp = if let Some(metric_timestamp) = log_event.get(metric_timestamp_target) {
+            metric_timestamp.clone()
         } else {
             nano_to_timestamp(0)
         };
@@ -1635,14 +1695,23 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     fn otlp_metrics_deserialize_gauge() {
         use opentelemetry_rs::opentelemetry::metrics::{
-            Exemplar, ExemplarOneOfvalue, Gauge, InstrumentationScope, NumberDataPoint,
+            ArrayValue, Exemplar, ExemplarOneOfvalue, Gauge, InstrumentationScope, NumberDataPoint,
             NumberDataPointOneOfvalue, Resource, ResourceMetrics, ScopeMetrics,
         };
 
         let key_value_num_key = KeyValue {
             key: Cow::from("1foo"),
             value: Some(AnyValue {
-                value: AnyValueOneOfvalue::string_value(Cow::from("1bar")),
+                value: AnyValueOneOfvalue::array_value(ArrayValue {
+                    values: vec![
+                        AnyValue {
+                            value: AnyValueOneOfvalue::string_value(Cow::from("bar.1")),
+                        },
+                        AnyValue {
+                            value: AnyValueOneOfvalue::string_value(Cow::from("bar.2")),
+                        },
+                    ],
+                }),
             }),
         };
 
@@ -1757,7 +1826,7 @@ mod tests {
                     "tags".into(),
                     Value::Object(BTreeMap::from([
                         ("foo".into(), "bar".into()),
-                        ("key_1foo".into(), "1bar".into()),
+                        ("key_1foo".into(), "bar.1, bar.2".into()),
                         ("foo_foo".into(), "bar.bar".into()),
                         ("key_foo".into(), "_bar".into()),
                     ]))
@@ -1777,7 +1846,13 @@ mod tests {
                                     "filtered_attributes".into(),
                                     Value::Object(BTreeMap::from([
                                         ("foo".into(), "bar".into()),
-                                        ("1foo".into(), "1bar".into()),
+                                        (
+                                            "1foo".into(),
+                                            Value::Array(Vec::from([
+                                                "bar.1".into(),
+                                                "bar.2".into()
+                                            ]))
+                                        ),
                                         ("foo.foo".into(), "bar.bar".into()),
                                         ("_foo".into(), "_bar".into()),
                                         ("empty".into(), Value::Null),
@@ -1785,8 +1860,16 @@ mod tests {
                                 ),
                                 ("span_id".into(), "74657374".into()),
                                 (
-                                    "time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
+                                    "time_unix".into(),
+                                    Value::from(
+                                        Utc.from_utc_datetime(
+                                            &NaiveDateTime::from_timestamp_opt(
+                                                1_579_134_612_i64,
+                                                11_u32
+                                            )
+                                            .expect("timestamp should be a valid timestamp"),
+                                        )
+                                    )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
                                 ("value".into(), Value::Integer(10)),
@@ -1794,26 +1877,38 @@ mod tests {
                         ),
                         ("flags".into(), Value::Integer(1)),
                         (
-                            "start_time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "start_time_unix".into(),
+                            Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            )
                         ),
                         (
-                            "time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "time_unix".into(),
+                            Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            )
                         ),
                     ]))
                 ),
             ]))
         );
 
+        let log = metrics[0].clone().into_log();
+
+        let metadata = log.value().get("metadata").unwrap();
+
+        let uniq_id = metadata.get("resource.uniq_id");
+
+        assert!(uniq_id.is_some());
+
         assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata.deref(),
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "gauge".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -1824,13 +1919,17 @@ mod tests {
                             "attributes".into(),
                             Value::Object(BTreeMap::from([
                                 ("foo".into(), "bar".into()),
-                                ("1foo".into(), "1bar".into()),
+                                (
+                                    "1foo".into(),
+                                    Value::Array(Vec::from(["bar.1".into(), "bar.2".into()]))
+                                ),
                                 ("foo.foo".into(), "bar.bar".into()),
                                 ("_foo".into(), "_bar".into()),
                                 ("empty".into(), Value::Null),
                             ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("uniq_id".into(), uniq_id.unwrap().clone()),
                     ]))
                 ),
                 (
@@ -1840,7 +1939,10 @@ mod tests {
                             "attributes".into(),
                             Value::Object(BTreeMap::from([
                                 ("foo".into(), "bar".into()),
-                                ("1foo".into(), "1bar".into()),
+                                (
+                                    "1foo".into(),
+                                    Value::Array(Vec::from(["bar.1".into(), "bar.2".into()]))
+                                ),
                                 ("foo.foo".into(), "bar.bar".into()),
                                 ("_foo".into(), "_bar".into()),
                                 ("empty".into(), Value::Null),
@@ -1855,7 +1957,10 @@ mod tests {
                     "attributes".into(),
                     Value::Object(BTreeMap::from([
                         ("foo".into(), "bar".into()),
-                        ("1foo".into(), "1bar".into()),
+                        (
+                            "1foo".into(),
+                            Value::Array(Vec::from(["bar.1".into(), "bar.2".into()]))
+                        ),
                         ("foo.foo".into(), "bar.bar".into()),
                         ("_foo".into(), "_bar".into()),
                         ("empty".into(), Value::Null),
@@ -1984,8 +2089,16 @@ mod tests {
                                 ),
                                 ("span_id".into(), "74657374".into()),
                                 (
-                                    "time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
+                                    "time_unix".into(),
+                                    Value::from(
+                                        Utc.from_utc_datetime(
+                                            &NaiveDateTime::from_timestamp_opt(
+                                                1_579_134_612_i64,
+                                                11_u32
+                                            )
+                                            .expect("timestamp should be a valid timestamp"),
+                                        )
+                                    )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
                                 ("value".into(), Value::Integer(10)),
@@ -1993,12 +2106,22 @@ mod tests {
                         ),
                         ("flags".into(), Value::Integer(1)),
                         (
-                            "start_time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "start_time_unix".into(),
+                            Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            )
                         ),
                         (
-                            "time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "time_unix".into(),
+                            Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            )
                         ),
                         ("aggregation_temporality".into(), Value::Integer(0)),
                         ("is_monotonic".into(), Value::Boolean(true)),
@@ -2007,14 +2130,16 @@ mod tests {
             ]))
         );
 
+        let log = metrics[0].clone().into_log();
+
+        let metadata = log.value().get("metadata").unwrap();
+
+        let uniq_id = metadata.get("resource.uniq_id");
+
+        assert!(uniq_id.is_some());
+
         assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata.deref(),
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "sum".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -2029,6 +2154,7 @@ mod tests {
                             ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("uniq_id".into(), uniq_id.unwrap().clone()),
                     ]))
                 ),
                 (
@@ -2176,8 +2302,16 @@ mod tests {
                                 ),
                                 ("span_id".into(), "74657374".into()),
                                 (
-                                    "time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
+                                    "time_unix".into(),
+                                    Value::from(
+                                        Utc.from_utc_datetime(
+                                            &NaiveDateTime::from_timestamp_opt(
+                                                1_579_134_612_i64,
+                                                11_u32
+                                            )
+                                            .expect("timestamp should be a valid timestamp"),
+                                        )
+                                    )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
                                 ("value".into(), Value::Integer(10)),
@@ -2185,12 +2319,22 @@ mod tests {
                         ),
                         ("flags".into(), Value::Integer(1)),
                         (
-                            "start_time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "start_time_unix".into(),
+                            Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            )
                         ),
                         (
-                            "time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "time_unix".into(),
+                            Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            )
                         ),
                         ("aggregation_temporality".into(), Value::Integer(0)),
                         ("is_monotonic".into(), Value::Boolean(false)),
@@ -2199,14 +2343,16 @@ mod tests {
             ]))
         );
 
+        let log = metrics[0].clone().into_log();
+
+        let metadata = log.value().get("metadata").unwrap();
+
+        let uniq_id = metadata.get("resource.uniq_id");
+
+        assert!(uniq_id.is_some());
+
         assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata.deref(),
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "sum".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -2221,6 +2367,7 @@ mod tests {
                             ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("uniq_id".into(), uniq_id.unwrap().clone()),
                     ]))
                 ),
                 (
@@ -2256,7 +2403,7 @@ mod tests {
         assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
         assert_eq!(
             metric.timestamp().unwrap(),
-            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap())
         );
     }
 
@@ -2483,8 +2630,16 @@ mod tests {
                                 ),
                                 ("span_id".into(), "74657374".into()),
                                 (
-                                    "time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
+                                    "time_unix".into(),
+                                    Value::from(
+                                        Utc.from_utc_datetime(
+                                            &NaiveDateTime::from_timestamp_opt(
+                                                1_579_134_612_i64,
+                                                11_u32
+                                            )
+                                            .expect("timestamp should be a valid timestamp"),
+                                        )
+                                    )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
                                 ("value".into(), from_f64_or_zero(10.5)),
@@ -2492,12 +2647,22 @@ mod tests {
                         ),
                         ("flags".into(), Value::Integer(1)),
                         (
-                            "start_time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "start_time_unix".into(),
+                            Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            )
                         ),
                         (
-                            "time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "time_unix".into(),
+                            Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            )
                         ),
                         ("max".into(), from_f64_or_zero(9.9)),
                         ("min".into(), from_f64_or_zero(0.1)),
@@ -2507,14 +2672,16 @@ mod tests {
             ]))
         );
 
+        let log = metrics[0].clone().into_log();
+
+        let metadata = log.value().get("metadata").unwrap();
+
+        let uniq_id = metadata.get("resource.uniq_id");
+
+        assert!(uniq_id.is_some());
+
         assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata.deref(),
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "histogram".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -2529,6 +2696,7 @@ mod tests {
                             ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("uniq_id".into(), uniq_id.unwrap().clone()),
                     ]))
                 ),
                 (
@@ -2980,26 +3148,38 @@ mod tests {
                         ),
                         ("sum".into(), from_f64_or_zero(3.7)),
                         (
-                            "start_time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "start_time_unix".into(),
+                            Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            )
                         ),
                         (
-                            "time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "time_unix".into(),
+                            Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            )
                         ),
                     ]))
                 ),
             ]))
         );
 
+        let log = metrics[0].clone().into_log();
+
+        let metadata = log.value().get("metadata").unwrap();
+
+        let uniq_id = metadata.get("resource.uniq_id");
+
+        assert!(uniq_id.is_some());
+
         assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata.deref(),
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "summary".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -3014,6 +3194,7 @@ mod tests {
                             ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("uniq_id".into(), uniq_id.unwrap().clone()),
                     ]))
                 ),
                 (

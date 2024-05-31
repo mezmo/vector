@@ -2,6 +2,7 @@ mod vector;
 
 use crate::config::log_schema;
 use opentelemetry_rs::opentelemetry::common::AnyValueOneOfvalue as OpenTelemetryMetricAnyValue;
+use opentelemetry_rs::opentelemetry::common::ArrayValue as OpenTelemetryMetricArrayValue;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ops::Deref;
@@ -129,13 +130,40 @@ impl IntoTagValue for OpenTelemetryMetricAnyValue<'_> {
             OpenTelemetryMetricAnyValue::bytes_value(val) => {
                 String::from_utf8_lossy(&val[..]).into()
             }
+            OpenTelemetryMetricAnyValue::array_value(val) => val.to_tag_value(),
 
             // NOTE Tag is supposed to be a scalar type, array and struct cannot be converted
             // We may need to serialize them if exists
-            // OpenTelemetryMetricAnyValue::array_value(val_list) => ...
             // OpenTelemetryMetricAnyValue::kvlist_value(kv_list) => ...
             _ => TagValue::Bare,
         }
+    }
+}
+
+impl IntoTagValue for OpenTelemetryMetricArrayValue<'_> {
+    fn to_tag_value(&self) -> TagValue {
+        self.values
+            .iter()
+            .map(|any_value| match &any_value.value {
+                OpenTelemetryMetricAnyValue::string_value(val) => val.to_string(),
+                OpenTelemetryMetricAnyValue::bool_value(val) => u32::from(*val).to_string(),
+                OpenTelemetryMetricAnyValue::int_value(val) => val.to_string(),
+                OpenTelemetryMetricAnyValue::double_value(val) => val.to_string(),
+                OpenTelemetryMetricAnyValue::bytes_value(val) => {
+                    String::from_utf8_lossy(&val[..]).into()
+                }
+                OpenTelemetryMetricAnyValue::array_value(val) => match val.to_tag_value() {
+                    TagValue::Value(val) => val,
+                    TagValue::Bare => String::new(),
+                },
+                // NOTE Tag is supposed to be a scalar type, array and struct cannot be converted
+                // We may need to serialize them if exists
+                // OpenTelemetryMetricAnyValue::kvlist_value(kv_list) => ...
+                _ => String::new(),
+            })
+            .collect::<Vec<String>>()
+            .join(", ")
+            .into()
     }
 }
 

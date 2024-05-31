@@ -1,3 +1,4 @@
+use lookup::PathPrefix;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
@@ -7,8 +8,8 @@ use crate::{
     config::log_schema,
     event::{
         metric::{
-            mezmo::from_f64_or_zero, Bucket, Metric, MetricData, MetricKind, MetricName,
-            MetricSeries, MetricTags, MetricTime, MetricValue, Quantile, Sample,
+            mezmo::from_f64_or_zero, Bucket, Metric, MetricArbitrary, MetricData, MetricKind,
+            MetricName, MetricSeries, MetricTags, MetricTime, MetricValue, Quantile, Sample,
         },
         LogEvent, StatisticKind, Value,
     },
@@ -186,6 +187,31 @@ fn parse_string(value: &Value) -> Result<String, TransformError> {
     Ok(value.to_string())
 }
 
+fn parse_arbitrary(
+    value_object: &BTreeMap<String, Value>,
+    user_metadata: &BTreeMap<String, Value>,
+) -> MetricArbitrary {
+    let mut filtered_value = value_object
+        .iter()
+        .filter_map(|(key, value)| {
+            if key.as_str() == "type" || key.as_str() == "value" {
+                return None;
+            }
+
+            Some((key.clone(), value.clone()))
+        })
+        .collect::<BTreeMap<String, Value>>();
+
+    filtered_value.insert(
+        log_schema().user_metadata_key().to_string(),
+        Value::Object(user_metadata.clone()),
+    );
+
+    MetricArbitrary {
+        value: filtered_value,
+    }
+}
+
 fn get_float(value_object: &BTreeMap<String, Value>, name: &str) -> Result<f64, TransformError> {
     let value = get_property(value_object, name)?;
 
@@ -247,6 +273,14 @@ pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
     };
 
     let metadata = log.metadata().clone();
+
+    let mut user_metadata = &BTreeMap::new();
+    if let Some(Value::Object(metadata)) =
+        log.get((PathPrefix::Event, log_schema().user_metadata_key()))
+    {
+        user_metadata = metadata;
+    }
+    let user_metadata = user_metadata;
 
     let root = log
         .get(log_schema().message_key_target_path().unwrap())
@@ -318,6 +352,7 @@ pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
     }?;
 
     let value = parse_value(type_name.as_ref(), value_object)?;
+    let arbitrary = parse_arbitrary(value_object, user_metadata);
 
     Ok(Metric::from_parts(
         MetricSeries {
@@ -334,6 +369,7 @@ pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
             },
             kind,
             value,
+            arbitrary,
         },
         metadata,
     ))
@@ -411,83 +447,84 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
         values.insert("tags".to_owned(), from_tags(tags));
     }
 
-    values.insert(
-        "value".to_owned(),
-        match metric.value() {
-            MetricValue::Counter { value } => Value::Object(BTreeMap::from([
-                ("type".to_owned(), "counter".into()),
-                ("value".to_owned(), from_f64_or_zero(*value)),
-            ])),
-            MetricValue::Gauge { value } => Value::Object(BTreeMap::from([
-                ("type".to_owned(), "gauge".into()),
-                ("value".to_owned(), from_f64_or_zero(*value)),
-            ])),
-            MetricValue::Set { values } => Value::Object(BTreeMap::from([
-                ("type".to_owned(), "set".into()),
-                (
-                    "value".to_owned(),
-                    BTreeMap::from([(
-                        "values".to_owned(),
-                        Value::Array(values.iter().map(|i| i.clone().into()).collect()),
-                    )])
-                    .into(),
-                ),
-            ])),
+    let mut value = match metric.value() {
+        MetricValue::Counter { value } => BTreeMap::from([
+            ("type".to_owned(), "counter".into()),
+            ("value".to_owned(), from_f64_or_zero(*value)),
+        ]),
+        MetricValue::Gauge { value } => BTreeMap::from([
+            ("type".to_owned(), "gauge".into()),
+            ("value".to_owned(), from_f64_or_zero(*value)),
+        ]),
+        MetricValue::Set { values } => BTreeMap::from([
+            ("type".to_owned(), "set".into()),
+            (
+                "value".to_owned(),
+                BTreeMap::from([(
+                    "values".to_owned(),
+                    Value::Array(values.iter().map(|i| i.clone().into()).collect()),
+                )])
+                .into(),
+            ),
+        ]),
+        MetricValue::Distribution { samples, statistic } => BTreeMap::from([
+            ("type".to_owned(), "distribution".into()),
+            (
+                "value".to_owned(),
+                BTreeMap::from([
+                    ("samples".to_owned(), from_samples(samples)),
+                    (
+                        "statistic".to_owned(),
+                        if statistic == &StatisticKind::Histogram {
+                            "histogram"
+                        } else {
+                            "summary"
+                        }
+                        .into(),
+                    ),
+                ])
+                .into(),
+            ),
+        ]),
+        MetricValue::AggregatedSummary {
+            quantiles,
+            count,
+            sum,
+        } => BTreeMap::from([
+            ("type".to_owned(), "summary".into()),
+            (
+                "value".to_owned(),
+                BTreeMap::from([
+                    ("quantiles".to_owned(), from_quantiles(quantiles)),
+                    ("count".to_owned(), (*count).into()),
+                    ("sum".to_owned(), from_f64_or_zero(*sum)),
+                ])
+                .into(),
+            ),
+        ]),
+        MetricValue::AggregatedHistogram {
+            buckets,
+            count,
+            sum,
+        } => BTreeMap::from([
+            ("type".to_owned(), "histogram".into()),
+            (
+                "value".to_owned(),
+                Value::Object(BTreeMap::from([
+                    ("buckets".to_owned(), from_buckets(buckets)),
+                    ("count".to_owned(), (*count).into()),
+                    ("sum".to_owned(), from_f64_or_zero(*sum)),
+                ])),
+            ),
+        ]),
+        _ => panic!("unsupported metric value type"),
+    };
 
-            MetricValue::Distribution { samples, statistic } => Value::Object(BTreeMap::from([
-                ("type".to_owned(), "distribution".into()),
-                (
-                    "value".to_owned(),
-                    BTreeMap::from([
-                        ("samples".to_owned(), from_samples(samples)),
-                        (
-                            "statistic".to_owned(),
-                            if statistic == &StatisticKind::Histogram {
-                                "histogram"
-                            } else {
-                                "summary"
-                            }
-                            .into(),
-                        ),
-                    ])
-                    .into(),
-                ),
-            ])),
-            MetricValue::AggregatedSummary {
-                quantiles,
-                count,
-                sum,
-            } => BTreeMap::from([
-                ("type".to_owned(), "summary".into()),
-                (
-                    "value".to_owned(),
-                    BTreeMap::from([
-                        ("quantiles".to_owned(), from_quantiles(quantiles)),
-                        ("count".to_owned(), (*count).into()),
-                        ("sum".to_owned(), from_f64_or_zero(*sum)),
-                    ])
-                    .into(),
-                ),
-            ])
-            .into(),
-            MetricValue::AggregatedHistogram {
-                buckets,
-                count,
-                sum,
-            } => Value::Object(BTreeMap::from([
-                ("type".to_owned(), "histogram".into()),
-                (
-                    "value".to_owned(),
-                    Value::Object(BTreeMap::from([
-                        ("buckets".to_owned(), from_buckets(buckets)),
-                        ("count".to_owned(), (*count).into()),
-                        ("sum".to_owned(), from_f64_or_zero(*sum)),
-                    ])),
-                ),
-            ])),
-            _ => panic!("unsupported metric value type"),
-        },
-    );
+    value.extend(metric.arbitrary_value().value().clone());
+
+    value.remove(log_schema().user_metadata_key());
+
+    values.insert("value".to_owned(), value.into());
 
     LogEvent::from_map(
         BTreeMap::from([("message".to_owned(), Value::Object(values))]),
@@ -516,7 +553,12 @@ mod tests {
                 "tags": {"k1": "v1"},
                 "value": {
                     "type": "counter",
-                    "value": 123.0
+                    "value": 123.0,
+                    "name": "test_name",
+                    "description": "description",
+                    "attributes": {
+                        "attribute": "value"
+                    }
                 }
             }
         }"#,
@@ -540,7 +582,12 @@ mod tests {
                 "tags": {"k1": "v1"},
                 "value": {
                     "type": "count",
-                    "value": 123.4
+                    "value": 123.4,
+                    "name": "test_name",
+                    "description": "description",
+                    "attributes": {
+                        "attribute": "value"
+                    }
                 }
             }
         }"#,
@@ -569,7 +616,12 @@ mod tests {
                 "tags": {"k1": "v1"},
                 "value": {
                     "type": "gauge",
-                    "value": 456.0
+                    "value": 456.0,
+                    "name": "test_name",
+                    "description": "description",
+                    "attributes": {
+                        "attribute": "value"
+                    }
                 }
             }
         }"#,
@@ -593,7 +645,12 @@ mod tests {
                 "tags": {"k1": "v1"},
                 "value": {
                     "type": "set",
-                    "value": { "values": ["a", "b", "c"] }
+                    "value": { "values": ["a", "b", "c"] },
+                    "name": "test_name",
+                    "description": "description",
+                    "attributes": {
+                        "attribute": "value"
+                    }
                 }
             }
         }"#,
@@ -642,6 +699,11 @@ mod tests {
                           ],
                         "count": 6,
                         "sum": 0.000368255
+                    },
+                    "name": "test_name",
+                    "description": "description",
+                    "attributes": {
+                        "attribute": "value"
                     }
                 }
             }
@@ -691,6 +753,11 @@ mod tests {
                             ],
                         "count": 20,
                         "sum": 123.0
+                    },
+                    "name": "test_name",
+                    "description": "description",
+                    "attributes": {
+                        "attribute": "value"
                     }
                 }
             }
@@ -721,6 +788,11 @@ mod tests {
                             {"value": 2.2, "rate": 500}
                         ],
                         "statistic": "summary"
+                    },
+                    "name": "test_name",
+                    "description": "description",
+                    "attributes": {
+                        "attribute": "value"
                     }
                 }
             }

@@ -8,8 +8,8 @@ use quickcheck::{empty_shrinker, Arbitrary, Gen};
 
 use super::super::{
     metric::{
-        Bucket, MetricData, MetricName, MetricSeries, MetricSketch, MetricTags, MetricTime,
-        Quantile, Sample,
+        Bucket, MetricArbitrary, MetricData, MetricName, MetricSeries, MetricSketch, MetricTags,
+        MetricTime, Quantile, Sample,
     },
     Event, EventMetadata, LogEvent, Metric, MetricKind, MetricValue, StatisticKind, TraceEvent,
     Value,
@@ -573,6 +573,7 @@ impl Arbitrary for MetricData {
             },
             kind: MetricKind::arbitrary(g),
             value: MetricValue::arbitrary(g),
+            arbitrary: MetricArbitrary::default(),
         }
     }
 
