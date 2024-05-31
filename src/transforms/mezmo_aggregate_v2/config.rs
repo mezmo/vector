@@ -124,7 +124,7 @@ const fn default_flush_tick_ms() -> u64 {
 }
 
 const fn default_mem_cardinality_limit() -> u32 {
-    2000
+    20_000
 }
 
 const fn default_mem_window_limit() -> u32 {

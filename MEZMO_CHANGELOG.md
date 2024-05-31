@@ -1,3 +1,29 @@
+## [3.21.2](https://github.com/answerbook/vector/compare/v3.21.1...v3.21.2) (2024-05-30)
+
+
+### Bug Fixes
+
+* **consolidation**: bad connection string failures [a7a643e](https://github.com/answerbook/vector/commit/a7a643e48c5661dd41aa207f833fb5cb330d8812) - dominic-mcallister-logdna [LOG-19993](https://logdna.atlassian.net/browse/LOG-19993)
+
+
+### Miscellaneous
+
+* Merge pull request #468 from answerbook/dominic/LOG-19993 [13927de](https://github.com/answerbook/vector/commit/13927ded7e1b59f93d35641e259c606407dff354) - GitHub [LOG-19993](https://logdna.atlassian.net/browse/LOG-19993)
+
+## [3.21.1](https://github.com/answerbook/vector/compare/v3.21.0...v3.21.1) (2024-05-30)
+
+
+### Bug Fixes
+
+* **postgresql**: Nullify bad JSON serialization [a603ae4](https://github.com/answerbook/vector/commit/a603ae4ea895c71399f41ab908cb4b6050d5a2fa) - Darin Spivey [LOG-19992](https://logdna.atlassian.net/browse/LOG-19992)
+
+# [3.21.0](https://github.com/answerbook/vector/compare/v3.20.13...v3.21.0) (2024-05-28)
+
+
+### Features
+
+* **aggregate**: Increase default cardinality limit [2726250](https://github.com/answerbook/vector/commit/27262506dc617cab2eddef719b9198920776ec6b) - Dan Hable [LOG-19908](https://logdna.atlassian.net/browse/LOG-19908)
+
 ## [3.20.13](https://github.com/answerbook/vector/compare/v3.20.12...v3.20.13) (2024-05-22)
 
 
