@@ -295,39 +295,4 @@ spec:
             resources:
               requests:
                 storage: "{{{requests-storage}}}"
-
-    - apiVersion: autoscaling/v2
-      kind: HorizontalPodAutoscaler
-      metadata:
-        name: vector-{{partition-id}}
-        namespace: pipeline
-      spec:
-        minReplicas: {{{min-replicas}}}
-        maxReplicas: {{{max-replicas}}}
-        scaleTargetRef:
-          apiVersion: apps/v1
-          kind: StatefulSet
-          name: vector-{{partition-id}}
-        metrics:
-        - type: Resource
-          resource:
-            name: cpu
-            target:
-              type: Utilization
-              averageUtilization: 600 # Goes from 100 to 800 (CPU 1 to 8)
-        behavior:
-          # Every 3 minutes, it can scale up 1 pod at a time if CPU stays above 600 for 1 minute
-          scaleUp:
-            stabilizationWindowSeconds: 180
-            policies:
-            - type: Pods
-              value: 1
-              periodSeconds: 60
-          # Every 10 minutes, it can scale down 1 pod at a time if CPU stays below 600 for 1 minute
-          scaleDown:
-            stabilizationWindowSeconds: 600
-            policies:
-            - type: Pods
-              value: 1
-              periodSeconds: 60
     {{/vector-partitions}}
