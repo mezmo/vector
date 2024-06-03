@@ -227,7 +227,9 @@ spec:
                     cpu: "{{{requests-cpu}}}"
                   limits:
                     memory: "{{{limits-memory}}}"
+                    {{#limits-cpu}}
                     cpu: "{{{limits-cpu}}}"
+                    {{/limits-cpu}}
                 volumeMounts:
                   - name: data
                     mountPath: "/data/vector"
