@@ -1,3 +1,10 @@
+## [3.21.3](https://github.com/answerbook/vector/compare/v3.21.2...v3.21.3) (2024-06-04)
+
+
+### Bug Fixes
+
+* **aggregate-v2**: fix cardinality limit check [db927a2](https://github.com/answerbook/vector/commit/db927a25ef852d6a91105f15787be8d5947099d1) - Dan Hable [LOG-20037](https://logdna.atlassian.net/browse/LOG-20037)
+
 ## [3.21.2](https://github.com/answerbook/vector/compare/v3.21.1...v3.21.2) (2024-05-30)
 
 
