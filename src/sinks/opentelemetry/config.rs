@@ -14,7 +14,10 @@ use crate::{
 
 use async_trait::async_trait;
 use futures_util::FutureExt;
-use http::{uri::InvalidUri, Uri};
+use http::{
+    uri::{InvalidUri, PathAndQuery},
+    Uri,
+};
 use tower::ServiceBuilder;
 use vector_lib::configurable::configurable_component;
 use vector_lib::tls::{TlsConfig, TlsSettings};
@@ -25,8 +28,6 @@ use super::sink::OpentelemetrySinkError;
 use super::{
     encoding::OpentelemetryEncoder, service::OpentelemetryService, sink::OpentelemetrySink,
 };
-
-const OPENTELEMETRY_HEALTHCHECK_PORT: &str = "13133";
 
 const DEFAULT_MAX_EVENTS: usize = 100;
 const DEFAULT_MAX_BYTES: usize = 1_000_000;
@@ -119,11 +120,12 @@ impl OpentelemetryEndpoint {
     }
 }
 
-impl TryFrom<String> for OpentelemetryEndpoint {
+impl TryFrom<&OpentelemetrySinkConfig> for OpentelemetryEndpoint {
     type Error = OpentelemetrySinkEndpointError;
 
-    fn try_from(endpoint: String) -> Result<Self, Self::Error> {
-        let uri = endpoint
+    fn try_from(config: &OpentelemetrySinkConfig) -> Result<Self, Self::Error> {
+        let uri = config
+            .endpoint
             .parse::<Uri>()
             .map_err(OpentelemetrySinkEndpointError::from)?;
 
@@ -132,33 +134,51 @@ impl TryFrom<String> for OpentelemetryEndpoint {
             .authority()
             .map(|a| a.as_str())
             .ok_or("Endpoint authority is invalid")?;
-        let host = uri.host().ok_or("Endpoint host is invalid")?;
 
-        let healthcheck_uri = Uri::builder()
-            .scheme(scheme)
-            .authority(host.to_owned() + ":" + OPENTELEMETRY_HEALTHCHECK_PORT)
-            .path_and_query("/")
-            .build()
-            .map_err(OpentelemetrySinkEndpointError::from)?;
+        let mut healthcheck_uri = uri.clone();
+
+        if let Some(healthcheck_port) = config.healthcheck_port {
+            let host = healthcheck_uri.host().ok_or("Endpoint host is invalid")?;
+            let default_path_and_query = PathAndQuery::from_static("");
+            let path_and_query = healthcheck_uri
+                .path_and_query()
+                .unwrap_or(&default_path_and_query)
+                .as_str();
+
+            healthcheck_uri = Uri::builder()
+                .scheme(scheme)
+                .authority(host.to_owned() + ":" + &healthcheck_port.to_string())
+                .path_and_query(path_and_query)
+                .build()
+                .map_err(OpentelemetrySinkEndpointError::from)?;
+        }
+
+        let mut path = uri.path();
+        if path.ends_with('/') {
+            let mut path_chars = path.chars();
+            path_chars.next_back();
+            path = path_chars.as_str();
+        }
+        let query = uri.query().unwrap_or("");
 
         let logs_uri = Uri::builder()
             .scheme(scheme)
             .authority(authority)
-            .path_and_query("/v1/logs")
+            .path_and_query(path.to_owned() + "/v1/logs?" + query)
             .build()
             .map_err(OpentelemetrySinkEndpointError::from)?;
 
         let metrics_uri = Uri::builder()
             .scheme(scheme)
             .authority(authority)
-            .path_and_query("/v1/metrics")
+            .path_and_query(path.to_owned() + "/v1/metrics?" + query)
             .build()
             .map_err(OpentelemetrySinkEndpointError::from)?;
 
         let traces_uri = Uri::builder()
             .scheme(scheme)
             .authority(authority)
-            .path_and_query("/v1/traces")
+            .path_and_query(path.to_owned() + "/v1/traces?" + query)
             .build()
             .map_err(OpentelemetrySinkEndpointError::from)?;
 
@@ -181,6 +201,10 @@ pub struct OpentelemetrySinkConfig {
     /// The endpoint should include the scheme and the port to send to.
     #[configurable(metadata(docs::examples = "https://localhost:8087"))]
     pub endpoint: String,
+
+    /// The healthcheck port
+    #[configurable(metadata(docs::examples = 13133))]
+    pub healthcheck_port: Option<u16>,
 
     #[configurable(derived)]
     pub auth: Option<OpentelemetrySinkAuth>,
@@ -232,7 +256,7 @@ impl GenerateConfig for OpentelemetrySinkConfig {
 #[typetag::serde(name = "opentelemetry")]
 impl SinkConfig for OpentelemetrySinkConfig {
     async fn build(&self, ctx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
-        let endpoint = OpentelemetryEndpoint::try_from(self.endpoint.clone())?;
+        let endpoint = OpentelemetryEndpoint::try_from(self)?;
 
         let auth = match &self.auth {
             Some(OpentelemetrySinkAuth::Basic { user, password }) => {
@@ -290,5 +314,210 @@ impl SinkConfig for OpentelemetrySinkConfig {
 
     fn acknowledgements(&self) -> &AcknowledgementsConfig {
         &self.acknowledgements
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::sinks::{opentelemetry::config::OpentelemetrySinkConfig, util::test::load_sink};
+    use indoc::indoc;
+
+    #[test]
+    fn test_otlp_sink_endpoint_healthcheck() {
+        // Case: No healthcheck_port
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087"
+        "#};
+        let (config, _) =
+            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
+
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(endpoint.healthcheck(), "https://localhost:8087");
+
+        // Case: Endpoint URI has no path or query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087"
+            healthcheck_port = 13133
+        "#};
+        let (config, _) =
+            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
+
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(endpoint.healthcheck(), "https://localhost:13133");
+
+        // Case: Endpoint URI has path but no query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087/some_intermediate_path"
+            healthcheck_port = 13133
+        "#};
+        let (config, _) = load_sink::<OpentelemetrySinkConfig>(config).unwrap();
+
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(
+            endpoint.healthcheck(),
+            "https://localhost:13133/some_intermediate_path"
+        );
+
+        // Case: Endpoint URI has path and query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087/some_intermediate_path?query=val"
+            healthcheck_port = 13133
+        "#};
+        let (config, _) = load_sink::<OpentelemetrySinkConfig>(config).unwrap();
+
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(
+            endpoint.healthcheck(),
+            "https://localhost:13133/some_intermediate_path?query=val"
+        );
+    }
+
+    #[test]
+    fn test_otlp_sink_endpoint_logs() {
+        // Case: Endpoint URI has no path or query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087"
+        "#};
+        let (config, _) =
+            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(
+            endpoint
+                .endpoint(OpentelemetryModelType::Logs)
+                .expect("Get log endpoint error"),
+            "https://localhost:8087/v1/logs"
+        );
+
+        // Case: Endpoint URI has path but no query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087/some_intermediate_path"
+        "#};
+        let (config, _) =
+            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(
+            endpoint
+                .endpoint(OpentelemetryModelType::Logs)
+                .expect("Get log endpoint error"),
+            "https://localhost:8087/some_intermediate_path/v1/logs"
+        );
+
+        // Case: Endpoint URI has path and query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087/some_intermediate_path?query=val"
+        "#};
+        let (config, _) =
+            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(
+            endpoint
+                .endpoint(OpentelemetryModelType::Logs)
+                .expect("Get log endpoint error"),
+            "https://localhost:8087/some_intermediate_path/v1/logs?query=val"
+        );
+    }
+
+    #[test]
+    fn test_otlp_sink_endpoint_metrics() {
+        // Case: Endpoint URI has no path or query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087"
+        "#};
+        let (config, _) =
+            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(
+            endpoint
+                .endpoint(OpentelemetryModelType::Metrics)
+                .expect("Get log endpoint error"),
+            "https://localhost:8087/v1/metrics"
+        );
+
+        // Case: Endpoint URI has path but no query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087/some_intermediate_path"
+        "#};
+        let (config, _) =
+            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(
+            endpoint
+                .endpoint(OpentelemetryModelType::Metrics)
+                .expect("Get log endpoint error"),
+            "https://localhost:8087/some_intermediate_path/v1/metrics"
+        );
+
+        // Case: Endpoint URI has path and query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087/some_intermediate_path?query=val"
+        "#};
+        let (config, _) =
+            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(
+            endpoint
+                .endpoint(OpentelemetryModelType::Metrics)
+                .expect("Get log endpoint error"),
+            "https://localhost:8087/some_intermediate_path/v1/metrics?query=val"
+        );
+    }
+
+    #[test]
+    fn test_otlp_sink_endpoint_traces() {
+        // Case: Endpoint URI has no path or query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087"
+        "#};
+        let (config, _) =
+            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(
+            endpoint
+                .endpoint(OpentelemetryModelType::Traces)
+                .expect("Get log endpoint error"),
+            "https://localhost:8087/v1/traces"
+        );
+
+        // Case: Endpoint URI has path but no query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087/some_intermediate_path"
+        "#};
+        let (config, _) =
+            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(
+            endpoint
+                .endpoint(OpentelemetryModelType::Traces)
+                .expect("Get log endpoint error"),
+            "https://localhost:8087/some_intermediate_path/v1/traces"
+        );
+
+        // Case: Endpoint URI has path and query
+        let config = indoc! {r#"
+            endpoint = "https://localhost:8087/some_intermediate_path?query=val"
+        "#};
+        let (config, _) =
+            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
+        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
+
+        assert_eq!(
+            endpoint
+                .endpoint(OpentelemetryModelType::Traces)
+                .expect("Get log endpoint error"),
+            "https://localhost:8087/some_intermediate_path/v1/traces?query=val"
+        );
     }
 }
