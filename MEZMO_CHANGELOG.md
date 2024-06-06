@@ -1,3 +1,15 @@
+## [3.21.4](https://github.com/answerbook/vector/compare/v3.21.3...v3.21.4) (2024-06-06)
+
+
+### Bug Fixes
+
+* **otlp sink**: make otlp sink healthcheck configurable [146a30d](https://github.com/answerbook/vector/commit/146a30d27afa8654774935933544bc766e65525a) - Sergey Opria [LOG-20060](https://logdna.atlassian.net/browse/LOG-20060)
+
+
+### Miscellaneous
+
+* Merge pull request #470 from answerbook/sopria/LOG-20060 [b8cdba4](https://github.com/answerbook/vector/commit/b8cdba4b84f952c1956834212e8781f8c9b1d85d) - GitHub [LOG-20060](https://logdna.atlassian.net/browse/LOG-20060)
+
 ## [3.21.3](https://github.com/answerbook/vector/compare/v3.21.2...v3.21.3) (2024-06-04)
 
 
