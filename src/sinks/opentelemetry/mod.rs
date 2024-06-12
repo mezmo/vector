@@ -1,6 +1,5 @@
 pub(crate) mod config;
 pub(crate) mod encoding;
-pub(crate) mod healthcheck;
 pub(crate) mod models;
 pub(crate) mod service;
 pub(crate) mod sink;

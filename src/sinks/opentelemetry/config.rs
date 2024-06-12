@@ -1,5 +1,4 @@
 use crate::mezmo::user_trace::MezmoLoggingService;
-use crate::sinks::opentelemetry::healthcheck::healthcheck;
 use crate::sinks::util::retries::RetryLogic;
 use crate::sinks::util::{ServiceBuilderExt, TowerRequestConfig};
 use crate::{
@@ -13,11 +12,7 @@ use crate::{
 };
 
 use async_trait::async_trait;
-use futures_util::FutureExt;
-use http::{
-    uri::{InvalidUri, PathAndQuery},
-    Uri,
-};
+use http::{uri::InvalidUri, Uri};
 use tower::ServiceBuilder;
 use vector_lib::configurable::configurable_component;
 use vector_lib::tls::{TlsConfig, TlsSettings};
@@ -99,17 +94,12 @@ impl std::error::Error for OpentelemetrySinkEndpointError {
 
 #[derive(Clone, Debug, Default)]
 pub struct OpentelemetryEndpoint {
-    healthcheck_uri: Uri,
     logs_uri: Uri,
     metrics_uri: Uri,
     traces_uri: Uri,
 }
 
 impl OpentelemetryEndpoint {
-    pub fn healthcheck(&self) -> Uri {
-        self.healthcheck_uri.clone()
-    }
-
     pub fn endpoint(&self, model_type: OpentelemetryModelType) -> Option<Uri> {
         match model_type {
             OpentelemetryModelType::Logs => Some(self.logs_uri.clone()),
@@ -134,24 +124,6 @@ impl TryFrom<&OpentelemetrySinkConfig> for OpentelemetryEndpoint {
             .authority()
             .map(|a| a.as_str())
             .ok_or("Endpoint authority is invalid")?;
-
-        let mut healthcheck_uri = uri.clone();
-
-        if let Some(healthcheck_port) = config.healthcheck_port {
-            let host = healthcheck_uri.host().ok_or("Endpoint host is invalid")?;
-            let default_path_and_query = PathAndQuery::from_static("");
-            let path_and_query = healthcheck_uri
-                .path_and_query()
-                .unwrap_or(&default_path_and_query)
-                .as_str();
-
-            healthcheck_uri = Uri::builder()
-                .scheme(scheme)
-                .authority(host.to_owned() + ":" + &healthcheck_port.to_string())
-                .path_and_query(path_and_query)
-                .build()
-                .map_err(OpentelemetrySinkEndpointError::from)?;
-        }
 
         let mut path = uri.path();
         if path.ends_with('/') {
@@ -183,7 +155,6 @@ impl TryFrom<&OpentelemetrySinkConfig> for OpentelemetryEndpoint {
             .map_err(OpentelemetrySinkEndpointError::from)?;
 
         Ok(Self {
-            healthcheck_uri,
             logs_uri,
             metrics_uri,
             traces_uri,
@@ -201,10 +172,6 @@ pub struct OpentelemetrySinkConfig {
     /// The endpoint should include the scheme and the port to send to.
     #[configurable(metadata(docs::examples = "https://localhost:8087"))]
     pub endpoint: String,
-
-    /// The healthcheck port
-    #[configurable(metadata(docs::examples = 13133))]
-    pub healthcheck_port: Option<u16>,
 
     #[configurable(derived)]
     pub auth: Option<OpentelemetrySinkAuth>,
@@ -283,8 +250,7 @@ impl SinkConfig for OpentelemetrySinkConfig {
 
         let client = self.build_client(ctx.clone())?;
 
-        let healthcheck =
-            healthcheck(endpoint.clone(), client.clone(), auth.clone(), ctx.clone()).boxed();
+        let healthcheck = healthcheck();
 
         let service = ServiceBuilder::new()
             .settings(request_limits, OpentelemetryRetry)
@@ -305,7 +271,10 @@ impl SinkConfig for OpentelemetrySinkConfig {
             batcher_settings,
             mezmo_ctx: ctx.mezmo_ctx,
         };
-        Ok((VectorSink::from_event_streamsink(sink), healthcheck))
+        Ok((
+            VectorSink::from_event_streamsink(sink),
+            Box::pin(healthcheck),
+        ))
     }
 
     fn input(&self) -> Input {
@@ -317,65 +286,15 @@ impl SinkConfig for OpentelemetrySinkConfig {
     }
 }
 
+pub(crate) async fn healthcheck() -> crate::Result<()> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::sinks::{opentelemetry::config::OpentelemetrySinkConfig, util::test::load_sink};
     use indoc::indoc;
-
-    #[test]
-    fn test_otlp_sink_endpoint_healthcheck() {
-        // Case: No healthcheck_port
-        let config = indoc! {r#"
-            endpoint = "https://localhost:8087"
-        "#};
-        let (config, _) =
-            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
-
-        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
-
-        assert_eq!(endpoint.healthcheck(), "https://localhost:8087");
-
-        // Case: Endpoint URI has no path or query
-        let config = indoc! {r#"
-            endpoint = "https://localhost:8087"
-            healthcheck_port = 13133
-        "#};
-        let (config, _) =
-            load_sink::<OpentelemetrySinkConfig>(config).expect("Config parsing error");
-
-        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
-
-        assert_eq!(endpoint.healthcheck(), "https://localhost:13133");
-
-        // Case: Endpoint URI has path but no query
-        let config = indoc! {r#"
-            endpoint = "https://localhost:8087/some_intermediate_path"
-            healthcheck_port = 13133
-        "#};
-        let (config, _) = load_sink::<OpentelemetrySinkConfig>(config).unwrap();
-
-        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
-
-        assert_eq!(
-            endpoint.healthcheck(),
-            "https://localhost:13133/some_intermediate_path"
-        );
-
-        // Case: Endpoint URI has path and query
-        let config = indoc! {r#"
-            endpoint = "https://localhost:8087/some_intermediate_path?query=val"
-            healthcheck_port = 13133
-        "#};
-        let (config, _) = load_sink::<OpentelemetrySinkConfig>(config).unwrap();
-
-        let endpoint = OpentelemetryEndpoint::try_from(&config).expect("Endpoint parsing error");
-
-        assert_eq!(
-            endpoint.healthcheck(),
-            "https://localhost:13133/some_intermediate_path?query=val"
-        );
-    }
 
     #[test]
     fn test_otlp_sink_endpoint_logs() {
