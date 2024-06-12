@@ -1,3 +1,15 @@
+## [3.22.1](https://github.com/answerbook/vector/compare/v3.22.0...v3.22.1) (2024-06-12)
+
+
+### Chores
+
+* **otlp**: get rid of the otlp healthcheck [be8f06f](https://github.com/answerbook/vector/commit/be8f06f552425d9b4cc1bf966e0441be7d13a2d2) - Sergey Opria [LOG-20060](https://logdna.atlassian.net/browse/LOG-20060)
+
+
+### Miscellaneous
+
+* Merge pull request #472 from answerbook/sopria/LOG-20060 [45f5e3f](https://github.com/answerbook/vector/commit/45f5e3fa3bcad860865014cd93c89f1de7bf24f2) - GitHub [LOG-20060](https://logdna.atlassian.net/browse/LOG-20060)
+
 # [3.22.0](https://github.com/answerbook/vector/compare/v3.21.4...v3.22.0) (2024-06-12)
 
 
