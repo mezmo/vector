@@ -1,3 +1,20 @@
+# [3.22.0](https://github.com/answerbook/vector/compare/v3.21.4...v3.22.0) (2024-06-12)
+
+
+### Chores
+
+* remove vector hpas [02bf63f](https://github.com/answerbook/vector/commit/02bf63f234275d0ef58cd855815786a1aed15e9a) - Adam Holmberg [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
+
+### Features
+
+* make CPU limits optional for vector sts [dda4b6e](https://github.com/answerbook/vector/commit/dda4b6ef648de93f8de7f8e07ee976d47620793d) - Adam Holmberg [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
+
+### Miscellaneous
+
+* Merge pull request #471 from answerbook/feature/LOG-19700 [ef0137d](https://github.com/answerbook/vector/commit/ef0137d1b498f067a3a0e57afeb0ce9063aa8336) - GitHub [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
 ## [3.21.4](https://github.com/answerbook/vector/compare/v3.21.3...v3.21.4) (2024-06-06)
 
 
