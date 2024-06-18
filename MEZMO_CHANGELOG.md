@@ -1,3 +1,15 @@
+## [3.22.3](https://github.com/answerbook/vector/compare/v3.22.2...v3.22.3) (2024-06-18)
+
+
+### Chores
+
+* **otlp**: add arbitrary headers for otlp destination config [88f2759](https://github.com/answerbook/vector/commit/88f27593aabd2cfed6bbe4615d64a1cad9d432da) - Sergey Opria [LOG-20123](https://logdna.atlassian.net/browse/LOG-20123)
+
+
+### Miscellaneous
+
+* Merge pull request #475 from answerbook/sopria/LOG-20123 [f7b0d23](https://github.com/answerbook/vector/commit/f7b0d23a4eef7d9ea7cdd0723038ebfbd33e3c06) - GitHub [LOG-20123](https://logdna.atlassian.net/browse/LOG-20123)
+
 ## [3.22.2](https://github.com/answerbook/vector/compare/v3.22.1...v3.22.2) (2024-06-18)
 
 
