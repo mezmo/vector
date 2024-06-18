@@ -1,3 +1,10 @@
+## [3.22.2](https://github.com/answerbook/vector/compare/v3.22.1...v3.22.2) (2024-06-18)
+
+
+### Bug Fixes
+
+* **kafka source**: Reorder message consume loop to avoid memory growth [664f7d8](https://github.com/answerbook/vector/commit/664f7d82bb3cfb3d808c6141fa3654460251be90) - Dan Hable [LOG-20069](https://logdna.atlassian.net/browse/LOG-20069)
+
 ## [3.22.1](https://github.com/answerbook/vector/compare/v3.22.0...v3.22.1) (2024-06-12)
 
 
