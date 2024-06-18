@@ -1,18 +1,19 @@
 use crate::mezmo::user_trace::MezmoLoggingService;
 use crate::sinks::util::retries::RetryLogic;
-use crate::sinks::util::{ServiceBuilderExt, TowerRequestConfig};
+use crate::sinks::util::ServiceBuilderExt;
 use crate::{
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     http::HttpClient,
     sinks::{
         opentelemetry::{Auth, OpentelemetrySinkAuth},
-        util::{BatchConfig, Compression, SinkBatchSettings},
+        util::{http::RequestConfig, BatchConfig, Compression, SinkBatchSettings},
         Healthcheck, VectorSink,
     },
 };
 
 use async_trait::async_trait;
-use http::{uri::InvalidUri, Uri};
+use http::{header::AUTHORIZATION, uri::InvalidUri, HeaderName, HeaderValue, Uri};
+use indexmap::IndexMap;
 use tower::ServiceBuilder;
 use vector_lib::configurable::configurable_component;
 use vector_lib::tls::{TlsConfig, TlsSettings};
@@ -186,7 +187,7 @@ pub struct OpentelemetrySinkConfig {
 
     #[configurable(derived)]
     #[serde(default)]
-    pub request: TowerRequestConfig,
+    pub request: RequestConfig,
 
     #[configurable(derived)]
     pub tls: Option<TlsConfig>,
@@ -246,19 +247,22 @@ impl SinkConfig for OpentelemetrySinkConfig {
             .limit_max_events(self.batch.max_events.unwrap_or(DEFAULT_MAX_EVENTS))?
             .into_batcher_settings()?;
 
-        let request_limits = self.request.unwrap_with(&Default::default());
+        let request_settings = self.request.tower.unwrap_with(&Default::default());
 
         let client = self.build_client(ctx.clone())?;
 
         let healthcheck = healthcheck();
 
+        let headers = validate_headers(&self.request.headers, self.auth.is_some())?;
+
         let service = ServiceBuilder::new()
-            .settings(request_limits, OpentelemetryRetry)
+            .settings(request_settings, OpentelemetryRetry)
             .service(MezmoLoggingService::new(
                 OpentelemetryService {
                     endpoint: endpoint.clone(),
                     client,
                     auth,
+                    headers,
                 },
                 ctx.mezmo_ctx.clone(),
             ));
@@ -288,6 +292,21 @@ impl SinkConfig for OpentelemetrySinkConfig {
 
 pub(crate) async fn healthcheck() -> crate::Result<()> {
     Ok(())
+}
+
+fn validate_headers(
+    headers: &IndexMap<String, String>,
+    configures_auth: bool,
+) -> crate::Result<IndexMap<HeaderName, HeaderValue>> {
+    let headers = crate::sinks::util::http::validate_headers(headers)?;
+
+    for name in headers.keys() {
+        if configures_auth && name == AUTHORIZATION {
+            return Err("Authorization header can not be used with defined auth options".into());
+        }
+    }
+
+    Ok(headers)
 }
 
 #[cfg(test)]

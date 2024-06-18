@@ -31,6 +31,9 @@ async fn test_opentelemetry_sink_endpoint() {
     let config = indoc! {r#"
         endpoint = "opentelemetry-endpoint"
         compression = "gzip"
+        [request.headers]
+        Auth = "token:thing_and-stuff"
+        X-My-Custom-Header = "_%_{}_-_&_._`_|_~_!_#_&_$_"
     "#};
 
     let endpoint = std::env::var("TEST_OPENTELEMETRY_ENDPOINT")
