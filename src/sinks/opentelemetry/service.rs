@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use std::task::{Context, Poll};
 
 use crate::{
@@ -12,7 +13,7 @@ use bytes::Bytes;
 use futures::future::BoxFuture;
 use http::{
     header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE},
-    Request,
+    HeaderName, HeaderValue, Request,
 };
 use hyper::Body;
 use tower::Service;
@@ -82,6 +83,7 @@ pub struct OpentelemetryService {
     pub endpoint: OpentelemetryEndpoint,
     pub client: HttpClient,
     pub auth: Option<Auth>,
+    pub headers: IndexMap<HeaderName, HeaderValue>,
 }
 
 impl Service<OpentelemetryApiRequest> for OpentelemetryService {
@@ -126,6 +128,12 @@ impl Service<OpentelemetryApiRequest> for OpentelemetryService {
             .header(CONTENT_TYPE, "application/x-protobuf")
             .body(Body::from(request.payload))
             .expect("building HTTP request failed unexpectedly");
+
+        let headers = http_request.headers_mut();
+
+        for (name, value) in self.headers.iter() {
+            headers.insert(name, value.clone());
+        }
 
         if let Some(auth) = &self.auth {
             match auth {
