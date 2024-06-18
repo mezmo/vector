@@ -300,14 +300,6 @@ impl MezmoAggregateV2 {
     /// events that are ready to be released/flushed will not be further mutated but remain in memory until the flush
     /// method is called, typically on a polling cycle.
     fn record(&mut self, event: Event) {
-        if self.data.len() >= (self.aggregator_limits.mem_cardinality_limit as usize) {
-            user_log_error!(
-                self.mezmo_ctx,
-                Value::from("Aggregate event dropped; cardinality limit exceeded".to_string())
-            );
-            return;
-        }
-
         let event_key = self.get_event_key(&event);
         let event_timestamp = self.get_event_timestamp(&event);
 
@@ -319,6 +311,16 @@ impl MezmoAggregateV2 {
         // new events
         match &mut event_aggregations {
             None => {
+                if self.data.len() >= (self.aggregator_limits.mem_cardinality_limit as usize) {
+                    user_log_error!(
+                        self.mezmo_ctx,
+                        Value::from(
+                            "Aggregate event dropped; cardinality limit exceeded".to_string()
+                        )
+                    );
+                    return;
+                }
+
                 let mut windows = VecDeque::new();
                 windows.push_back(AggregateWindow::new(
                     event.to_owned(),

@@ -362,6 +362,23 @@ async fn record_drops_events_when_cardinality_is_exceeded() {
         actual.is_none(),
         "keys were added after exceeding cardinality limit"
     );
+
+    // LOG-20037: Ensure that events in the aggregation prior to the cardinality limit
+    // are still operated on.
+    target.record(counter("a", None, 2.0));
+    let key = metric_event_key("a", None);
+    let actual = target
+        .data
+        .get(&key)
+        .expect("aggregation window for counter a");
+    let actual = actual.front().expect("an aggregate window exists");
+    let actual = actual
+        .event
+        .as_log()
+        .get(".message.value.value")
+        .expect("a counter value");
+    let actual = actual.as_integer().expect("an integer");
+    assert_eq!(actual, 5);
 }
 
 #[tokio::test]

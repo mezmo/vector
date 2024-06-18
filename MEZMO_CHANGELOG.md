@@ -1,3 +1,51 @@
+## [3.22.1](https://github.com/answerbook/vector/compare/v3.22.0...v3.22.1) (2024-06-12)
+
+
+### Chores
+
+* **otlp**: get rid of the otlp healthcheck [be8f06f](https://github.com/answerbook/vector/commit/be8f06f552425d9b4cc1bf966e0441be7d13a2d2) - Sergey Opria [LOG-20060](https://logdna.atlassian.net/browse/LOG-20060)
+
+
+### Miscellaneous
+
+* Merge pull request #472 from answerbook/sopria/LOG-20060 [45f5e3f](https://github.com/answerbook/vector/commit/45f5e3fa3bcad860865014cd93c89f1de7bf24f2) - GitHub [LOG-20060](https://logdna.atlassian.net/browse/LOG-20060)
+
+# [3.22.0](https://github.com/answerbook/vector/compare/v3.21.4...v3.22.0) (2024-06-12)
+
+
+### Chores
+
+* remove vector hpas [02bf63f](https://github.com/answerbook/vector/commit/02bf63f234275d0ef58cd855815786a1aed15e9a) - Adam Holmberg [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
+
+### Features
+
+* make CPU limits optional for vector sts [dda4b6e](https://github.com/answerbook/vector/commit/dda4b6ef648de93f8de7f8e07ee976d47620793d) - Adam Holmberg [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
+
+### Miscellaneous
+
+* Merge pull request #471 from answerbook/feature/LOG-19700 [ef0137d](https://github.com/answerbook/vector/commit/ef0137d1b498f067a3a0e57afeb0ce9063aa8336) - GitHub [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
+## [3.21.4](https://github.com/answerbook/vector/compare/v3.21.3...v3.21.4) (2024-06-06)
+
+
+### Bug Fixes
+
+* **otlp sink**: make otlp sink healthcheck configurable [146a30d](https://github.com/answerbook/vector/commit/146a30d27afa8654774935933544bc766e65525a) - Sergey Opria [LOG-20060](https://logdna.atlassian.net/browse/LOG-20060)
+
+
+### Miscellaneous
+
+* Merge pull request #470 from answerbook/sopria/LOG-20060 [b8cdba4](https://github.com/answerbook/vector/commit/b8cdba4b84f952c1956834212e8781f8c9b1d85d) - GitHub [LOG-20060](https://logdna.atlassian.net/browse/LOG-20060)
+
+## [3.21.3](https://github.com/answerbook/vector/compare/v3.21.2...v3.21.3) (2024-06-04)
+
+
+### Bug Fixes
+
+* **aggregate-v2**: fix cardinality limit check [db927a2](https://github.com/answerbook/vector/commit/db927a25ef852d6a91105f15787be8d5947099d1) - Dan Hable [LOG-20037](https://logdna.atlassian.net/browse/LOG-20037)
+
 ## [3.21.2](https://github.com/answerbook/vector/compare/v3.21.1...v3.21.2) (2024-05-30)
 
 
