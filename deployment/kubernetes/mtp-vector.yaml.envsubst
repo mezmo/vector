@@ -25,10 +25,7 @@ spec:
           "requests-memory": "2Gi",
           "requests-storage": "10Gi",
           "storage-class": "gp3-us-east-1a",
-          "limits-cpu": 8,
-          "limits-memory": "16Gi",
-          "min-replicas": 2,
-          "max-replicas": 8
+          "limits-memory": "16Gi"
         }]
       valueFrom:
         configMapKeyRef:
