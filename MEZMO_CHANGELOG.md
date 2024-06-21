@@ -1,3 +1,15 @@
+## [3.22.4](https://github.com/answerbook/vector/compare/v3.22.3...v3.22.4) (2024-06-21)
+
+
+### Chores
+
+* remove unused attributes from the default partition [f2d9160](https://github.com/answerbook/vector/commit/f2d91606999290b535403f75220210be11d0c760) - Adam Holmberg [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
+
+### Miscellaneous
+
+* Merge pull request #476 from answerbook/feature/LOG-19700 [032f879](https://github.com/answerbook/vector/commit/032f8793bab3371ca66fcfc3f4a1649daad439ee) - GitHub [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
 ## [3.22.3](https://github.com/answerbook/vector/compare/v3.22.2...v3.22.3) (2024-06-18)
 
 
