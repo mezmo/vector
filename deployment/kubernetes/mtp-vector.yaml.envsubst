@@ -21,11 +21,11 @@ spec:
       default: |
         [{
           "partition-id": "gen0",
-          "requests-cpu": 1,
-          "requests-memory": "2Gi",
+          "requests-cpu": 16,
+          "requests-memory": "32Gi",
           "requests-storage": "10Gi",
           "storage-class": "gp3-us-east-1a",
-          "limits-memory": "16Gi"
+          "limits-memory": "72Gi"
         }]
       valueFrom:
         configMapKeyRef:
