@@ -1,3 +1,15 @@
+## [3.22.5](https://github.com/answerbook/vector/compare/v3.22.4...v3.22.5) (2024-06-27)
+
+
+### Chores
+
+* tweaking default partition to new resource defaults [fe94805](https://github.com/answerbook/vector/commit/fe9480567968c9b5d4c85662a2399c7749a85a06) - Adam Holmberg [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
+
+### Miscellaneous
+
+* Merge pull request #477 from answerbook/holmberg/LOG-19700 [cfb07f2](https://github.com/answerbook/vector/commit/cfb07f2cc484d618f1124f76408426a0d95d2e8e) - GitHub [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
 ## [3.22.4](https://github.com/answerbook/vector/compare/v3.22.3...v3.22.4) (2024-06-21)
 
 
