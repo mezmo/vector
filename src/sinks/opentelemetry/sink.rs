@@ -152,7 +152,7 @@ impl RequestBuilder<(OpentelemetryModelType, Vec<Event>)> for OpentelemetryReque
                 }
                 Ok(OpentelemetryModel::Logs(logs))
             }
-            OpentelemetryModelType::Traces => {
+            OpentelemetryModelType::Traces { partitioner_key: _ } => {
                 let mut traces: Vec<OpentelemetryTracesModel> = vec![];
                 for (i, event) in events.iter().enumerate() {
                     match OpentelemetryTracesModel::try_from(event.clone()) {

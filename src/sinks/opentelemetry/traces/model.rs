@@ -39,6 +39,7 @@ impl OpentelemetryModelMatch for OpentelemetryTracesModel {
                 let span_id = message.get("span_id");
                 let events = message.get("events");
                 let links = message.get("links");
+                let partitioner_key: OpentelemetrySpanId = metadata.get("span_uniq_id").into();
 
                 if resource
                     .and(attributes)
@@ -49,7 +50,9 @@ impl OpentelemetryModelMatch for OpentelemetryTracesModel {
                     .and(links)
                     .is_some()
                 {
-                    return Some(OpentelemetryModelType::Traces);
+                    return Some(OpentelemetryModelType::Traces {
+                        partitioner_key: partitioner_key.into(),
+                    });
                 }
             }
         }
@@ -293,12 +296,14 @@ mod test {
 
     #[test]
     fn test_otlp_sink_trace_model_matcher_matches() {
+        let uniq_id: [u8; 8] = [76, 114, 27, 243, 62, 60, 175, 143];
         let event = Event::Log(LogEvent::from_map(
             btreemap! {
                 "metadata" => Value::from(btreemap!{
                     "resource" => "resource",
                     "attributes" => "attributes",
                     "scope" => "scope",
+                    "span_uniq_id" => uniq_id,
                 }),
                 "message" => Value::from(btreemap!{
                     "trace_id" => "trace_id",
@@ -313,7 +318,7 @@ mod test {
         assert!(
             matches!(
                 OpentelemetryTracesModel::maybe_match(&event),
-                Some(OpentelemetryModelType::Traces)
+                Some(OpentelemetryModelType::Traces { partitioner_key: _ })
             ),
             "event matcher does not match expected event"
         );
@@ -337,6 +342,7 @@ mod test {
 
     #[test]
     fn test_otlp_sink_event_to_trace_model() {
+        let uniq_id: [u8; 8] = [76, 114, 27, 243, 62, 60, 175, 143];
         let trace_id_hex = faster_hex::hex_string(&[
             95, 70, 127, 231, 191, 66, 103, 108, 5, 226, 11, 164, 169, 14, 68, 142,
         ]);
@@ -438,6 +444,7 @@ mod test {
                 "test" => "test_root_attr",
             },
             "level" => "trace",
+            "span_uniq_id" => uniq_id,
         };
 
         let event = Event::Log(LogEvent::from_map(
@@ -451,7 +458,7 @@ mod test {
         assert!(
             matches!(
                 OpentelemetryTracesModel::maybe_match(&event),
-                Some(OpentelemetryModelType::Traces)
+                Some(OpentelemetryModelType::Traces { partitioner_key: _ })
             ),
             "event matcher does not match expected event"
         );

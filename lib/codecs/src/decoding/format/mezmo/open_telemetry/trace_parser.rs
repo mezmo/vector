@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use vector_core::event::metric::mezmo::IntoValue;
@@ -112,6 +113,9 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
 
                 let scope = Value::from(scope);
 
+                let span_uniq_id: [u8; 8] = rand::thread_rng().gen();
+                let span_uniq_id: Value = Value::from(faster_hex::hex_string(&span_uniq_id));
+
                 acc.extend(scope_spans.spans.into_iter().map(|span| {
                     let links = Value::Array(
                         span.links
@@ -191,6 +195,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                         "resource" => resource.clone(),
                         "scope" => scope.clone(),
                         "attributes" => filtered_attributes.to_value(),
+                        "span_uniq_id" => span_uniq_id.clone(),
                     };
 
                     let message_key = log_schema().message_key().unwrap().to_string();
@@ -374,14 +379,16 @@ mod tests {
             ]))
         );
 
+        let trace = traces[0].clone().into_log();
+
+        let metadata = trace.get("metadata").unwrap();
+
+        let span_uniq_id = metadata.get("span_uniq_id");
+
+        assert!(span_uniq_id.is_some());
+
         assert_eq!(
-            *traces[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata.deref(),
             Value::Object(BTreeMap::from([
                 (
                     "resource".into(),
@@ -411,6 +418,7 @@ mod tests {
                     Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
                 ),
                 ("level".into(), "trace".into()),
+                ("span_uniq_id".into(), span_uniq_id.unwrap().clone()),
             ]))
         );
     }
