@@ -1,3 +1,15 @@
+## [3.22.6](https://github.com/answerbook/vector/compare/v3.22.5...v3.22.6) (2024-06-29)
+
+
+### Bug Fixes
+
+* **otlp**: grouping traces spans same as received from source [044522b](https://github.com/answerbook/vector/commit/044522b977b7d8b9898461e05dc385d512e57426) - Sergey Opria [LOG-20205](https://logdna.atlassian.net/browse/LOG-20205) [LOG-20184](https://logdna.atlassian.net/browse/LOG-20184)
+
+
+### Miscellaneous
+
+* Merge pull request #478 from answerbook/sopria/LOG-20184 [15e76ad](https://github.com/answerbook/vector/commit/15e76ad33ea6d14b3720741ece14c76537f5f086) - GitHub [LOG-20184](https://logdna.atlassian.net/browse/LOG-20184)
+
 ## [3.22.5](https://github.com/answerbook/vector/compare/v3.22.4...v3.22.5) (2024-06-27)
 
 
