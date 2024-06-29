@@ -148,6 +148,12 @@ impl From<OpentelemetryTraceId> for TraceId {
     }
 }
 
+impl From<OpentelemetryTraceId> for [u8; 16] {
+    fn from(trace_id: OpentelemetryTraceId) -> Self {
+        trace_id.0.to_bytes()
+    }
+}
+
 pub struct OpentelemetrySpanId(SpanId);
 
 impl From<Option<&Value>> for OpentelemetrySpanId {
@@ -168,6 +174,12 @@ impl From<Option<&Value>> for OpentelemetrySpanId {
 impl From<OpentelemetrySpanId> for SpanId {
     fn from(span_id: OpentelemetrySpanId) -> Self {
         span_id.0
+    }
+}
+
+impl From<OpentelemetrySpanId> for [u8; 8] {
+    fn from(span_id: OpentelemetrySpanId) -> Self {
+        span_id.0.to_bytes()
     }
 }
 
@@ -342,7 +354,7 @@ pub enum OpentelemetryModel {
 pub enum OpentelemetryModelType {
     Logs,
     Metrics,
-    Traces,
+    Traces { partitioner_key: [u8; 8] },
     Unknown,
 }
 

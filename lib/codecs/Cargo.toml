@@ -36,6 +36,7 @@ vector-config-common = { path = "../vector-config-common", default-features = fa
 vector-config-macros = { path = "../vector-config-macros", default-features = false }
 vector-core = { path = "../vector-core", default-features = false }
 opentelemetry-rs = { version = "1.2.1", tag = "v1.2.4" , git = "https://github.com/mezmo/opentelemetry-rs.git" }
+rand = "0.8.5"
 
 [dev-dependencies]
 futures = { version = "0.3", default-features = false }

@@ -105,7 +105,7 @@ impl OpentelemetryEndpoint {
         match model_type {
             OpentelemetryModelType::Logs => Some(self.logs_uri.clone()),
             OpentelemetryModelType::Metrics => Some(self.metrics_uri.clone()),
-            OpentelemetryModelType::Traces => Some(self.traces_uri.clone()),
+            OpentelemetryModelType::Traces { .. } => Some(self.traces_uri.clone()),
             OpentelemetryModelType::Unknown => None,
         }
     }
@@ -423,7 +423,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Traces)
+                .endpoint(OpentelemetryModelType::Traces {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0]
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/v1/traces"
         );
@@ -438,7 +440,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Traces)
+                .endpoint(OpentelemetryModelType::Traces {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0]
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/some_intermediate_path/v1/traces"
         );
@@ -453,7 +457,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Traces)
+                .endpoint(OpentelemetryModelType::Traces {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0]
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/some_intermediate_path/v1/traces?query=val"
         );

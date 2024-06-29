@@ -389,7 +389,7 @@ mod tests {
             46, 105, 110, 115, 116, 97, 110, 99, 101, 18, 5, 10, 3, 102, 102, 115, 122, 0,
         ];
 
-        let expect_metadata_1 = Value::Object(BTreeMap::from([
+        let mut expect_metadata_1 = Value::Object(BTreeMap::from([
             (
                 "headers".to_owned(),
                 Value::Object(BTreeMap::from([("key".into(), "value".into())])),
@@ -460,7 +460,7 @@ mod tests {
             ("level".to_owned(), "trace".into()),
         ]));
 
-        let expect_metadata_2 = Value::Object(BTreeMap::from([
+        let mut expect_metadata_2 = Value::Object(BTreeMap::from([
             (
                 "headers".to_owned(),
                 Value::Object(BTreeMap::from([("key".into(), "value".into())])),
@@ -532,9 +532,15 @@ mod tests {
             let log = &event.clone().into_log();
             let event_metadata = log.get("metadata").expect("Metadata is empty");
 
+            let span_uniq_id = event_metadata.get("span_uniq_id");
+
+            assert!(span_uniq_id.is_some());
+
             if i == 0 {
+                expect_metadata_1.insert("span_uniq_id", span_uniq_id.unwrap().clone());
                 assert_eq!(*event_metadata, expect_metadata_1);
             } else {
+                expect_metadata_2.insert("span_uniq_id", span_uniq_id.unwrap().clone());
                 assert_eq!(*event_metadata, expect_metadata_2);
             }
         }
