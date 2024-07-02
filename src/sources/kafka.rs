@@ -14,6 +14,7 @@ use bytes::Bytes;
 use chrono::{DateTime, TimeZone, Utc};
 use futures::{Stream, StreamExt};
 use futures_util::future::OptionFuture;
+use itertools::Itertools;
 use rdkafka::{
     consumer::{
         stream_consumer::StreamPartitionQueue, CommitMode, Consumer, ConsumerContext, Rebalance,
@@ -800,7 +801,10 @@ async fn coordinate_kafka_callbacks(
                 abort_handles.remove(&finished_partition);
 
                 (drain_deadline, consumer_state) = match consumer_state {
-                    ConsumerState::Complete => unreachable!("Partition consumer finished after completion."),
+                    ConsumerState::Complete => {
+                        debug!("coordinate_kafka_callbacks: partition consumer finished after completion.");
+                        unreachable!("Partition consumer finished after completion.")
+                    },
                     ConsumerState::Draining(mut state) => {
                         state.partition_drained(finished_partition);
 
@@ -833,7 +837,11 @@ async fn coordinate_kafka_callbacks(
             },
             Some(callback) = callbacks.recv() => match callback {
                 KafkaCallback::PartitionsAssigned(mut assigned_partitions, done) => match consumer_state {
-                    ConsumerState::Complete => unreachable!("Partition assignment received after completion."),
+                    ConsumerState::Complete => {
+                        let assigned_partitions = assigned_partitions.iter().map(|(topic, partition)| format!("{topic}:{partition}")).join(",");
+                        debug!("coordinate_kafka_callbacks: [{assigned_partitions}] partition assigned after completion.");
+                        unreachable!("Partition assignment received after completion.")
+                    },
                     ConsumerState::Draining(_) => error!("Partition assignment received while draining revoked partitions, maybe an invalid assignment."),
                     ConsumerState::Consuming(ref consumer_state) => {
                         let acks = consumer.context().acknowledgements;
@@ -854,7 +862,11 @@ async fn coordinate_kafka_callbacks(
                     }
                 },
                 KafkaCallback::PartitionsRevoked(mut revoked_partitions, drain) => (drain_deadline, consumer_state) = match consumer_state {
-                    ConsumerState::Complete => unreachable!("Partitions revoked after completion."),
+                    ConsumerState::Complete => {
+                        let revoked_partitions = revoked_partitions.iter().map(|(topic, partition)| format!("{topic}:{partition}")).join(",");
+                        debug!("coordinate_kafka_callbacks: [{revoked_partitions}] partitions revoked after completion");
+                        unreachable!("Partitions revoked after completion.")
+                    },
                     ConsumerState::Draining(d) => {
                         // NB: This would only happen if the task driving the kafka client (i.e. rebalance handlers)
                         // is not handling shutdown signals, and a revoke happens during a shutdown drain; otherwise
@@ -878,7 +890,10 @@ async fn coordinate_kafka_callbacks(
                     }
                 },
                 KafkaCallback::ShuttingDown(drain) => (drain_deadline, consumer_state) = match consumer_state {
-                    ConsumerState::Complete => unreachable!("Shutdown received after completion."),
+                    ConsumerState::Complete => {
+                        debug!("coordinate_kafka_callbacks: unexpected shutdown after completion.");
+                        unreachable!("Shutdown received after completion.")
+                    },
                     // Shutting down is just like a full assignment revoke, but we also close the
                     // callback channels, since we don't expect additional assignments or rebalances
                     ConsumerState::Draining(state) => {
@@ -891,25 +906,32 @@ async fn coordinate_kafka_callbacks(
                     ConsumerState::Consuming(state) => {
                         callbacks.close();
                         let (deadline, mut state) = state.begin_drain(max_drain_ms, drain, true);
-                        if let Ok(tpl) = consumer.assignment() {
-                            tpl.elements()
-                                .iter()
-                                .for_each(|el| {
+                        match consumer.assignment() {
+                            Ok(tpl) => {
+                                tpl.elements()
+                                    .iter()
+                                    .for_each(|el| {
 
-                                let tp: TopicPartition = (el.topic().into(), el.partition());
-                                if let Some(end) = end_signals.remove(&tp) {
-                                    debug!("Shutting down and revoking partition {}:{}", &tp.0, tp.1);
-                                    state.revoke_partition(tp, end);
-                                } else {
-                                    debug!("Consumer task for partition {}:{} already finished.", &tp.0, tp.1);
-                                }
-                            });
+                                    let tp: TopicPartition = (el.topic().into(), el.partition());
+                                    if let Some(end) = end_signals.remove(&tp) {
+                                        debug!("Shutting down and revoking partition {}:{}", &tp.0, tp.1);
+                                        state.revoke_partition(tp, end);
+                                    } else {
+                                        debug!("Consumer task for partition {}:{} already finished.", &tp.0, tp.1);
+                                    }
+                                });
+                            },
+                            Err(error) => {
+                                debug!("coordinate_kafka_callbacks: in consuming state with no assignment={error:?}");
+                            }
                         }
                         // If shutdown was initiated by partition EOF mode, the drain phase
                         // will already be complete and would time out if not accounted for here
                         if state.is_drain_complete() {
+                            debug!("coordinate_kafka_callbacks: drain complete, finishing");
                             state.finish_drain(deadline)
                         } else {
+                            debug!("coordinate_kafka_callbacks: drain not complete, continuing");
                             state.keep_draining(deadline)
                         }
                     }
@@ -917,7 +939,10 @@ async fn coordinate_kafka_callbacks(
             },
 
             Some(_) = &mut drain_deadline => (drain_deadline, consumer_state) = match consumer_state {
-                ConsumerState::Complete => unreachable!("Drain deadline received after completion."),
+                ConsumerState::Complete => {
+                    debug!("coordinate_kafka_callbacks: unexpected drain deadline after completion");
+                    unreachable!("Drain deadline received after completion.")
+                },
                 ConsumerState::Consuming(state) => {
                     warn!("A drain deadline fired outside of draining mode.");
                     state.keep_consuming(None.into())
@@ -929,7 +954,7 @@ async fn coordinate_kafka_callbacks(
                             handle.abort();
                         }
                     }
-                    draining.finish_drain(drain_deadline)
+                    draining.finish_drain(drain_deadline) // why does it go back to Consuming?
                 }
             },
         }
@@ -948,11 +973,13 @@ fn drive_kafka_consumer(
         loop {
             tokio::select! {
                 _ = &mut shutdown => {
+                    debug!("drive_kafka_consumer: shutdown signal resolved");
                     consumer.context().shutdown();
                     break
                 },
 
                 Some(_) = &mut eof => {
+                    debug!("drive_kafka_consumer: eof signal resolved");
                     consumer.context().shutdown();
                     break
                 },
@@ -960,8 +987,13 @@ fn drive_kafka_consumer(
                 // NB: messages are not received on this thread, however we poll
                 // the consumer to serve client callbacks, such as rebalance notifications
                 message = stream.next() => match message {
-                    None => unreachable!("MessageStream never returns Ready(None)"),
+                    None => {
+                        debug!("drive_kafka_consumer: message stream resolved to None; this is unexpected");
+                        consumer.context().shutdown();
+                        unreachable!("MessageStream never returns Ready(None)")
+                    },
                     Some(Err(error)) => {
+                        debug!("drive_kafka_consumer: message stream resolved to error={error:?}");
                         emit!(KafkaReadError { error: error.clone() });
                         if matches!(error.rdkafka_error_code(), Some(rdkafka::error::RDKafkaErrorCode::Fatal)) {
                             consumer.context().shutdown();
@@ -969,6 +1001,8 @@ fn drive_kafka_consumer(
                         }
                     },
                     Some(Ok(_msg)) => {
+                        consumer.context().shutdown();
+                        debug!("drive_kafka_consumer: [{}:{}] unexpected message on driver thread", _msg.topic(), _msg.partition());
                         unreachable!("Messages are consumed in dedicated tasks for each partition.")
                     }
                 },
@@ -1025,12 +1059,14 @@ fn parse_stream<'a>(
     let payload = msg.payload()?; // skip messages with empty payload
 
     let rmsg = ReceivedMessage::from(msg);
+    let partition_id = format!("{}:{}", rmsg.topic, rmsg.partition);
 
     let payload = Cursor::new(Bytes::copy_from_slice(payload));
 
     let mut stream = FramedRead::new(payload, decoder);
     let (count, _) = stream.size_hint();
     let stream = stream! {
+        debug!("parse_stream: [{partition_id}] starting");
         while let Some(result) = stream.next().await {
             match result {
                 Ok((events, _byte_size)) => {
@@ -1040,20 +1076,25 @@ fn parse_stream<'a>(
                         topic: &rmsg.topic,
                         partition: rmsg.partition,
                     });
+                    debug!("parse_stream: [{partition_id}] parsing {} events", events.len());
                     for mut event in events {
                         rmsg.apply(keys, &mut event, log_namespace);
                         yield event;
                     }
+                    debug!("parse_stream: [{partition_id}] finished parsing");
                 },
                 Err(error) => {
                     // Error is logged by `codecs::Decoder`, no further handling
                     // is needed here.
                     if !error.can_continue() {
+                        debug!("parse_stream: [{partition_id}] halting due to parse error={error}");
                         break;
                     }
+                    debug!("parse_stream: [{partition_id}] failed to parse event={error}");
                 }
             }
         }
+        debug!("parse_stream: [{partition_id}] finished");
     }
     .boxed();
     Some((count, stream))
@@ -1335,15 +1376,20 @@ impl KafkaSourceContext {
     }
 
     fn shutdown(&self) {
+        debug!("shutdown: starting consumer shutdown");
         let (send, rendezvous) = sync_channel(0);
-        if self
-            .callbacks
-            .send(KafkaCallback::ShuttingDown(send))
-            .is_ok()
-        {
-            while rendezvous.recv().is_ok() {
-                self.commit_consumer_state();
+        match self.callbacks.send(KafkaCallback::ShuttingDown(send)) {
+            Ok(()) => {
+                debug!("shutdown: shutdown signal sent, polling rendezvous channel");
+                while rendezvous.recv().is_ok() {
+                    debug!(
+                        "shutdown: rendezvous channel is still active, commiting consumer state"
+                    );
+                    self.commit_consumer_state();
+                }
+                debug!("shutdown: shutdown signal has been processed");
             }
+            Err(error) => debug!("shutdown: failed to send shutdown signal, error={error:?}"),
         }
     }
 
@@ -1352,18 +1398,35 @@ impl KafkaSourceContext {
     /// each topic-partition has been set up. This function blocks until the
     /// rendezvous channel sender is dropped by the callback handler.
     fn consume_partitions(&self, tpl: &TopicPartitionList) {
+        let topic_partitions: Vec<TopicPartition> = tpl
+            .elements()
+            .iter()
+            .map(|tp| (tp.topic().into(), tp.partition()))
+            .collect();
+        let topic_partitions_log_frag = topic_partitions
+            .iter()
+            .map(|(topic, partition)| format!("{topic}:{partition}"))
+            .join(",");
+
+        debug!("consume_partitions: [{topic_partitions_log_frag}] starting to consume");
         let (send, rendezvous) = sync_channel(0);
-        let _ = self.callbacks.send(KafkaCallback::PartitionsAssigned(
-            tpl.elements()
-                .iter()
-                .map(|tp| (tp.topic().into(), tp.partition()))
-                .collect(),
-            send,
-        ));
+        match self
+            .callbacks
+            .send(KafkaCallback::PartitionsAssigned(topic_partitions, send))
+        {
+            Ok(()) => {
+                debug!("consume_partitions: [{topic_partitions_log_frag}] assignment signal sent")
+            }
+            Err(error) => debug!(
+                "consume_partitions: [{topic_partitions_log_frag}] assignment signal error={error}"
+            ),
+        }
 
         while rendezvous.recv().is_ok() {
+            debug!("consume_partitions: [{topic_partitions_log_frag}] rendezvous channel still active, no-op loop");
             // no-op: wait for partition assignment handler to complete
         }
+        debug!("consume_partitions: [{topic_partitions_log_frag}] assignment signal processed");
     }
 
     /// Emit a PartitionsRevoked callback and block until confirmation is
@@ -1372,33 +1435,57 @@ impl KafkaSourceContext {
     /// signal individual partitions completing. This function blocks until the
     /// sender is dropped by the callback handler.
     fn revoke_partitions(&self, tpl: &TopicPartitionList) {
+        let topic_partitions: Vec<TopicPartition> = tpl
+            .elements()
+            .iter()
+            .map(|tp| (tp.topic().into(), tp.partition()))
+            .collect();
+        let topic_partitions_log_frag = topic_partitions
+            .iter()
+            .map(|(topic, partition)| format!("{topic}:{partition}"))
+            .join(",");
+
+        debug!("revoke_partitions: [{topic_partitions_log_frag}] starting to revoke");
         let (send, rendezvous) = sync_channel(0);
-        let _ = self.callbacks.send(KafkaCallback::PartitionsRevoked(
-            tpl.elements()
-                .iter()
-                .map(|tp| (tp.topic().into(), tp.partition()))
-                .collect(),
-            send,
-        ));
+        match self
+            .callbacks
+            .send(KafkaCallback::PartitionsRevoked(topic_partitions, send))
+        {
+            Ok(()) => debug!("revoke_partitions: [{topic_partitions_log_frag}] revoke signal sent"),
+            Err(error) => debug!(
+                "revoke_partitions: [{topic_partitions_log_frag}] revoke signal error={error}"
+            ),
+        }
 
         while rendezvous.recv().is_ok() {
+            debug!("revoke_partitions: [{topic_partitions_log_frag}] rendezvous channel active, commiting consumer state");
             self.commit_consumer_state();
         }
+        debug!("revoke_partitions: [{topic_partitions_log_frag}] revoke signal processed");
     }
 
     fn commit_consumer_state(&self) {
-        if let Some(consumer) = self
+        debug!("commit_consumer_state: starting to commit consumer state");
+        match self
             .consumer
             .get()
             .expect("Consumer reference was not initialized.")
             .upgrade()
         {
-            match consumer.commit_consumer_state(CommitMode::Sync) {
-                Ok(_) | Err(KafkaError::ConsumerCommit(RDKafkaErrorCode::NoOffset)) => {
-                    /* Success, or nothing to do - yay \0/ */
+            Some(consumer) => {
+                debug!("commit_consumer_state: weak pointer upgraded");
+                match consumer.commit_consumer_state(CommitMode::Sync) {
+                    Ok(_) | Err(KafkaError::ConsumerCommit(RDKafkaErrorCode::NoOffset)) => {
+                        debug!("commit_consumer_state: consumer state commit ok");
+                        /* Success, or nothing to do - yay \0/ */
+                    }
+                    Err(error) => {
+                        debug!("commit_consumer_state: consumer state commit failed={error}");
+                        emit!(KafkaOffsetUpdateError { error })
+                    }
                 }
-                Err(error) => emit!(KafkaOffsetUpdateError { error }),
             }
+            None => debug!("commit_consumer_state: weak pointer upgrade failed"),
         }
     }
 }
