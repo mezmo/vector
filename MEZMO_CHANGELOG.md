@@ -1,3 +1,10 @@
+## [3.22.7](https://github.com/answerbook/vector/compare/v3.22.6...v3.22.7) (2024-07-02)
+
+
+### Chores
+
+* **kafka**: add additional debug logging around consumers [1609bbe](https://github.com/answerbook/vector/commit/1609bbe67c071405db43e5f480a06357dbff4b22) - Dan Hable [LOG-20224](https://logdna.atlassian.net/browse/LOG-20224)
+
 ## [3.22.6](https://github.com/answerbook/vector/compare/v3.22.5...v3.22.6) (2024-06-29)
 
 
