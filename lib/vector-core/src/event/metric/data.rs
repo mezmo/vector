@@ -1,3 +1,7 @@
+use crate::config::log_schema;
+use crate::event::BTreeMap;
+use crate::event::Value;
+use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 
 use chrono::{DateTime, Utc};
@@ -5,6 +9,42 @@ use vector_common::byte_size_of::ByteSizeOf;
 use vector_config::configurable_component;
 
 use super::{MetricKind, MetricValue};
+
+/// The top-level metadata structure contained by both `struct Metric`
+/// and `struct LogEvent` types.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct MetricArbitrary {
+    /// Arbitrary data stored with an event
+    #[serde(default = "default_arbitrary_value")]
+    pub(crate) value: BTreeMap<String, Value>,
+}
+
+fn default_arbitrary_value() -> BTreeMap<String, Value> {
+    BTreeMap::from([(
+        log_schema().user_metadata_key().to_string(),
+        Value::Object(BTreeMap::new()),
+    )])
+}
+
+impl MetricArbitrary {
+    /// Returns a reference to the metadata value
+    pub fn value(&self) -> &BTreeMap<String, Value> {
+        &self.value
+    }
+
+    /// Returns a mutable reference to the metadata value
+    pub fn value_mut(&mut self) -> &mut BTreeMap<String, Value> {
+        &mut self.value
+    }
+}
+
+impl Default for MetricArbitrary {
+    fn default() -> Self {
+        Self {
+            value: default_arbitrary_value(),
+        }
+    }
+}
 
 /// Metric data.
 #[configurable_component]
@@ -18,6 +58,10 @@ pub struct MetricData {
 
     #[serde(flatten)]
     pub value: MetricValue,
+
+    /// Metric Arbitrary Data.
+    #[serde(skip, default = "MetricArbitrary::default")]
+    pub arbitrary: MetricArbitrary,
 }
 
 /// Metric time.
@@ -56,6 +100,16 @@ impl MetricData {
         &mut self.value
     }
 
+    /// Gets a reference to the value of this data.
+    pub fn arbitrary_object(&self) -> &MetricArbitrary {
+        &self.arbitrary
+    }
+
+    /// Gets a mutable reference to the value of this data.
+    pub fn arbitrary_object_mut(&mut self) -> &mut MetricArbitrary {
+        &mut self.arbitrary
+    }
+
     /// Consumes this metric, returning it as an absolute metric.
     ///
     /// If the metric was already absolute, nothing is changed.
@@ -65,6 +119,7 @@ impl MetricData {
             time: self.time,
             kind: MetricKind::Absolute,
             value: self.value,
+            arbitrary: self.arbitrary,
         }
     }
 
@@ -77,17 +132,28 @@ impl MetricData {
             time: self.time,
             kind: MetricKind::Incremental,
             value: self.value,
+            arbitrary: self.arbitrary,
         }
     }
 
     /// Creates a `MetricData` directly from the raw components of another `MetricData`.
-    pub fn from_parts(time: MetricTime, kind: MetricKind, value: MetricValue) -> Self {
-        Self { time, kind, value }
+    pub fn from_parts(
+        time: MetricTime,
+        kind: MetricKind,
+        value: MetricValue,
+        arbitrary: MetricArbitrary,
+    ) -> Self {
+        Self {
+            time,
+            kind,
+            value,
+            arbitrary,
+        }
     }
 
     /// Decomposes a `MetricData` into its individual parts.
-    pub fn into_parts(self) -> (MetricTime, MetricKind, MetricValue) {
-        (self.time, self.kind, self.value)
+    pub fn into_parts(self) -> (MetricTime, MetricKind, MetricValue, MetricArbitrary) {
+        (self.time, self.kind, self.value, self.arbitrary)
     }
 
     /// Updates this metric by adding the value from `other`.

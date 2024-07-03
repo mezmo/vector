@@ -85,7 +85,7 @@ impl Metric {
         Self::new_with_metadata(name, kind, value, EventMetadata::default())
     }
 
-    /// Creates a new `Metric` with the given `name`, `kind`, `value`, and `metadata`.
+    /// Creates a new `Metric` with the given `name`, `kind`, `value` and `metadata`.
     pub fn new_with_metadata<T: Into<String>>(
         name: T,
         kind: MetricKind,
@@ -107,6 +107,7 @@ impl Metric {
                 },
                 kind,
                 value,
+                arbitrary: MetricArbitrary::default(),
             },
             internal_metadata,
         }
@@ -261,6 +262,12 @@ impl Metric {
     #[inline]
     pub fn value_mut(&mut self) -> &mut MetricValue {
         &mut self.data.value
+    }
+
+    /// Gets a reference to the arbitrary of this metric.
+    #[inline]
+    pub fn arbitrary_value(&self) -> &MetricArbitrary {
+        &self.data.arbitrary
     }
 
     /// Gets the kind of this metric.

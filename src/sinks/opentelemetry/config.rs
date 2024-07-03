@@ -104,7 +104,7 @@ impl OpentelemetryEndpoint {
     pub fn endpoint(&self, model_type: OpentelemetryModelType) -> Option<Uri> {
         match model_type {
             OpentelemetryModelType::Logs => Some(self.logs_uri.clone()),
-            OpentelemetryModelType::Metrics => Some(self.metrics_uri.clone()),
+            OpentelemetryModelType::Metrics { .. } => Some(self.metrics_uri.clone()),
             OpentelemetryModelType::Traces { .. } => Some(self.traces_uri.clone()),
             OpentelemetryModelType::Unknown => None,
         }
@@ -192,6 +192,13 @@ pub struct OpentelemetrySinkConfig {
     #[configurable(derived)]
     pub tls: Option<TlsConfig>,
 
+    /// Default buckets to use for aggregating [distribution][dist_metric_docs] metrics into histograms.
+    ///
+    /// [dist_metric_docs]: https://vector.dev/docs/about/under-the-hood/architecture/data-model/metric/#distribution
+    #[serde(default = "super::default_histogram_buckets")]
+    #[configurable(metadata(docs::advanced))]
+    pub buckets: Vec<f64>,
+
     /// Acknowlegements option
     #[configurable(derived)]
     #[serde(
@@ -218,6 +225,11 @@ impl GenerateConfig for OpentelemetrySinkConfig {
         )
         .unwrap()
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct OpentelemetryMetricConfig {
+    pub buckets: Vec<f64>,
 }
 
 #[async_trait]
@@ -267,12 +279,17 @@ impl SinkConfig for OpentelemetrySinkConfig {
                 ctx.mezmo_ctx.clone(),
             ));
 
+        let metric_config = OpentelemetryMetricConfig {
+            buckets: self.buckets.clone(),
+        };
+
         let compression = self.compression;
         let sink = OpentelemetrySink {
             service,
             encoder: OpentelemetryEncoder,
             compression,
             batcher_settings,
+            metric_config,
             mezmo_ctx: ctx.mezmo_ctx,
         };
         Ok((
@@ -375,7 +392,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Metrics)
+                .endpoint(OpentelemetryModelType::Metrics {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0],
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/v1/metrics"
         );
@@ -390,7 +409,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Metrics)
+                .endpoint(OpentelemetryModelType::Metrics {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0],
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/some_intermediate_path/v1/metrics"
         );
@@ -405,7 +426,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Metrics)
+                .endpoint(OpentelemetryModelType::Metrics {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0],
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/some_intermediate_path/v1/metrics?query=val"
         );
