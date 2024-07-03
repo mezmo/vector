@@ -1,3 +1,10 @@
+## [3.22.8](https://github.com/answerbook/vector/compare/v3.22.7...v3.22.8) (2024-07-03)
+
+
+### Bug Fixes
+
+* **remote_tasks**: Implement timeout for task execution [c1ed6b4](https://github.com/answerbook/vector/commit/c1ed6b43c24e9cef26f9fb6faeb611905c354ff6) - Dan Hable [LOG-19271](https://logdna.atlassian.net/browse/LOG-19271)
+
 ## [3.22.7](https://github.com/answerbook/vector/compare/v3.22.6...v3.22.7) (2024-07-02)
 
 
