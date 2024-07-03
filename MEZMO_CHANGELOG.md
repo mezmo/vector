@@ -1,3 +1,15 @@
+# [3.23.0](https://github.com/answerbook/vector/compare/v3.22.8...v3.23.0) (2024-07-03)
+
+
+### Features
+
+* **otlp**: opentelemetry metric destination [a796ede](https://github.com/answerbook/vector/commit/a796ede474403d0bf920dd5e3ea47105dd4d0010) - Sergey Opria [LOG-19372](https://logdna.atlassian.net/browse/LOG-19372)
+
+
+### Miscellaneous
+
+* Merge pull request #479 from answerbook/sopria/LOG-19372 [93412a7](https://github.com/answerbook/vector/commit/93412a7bcff58a7f6b8debb9dce2b2ed38a379c9) - GitHub [LOG-19372](https://logdna.atlassian.net/browse/LOG-19372)
+
 ## [3.22.8](https://github.com/answerbook/vector/compare/v3.22.7...v3.22.8) (2024-07-03)
 
 
