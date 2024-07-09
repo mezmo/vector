@@ -1,18 +1,19 @@
 use crate::mezmo::user_trace::MezmoLoggingService;
 use crate::sinks::util::retries::RetryLogic;
-use crate::sinks::util::{ServiceBuilderExt, TowerRequestConfig};
+use crate::sinks::util::ServiceBuilderExt;
 use crate::{
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     http::HttpClient,
     sinks::{
         opentelemetry::{Auth, OpentelemetrySinkAuth},
-        util::{BatchConfig, Compression, SinkBatchSettings},
+        util::{http::RequestConfig, BatchConfig, Compression, SinkBatchSettings},
         Healthcheck, VectorSink,
     },
 };
 
 use async_trait::async_trait;
-use http::{uri::InvalidUri, Uri};
+use http::{header::AUTHORIZATION, uri::InvalidUri, HeaderName, HeaderValue, Uri};
+use indexmap::IndexMap;
 use tower::ServiceBuilder;
 use vector_lib::configurable::configurable_component;
 use vector_lib::tls::{TlsConfig, TlsSettings};
@@ -103,8 +104,8 @@ impl OpentelemetryEndpoint {
     pub fn endpoint(&self, model_type: OpentelemetryModelType) -> Option<Uri> {
         match model_type {
             OpentelemetryModelType::Logs => Some(self.logs_uri.clone()),
-            OpentelemetryModelType::Metrics => Some(self.metrics_uri.clone()),
-            OpentelemetryModelType::Traces => Some(self.traces_uri.clone()),
+            OpentelemetryModelType::Metrics { .. } => Some(self.metrics_uri.clone()),
+            OpentelemetryModelType::Traces { .. } => Some(self.traces_uri.clone()),
             OpentelemetryModelType::Unknown => None,
         }
     }
@@ -186,10 +187,17 @@ pub struct OpentelemetrySinkConfig {
 
     #[configurable(derived)]
     #[serde(default)]
-    pub request: TowerRequestConfig,
+    pub request: RequestConfig,
 
     #[configurable(derived)]
     pub tls: Option<TlsConfig>,
+
+    /// Default buckets to use for aggregating [distribution][dist_metric_docs] metrics into histograms.
+    ///
+    /// [dist_metric_docs]: https://vector.dev/docs/about/under-the-hood/architecture/data-model/metric/#distribution
+    #[serde(default = "super::default_histogram_buckets")]
+    #[configurable(metadata(docs::advanced))]
+    pub buckets: Vec<f64>,
 
     /// Acknowlegements option
     #[configurable(derived)]
@@ -219,6 +227,11 @@ impl GenerateConfig for OpentelemetrySinkConfig {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct OpentelemetryMetricConfig {
+    pub buckets: Vec<f64>,
+}
+
 #[async_trait]
 #[typetag::serde(name = "opentelemetry")]
 impl SinkConfig for OpentelemetrySinkConfig {
@@ -246,22 +259,29 @@ impl SinkConfig for OpentelemetrySinkConfig {
             .limit_max_events(self.batch.max_events.unwrap_or(DEFAULT_MAX_EVENTS))?
             .into_batcher_settings()?;
 
-        let request_limits = self.request.into_settings();
+        let request_settings = self.request.tower.into_settings();
 
         let client = self.build_client(ctx.clone())?;
 
         let healthcheck = healthcheck();
 
+        let headers = validate_headers(&self.request.headers, self.auth.is_some())?;
+
         let service = ServiceBuilder::new()
-            .settings(request_limits, OpentelemetryRetry)
+            .settings(request_settings, OpentelemetryRetry)
             .service(MezmoLoggingService::new(
                 OpentelemetryService {
                     endpoint: endpoint.clone(),
                     client,
                     auth,
+                    headers,
                 },
                 ctx.mezmo_ctx.clone(),
             ));
+
+        let metric_config = OpentelemetryMetricConfig {
+            buckets: self.buckets.clone(),
+        };
 
         let compression = self.compression;
         let sink = OpentelemetrySink {
@@ -269,6 +289,7 @@ impl SinkConfig for OpentelemetrySinkConfig {
             encoder: OpentelemetryEncoder,
             compression,
             batcher_settings,
+            metric_config,
             mezmo_ctx: ctx.mezmo_ctx,
         };
         Ok((
@@ -288,6 +309,21 @@ impl SinkConfig for OpentelemetrySinkConfig {
 
 pub(crate) async fn healthcheck() -> crate::Result<()> {
     Ok(())
+}
+
+fn validate_headers(
+    headers: &IndexMap<String, String>,
+    configures_auth: bool,
+) -> crate::Result<IndexMap<HeaderName, HeaderValue>> {
+    let headers = crate::sinks::util::http::validate_headers(headers)?;
+
+    for name in headers.keys() {
+        if configures_auth && name == AUTHORIZATION {
+            return Err("Authorization header can not be used with defined auth options".into());
+        }
+    }
+
+    Ok(headers)
 }
 
 #[cfg(test)]
@@ -356,7 +392,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Metrics)
+                .endpoint(OpentelemetryModelType::Metrics {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0],
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/v1/metrics"
         );
@@ -371,7 +409,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Metrics)
+                .endpoint(OpentelemetryModelType::Metrics {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0],
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/some_intermediate_path/v1/metrics"
         );
@@ -386,7 +426,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Metrics)
+                .endpoint(OpentelemetryModelType::Metrics {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0],
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/some_intermediate_path/v1/metrics?query=val"
         );
@@ -404,7 +446,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Traces)
+                .endpoint(OpentelemetryModelType::Traces {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0]
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/v1/traces"
         );
@@ -419,7 +463,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Traces)
+                .endpoint(OpentelemetryModelType::Traces {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0]
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/some_intermediate_path/v1/traces"
         );
@@ -434,7 +480,9 @@ mod test {
 
         assert_eq!(
             endpoint
-                .endpoint(OpentelemetryModelType::Traces)
+                .endpoint(OpentelemetryModelType::Traces {
+                    partitioner_key: [0, 0, 0, 0, 0, 0, 0, 0]
+                })
                 .expect("Get log endpoint error"),
             "https://localhost:8087/some_intermediate_path/v1/traces?query=val"
         );

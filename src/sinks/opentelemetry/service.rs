@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use std::task::{Context, Poll};
 
 use crate::{
@@ -12,9 +13,9 @@ use bytes::Bytes;
 use futures::future::BoxFuture;
 use http::{
     header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE},
-    Request,
+    HeaderName, HeaderValue, Request,
 };
-use hyper::Body;
+use hyper::{body, Body};
 use tower::Service;
 use vector_lib::{
     finalization::{EventFinalizers, EventStatus, Finalizable},
@@ -82,6 +83,7 @@ pub struct OpentelemetryService {
     pub endpoint: OpentelemetryEndpoint,
     pub client: HttpClient,
     pub auth: Option<Auth>,
+    pub headers: IndexMap<HeaderName, HeaderValue>,
 }
 
 impl Service<OpentelemetryApiRequest> for OpentelemetryService {
@@ -127,6 +129,12 @@ impl Service<OpentelemetryApiRequest> for OpentelemetryService {
             .body(Body::from(request.payload))
             .expect("building HTTP request failed unexpectedly");
 
+        let headers = http_request.headers_mut();
+
+        for (name, value) in self.headers.iter() {
+            headers.insert(name, value.clone());
+        }
+
         if let Some(auth) = &self.auth {
             match auth {
                 Auth::Basic(http_auth) => http_auth.apply(&mut http_request),
@@ -135,11 +143,28 @@ impl Service<OpentelemetryApiRequest> for OpentelemetryService {
 
         Box::pin(async move {
             match client.call(http_request).await {
-                Ok(_) => Ok(OpentelemetryApiResponse {
-                    event_status: EventStatus::Delivered,
-                    metadata: metadata.clone(),
-                    events_byte_size,
-                }),
+                Ok(response) => {
+                    let status = response.status();
+                    if status.is_success() || status.is_redirection() {
+                        return Ok(OpentelemetryApiResponse {
+                            event_status: EventStatus::Delivered,
+                            metadata: metadata.clone(),
+                            events_byte_size,
+                        });
+                    }
+
+                    let body = response.into_body();
+                    let body = match body::to_bytes(body).await {
+                        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                        Err(err) => err.to_string(),
+                    };
+
+                    Err(OpentelemetrySinkError::new(&format!(
+                        "OpenTelemetry collector respond with error status: {}, body: {}",
+                        status.as_str(),
+                        body,
+                    )))
+                }
                 Err(error) => Err(OpentelemetrySinkError::new(&format!(
                     "HTTP request error: {}",
                     error

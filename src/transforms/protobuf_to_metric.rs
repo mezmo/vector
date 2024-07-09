@@ -304,10 +304,10 @@ mod tests {
         attrs_3.extend(base_metadata.clone());
         attrs_4.extend(base_metadata.clone());
 
-        let expected_metadata_1 = Value::Object(BTreeMap::from_iter(attrs_1));
-        let expected_metadata_2 = Value::Object(BTreeMap::from_iter(attrs_2));
-        let expected_metadata_3 = Value::Object(BTreeMap::from_iter(attrs_3));
-        let expected_metadata_4 = Value::Object(BTreeMap::from_iter(attrs_4));
+        let mut expected_metadata_1 = Value::Object(BTreeMap::from_iter(attrs_1));
+        let mut expected_metadata_2 = Value::Object(BTreeMap::from_iter(attrs_2));
+        let mut expected_metadata_3 = Value::Object(BTreeMap::from_iter(attrs_3));
+        let mut expected_metadata_4 = Value::Object(BTreeMap::from_iter(attrs_4));
 
         let event = log_event_from_bytes(metrics, &expected_metadata_1);
         let result = do_transform(
@@ -325,11 +325,27 @@ mod tests {
             let log = &event.clone().into_log();
             let event_metadata = log.get("metadata").expect("Metadata is empty");
 
+            let uniq_id = event_metadata.get("resource.uniq_id");
+
+            assert!(uniq_id.is_some());
+
             match i {
-                11 => assert_eq!(*event_metadata, expected_metadata_2),
-                12 => assert_eq!(*event_metadata, expected_metadata_3),
-                13 => assert_eq!(*event_metadata, expected_metadata_4),
-                _ => assert_eq!(*event_metadata, expected_metadata_1),
+                11 => {
+                    expected_metadata_2.insert("resource.uniq_id", uniq_id.unwrap().clone());
+                    assert_eq!(*event_metadata, expected_metadata_2)
+                }
+                12 => {
+                    expected_metadata_3.insert("resource.uniq_id", uniq_id.unwrap().clone());
+                    assert_eq!(*event_metadata, expected_metadata_3)
+                }
+                13 => {
+                    expected_metadata_4.insert("resource.uniq_id", uniq_id.unwrap().clone());
+                    assert_eq!(*event_metadata, expected_metadata_4)
+                }
+                _ => {
+                    expected_metadata_1.insert("resource.uniq_id", uniq_id.unwrap().clone());
+                    assert_eq!(*event_metadata, expected_metadata_1)
+                }
             }
         }
     }

@@ -6,7 +6,7 @@ use vector_lib::configurable::configurable_component;
 use vector_lib::{
     config::{DataType, Input, TransformOutput},
     event::{
-        metric::{MetricData, Sample},
+        metric::{MetricArbitrary, MetricData, Sample},
         Event, MetricValue,
     },
     schema,
@@ -112,6 +112,7 @@ impl FunctionTransform for BasicTransform {
                         kind: metric.kind(),
                         time: metric.time(),
                         value: increment,
+                        arbitrary: MetricArbitrary::default(),
                     }));
                 }
             }

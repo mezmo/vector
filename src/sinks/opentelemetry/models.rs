@@ -4,12 +4,12 @@ use std::{ops::SubAssign, str::FromStr};
 use std::collections::HashMap;
 use vector_lib::{
     config::log_schema,
-    event::{Event, LogEvent, Value},
+    event::{Event, LogEvent, Metric, Value},
     lookup::PathPrefix,
 };
 
 use super::{
-    logs::model::OpentelemetryLogsModel, metrics::model::OpentelemetryMetricsModel,
+    logs::model::OpentelemetryLogsModel, metrics::model::OpentelemetryResourceMetrics,
     traces::model::OpentelemetryTracesModel,
 };
 use opentelemetry::{
@@ -119,7 +119,7 @@ pub fn value_to_system_time(value: &Value) -> SystemTime {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OpentelemetryResource {
     pub attributes: OpentelemetryAttributes,
     pub schema_url: Cow<'static, str>,
@@ -148,6 +148,13 @@ impl From<OpentelemetryTraceId> for TraceId {
     }
 }
 
+impl From<OpentelemetryTraceId> for [u8; 16] {
+    fn from(trace_id: OpentelemetryTraceId) -> Self {
+        trace_id.0.to_bytes()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct OpentelemetrySpanId(SpanId);
 
 impl From<Option<&Value>> for OpentelemetrySpanId {
@@ -171,6 +178,13 @@ impl From<OpentelemetrySpanId> for SpanId {
     }
 }
 
+impl From<OpentelemetrySpanId> for [u8; 8] {
+    fn from(span_id: OpentelemetrySpanId) -> Self {
+        span_id.0.to_bytes()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct OpentelemetryTraceState(TraceState);
 
 impl From<Option<&Value>> for OpentelemetryTraceState {
@@ -210,7 +224,7 @@ impl From<OpentelemetryTraceFlags> for TraceFlags {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct OpentelemetryAttributes(Vec<KeyValue>);
 
 impl From<Option<&Value>> for OpentelemetryAttributes {
@@ -260,13 +274,43 @@ impl From<&LogEvent> for OpentelemetryResource {
     }
 }
 
+impl From<&Metric> for OpentelemetryResource {
+    fn from(metric: &Metric) -> Self {
+        let mut attributes = vec![];
+        let mut schema_url = Cow::from("");
+
+        let arbitrary = metric.arbitrary_value().value();
+        let metadata = arbitrary
+            .get(log_schema().user_metadata_key())
+            .unwrap_or(&Value::Null);
+
+        if let Some(Value::Object(obj)) = metadata.get("resource.attributes") {
+            for (key, value) in obj.iter() {
+                attributes.push(KeyValue::new(
+                    key.to_string(),
+                    value_to_otlp_value(value.clone()),
+                ));
+            }
+        }
+
+        if let Some(Value::Bytes(bytes)) = metadata.get("resource.schema_url") {
+            schema_url = String::from_utf8_lossy(bytes).into_owned().into();
+        }
+
+        OpentelemetryResource {
+            attributes: OpentelemetryAttributes(attributes),
+            schema_url,
+        }
+    }
+}
+
 impl From<OpentelemetryResource> for Resource {
     fn from(val: OpentelemetryResource) -> Self {
         Resource::from_schema_url(Into::<Vec<KeyValue>>::into(val.attributes), val.schema_url)
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OpentelemetryScope {
     pub name: Cow<'static, str>,
     pub version: Option<Cow<'static, str>>,
@@ -321,6 +365,56 @@ impl From<&LogEvent> for OpentelemetryScope {
     }
 }
 
+impl From<&Metric> for OpentelemetryScope {
+    fn from(metric: &Metric) -> Self {
+        let mut name = Cow::from("");
+        let mut version = None;
+        let mut schema_url = None;
+        let mut attributes = vec![];
+
+        let arbitrary = metric.arbitrary_value().value();
+        let metadata = arbitrary
+            .get(log_schema().user_metadata_key())
+            .unwrap_or(&Value::Null);
+
+        if let Some(scope) = metadata.get("scope") {
+            name = if let Some(Value::Bytes(val)) = scope.get("name") {
+                Cow::from(String::from_utf8_lossy(val).into_owned())
+            } else {
+                Cow::from("")
+            };
+
+            version = if let Some(Value::Bytes(val)) = scope.get("version") {
+                Some(Cow::from(String::from_utf8_lossy(val).into_owned()))
+            } else {
+                None
+            };
+
+            schema_url = if let Some(Value::Bytes(val)) = scope.get("schema_url") {
+                Some(Cow::from(String::from_utf8_lossy(val).into_owned()))
+            } else {
+                None
+            };
+
+            if let Some(Value::Object(obj)) = scope.get("attributes") {
+                for (key, value) in obj.iter() {
+                    attributes.push(KeyValue::new(
+                        key.to_string(),
+                        value_to_otlp_value(value.clone()),
+                    ));
+                }
+            }
+        }
+
+        Self {
+            name,
+            version,
+            schema_url,
+            attributes: OpentelemetryAttributes(attributes),
+        }
+    }
+}
+
 impl From<OpentelemetryScope> for InstrumentationLibrary {
     fn from(val: OpentelemetryScope) -> Self {
         InstrumentationLibrary::new(
@@ -334,15 +428,15 @@ impl From<OpentelemetryScope> for InstrumentationLibrary {
 
 pub enum OpentelemetryModel {
     Logs(Vec<OpentelemetryLogsModel>),
-    Metrics(Vec<OpentelemetryMetricsModel>),
+    Metrics(OpentelemetryResourceMetrics),
     Traces(Vec<OpentelemetryTracesModel>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OpentelemetryModelType {
     Logs,
-    Metrics,
-    Traces,
+    Traces { partitioner_key: [u8; 8] },
+    Metrics { partitioner_key: [u8; 8] },
     Unknown,
 }
 

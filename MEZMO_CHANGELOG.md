@@ -1,3 +1,84 @@
+# [3.23.0](https://github.com/answerbook/vector/compare/v3.22.8...v3.23.0) (2024-07-03)
+
+
+### Features
+
+* **otlp**: opentelemetry metric destination [a796ede](https://github.com/answerbook/vector/commit/a796ede474403d0bf920dd5e3ea47105dd4d0010) - Sergey Opria [LOG-19372](https://logdna.atlassian.net/browse/LOG-19372)
+
+
+### Miscellaneous
+
+* Merge pull request #479 from answerbook/sopria/LOG-19372 [93412a7](https://github.com/answerbook/vector/commit/93412a7bcff58a7f6b8debb9dce2b2ed38a379c9) - GitHub [LOG-19372](https://logdna.atlassian.net/browse/LOG-19372)
+
+## [3.22.8](https://github.com/answerbook/vector/compare/v3.22.7...v3.22.8) (2024-07-03)
+
+
+### Bug Fixes
+
+* **remote_tasks**: Implement timeout for task execution [c1ed6b4](https://github.com/answerbook/vector/commit/c1ed6b43c24e9cef26f9fb6faeb611905c354ff6) - Dan Hable [LOG-19271](https://logdna.atlassian.net/browse/LOG-19271)
+
+## [3.22.7](https://github.com/answerbook/vector/compare/v3.22.6...v3.22.7) (2024-07-02)
+
+
+### Chores
+
+* **kafka**: add additional debug logging around consumers [1609bbe](https://github.com/answerbook/vector/commit/1609bbe67c071405db43e5f480a06357dbff4b22) - Dan Hable [LOG-20224](https://logdna.atlassian.net/browse/LOG-20224)
+
+## [3.22.6](https://github.com/answerbook/vector/compare/v3.22.5...v3.22.6) (2024-06-29)
+
+
+### Bug Fixes
+
+* **otlp**: grouping traces spans same as received from source [044522b](https://github.com/answerbook/vector/commit/044522b977b7d8b9898461e05dc385d512e57426) - Sergey Opria [LOG-20205](https://logdna.atlassian.net/browse/LOG-20205) [LOG-20184](https://logdna.atlassian.net/browse/LOG-20184)
+
+
+### Miscellaneous
+
+* Merge pull request #478 from answerbook/sopria/LOG-20184 [15e76ad](https://github.com/answerbook/vector/commit/15e76ad33ea6d14b3720741ece14c76537f5f086) - GitHub [LOG-20184](https://logdna.atlassian.net/browse/LOG-20184)
+
+## [3.22.5](https://github.com/answerbook/vector/compare/v3.22.4...v3.22.5) (2024-06-27)
+
+
+### Chores
+
+* tweaking default partition to new resource defaults [fe94805](https://github.com/answerbook/vector/commit/fe9480567968c9b5d4c85662a2399c7749a85a06) - Adam Holmberg [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
+
+### Miscellaneous
+
+* Merge pull request #477 from answerbook/holmberg/LOG-19700 [cfb07f2](https://github.com/answerbook/vector/commit/cfb07f2cc484d618f1124f76408426a0d95d2e8e) - GitHub [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
+## [3.22.4](https://github.com/answerbook/vector/compare/v3.22.3...v3.22.4) (2024-06-21)
+
+
+### Chores
+
+* remove unused attributes from the default partition [f2d9160](https://github.com/answerbook/vector/commit/f2d91606999290b535403f75220210be11d0c760) - Adam Holmberg [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
+
+### Miscellaneous
+
+* Merge pull request #476 from answerbook/feature/LOG-19700 [032f879](https://github.com/answerbook/vector/commit/032f8793bab3371ca66fcfc3f4a1649daad439ee) - GitHub [LOG-19700](https://logdna.atlassian.net/browse/LOG-19700)
+
+## [3.22.3](https://github.com/answerbook/vector/compare/v3.22.2...v3.22.3) (2024-06-18)
+
+
+### Chores
+
+* **otlp**: add arbitrary headers for otlp destination config [88f2759](https://github.com/answerbook/vector/commit/88f27593aabd2cfed6bbe4615d64a1cad9d432da) - Sergey Opria [LOG-20123](https://logdna.atlassian.net/browse/LOG-20123)
+
+
+### Miscellaneous
+
+* Merge pull request #475 from answerbook/sopria/LOG-20123 [f7b0d23](https://github.com/answerbook/vector/commit/f7b0d23a4eef7d9ea7cdd0723038ebfbd33e3c06) - GitHub [LOG-20123](https://logdna.atlassian.net/browse/LOG-20123)
+
+## [3.22.2](https://github.com/answerbook/vector/compare/v3.22.1...v3.22.2) (2024-06-18)
+
+
+### Bug Fixes
+
+* **kafka source**: Reorder message consume loop to avoid memory growth [664f7d8](https://github.com/answerbook/vector/commit/664f7d82bb3cfb3d808c6141fa3654460251be90) - Dan Hable [LOG-20069](https://logdna.atlassian.net/browse/LOG-20069)
+
 ## [3.22.1](https://github.com/answerbook/vector/compare/v3.22.0...v3.22.1) (2024-06-12)
 
 

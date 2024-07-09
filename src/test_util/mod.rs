@@ -247,6 +247,13 @@ fn map_batch_stream(
     stream.map(move |log| vec![log.with_batch_notifier_option(&batch)].into())
 }
 
+fn map_metric_batch_stream(
+    stream: impl Stream<Item = Metric>,
+    batch: Option<BatchNotifier>,
+) -> impl Stream<Item = EventArray> {
+    stream.map(move |metric| vec![metric.with_batch_notifier_option(&batch)].into())
+}
+
 pub fn generate_lines_with_stream<Gen: FnMut(usize) -> String>(
     generator: Gen,
     count: usize,
@@ -311,6 +318,18 @@ pub fn random_metrics_with_stream(
     (events, stream)
 }
 
+pub fn generate_metrics_with_stream<Gen: FnMut(usize) -> Event>(
+    generator: Gen,
+    count: usize,
+    batch: Option<BatchNotifier>,
+) -> (Vec<Event>, impl Stream<Item = EventArray>) {
+    let events = (0..count).map(generator).collect::<Vec<_>>();
+    let stream = map_metric_batch_stream(
+        stream::iter(events.clone()).map(|event| event.into_metric()),
+        batch,
+    );
+    (events, stream)
+}
 pub fn random_events_with_stream(
     len: usize,
     count: usize,

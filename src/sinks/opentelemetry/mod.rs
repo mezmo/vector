@@ -15,6 +15,12 @@ pub(crate) mod integration_tests;
 use vector_lib::configurable::configurable_component;
 use vector_lib::sensitive_string::SensitiveString;
 
+fn default_histogram_buckets() -> Vec<f64> {
+    vec![
+        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+    ]
+}
+
 /// Authentication strategies.
 #[configurable_component]
 #[derive(Clone, Debug)]

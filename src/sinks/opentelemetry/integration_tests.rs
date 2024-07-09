@@ -1,154 +1,1133 @@
-use chrono::{NaiveDateTime, TimeZone, Utc};
-use indoc::indoc;
-use std::collections::BTreeMap;
-
-use vector_lib::{
-    event::{Event, LogEvent},
-    finalization::{BatchNotifier, BatchStatus},
-};
-
-use crate::{
-    config::SinkConfig,
-    event::Value,
-    sinks::{opentelemetry::config::OpentelemetrySinkConfig, util::test::load_sink},
-    test_util::{
-        components::{run_and_assert_sink_compliance, SINK_TAGS},
-        generate_events_with_stream,
-    },
-};
-
-fn line_generator(index: usize) -> String {
-    format!("opentelemetry test log index {}", index)
-}
-
-fn event_generator(index: usize) -> Event {
-    Event::Log(LogEvent::from(line_generator(index)))
-}
-
 #[cfg(feature = "opentelemetry-sink-integration-tests")]
-#[tokio::test]
-async fn test_opentelemetry_sink_endpoint() {
-    let config = indoc! {r#"
-        endpoint = "opentelemetry-endpoint"
-        compression = "gzip"
-    "#};
+#[cfg(test)]
+mod test {
+    use chrono::{NaiveDateTime, TimeZone, Utc};
+    use indoc::indoc;
+    use std::collections::BTreeMap;
 
-    let endpoint = std::env::var("TEST_OPENTELEMETRY_ENDPOINT")
-        .expect("test endpoint environment variable not set");
-
-    assert!(
-        !endpoint.is_empty(),
-        "$TEST_OPENTELEMETRY_ENDPOINT required"
-    );
-
-    let config = config.replace("opentelemetry-endpoint", &endpoint);
-    let (config, cx) = load_sink::<OpentelemetrySinkConfig>(config.as_str()).unwrap();
-
-    let (sink, _) = config.build(cx).await.unwrap();
-
-    let trace_id = [
-        95, 70, 127, 231, 191, 66, 103, 108, 5, 226, 11, 164, 169, 14, 68, 142,
-    ];
-    let span_id = [76, 114, 27, 243, 62, 60, 175, 143];
-    let expected_resource_attribute = Value::Object(BTreeMap::from([
-        ("str".into(), "bar".into()),
-        ("int".into(), Value::from(100)),
-        ("flt".into(), Value::from(100.123_f64)),
-        ("bool".into(), Value::from(false)),
-        ("empty".into(), Value::Null),
-        (
-            "list".into(),
-            Value::Array(vec![
-                "bar".into(),
-                Value::from(100),
-                Value::from(100.123_f64),
-                Value::from(false),
-                Value::Null,
-            ]),
-        ),
-    ]));
-    let expected_scope_attributes = expected_resource_attribute.clone();
-    let expected_log_attributes = Value::Object(BTreeMap::from([
-        ("str".into(), "bar".into()),
-        ("int".into(), Value::from(100)),
-        ("flt".into(), Value::from(100.123_f64)),
-        ("bool".into(), Value::from(false)),
-        ("empty".into(), Value::Null),
-        (
-            "attributes".into(),
-            Value::Object(BTreeMap::from([
-                ("str".into(), "bar".into()),
-                ("int".into(), Value::from(100)),
-                ("flt".into(), Value::from(100.123_f64)),
-                ("bool".into(), Value::from(false)),
-                ("empty".into(), Value::Null),
-            ])),
-        ),
-    ]));
-
-    let (batch, receiver) = BatchNotifier::new_with_receiver();
-    let generator = |idx| {
-        let mut event = event_generator(idx);
-        let log = event.as_mut_log();
-
-        log.insert(
-            "metadata",
-            Value::Object(BTreeMap::from([
-                ("attributes".into(), expected_log_attributes.clone()),
-                ("flags".into(), Value::from(1)),
-                (
-                    "observed_timestamp".into(),
-                    Value::from(
-                        Utc.from_utc_datetime(
-                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 0o11_u32)
-                                .expect("timestamp should be a valid timestamp"),
-                        ),
-                    ),
-                ),
-                (
-                    "time".into(),
-                    Value::from(
-                        Utc.from_utc_datetime(
-                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 0o11_u32)
-                                .expect("timestamp should be a valid timestamp"),
-                        ),
-                    ),
-                ),
-                ("severity_number".into(), 17.into()),
-                ("severity_text".into(), "ERROR".into()),
-                ("level".into(), "ERROR".into()),
-                (
-                    "trace_id".into(),
-                    Value::from(faster_hex::hex_string(&trace_id)),
-                ),
-                (
-                    "span_id".into(),
-                    Value::from(faster_hex::hex_string(&span_id)),
-                ),
-                ("resource".into(), expected_resource_attribute.clone()),
-                (
-                    "scope".into(),
-                    Value::Object(BTreeMap::from([
-                        ("attributes".into(), expected_scope_attributes.clone()),
-                        ("name".into(), "sone_scope_name".into()),
-                        ("version".into(), "1.0.0".into()),
-                    ])),
-                ),
-            ])),
-        );
-
-        event
+    use vector_lib::{
+        config::log_schema,
+        event::{
+            metric::mezmo::{from_f64_or_zero, to_metric},
+            Event, KeyString, LogEvent,
+        },
+        finalization::{BatchNotifier, BatchStatus},
+        lookup::PathPrefix,
     };
-    let (messages, events) = generate_events_with_stream(generator, 5, Some(batch));
 
-    for (index, message) in messages.iter().enumerate() {
-        assert_eq!(
-            Value::from(format!("opentelemetry test log index {}", index)),
-            message.clone().into_log().get_message().unwrap().to_owned()
-        );
+    use crate::{
+        config::SinkConfig,
+        event::Value,
+        sinks::{opentelemetry::config::OpentelemetrySinkConfig, util::test::load_sink},
+        test_util::{
+            components::{run_and_assert_sink_compliance, SINK_TAGS},
+            generate_events_with_stream, generate_metrics_with_stream,
+        },
+    };
+
+    #[derive(Debug, Clone)]
+    enum TestMetricGenerator {
+        Counter,
+        Gauge,
+        Set,
+        DistributionHistogram,
+        DistributionSummary,
+        AggregatedHistogram,
+        AggregatedSummary,
     }
 
-    run_and_assert_sink_compliance(sink, events, &SINK_TAGS).await;
+    impl TestMetricGenerator {
+        pub fn generate_value(
+            &self,
+            index: usize,
+            otlp_event: bool,
+            original_otlp_type: Option<&str>,
+            resource_uniq_id: Option<[u8; 8]>,
+        ) -> BTreeMap<KeyString, Value> {
+            let trace_id = Value::from(faster_hex::hex_string(&[
+                95, 70, 127, 231, 191, 66, 103, 108, 5, 226, 11, 164, 169, 14, 68, 142,
+            ]));
+            let span_id = Value::from(faster_hex::hex_string(&[
+                76, 114, 27, 243, 62, 60, 175, 143,
+            ]));
 
-    assert_eq!(receiver.await, BatchStatus::Delivered);
+            if otlp_event {
+                original_otlp_type.expect("original_otlp_type is not specified");
+                resource_uniq_id.expect("resource_uniq_id is not specified");
+            }
+
+            let mut value: BTreeMap<KeyString, _> = match self {
+                Self::Gauge => {
+                    let mut value = btreemap! {
+                        KeyString::from("type") => Value::from("gauge"),
+                        KeyString::from("value") => Value::from(index as f64 * 11.0),
+                    };
+
+                    // Event generate out of otlp metric which came through the OTLP Source
+                    // The value must contain arbitrary fields (otlp specific)
+                    if otlp_event {
+                        let mut arbitrary = btreemap! {
+                            KeyString::from("name") => Value::from("system.filesystem.usage"),
+                            KeyString::from("description") => Value::from("test_description"),
+                            KeyString::from("unit") => Value::from("GiBy/s"),
+                            KeyString::from("exemplars") => Value::Array(Vec::from([Value::Object(
+                                btreemap! {
+                                    KeyString::from("filtered_attributes") => btreemap! {KeyString::from("foo") => Value::from("bar")},
+                                    KeyString::from("span_id") => span_id,
+                                    KeyString::from("trace_id") => trace_id,
+                                    KeyString::from("time_unix") => Value::from(
+                                        Utc.from_utc_datetime(
+                                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                                .expect("timestamp should be a valid timestamp"),
+                                        )
+                                    ),
+                                    KeyString::from("value") => Value::Integer(10),
+                                }
+
+                            )])),
+                            KeyString::from("flags") => Value::Integer(1),
+                            KeyString::from("start_time_unix") => Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            ),
+                            KeyString::from("time_unix") => Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            ),
+                        };
+
+                        if original_otlp_type.unwrap() == "sum" {
+                            arbitrary.insert("aggregation_temporality".into(), Value::Integer(0));
+                            arbitrary.insert("is_monotonic".into(), Value::Boolean(false));
+                        }
+
+                        value.append(&mut arbitrary);
+                    }
+
+                    value
+                }
+                Self::Counter => {
+                    let mut value = btreemap! {
+                        KeyString::from("type") => Value::from("counter"),
+                        KeyString::from("value") => Value::from(index as f64 * 11.0),
+                    };
+
+                    // Event generate out of otlp metric which came through the OTLP Source
+                    // The value must contain arbitrary fields (otlp specific)
+                    if otlp_event {
+                        let mut arbitrary = btreemap! {
+                            KeyString::from("name") => Value::from("system.filesystem.usage"),
+                            KeyString::from("description") => Value::from("test_description"),
+                            KeyString::from("unit") => Value::from("GiBy/s"),
+                            KeyString::from("exemplars") => Value::Array(Vec::from([Value::Object(
+                                btreemap! {
+                                    KeyString::from("filtered_attributes") => btreemap! {KeyString::from("foo") => Value::from("bar")},
+                                    KeyString::from("span_id") => span_id,
+                                    KeyString::from("trace_id") => trace_id,
+                                    "time_unix" => Value::from(
+                                        Utc.from_utc_datetime(
+                                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                                .expect("timestamp should be a valid timestamp"),
+                                        )
+                                    ),
+                                    KeyString::from("value") => Value::Integer(10),
+                                }
+
+                            )])),
+                            KeyString::from("flags") => Value::Integer(1),
+                            KeyString::from("start_time_unix") => Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            ),
+                            KeyString::from("time_unix") => Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            ),
+                            KeyString::from("aggregation_temporality") => Value::Integer(2),
+                            KeyString::from("is_monotonic") => Value::Boolean(true),
+                        };
+
+                        value.append(&mut arbitrary);
+                    }
+
+                    value
+                }
+                Self::Set => {
+                    let mut values = vec![];
+                    for value in 0..index {
+                        values.push(Value::from(String::from((value as i32).to_string())));
+                    }
+                    btreemap! {
+                        KeyString::from("type") => Value::from("set"),
+                        KeyString::from("value") => Value::Object(btreemap! {
+                            KeyString::from("values") => Value::from(values),
+                        }),
+                    }
+                }
+                Self::AggregatedHistogram => {
+                    let mut value = btreemap! {
+                        KeyString::from("type") => Value::from("histogram"),
+                        KeyString::from("value") => Value::Object(btreemap! {
+                            KeyString::from("count") => Value::Integer(10),
+                            KeyString::from("sum") => from_f64_or_zero(3.7),
+                            KeyString::from("buckets") => Value::Array(Vec::from([
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 0.005,
+                                    KeyString::from("count") => 214,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 0.01,
+                                    KeyString::from("count") => 6,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 0.025,
+                                    KeyString::from("count") => 1,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 0.05,
+                                    KeyString::from("count") => 1,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 0.075,
+                                    KeyString::from("count") => 2,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 0.1,
+                                    KeyString::from("count") => 0,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 0.25,
+                                    KeyString::from("count") => 0,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 0.5,
+                                    KeyString::from("count") => 0,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 0.75,
+                                    KeyString::from("count") => 0,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 1.0,
+                                    KeyString::from("count") => 0,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 2.5,
+                                    KeyString::from("count") => 0,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 5.0,
+                                    KeyString::from("count") => 0,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 7.5,
+                                    KeyString::from("count") => 0,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("upper_limit") => 10.0,
+                                    KeyString::from("count") => 0,
+                                }),
+                            ]))
+                        }),
+                    };
+
+                    // Event generate out of otlp metric which came through the OTLP Source
+                    // The value must contain arbitrary fields (otlp specific)
+                    if otlp_event {
+                        let mut arbitrary = btreemap! {
+                            KeyString::from("name") => Value::from("system.filesystem.usage"),
+                            KeyString::from("description") => Value::from("test_description"),
+                            KeyString::from("unit") => Value::from("GiBy/s"),
+                            KeyString::from("exemplars") => Value::Array(Vec::from([Value::Object(
+                                btreemap! {
+                                    KeyString::from("filtered_attributes") => btreemap! {KeyString::from("foo") => Value::from("bar")},
+                                    KeyString::from("span_id") => span_id,
+                                    KeyString::from("trace_id") => trace_id,
+                                    KeyString::from("time_unix") => Value::from(
+                                        Utc.from_utc_datetime(
+                                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                                .expect("timestamp should be a valid timestamp"),
+                                        )
+                                    ),
+                                    KeyString::from("value") => Value::Integer(10),
+                                }
+
+                            )])),
+                            KeyString::from("flags") => Value::Integer(1),
+                            KeyString::from("bucket_counts") => Value::Array(Vec::from([
+                                Value::Integer(214),
+                                Value::Integer(6),
+                                Value::Integer(1),
+                                Value::Integer(1),
+                                Value::Integer(2),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                                Value::Integer(0),
+                            ])),
+
+                            KeyString::from("explicit_bounds") => Value::Array(Vec::from([
+                                from_f64_or_zero(0.005),
+                                from_f64_or_zero(0.01),
+                                from_f64_or_zero(0.025),
+                                from_f64_or_zero(0.05),
+                                from_f64_or_zero(0.075),
+                                from_f64_or_zero(0.1),
+                                from_f64_or_zero(0.25),
+                                from_f64_or_zero(0.5),
+                                from_f64_or_zero(0.75),
+                                from_f64_or_zero(1.0),
+                                from_f64_or_zero(2.5),
+                                from_f64_or_zero(5.0),
+                                from_f64_or_zero(7.5),
+                                from_f64_or_zero(10.0),
+                            ])),
+                            KeyString::from("max") => from_f64_or_zero(9.9),
+                            KeyString::from("min") => from_f64_or_zero(0.1),
+                            KeyString::from("start_time_unix") => Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            ),
+                            KeyString::from("time_unix") => Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            ),
+                            KeyString::from("aggregation_temporality") => Value::Integer(2),
+                        };
+
+                        value.append(&mut arbitrary);
+                    }
+
+                    value
+                }
+                Self::DistributionHistogram => {
+                    btreemap! {
+                        KeyString::from("type") => Value::from("distribution"),
+                        KeyString::from("value") => Value::Object(btreemap! {
+                            KeyString::from("samples") => Value::Array(Vec::from([
+                                Value::Object(btreemap! {
+                                    KeyString::from("value") => 1.0,
+                                    KeyString::from("rate") => 3,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("value") => 2.0,
+                                    KeyString::from("rate") => 3,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("value") => 3.0,
+                                    KeyString::from("rate") => 2,
+                                })
+                            ])),
+                            KeyString::from("statistic") => Value::from("histogram"),
+                        })
+                    }
+                }
+                Self::AggregatedSummary => {
+                    let mut value = btreemap! {
+                        KeyString::from("type") => Value::from("summary"),
+                        KeyString::from("value") => Value::Object(btreemap! {
+                            KeyString::from("count") => Value::Integer(10),
+                            KeyString::from("sum") => from_f64_or_zero(3.7),
+                            KeyString::from("quantiles") => Value::Array(Vec::from([
+                                Value::Object(btreemap! {
+                                    KeyString::from("quantile") => 0.005,
+                                    KeyString::from("value") => 10,
+                                })
+                            ]))
+                        }),
+                    };
+
+                    // Event generate out of otlp metric which came through the OTLP Source
+                    // The value must contain arbitrary fields (otlp specific)
+                    if otlp_event {
+                        let mut arbitrary = btreemap! {
+                            KeyString::from("name") => Value::from("system.filesystem.usage"),
+                            KeyString::from("description") => Value::from("test_description"),
+                            KeyString::from("unit") => Value::from("GiBy/s"),
+                            KeyString::from("count") => Value::Integer(10),
+                            KeyString::from("sum") => from_f64_or_zero(10.0),
+                            KeyString::from("flags") => Value::Integer(1),
+                            KeyString::from("quantile_values") => Value::Array(Vec::from([
+                                Value::Object(btreemap! {
+                                    KeyString::from("quantile") => 0.005,
+                                    KeyString::from("value") => 10,
+                                })
+                            ])),
+                            KeyString::from("start_time_unix") => Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            ),
+                            KeyString::from("time_unix") => Value::from(
+                                Utc.from_utc_datetime(
+                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                                        .expect("timestamp should be a valid timestamp"),
+                                )
+                            ),
+                        };
+
+                        value.append(&mut arbitrary);
+                    }
+
+                    value
+                }
+                Self::DistributionSummary => {
+                    btreemap! {
+                        KeyString::from("type") => Value::from("distribution"),
+                        KeyString::from("value") => Value::Object(btreemap! {
+                            KeyString::from("samples") => Value::Array(Vec::from([
+                                Value::Object(btreemap! {
+                                    KeyString::from("value") => 1.0,
+                                    KeyString::from("rate") => 3,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("value") => 2.0,
+                                    KeyString::from("rate") => 3,
+                                }),
+                                Value::Object(btreemap! {
+                                    KeyString::from("value") => 3.0,
+                                    KeyString::from("rate") => 2,
+                                })
+                            ])),
+                            KeyString::from("statistic") => Value::from("summary"),
+                        })
+                    }
+                }
+            };
+
+            if otlp_event {
+                value.insert(
+                    log_schema().user_metadata_key().into(),
+                    Value::Object(btreemap! {
+                        KeyString::from("original_type") => Value::from(original_otlp_type.unwrap()),
+                        KeyString::from("data_provider") => Value::from("otlp"),
+                        KeyString::from("resource") => Value::Object(btreemap! {
+                            KeyString::from("attributes") => btreemap! {KeyString::from("foo") => Value::from("bar")},
+                            KeyString::from("dropped_attributes_count") => Value::Integer(1),
+                            KeyString::from("uniq_id") => Value::from(faster_hex::hex_string(&resource_uniq_id.unwrap())),
+                        }),
+                        KeyString::from("scope") => Value::Object(btreemap! {
+                            KeyString::from("attributes") => btreemap! {KeyString::from("foo") => Value::from("bar")},
+                            KeyString::from("dropped_attributes_count") => Value::Integer(1),
+                            KeyString::from("name") => Value::from("test_name"),
+                            KeyString::from("version") => Value::Null,
+                        }),
+                        KeyString::from("attributes") => btreemap! {KeyString::from("foo") => Value::from("bar")},
+                    })
+                );
+            }
+
+            value
+        }
+    }
+
+    fn line_generator(index: usize) -> String {
+        format!("opentelemetry test log index {}", index)
+    }
+
+    fn event_generator(index: usize) -> Event {
+        Event::Log(LogEvent::from(line_generator(index)))
+    }
+
+    fn trace_event_generator(_index: usize) -> Event {
+        let mut event_data = BTreeMap::<KeyString, Value>::new();
+
+        let trace_id_hex = faster_hex::hex_string(&[
+            95, 70, 127, 231, 191, 66, 103, 108, 5, 226, 11, 164, 169, 14, 68, 142,
+        ]);
+        let span_id_hex = faster_hex::hex_string(&[76, 114, 27, 243, 62, 60, 175, 143]);
+        let parent_span_id_hex = faster_hex::hex_string(&[79, 114, 27, 243, 61, 60, 175, 143]);
+        let link_1_trace_id_hex = faster_hex::hex_string(&[
+            96, 70, 127, 231, 191, 66, 103, 108, 5, 226, 11, 164, 169, 14, 68, 142,
+        ]);
+        let link_1_span_id_hex = faster_hex::hex_string(&[77, 114, 27, 243, 62, 60, 175, 143]);
+
+        let message = btreemap! {
+            KeyString::from("name") => "test_span_name",
+            KeyString::from("trace_id") => Value::from(trace_id_hex.clone()),
+            KeyString::from("trace_state") => "foo=,apple=banana",
+            KeyString::from("span_id") => Value::from(span_id_hex.clone()),
+            KeyString::from("parent_span_id") => Value::from(parent_span_id_hex.clone()),
+            // LOG-19724: this field is not currently captured/defined in our source impl
+            KeyString::from("flags") => 1,
+            KeyString::from("start_timestamp") => Utc.from_utc_datetime(
+                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+                    .expect("timestamp should be a valid timestamp"),
+            ),
+            KeyString::from("dropped_attributes_count") => 1,
+            KeyString::from("dropped_events_count") => 2,
+            KeyString::from("dropped_links_count") => 3,
+            KeyString::from("end_timestamp") => Utc.from_utc_datetime(
+                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 12_u32)
+                    .expect("timestamp should be a valid timestamp"),
+            ),
+            KeyString::from("events") => vec![
+                btreemap!{
+                    KeyString::from("attributes") => btreemap!{
+                        KeyString::from("test") => "test_event_1_attr",
+                    },
+                    KeyString::from("dropped_attributes_count") => 4,
+                    KeyString::from("name") => "test_name_1",
+                    KeyString::from("timestamp") => Utc.from_utc_datetime(
+                        &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 13_u32)
+                            .expect("timestamp should be a valid timestamp"),
+                    ),
+                },
+                btreemap!{
+                    KeyString::from("attributes") => btreemap!{
+                        KeyString::from("test") => "test_event_2_attr",
+                    },
+                    KeyString::from("dropped_attributes_count") => 5,
+                    KeyString::from("name") => "test_name_2",
+                    KeyString::from("timestamp") => Utc.from_utc_datetime(
+                        &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 14_u32)
+                            .expect("timestamp should be a valid timestamp"),
+                    ),
+                }
+            ],
+            KeyString::from("hostname") => Value::Null,
+            KeyString::from("kind") => 2,
+            KeyString::from("links") => vec![
+                btreemap!{
+                    KeyString::from("attributes") => btreemap!{
+                        KeyString::from("test") => "test_link_1_attr",
+                    },
+                    KeyString::from("dropped_attributes_count") => 6,
+                    KeyString::from("span_id") => Value::from(link_1_span_id_hex.clone()),
+                    KeyString::from("trace_id") => Value::from(link_1_trace_id_hex.clone()),
+                    KeyString::from("trace_state") => "bar=,carrot=broccoli",
+                },
+                btreemap!{
+                    KeyString::from("attributes") => btreemap!{
+                        KeyString::from("test") => "test_link_2_attr",
+                    },
+                    KeyString::from("dropped_attributes_count") => 7,
+                    KeyString::from("span_id") => Value::from("invalid"),
+                    KeyString::from("trace_id") => Value::from("invalid"),
+                    KeyString::from("trace_state") => "invalid",
+                }
+            ],
+            KeyString::from("status") => btreemap!{
+                KeyString::from("code") => 2,
+                KeyString::from("message") => "test_status_message",
+            },
+        };
+
+        event_data.insert("message".into(), Value::Object(message));
+
+        Event::Log(LogEvent::from(event_data))
+    }
+
+    fn metric_event_generator(
+        index: usize,
+        metric_type: TestMetricGenerator,
+        metric_kind: &str,
+        otlp_event: bool,
+        original_otlp_type: Option<&str>,
+        resource_uniq_id: Option<[u8; 8]>,
+    ) -> Event {
+        let mut event_data = BTreeMap::<KeyString, Value>::new();
+        let value =
+            metric_type.generate_value(index, otlp_event, original_otlp_type, resource_uniq_id);
+
+        event_data.insert(
+            "message".into(),
+            Value::Object(btreemap! {
+                KeyString::from("kind") => Value::from(metric_kind),
+                KeyString::from("name") => Value::from("system_filesystem_usage_gibibytes_per_second"),
+                KeyString::from("tags") => btreemap! {KeyString::from("foo") => "bar"},
+                KeyString::from("value") => Value::from(value.clone())
+            }),
+        );
+
+        let mut log_event = LogEvent::from(event_data);
+
+        if let Some(user_metadata) = value.get(log_schema().user_metadata_key()) {
+            log_event.insert(
+                (PathPrefix::Event, log_schema().user_metadata_key()),
+                user_metadata.clone(),
+            );
+        }
+
+        Event::Log(log_event)
+    }
+
+    #[tokio::test]
+    async fn test_opentelemetry_sink_log_endpoint() {
+        let config = indoc! {r#"
+            endpoint = "opentelemetry-endpoint"
+            compression = "gzip"
+            [request.headers]
+            Auth = "token:thing_and-stuff"
+            X-My-Custom-Header = "_%_{}_-_&_._`_|_~_!_#_&_$_"
+        "#};
+
+        let endpoint = std::env::var("TEST_OPENTELEMETRY_ENDPOINT")
+            .expect("test endpoint environment variable not set");
+
+        assert!(
+            !endpoint.is_empty(),
+            "$TEST_OPENTELEMETRY_ENDPOINT required"
+        );
+
+        let config = config.replace("opentelemetry-endpoint", &endpoint);
+        let (config, cx) = load_sink::<OpentelemetrySinkConfig>(config.as_str()).unwrap();
+
+        let (sink, _) = config.build(cx).await.unwrap();
+
+        let trace_id = [
+            95, 70, 127, 231, 191, 66, 103, 108, 5, 226, 11, 164, 169, 14, 68, 142,
+        ];
+        let span_id = [76, 114, 27, 243, 62, 60, 175, 143];
+        let expected_resource_attribute = Value::Object(BTreeMap::from([
+            ("str".into(), "bar".into()),
+            ("int".into(), Value::from(100)),
+            ("flt".into(), Value::from(100.123_f64)),
+            ("bool".into(), Value::from(false)),
+            ("empty".into(), Value::Null),
+            (
+                "list".into(),
+                Value::Array(vec![
+                    "bar".into(),
+                    Value::from(100),
+                    Value::from(100.123_f64),
+                    Value::from(false),
+                    Value::Null,
+                ]),
+            ),
+        ]));
+        let expected_scope_attributes = expected_resource_attribute.clone();
+        let expected_log_attributes = Value::Object(BTreeMap::from([
+            ("str".into(), "bar".into()),
+            ("int".into(), Value::from(100)),
+            ("flt".into(), Value::from(100.123_f64)),
+            ("bool".into(), Value::from(false)),
+            ("empty".into(), Value::Null),
+            (
+                "attributes".into(),
+                Value::Object(BTreeMap::from([
+                    ("str".into(), "bar".into()),
+                    ("int".into(), Value::from(100)),
+                    ("flt".into(), Value::from(100.123_f64)),
+                    ("bool".into(), Value::from(false)),
+                    ("empty".into(), Value::Null),
+                ])),
+            ),
+        ]));
+
+        let (batch, receiver) = BatchNotifier::new_with_receiver();
+        let generator = |idx| {
+            let mut event = event_generator(idx);
+            let log = event.as_mut_log();
+
+            log.insert(
+                "metadata",
+                Value::Object(BTreeMap::from([
+                    ("attributes".into(), expected_log_attributes.clone()),
+                    ("flags".into(), Value::from(1)),
+                    (
+                        "observed_timestamp".into(),
+                        Value::from(
+                            Utc.from_utc_datetime(
+                                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 0o11_u32)
+                                    .expect("timestamp should be a valid timestamp"),
+                            ),
+                        ),
+                    ),
+                    (
+                        "time".into(),
+                        Value::from(
+                            Utc.from_utc_datetime(
+                                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 0o11_u32)
+                                    .expect("timestamp should be a valid timestamp"),
+                            ),
+                        ),
+                    ),
+                    ("severity_number".into(), 17.into()),
+                    ("severity_text".into(), "ERROR".into()),
+                    ("level".into(), "ERROR".into()),
+                    (
+                        "trace_id".into(),
+                        Value::from(faster_hex::hex_string(&trace_id)),
+                    ),
+                    (
+                        "span_id".into(),
+                        Value::from(faster_hex::hex_string(&span_id)),
+                    ),
+                    ("resource".into(), expected_resource_attribute.clone()),
+                    (
+                        "scope".into(),
+                        Value::Object(BTreeMap::from([
+                            ("attributes".into(), expected_scope_attributes.clone()),
+                            ("name".into(), "sone_scope_name".into()),
+                            ("version".into(), "1.0.0".into()),
+                        ])),
+                    ),
+                ])),
+            );
+
+            event
+        };
+        let (messages, events) = generate_events_with_stream(generator, 5, Some(batch));
+
+        for (index, message) in messages.iter().enumerate() {
+            assert_eq!(
+                Value::from(format!("opentelemetry test log index {}", index)),
+                message.clone().into_log().get_message().unwrap().to_owned()
+            );
+        }
+
+        run_and_assert_sink_compliance(sink, events, &SINK_TAGS).await;
+
+        assert_eq!(receiver.await, BatchStatus::Delivered);
+    }
+
+    #[tokio::test]
+    async fn test_opentelemetry_sink_trace_endpoint() {
+        let config = indoc! {r#"
+            endpoint = "opentelemetry-endpoint"
+            compression = "gzip"
+            [request.headers]
+            Auth = "token:thing_and-stuff"
+            X-My-Custom-Header = "_%_{}_-_&_._`_|_~_!_#_&_$_"
+        "#};
+
+        let endpoint = std::env::var("TEST_OPENTELEMETRY_ENDPOINT")
+            .expect("test endpoint environment variable not set");
+
+        assert!(
+            !endpoint.is_empty(),
+            "$TEST_OPENTELEMETRY_ENDPOINT required"
+        );
+
+        let config = config.replace("opentelemetry-endpoint", &endpoint);
+        let (config, cx) = load_sink::<OpentelemetrySinkConfig>(config.as_str()).unwrap();
+
+        let (sink, _) = config.build(cx).await.unwrap();
+
+        let uniq_id: [u8; 8] = [76, 114, 27, 243, 62, 60, 175, 143];
+        let expected_resource_attribute = Value::Object(BTreeMap::from([
+            ("str".into(), "bar".into()),
+            ("int".into(), Value::from(100)),
+            ("flt".into(), Value::from(100.123_f64)),
+            ("bool".into(), Value::from(false)),
+            ("empty".into(), Value::Null),
+            (
+                "list".into(),
+                Value::Array(vec![
+                    "bar".into(),
+                    Value::from(100),
+                    Value::from(100.123_f64),
+                    Value::from(false),
+                    Value::Null,
+                ]),
+            ),
+        ]));
+        let expected_scope_attributes = expected_resource_attribute.clone();
+        let expected_trace_attributes = Value::Object(BTreeMap::from([
+            ("str".into(), "bar".into()),
+            ("int".into(), Value::from(100)),
+            ("flt".into(), Value::from(100.123_f64)),
+            ("bool".into(), Value::from(false)),
+            ("empty".into(), Value::Null),
+            (
+                "attributes".into(),
+                Value::Object(BTreeMap::from([
+                    ("str".into(), "bar".into()),
+                    ("int".into(), Value::from(100)),
+                    ("flt".into(), Value::from(100.123_f64)),
+                    ("bool".into(), Value::from(false)),
+                    ("empty".into(), Value::Null),
+                ])),
+            ),
+        ]));
+
+        let (batch, receiver) = BatchNotifier::new_with_receiver();
+        let generator = |idx| {
+            let mut event = trace_event_generator(idx);
+            let trace = event.as_mut_log();
+
+            trace.insert(
+                "metadata",
+                btreemap! {
+                    KeyString::from("resource") => btreemap!{
+                        KeyString::from("attributes") => expected_resource_attribute.clone(),
+                        KeyString::from("dropped_attributes_count") => 5,
+                        KeyString::from("schema_url") => "https://resource.example.com",
+                    },
+                    KeyString::from("scope") => btreemap!{
+                        KeyString::from("name") => "test_scope_name",
+                        KeyString::from("schema_url") => "https://scope.example.com",
+                        KeyString::from("version") => "1.2.3",
+                        KeyString::from("attributes") => expected_scope_attributes.clone(),
+                    },
+                    KeyString::from("attributes") => expected_trace_attributes.clone(),
+                    KeyString::from("level") => "trace",
+                    KeyString::from("span_uniq_id") => uniq_id,
+                },
+            );
+
+            event
+        };
+        let (_messages, events) = generate_events_with_stream(generator, 5, Some(batch));
+
+        run_and_assert_sink_compliance(sink, events, &SINK_TAGS).await;
+
+        assert_eq!(receiver.await, BatchStatus::Delivered);
+    }
+
+    #[tokio::test]
+    async fn test_opentelemetry_sink_metric_endpoint_otlp_events() {
+        let config = indoc! {r#"
+            endpoint = "opentelemetry-endpoint"
+            compression = "gzip"
+            [request.headers]
+            Auth = "token:thing_and-stuff"
+            X-My-Custom-Header = "_%_{}_-_&_._`_|_~_!_#_&_$_"
+        "#};
+
+        let endpoint = std::env::var("TEST_OPENTELEMETRY_ENDPOINT")
+            .expect("test endpoint environment variable not set");
+
+        assert!(
+            !endpoint.is_empty(),
+            "$TEST_OPENTELEMETRY_ENDPOINT required"
+        );
+
+        let config = config.replace("opentelemetry-endpoint", &endpoint);
+        let (config, cx) = load_sink::<OpentelemetrySinkConfig>(config.as_str()).unwrap();
+
+        let (sink, _) = config.build(cx).await.unwrap();
+
+        let (batch, receiver) = BatchNotifier::new_with_receiver();
+
+        let uniq_id: [u8; 8] = [76, 114, 27, 243, 62, 60, 175, 143];
+        let gen_settings = vec![
+            (
+                &TestMetricGenerator::Gauge,
+                "absolute",
+                true,
+                Some("gauge"),
+                Some(uniq_id),
+            ),
+            (
+                &TestMetricGenerator::Gauge,
+                "absolute",
+                true,
+                Some("gauge"),
+                Some(uniq_id),
+            ),
+            (
+                &TestMetricGenerator::Gauge,
+                "absolute",
+                true,
+                Some("sum"),
+                Some(uniq_id),
+            ),
+            (
+                &TestMetricGenerator::Gauge,
+                "absolute",
+                true,
+                Some("sum"),
+                Some(uniq_id),
+            ),
+            (
+                &TestMetricGenerator::Counter,
+                "incremental",
+                true,
+                Some("sum"),
+                Some(uniq_id),
+            ),
+            (
+                &TestMetricGenerator::Counter,
+                "incremental",
+                true,
+                Some("sum"),
+                Some(uniq_id),
+            ),
+            (
+                &TestMetricGenerator::AggregatedHistogram,
+                "absolute",
+                true,
+                Some("histogram"),
+                Some(uniq_id),
+            ),
+            (
+                &TestMetricGenerator::AggregatedHistogram,
+                "absolute",
+                true,
+                Some("histogram"),
+                Some(uniq_id),
+            ),
+        ];
+
+        let generator = |idx| {
+            let (metric_type, metric_kind, otlp_event, original_otlp_type, uniq_id) =
+                gen_settings[idx];
+            let event = metric_event_generator(
+                idx,
+                metric_type.clone(),
+                metric_kind,
+                otlp_event,
+                original_otlp_type,
+                uniq_id,
+            );
+            let log = event.as_log();
+            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+        };
+
+        let (_, stream) = generate_metrics_with_stream(generator, gen_settings.len(), Some(batch));
+
+        run_and_assert_sink_compliance(sink, stream, &SINK_TAGS).await;
+
+        assert_eq!(receiver.await, BatchStatus::Delivered);
+    }
+
+    #[tokio::test]
+    async fn test_opentelemetry_sink_metric_endpoint_not_otlp_events() {
+        let config = indoc! {r#"
+            endpoint = "opentelemetry-endpoint"
+            compression = "gzip"
+        "#};
+
+        let endpoint = std::env::var("TEST_OPENTELEMETRY_ENDPOINT")
+            .expect("test endpoint environment variable not set");
+
+        assert!(
+            !endpoint.is_empty(),
+            "$TEST_OPENTELEMETRY_ENDPOINT required"
+        );
+
+        let config = config.replace("opentelemetry-endpoint", &endpoint);
+        let (config, cx) = load_sink::<OpentelemetrySinkConfig>(config.as_str()).unwrap();
+
+        let (sink, _) = config.build(cx).await.unwrap();
+
+        let (batch, receiver) = BatchNotifier::new_with_receiver();
+
+        let gen_settings = vec![
+            (&TestMetricGenerator::Gauge, "absolute", false, None, None),
+            (
+                &TestMetricGenerator::Counter,
+                "incremental",
+                false,
+                None,
+                None,
+            ),
+            (
+                &TestMetricGenerator::AggregatedHistogram,
+                "absolute",
+                false,
+                None,
+                None,
+            ),
+            (
+                &TestMetricGenerator::DistributionHistogram,
+                "absolute",
+                false,
+                None,
+                None,
+            ),
+            (&TestMetricGenerator::Set, "absolute", false, None, None),
+        ];
+
+        let generator = |idx| {
+            let (metric_type, metric_kind, otlp_event, original_otlp_type, uniq_id) =
+                gen_settings[idx];
+            let event = metric_event_generator(
+                idx,
+                metric_type.clone(),
+                metric_kind,
+                otlp_event,
+                original_otlp_type,
+                uniq_id,
+            );
+            let log = event.as_log();
+            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+        };
+
+        let (_, stream) = generate_metrics_with_stream(generator, gen_settings.len(), Some(batch));
+
+        run_and_assert_sink_compliance(sink, stream, &SINK_TAGS).await;
+
+        assert_eq!(receiver.await, BatchStatus::Delivered);
+    }
+
+    #[tokio::test]
+    async fn test_opentelemetry_sink_metric_endpoint_mixed_events() {
+        let config = indoc! {r#"
+            endpoint = "opentelemetry-endpoint"
+            compression = "gzip"
+        "#};
+
+        let endpoint = std::env::var("TEST_OPENTELEMETRY_ENDPOINT")
+            .expect("test endpoint environment variable not set");
+
+        assert!(
+            !endpoint.is_empty(),
+            "$TEST_OPENTELEMETRY_ENDPOINT required"
+        );
+
+        let config = config.replace("opentelemetry-endpoint", &endpoint);
+        let (config, cx) = load_sink::<OpentelemetrySinkConfig>(config.as_str()).unwrap();
+
+        let (sink, _) = config.build(cx).await.unwrap();
+
+        let (batch, receiver) = BatchNotifier::new_with_receiver();
+
+        let uniq_id: [u8; 8] = [76, 114, 27, 243, 62, 60, 175, 143];
+        let gen_settings = vec![
+            (
+                &TestMetricGenerator::Gauge,
+                "absolute",
+                true,
+                Some("gauge"),
+                Some(uniq_id),
+            ),
+            (
+                &TestMetricGenerator::Gauge,
+                "absolute",
+                true,
+                Some("sum"),
+                Some(uniq_id),
+            ),
+            (
+                &TestMetricGenerator::Counter,
+                "incremental",
+                true,
+                Some("sum"),
+                Some(uniq_id),
+            ),
+            (
+                &TestMetricGenerator::AggregatedHistogram,
+                "absolute",
+                true,
+                Some("histogram"),
+                Some(uniq_id),
+            ),
+            (&TestMetricGenerator::Gauge, "absolute", false, None, None),
+            (
+                &TestMetricGenerator::Counter,
+                "incremental",
+                false,
+                None,
+                None,
+            ),
+            (
+                &TestMetricGenerator::AggregatedHistogram,
+                "absolute",
+                false,
+                None,
+                None,
+            ),
+            (
+                &TestMetricGenerator::DistributionHistogram,
+                "absolute",
+                false,
+                None,
+                None,
+            ),
+            (&TestMetricGenerator::Set, "absolute", false, None, None),
+        ];
+
+        let generator = |idx| {
+            let (metric_type, metric_kind, otlp_event, original_otlp_type, uniq_id) =
+                gen_settings[idx];
+            let event = metric_event_generator(
+                idx,
+                metric_type.clone(),
+                metric_kind,
+                otlp_event,
+                original_otlp_type,
+                uniq_id,
+            );
+            let log = event.as_log();
+            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+        };
+
+        let (_, stream) = generate_metrics_with_stream(generator, gen_settings.len(), Some(batch));
+
+        run_and_assert_sink_compliance(sink, stream, &SINK_TAGS).await;
+
+        assert_eq!(receiver.await, BatchStatus::Delivered);
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_opentelemetry_sink_metric_endpoint_unsupported_events() {
+        let config = indoc! {r#"
+            endpoint = "opentelemetry-endpoint"
+            compression = "gzip"
+        "#};
+
+        let endpoint = std::env::var("TEST_OPENTELEMETRY_ENDPOINT")
+            .expect("test endpoint environment variable not set");
+
+        assert!(
+            !endpoint.is_empty(),
+            "$TEST_OPENTELEMETRY_ENDPOINT required"
+        );
+
+        let config = config.replace("opentelemetry-endpoint", &endpoint);
+        let (config, cx) = load_sink::<OpentelemetrySinkConfig>(config.as_str()).unwrap();
+
+        let (sink, _) = config.build(cx).await.unwrap();
+
+        let (batch, _) = BatchNotifier::new_with_receiver();
+
+        let gen_settings = vec![
+            (
+                &TestMetricGenerator::AggregatedSummary,
+                "absolute",
+                false,
+                None,
+                None,
+            ),
+            (
+                &TestMetricGenerator::DistributionSummary,
+                "absolute",
+                false,
+                None,
+                None,
+            ),
+        ];
+
+        let generator = |idx| {
+            let (metric_type, metric_kind, otlp_event, original_otlp_type, uniq_id) =
+                gen_settings[idx];
+            let event = metric_event_generator(
+                idx,
+                metric_type.clone(),
+                metric_kind,
+                otlp_event,
+                original_otlp_type,
+                uniq_id,
+            );
+            let log = event.as_log();
+            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+        };
+
+        let (_, stream) = generate_metrics_with_stream(generator, gen_settings.len(), Some(batch));
+
+        run_and_assert_sink_compliance(sink, stream, &SINK_TAGS).await;
+    }
 }

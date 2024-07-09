@@ -6,8 +6,8 @@ use vrl::value::{ObjectMap, Value};
 
 use super::super::{
     metric::{
-        Bucket, MetricData, MetricName, MetricSeries, MetricSketch, MetricTags, MetricTime,
-        Quantile, Sample,
+        Bucket, MetricArbitrary, MetricData, MetricName, MetricSeries, MetricSketch, MetricTags,
+        MetricTime, Quantile, Sample,
     },
     Event, EventMetadata, LogEvent, Metric, MetricKind, MetricValue, StatisticKind, TraceEvent,
 };
@@ -570,6 +570,7 @@ impl Arbitrary for MetricData {
             },
             kind: MetricKind::arbitrary(g),
             value: MetricValue::arbitrary(g),
+            arbitrary: MetricArbitrary::default(),
         }
     }
 
