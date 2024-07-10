@@ -309,8 +309,11 @@ async fn azure_blob_build_config_with_invalid_connection_string() {
         ..default_config((None::<FramingConfig>, TextSerializerConfig::default()).into())
     };
 
-    sink_config
+    assert!(sink_config
         .build(SinkContext::new_test())
         .await
-        .expect("builds with invalid connection string");
+        .expect("builds with invalid connection string")
+        .1
+        .await
+        .is_err());
 }

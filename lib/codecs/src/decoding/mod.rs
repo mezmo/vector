@@ -5,6 +5,7 @@ mod error;
 pub mod format;
 pub mod framing;
 
+use crate::decoding::format::{VrlDeserializer, VrlDeserializerConfig};
 use bytes::{Bytes, BytesMut};
 pub use error::StreamDecodingError;
 pub use format::{
@@ -236,7 +237,21 @@ pub enum DeserializerConfig {
 
     /// Decodes the raw bytes as a [GELF][gelf] message.
     ///
+    /// This codec is experimental for the following reason:
+    ///
+    /// The GELF specification is more strict than the actual Graylog receiver.
+    /// Vector's decoder currently adheres more strictly to the GELF spec, with
+    /// the exception that some characters such as `@`  are allowed in field names.
+    ///
+    /// Other GELF codecs such as Loki's, use a [Go SDK][implementation] that is maintained
+    /// by Graylog, and is much more relaxed than the GELF spec.
+    ///
+    /// Going forward, Vector will use that [Go SDK][implementation] as the reference implementation, which means
+    /// the codec may continue to relax the enforcement of specification.
+
+    ///
     /// [gelf]: https://docs.graylog.org/docs/gelf
+    /// [implementation]: https://github.com/Graylog2/go-gelf/blob/v2/gelf/reader.go
     Gelf(GelfDeserializerConfig),
 
     /// Decode the raw bytes using one of Mezmo's deserializers
@@ -252,6 +267,11 @@ pub enum DeserializerConfig {
         /// Apache Avro-specific encoder options.
         avro: AvroDeserializerOptions,
     },
+
+    /// Decodes the raw bytes as a string and passes them as input to a [VRL][vrl] program.
+    ///
+    /// [vrl]: https://vector.dev/docs/reference/vrl
+    Vrl(VrlDeserializerConfig),
 }
 
 impl From<BytesDeserializerConfig> for DeserializerConfig {
@@ -312,6 +332,7 @@ impl DeserializerConfig {
             DeserializerConfig::NativeJson(config) => Ok(Deserializer::NativeJson(config.build())),
             DeserializerConfig::Gelf(config) => Ok(Deserializer::Gelf(config.build())),
             DeserializerConfig::Mezmo(config) => Ok(Deserializer::Boxed(config.build())),
+            DeserializerConfig::Vrl(config) => Ok(Deserializer::Vrl(config.build()?)),
         }
     }
 
@@ -330,6 +351,7 @@ impl DeserializerConfig {
             #[cfg(feature = "syslog")]
             DeserializerConfig::Syslog(_) => FramingConfig::NewlineDelimited(Default::default()),
             DeserializerConfig::Mezmo(config) => config.default_stream_framing(),
+            DeserializerConfig::Vrl(_) => FramingConfig::Bytes,
         }
     }
 
@@ -349,6 +371,7 @@ impl DeserializerConfig {
             DeserializerConfig::NativeJson(config) => config.output_type(),
             DeserializerConfig::Gelf(config) => config.output_type(),
             DeserializerConfig::Mezmo(config) => config.output_type(),
+            DeserializerConfig::Vrl(config) => config.output_type(),
         }
     }
 
@@ -368,6 +391,7 @@ impl DeserializerConfig {
             DeserializerConfig::NativeJson(config) => config.schema_definition(log_namespace),
             DeserializerConfig::Gelf(config) => config.schema_definition(log_namespace),
             DeserializerConfig::Mezmo(config) => config.schema_definition(log_namespace),
+            DeserializerConfig::Vrl(config) => config.schema_definition(log_namespace),
         }
     }
 
@@ -398,7 +422,8 @@ impl DeserializerConfig {
                 DeserializerConfig::Json(_)
                 | DeserializerConfig::NativeJson(_)
                 | DeserializerConfig::Bytes
-                | DeserializerConfig::Gelf(_),
+                | DeserializerConfig::Gelf(_)
+                | DeserializerConfig::Vrl(_),
                 _,
             ) => "text/plain",
             #[cfg(feature = "syslog")]
@@ -430,6 +455,8 @@ pub enum Deserializer {
     Boxed(BoxedDeserializer),
     /// Uses a `GelfDeserializer` for deserialization.
     Gelf(GelfDeserializer),
+    /// Uses a `VrlDeserializer` for deserialization.
+    Vrl(VrlDeserializer),
 }
 
 impl format::Deserializer for Deserializer {
@@ -449,6 +476,7 @@ impl format::Deserializer for Deserializer {
             Deserializer::NativeJson(deserializer) => deserializer.parse(bytes, log_namespace),
             Deserializer::Boxed(deserializer) => deserializer.parse(bytes, log_namespace),
             Deserializer::Gelf(deserializer) => deserializer.parse(bytes, log_namespace),
+            Deserializer::Vrl(deserializer) => deserializer.parse(bytes, log_namespace),
         }
     }
 }

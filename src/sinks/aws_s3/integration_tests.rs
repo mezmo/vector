@@ -6,15 +6,14 @@ use std::{
 };
 
 use aws_sdk_s3::{
-    error::CreateBucketErrorKind,
-    model::{
+    operation::{create_bucket::CreateBucketError, get_object::GetObjectOutput},
+    types::{
         DefaultRetention, ObjectLockConfiguration, ObjectLockEnabled, ObjectLockRetentionMode,
         ObjectLockRule,
     },
-    output::GetObjectOutput,
-    types::SdkError,
     Client as S3Client,
 };
+use aws_smithy_runtime_api::client::result::SdkError;
 use bytes::Buf;
 use flate2::read::MultiGzDecoder;
 use futures::{stream, Stream};
@@ -77,7 +76,7 @@ async fn s3_insert_message_into_with_flat_key_prefix() {
     assert!(key.ends_with(".log"));
 
     let obj = get_object(&bucket, key).await;
-    assert_eq!(obj.content_encoding, Some("identity".to_string()));
+    assert_eq!(obj.content_encoding, None);
 
     let response_lines = get_lines(obj).await;
     assert_eq!(lines, response_lines);
@@ -111,7 +110,7 @@ async fn s3_insert_message_into_with_folder_key_prefix() {
     assert!(key.ends_with(".log"));
 
     let obj = get_object(&bucket, key).await;
-    assert_eq!(obj.content_encoding, Some("identity".to_string()));
+    assert_eq!(obj.content_encoding, None);
 
     let response_lines = get_lines(obj).await;
     assert_eq!(lines, response_lines);
@@ -148,7 +147,7 @@ async fn s3_insert_message_into_with_ssekms_key_id() {
     assert!(key.ends_with(".log"));
 
     let obj = get_object(&bucket, key).await;
-    assert_eq!(obj.content_encoding, Some("identity".to_string()));
+    assert_eq!(obj.content_encoding, None);
 
     let response_lines = get_lines(obj).await;
     assert_eq!(lines, response_lines);
@@ -349,7 +348,7 @@ async fn s3_insert_message_into_object_lock() {
     assert!(key.ends_with(".log"));
 
     let obj = get_object(&bucket, key).await;
-    assert_eq!(obj.content_encoding, Some("identity".to_string()));
+    assert_eq!(obj.content_encoding, None);
 
     let response_lines = get_lines(obj).await;
     assert_eq!(lines, response_lines);
@@ -391,6 +390,8 @@ async fn s3_healthchecks() {
         .unwrap();
     config
         .build_healthcheck(service.client(), SinkContext::new_test())
+        .unwrap()
+        .await
         .unwrap();
 }
 
@@ -428,7 +429,7 @@ async fn s3_flush_on_exhaustion() {
             filename_append_uuid: true,
             filename_extension: None,
             options: S3Options::default(),
-            region: RegionOrEndpoint::with_both("minio", s3_address()),
+            region: RegionOrEndpoint::with_both("us-east-1", s3_address()),
             encoding: (None::<FramingConfig>, TextSerializerConfig::default()).into(),
             compression: Compression::None,
             batch,
@@ -487,7 +488,7 @@ async fn s3_flush_on_exhaustion() {
 // MEZMO: upgraded function from private to pub for s3-sink file consolidation
 pub async fn client() -> S3Client {
     let auth = AwsAuthentication::test_auth();
-    let region = RegionOrEndpoint::with_both("minio", s3_address());
+    let region = RegionOrEndpoint::with_both("us-east-1", s3_address());
     let proxy = ProxyConfig::default();
     let tls_options = None;
     create_client::<S3ClientBuilder>(
@@ -496,7 +497,6 @@ pub async fn client() -> S3Client {
         region.endpoint(),
         &proxy,
         &tls_options,
-        true,
     )
     .await
     .unwrap()
@@ -514,7 +514,7 @@ fn config(bucket: &str, batch_size: usize) -> S3SinkConfig {
         filename_append_uuid: true,
         filename_extension: None,
         options: S3Options::default(),
-        region: RegionOrEndpoint::with_both("minio", s3_address()),
+        region: RegionOrEndpoint::with_both("us-east-1", s3_address()),
         encoding: (None::<FramingConfig>, TextSerializerConfig::default()).into(),
         compression: Compression::None,
         batch,
@@ -552,8 +552,8 @@ pub async fn create_bucket(bucket: &str, object_lock_enabled: bool) {
     {
         Ok(_) => {}
         Err(err) => match err {
-            SdkError::ServiceError(inner) => match &inner.err().kind {
-                CreateBucketErrorKind::BucketAlreadyOwnedByYou(_) => {}
+            SdkError::ServiceError(inner) => match &inner.err() {
+                CreateBucketError::BucketAlreadyOwnedByYou(_) => {}
                 err => panic!("Failed to create bucket: {:?}", err),
             },
             err => panic!("Failed to create bucket: {:?}", err),
@@ -561,7 +561,7 @@ pub async fn create_bucket(bucket: &str, object_lock_enabled: bool) {
     }
 }
 
-async fn list_objects(bucket: &str, prefix: String) -> Option<Vec<aws_sdk_s3::model::Object>> {
+async fn list_objects(bucket: &str, prefix: String) -> Option<Vec<aws_sdk_s3::types::Object>> {
     let prefix = prefix.split('/').next().unwrap().to_string();
 
     client()

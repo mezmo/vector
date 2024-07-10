@@ -493,6 +493,7 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
                     merged_schema_definition: merged_definition.clone(),
                     mezmo_ctx: mezmo_ctx.clone(),
                     schema: config.schema,
+                    extra_context: crate::extra_context::ExtraContext::default(),
                 };
                 // Compile the VRL snippet in the transform
                 if let Err(error) = transform.build(&context).await {

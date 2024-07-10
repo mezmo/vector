@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 use std::{future::ready, num::NonZeroUsize, panic, sync::Arc};
 
-use aws_sdk_s3::{error::GetObjectError, Client as S3Client};
-use aws_sdk_sqs::{
-    error::{DeleteMessageBatchError, ReceiveMessageError},
-    model::{DeleteMessageBatchRequestEntry, Message},
-    output::DeleteMessageBatchOutput,
-    Client as SqsClient,
+use aws_sdk_s3::operation::get_object::GetObjectError;
+use aws_sdk_s3::Client as S3Client;
+use aws_sdk_sqs::operation::delete_message_batch::{
+    DeleteMessageBatchError, DeleteMessageBatchOutput,
 };
-use aws_smithy_client::SdkError;
+use aws_sdk_sqs::operation::receive_message::ReceiveMessageError;
+use aws_sdk_sqs::types::{DeleteMessageBatchRequestEntry, Message};
+use aws_sdk_sqs::Client as SqsClient;
+use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
+use aws_smithy_runtime_api::client::result::SdkError;
 use aws_types::region::Region;
 use bytes::Bytes;
 use chrono::{DateTime, TimeZone, Utc};
@@ -104,6 +106,13 @@ pub(super) struct Config {
     #[derivative(Default(value = "default_true()"))]
     pub(super) delete_message: bool,
 
+    /// Whether to delete non-retryable messages.
+    ///
+    /// If a message is rejected by the sink and not retryable, it is deleted from the queue.
+    #[serde(default = "default_true")]
+    #[derivative(Default(value = "default_true()"))]
+    pub(super) delete_failed_message: bool,
+
     /// Number of concurrent tasks to create for polling the queue for messages.
     ///
     /// Defaults to the number of available CPUs on the system.
@@ -158,7 +167,7 @@ pub enum ProcessingError {
     },
     #[snafu(display("Failed to fetch s3://{}/{}: {}", bucket, key, source))]
     GetObject {
-        source: SdkError<GetObjectError>,
+        source: SdkError<GetObjectError, HttpResponse>,
         bucket: String,
         key: String,
     },
@@ -205,6 +214,7 @@ pub struct State {
     client_concurrency: usize,
     visibility_timeout_secs: i32,
     delete_message: bool,
+    delete_failed_message: bool,
     decoder: Decoder,
 }
 
@@ -239,6 +249,7 @@ impl Ingestor {
                 .unwrap_or_else(crate::num_threads),
             visibility_timeout_secs: config.visibility_timeout_secs as i32,
             delete_message: config.delete_message,
+            delete_failed_message: config.delete_failed_message,
             decoder,
         });
 
@@ -336,7 +347,9 @@ impl IngestorProcess {
             emit!(SqsMessageReceiveError { error: e });
             user_log_error!(
                 self.mezmo_ctx,
-                Value::from(SqsMessageReceiveError::<SdkError<ReceiveMessageError>>::MESSAGE)
+                Value::from(
+                    SqsMessageReceiveError::<SdkError<ReceiveMessageError, HttpResponse>>::MESSAGE
+                )
             );
             // Sleep for a while before returning
             sleep(self.backoff.next()).await;
@@ -381,7 +394,8 @@ impl IngestorProcess {
                             DeleteMessageBatchRequestEntry::builder()
                                 .id(message_id)
                                 .receipt_handle(receipt_handle)
-                                .build(),
+                                .build()
+                                .expect("all required builder params specified"),
                         );
                     }
                 }
@@ -404,25 +418,21 @@ impl IngestorProcess {
                 Ok(result) => {
                     // Batch deletes can have partial successes/failures, so we have to check
                     // for both cases and emit accordingly.
-                    if let Some(successful_entries) = &result.successful {
-                        if !successful_entries.is_empty() {
-                            emit!(SqsMessageDeleteSucceeded {
-                                message_ids: result.successful.unwrap_or_default(),
-                            });
-                        }
+                    if !result.successful.is_empty() {
+                        emit!(SqsMessageDeleteSucceeded {
+                            message_ids: result.successful,
+                        });
                     }
 
-                    if let Some(failed_entries) = &result.failed {
-                        if !failed_entries.is_empty() {
-                            emit!(SqsMessageDeletePartialError {
-                                entries: result.failed.unwrap_or_default(),
-                                should_log: self.log.should_log(),
-                            });
-                            user_log_error!(
-                                self.mezmo_ctx,
-                                Value::from(SqsMessageDeletePartialError::MESSAGE)
-                            );
-                        }
+                    if !result.failed.is_empty() {
+                        emit!(SqsMessageDeletePartialError {
+                            entries: result.failed,
+                            should_log: self.log.should_log(),
+                        });
+                        user_log_error!(
+                            self.mezmo_ctx,
+                            Value::from(SqsMessageDeletePartialError::MESSAGE)
+                        );
                     }
                 }
                 Err(err) => {
@@ -433,7 +443,11 @@ impl IngestorProcess {
                     });
                     user_log_error!(
                         self.mezmo_ctx,
-                        Value::from(SqsMessageDeleteBatchError::<SdkError<DeleteMessageBatchError>>::MESSAGE)
+                        Value::from(
+                            SqsMessageDeleteBatchError::<
+                                SdkError<DeleteMessageBatchError, HttpResponse>,
+                            >::MESSAGE
+                        )
                     );
                 }
             }
@@ -645,9 +659,11 @@ impl IngestorProcess {
                         BatchStatus::Delivered => Ok(()),
                         BatchStatus::Errored => Err(ProcessingError::ErrorAcknowledgement),
                         BatchStatus::Rejected => {
-                            // Sinks are responsible for emitting ComponentEventsDropped.
-                            // Failed events cannot be retried, so continue to delete the SQS source message.
-                            Ok(())
+                            if self.state.delete_failed_message {
+                                Ok(())
+                            } else {
+                                Err(ProcessingError::ErrorAcknowledgement)
+                            }
                         }
                     }
                 }
@@ -655,7 +671,9 @@ impl IngestorProcess {
         }
     }
 
-    async fn receive_messages(&mut self) -> Result<Vec<Message>, SdkError<ReceiveMessageError>> {
+    async fn receive_messages(
+        &mut self,
+    ) -> Result<Vec<Message>, SdkError<ReceiveMessageError, HttpResponse>> {
         self.state
             .sqs_client
             .receive_message()
@@ -671,7 +689,7 @@ impl IngestorProcess {
     async fn delete_messages(
         &mut self,
         entries: Vec<DeleteMessageBatchRequestEntry>,
-    ) -> Result<DeleteMessageBatchOutput, SdkError<DeleteMessageBatchError>> {
+    ) -> Result<DeleteMessageBatchOutput, SdkError<DeleteMessageBatchError, HttpResponse>> {
         self.state
             .sqs_client
             .delete_message_batch()

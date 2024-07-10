@@ -20,6 +20,7 @@ use vector_lib::{
 use super::schema::Options as SchemaOptions;
 use super::OutputId;
 use super::{id::Inputs, ComponentKey};
+use crate::extra_context::ExtraContext;
 
 pub type BoxedTransform = Box<dyn TransformConfig>;
 
@@ -122,6 +123,10 @@ pub struct TransformContext {
 
     pub mezmo_ctx: Option<MezmoContext>,
     pub schema: SchemaOptions,
+
+    /// Extra context data provided by the running app and shared across all components. This can be
+    /// used to pass shared settings or other data from outside the components.
+    pub extra_context: ExtraContext,
 }
 
 impl Default for TransformContext {
@@ -134,6 +139,7 @@ impl Default for TransformContext {
             merged_schema_definition: schema::Definition::any(),
             mezmo_ctx: Default::default(),
             schema: SchemaOptions::default(),
+            extra_context: Default::default(),
         }
     }
 }

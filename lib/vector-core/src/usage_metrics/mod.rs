@@ -712,7 +712,7 @@ fn start_publishing_metrics_with_flusher(
             loop {
                 tokio::select! {
                     // Use unbiased (pseudo random) branch selection, that way we support for immediate flushes
-                    _ = &mut timeout => {
+                    () = &mut timeout => {
                         // Break the inner loop, start a new timer
                         break;
                     },

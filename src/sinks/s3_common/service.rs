@@ -4,10 +4,10 @@ use super::config::S3Options;
 use super::partitioner::S3PartitionKey;
 use crate::mezmo::user_trace::{UserLoggingError, UserLoggingResponse};
 use aws_sdk_s3::{
-    error::PutObjectError,
-    types::{ByteStream, SdkError},
-    Client as S3Client,
+    error::ProvideErrorMetadata, operation::put_object::PutObjectError, Client as S3Client,
 };
+use aws_smithy_runtime_api::client::{orchestrator::HttpResponse, result::SdkError};
+use aws_smithy_types::byte_stream::ByteStream;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use bytes::Bytes;
 use futures::future::BoxFuture;
@@ -69,7 +69,7 @@ impl DriverResponse for S3Response {
 
 impl UserLoggingResponse for S3Response {}
 
-impl UserLoggingError for SdkError<PutObjectError> {
+impl UserLoggingError for SdkError<PutObjectError, HttpResponse> {
     fn log_msg(&self) -> Option<Value> {
         match &self {
             SdkError::ServiceError(inner) => inner.err().message().map(Into::into),
@@ -101,7 +101,7 @@ impl S3Service {
 
 impl Service<S3Request> for S3Service {
     type Response = S3Response;
-    type Error = SdkError<PutObjectError>;
+    type Error = SdkError<PutObjectError, HttpResponse>;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     // Emission of an internal event in case of errors is handled upstream by the caller.

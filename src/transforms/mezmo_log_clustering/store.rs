@@ -88,11 +88,11 @@ pub(crate) async fn save_in_loop(
                     break;
                 },
                 Some(info) = rx.recv() => {
-                    let map = aggregated.entry(info.key).or_insert_with(HashMap::new);
+                    let map = aggregated.entry(info.key).or_default();
                     if info.template.is_some() {
                         new_templates += 1;
                     }
-                    let aggregated_info = map.entry(info.local_id).or_insert_with(Default::default);
+                    let aggregated_info = map.entry(info.local_id).or_default();
                     aggregated_info.cluster_id = info.cluster_id;
                     aggregated_info.count += 1;
                     aggregated_info.size += info.size;

@@ -52,7 +52,7 @@ pub mod tls;
 pub mod transform;
 pub mod usage_metrics;
 #[cfg(feature = "vrl")]
-mod vrl;
+pub mod vrl;
 
 use float_eq::FloatEq;
 use std::path::PathBuf;

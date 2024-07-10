@@ -491,7 +491,7 @@ async fn download_file_as_bytes(
         }
     }
 
-    if prepend_char.is_some() {
+    if let Some(..) = prepend_char {
         vec.insert(0, prepend_char.unwrap() as u8);
     }
 

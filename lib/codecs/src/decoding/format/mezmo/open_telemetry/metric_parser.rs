@@ -1680,8 +1680,8 @@ fn make_event(mut log_event: LogEvent) -> Event {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{NaiveDateTime, TimeZone, Utc};
-    use std::ops::Deref;
+    use chrono::DateTime;
+    use std::collections::BTreeMap;
 
     use vector_core::event::metric::{mezmo::to_metric, Bucket, Quantile};
     use vector_core::event::{MetricKind, MetricValue};
@@ -1815,8 +1815,7 @@ mod tests {
                 .into_log()
                 .value()
                 .get("message")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             Value::Object(BTreeMap::from([
                 ("kind".into(), "absolute".into()),
                 (
@@ -1863,13 +1862,8 @@ mod tests {
                                 (
                                     "time_unix".into(),
                                     Value::from(
-                                        Utc.from_utc_datetime(
-                                            &NaiveDateTime::from_timestamp_opt(
-                                                1_579_134_612_i64,
-                                                11_u32
-                                            )
-                                            .expect("timestamp should be a valid timestamp"),
-                                        )
+                                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                            .expect("timestamp should be a valid timestamp")
                                     )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
@@ -1880,19 +1874,15 @@ mod tests {
                         (
                             "start_time_unix".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                         (
                             "time_unix".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                     ]))
@@ -1909,7 +1899,7 @@ mod tests {
         assert!(uniq_id.is_some());
 
         assert_eq!(
-            *metadata.deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "gauge".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -1978,7 +1968,7 @@ mod tests {
         assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
         assert_eq!(
             metric.timestamp().unwrap(),
-            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+            (DateTime::from_timestamp(1_579_134_612, 11).unwrap())
         );
     }
 
@@ -2061,8 +2051,7 @@ mod tests {
                 .into_log()
                 .value()
                 .get("message")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             Value::Object(BTreeMap::from([
                 ("kind".into(), "incremental".into()),
                 ("name".into(), "test_name_gibibytes_per_second_total".into()),
@@ -2092,13 +2081,8 @@ mod tests {
                                 (
                                     "time_unix".into(),
                                     Value::from(
-                                        Utc.from_utc_datetime(
-                                            &NaiveDateTime::from_timestamp_opt(
-                                                1_579_134_612_i64,
-                                                11_u32
-                                            )
-                                            .expect("timestamp should be a valid timestamp"),
-                                        )
+                                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                            .expect("timestamp should be a valid timestamp")
                                     )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
@@ -2109,19 +2093,15 @@ mod tests {
                         (
                             "start_time_unix".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                         (
                             "time_unix".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                         ("aggregation_temporality".into(), Value::Integer(0)),
@@ -2140,7 +2120,7 @@ mod tests {
         assert!(uniq_id.is_some());
 
         assert_eq!(
-            *metadata.deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "sum".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -2191,7 +2171,7 @@ mod tests {
         assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
         assert_eq!(
             metric.timestamp().unwrap(),
-            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+            (DateTime::from_timestamp(1_579_134_612, 11).unwrap())
         );
     }
 
@@ -2274,8 +2254,7 @@ mod tests {
                 .into_log()
                 .value()
                 .get("message")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             Value::Object(BTreeMap::from([
                 ("kind".into(), "absolute".into()),
                 ("name".into(), "test_name_gibibytes_per_second".into()),
@@ -2305,13 +2284,8 @@ mod tests {
                                 (
                                     "time_unix".into(),
                                     Value::from(
-                                        Utc.from_utc_datetime(
-                                            &NaiveDateTime::from_timestamp_opt(
-                                                1_579_134_612_i64,
-                                                11_u32
-                                            )
-                                            .expect("timestamp should be a valid timestamp"),
-                                        )
+                                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                            .expect("timestamp should be a valid timestamp")
                                     )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
@@ -2322,19 +2296,15 @@ mod tests {
                         (
                             "start_time_unix".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                         (
                             "time_unix".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                         ("aggregation_temporality".into(), Value::Integer(0)),
@@ -2353,7 +2323,7 @@ mod tests {
         assert!(uniq_id.is_some());
 
         assert_eq!(
-            *metadata.deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "sum".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -2404,7 +2374,7 @@ mod tests {
         assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
         assert_eq!(
             metric.timestamp().unwrap(),
-            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap())
+            (DateTime::from_timestamp(1_579_134_612, 11).unwrap())
         );
     }
 
@@ -2496,8 +2466,7 @@ mod tests {
                 .into_log()
                 .value()
                 .get("message")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             Value::Object(BTreeMap::from([
                 ("kind".into(), "absolute".into()),
                 ("name".into(), "test_name_gibibytes_per_second".into()),
@@ -2633,13 +2602,8 @@ mod tests {
                                 (
                                     "time_unix".into(),
                                     Value::from(
-                                        Utc.from_utc_datetime(
-                                            &NaiveDateTime::from_timestamp_opt(
-                                                1_579_134_612_i64,
-                                                11_u32
-                                            )
-                                            .expect("timestamp should be a valid timestamp"),
-                                        )
+                                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                            .expect("timestamp should be a valid timestamp")
                                     )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
@@ -2650,19 +2614,15 @@ mod tests {
                         (
                             "start_time_unix".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                         (
                             "time_unix".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                         ("max".into(), from_f64_or_zero(9.9)),
@@ -2682,7 +2642,7 @@ mod tests {
         assert!(uniq_id.is_some());
 
         assert_eq!(
-            *metadata.deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "histogram".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -2797,7 +2757,7 @@ mod tests {
         assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
         assert_eq!(
             metric.timestamp().unwrap(),
-            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+            (DateTime::from_timestamp(1_579_134_612, 11).unwrap())
         );
     }
 
@@ -2894,148 +2854,6 @@ mod tests {
 
         let metrics = to_events(metrics_data.clone());
         assert!(metrics.is_empty());
-
-        // TODO LOG-19820 Exponential histogram has to be converted to
-        // a native histogram to be able to be handled by any metric sinks.
-        // For now we just skip this exponential histogram metrics.
-        // assert_eq!(
-        //     *metrics[0]
-        //         .clone()
-        //         .into_log()
-        //         .value()
-        //         .get("message")
-        //         .unwrap()
-        //         .deref(),
-        //     Value::Object(BTreeMap::from([
-        //         ("kind".into(), "absolute".into()),
-        //         ("name".into(), "test_name".into()),
-        //         (
-        //             "tags".into(),
-        //             Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
-        //         ),
-        //         (
-        //             "value".into(),
-        //             Value::Object(BTreeMap::from([
-        //                 ("type".into(), "exponential_histogram".into()),
-        //                 ("value".into(), Value::Object(BTreeMap::from([]))),
-        //                 ("name".into(), "test.name".into()),
-        //                 ("description".into(), "test_description".into()),
-        //                 ("unit".into(), "GiBy/s".into()),
-        //                 ("count".into(), Value::Integer(10)),
-        //                 (
-        //                     "exemplars".into(),
-        //                     Value::Array(Vec::from([Value::Object(BTreeMap::from([
-        //                         (
-        //                             "filtered_attributes".into(),
-        //                             Value::Object(BTreeMap::from([
-        //                                 ("foo".into(), "bar".into()),
-        //                                 ("empty".into(), Value::Null),
-        //                             ]))
-        //                         ),
-        //                         ("span_id".into(), "74657374".into()),
-        //                         (
-        //                             "time_unix_nano".into(),
-        //                             Value::Integer(1_579_134_612_000_000_011)
-        //                         ),
-        //                         ("trace_id".into(), "74657374".into()),
-        //                         ("value".into(), Value::Integer(10)),
-        //                     ]))]))
-        //                 ),
-        //                 ("flags".into(), Value::Integer(1)),
-        //                 ("max".into(), from_f64_or_zero(9.9)),
-        //                 ("min".into(), from_f64_or_zero(0.1)),
-        //                 (
-        //                     "positive".into(),
-        //                     Value::Object(BTreeMap::from([
-        //                         (
-        //                             "bucket_counts".into(),
-        //                             Value::Array(Vec::from([
-        //                                 Value::Integer(1_579_134_612_000_000_011),
-        //                                 Value::Integer(9_223_372_036_854_775_807),
-        //                             ]))
-        //                         ),
-        //                         ("offset".into(), Value::Integer(1)),
-        //                     ]))
-        //                 ),
-        //                 (
-        //                     "negative".into(),
-        //                     Value::Object(BTreeMap::from([
-        //                         // TODO This should be Vec<u64> but Value::Integer is i64
-        //                         //  All u64 fields should be converted into Value::Float
-        //                         (
-        //                             "bucket_counts".into(),
-        //                             Value::Array(Vec::from([
-        //                                 Value::Integer(1_579_134_612_000_000_011),
-        //                                 Value::Integer(9_223_372_036_854_775_807),
-        //                             ]))
-        //                         ),
-        //                         ("offset".into(), Value::Integer(1)),
-        //                     ]))
-        //                 ),
-        //                 ("scale".into(), Value::Integer(10)),
-        //                 ("sum".into(), from_f64_or_zero(3.7)),
-        //                 (
-        //                     "start_time_unix_nano".into(),
-        //                     Value::Integer(1_579_134_612_000_000_011)
-        //                 ),
-        //                 (
-        //                     "time_unix_nano".into(),
-        //                     Value::Integer(1_579_134_612_000_000_011)
-        //                 ),
-        //                 ("zero_count".into(), Value::Integer(12)),
-        //                 ("zero_threshold".into(), from_f64_or_zero(3.3)),
-        //                 ("aggregation_temporality".into(), Value::Integer(2)),
-        //             ]))
-        //         ),
-        //     ]))
-        // );
-
-        // assert_eq!(
-        //     *metrics[0]
-        //         .clone()
-        //         .into_log()
-        //         .value()
-        //         .get("metadata")
-        //         .unwrap()
-        //         .deref(),
-        //     Value::Object(BTreeMap::from([
-        //         (
-        //             "resource".into(),
-        //             Value::Object(BTreeMap::from([
-        //                 (
-        //                     "attributes".into(),
-        //                     Value::Object(BTreeMap::from([
-        //                         ("foo".into(), "bar".into()),
-        //                         ("empty".into(), Value::Null),
-        //                     ]))
-        //                 ),
-        //                 ("dropped_attributes_count".into(), Value::Integer(10)),
-        //             ]))
-        //         ),
-        //         (
-        //             "scope".into(),
-        //             Value::Object(BTreeMap::from([
-        //                 (
-        //                     "attributes".into(),
-        //                     Value::Object(BTreeMap::from([
-        //                         ("foo".into(), "bar".into()),
-        //                         ("empty".into(), Value::Null),
-        //                     ]))
-        //                 ),
-        //                 ("dropped_attributes_count".into(), Value::Integer(10)),
-        //                 ("name".into(), "test_name".into()),
-        //                 ("version".into(), "1.2.3".into()),
-        //             ]))
-        //         ),
-        //         (
-        //             "attributes".into(),
-        //             Value::Object(BTreeMap::from([
-        //                 ("foo".into(), "bar".into()),
-        //                 ("empty".into(), Value::Null),
-        //             ]))
-        //         ),
-        //     ]))
-        // );
     }
 
     #[test]
@@ -3108,8 +2926,7 @@ mod tests {
                 .into_log()
                 .value()
                 .get("message")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             Value::Object(BTreeMap::from([
                 ("kind".into(), "absolute".into()),
                 ("name".into(), "test_name_gibibytes_per_second".into()),
@@ -3151,19 +2968,15 @@ mod tests {
                         (
                             "start_time_unix".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                         (
                             "time_unix".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                     ]))
@@ -3180,7 +2993,7 @@ mod tests {
         assert!(uniq_id.is_some());
 
         assert_eq!(
-            *metadata.deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "summary".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -3241,7 +3054,7 @@ mod tests {
         assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
         assert_eq!(
             metric.timestamp().unwrap(),
-            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+            (DateTime::from_timestamp(1_579_134_612, 11).unwrap())
         );
     }
 

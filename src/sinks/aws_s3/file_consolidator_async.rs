@@ -156,7 +156,6 @@ impl FileConsolidatorAsync {
                 (*box_endpoint).clone(),
                 &box_proxy,
                 &box_tls,
-                true,
             )
             .await
             {

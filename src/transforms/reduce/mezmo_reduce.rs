@@ -805,13 +805,13 @@ pub fn get_root_property_name_from_path(
             } else {
                 let mut segments = target_path.path.segments;
                 // Ignore schema prefixes, which are valid VRL but not relevant to reduce
-                if let Some(OwnedSegment::Field(first_element)) = segments.get(0) {
+                if let Some(OwnedSegment::Field(first_element)) = segments.first() {
                     if first_element.as_str() == log_schema().message_key().unwrap().to_string().as_str() {
                         segments.remove(0);
                         field_count = segments.len();
                     }
                 }
-                match segments.get(0) {
+                match segments.first() {
                     Some(OwnedSegment::Field(root_field)) => {
                         if field_count == 1 {
                             // Normal result - only a root-level path lookup was provided
