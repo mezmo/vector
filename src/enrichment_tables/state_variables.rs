@@ -151,7 +151,6 @@ async fn fetch_states_from_db(
 pub struct StateVariablesConfig {}
 impl_generate_config_from_default!(StateVariablesConfig);
 
-#[async_trait::async_trait]
 impl EnrichmentTableConfig for StateVariablesConfig {
     async fn build(
         &self,

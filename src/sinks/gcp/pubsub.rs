@@ -229,7 +229,6 @@ impl HttpEventEncoder<Value> for PubSubSinkEventEncoder {
     }
 }
 
-#[async_trait::async_trait]
 impl HttpSink for PubsubSink {
     type Input = Value;
     type Output = Vec<BoxedRawValue>;

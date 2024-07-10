@@ -572,7 +572,6 @@ struct MezmoSink {
     cfg: MezmoConfig,
 }
 
-#[async_trait::async_trait]
 impl HttpSink for MezmoSink {
     type Input = PartitionInnerBuffer<serde_json::Value, PartitionKey>;
     type Output = PartitionInnerBuffer<Vec<BoxedRawValue>, PartitionKey>;

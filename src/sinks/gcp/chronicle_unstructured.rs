@@ -8,8 +8,10 @@ use goauth::scopes::Scope;
 use http::{header::HeaderValue, Request, StatusCode, Uri};
 use hyper::Body;
 use indoc::indoc;
+use serde::Serialize;
 use serde_json::json;
 use snafu::Snafu;
+use std::collections::HashMap;
 use std::io;
 use tokio_util::codec::Encoder as _;
 use tower::{Service, ServiceBuilder};
@@ -131,6 +133,15 @@ pub struct ChronicleUnstructuredConfig {
     #[configurable(metadata(docs::examples = "c8c65bfa-5f2c-42d4-9189-64bb7b939f2c"))]
     pub customer_id: String,
 
+    /// User-configured environment namespace to identify the data domain the logs originated from.
+    #[configurable(metadata(docs::examples = "production"))]
+    pub namespace: Option<String>,
+
+    /// A set of labels that are attached to each batch of events.
+    #[configurable(metadata(docs::examples = "chronicle_labels_examples()"))]
+    #[configurable(metadata(docs::additional_props_description = "A Chronicle label."))]
+    pub labels: Option<HashMap<String, String>>,
+
     #[serde(flatten)]
     pub auth: GcpAuthConfig,
 
@@ -166,11 +177,19 @@ pub struct ChronicleUnstructuredConfig {
     acknowledgements: AcknowledgementsConfig,
 }
 
+fn chronicle_labels_examples() -> HashMap<String, String> {
+    let mut examples = HashMap::new();
+    examples.insert("source".to_string(), "vector".to_string());
+    examples.insert("tenant".to_string(), "marketing".to_string());
+    examples
+}
+
 impl GenerateConfig for ChronicleUnstructuredConfig {
     fn generate_config() -> toml::Value {
         toml::from_str(indoc! {r#"
             credentials_path = "/path/to/credentials.json"
             customer_id = "customer_id"
+            namespace = "namespace"
             log_type = "log_type"
             encoding.codec = "text"
         "#})
@@ -319,9 +338,22 @@ impl MetaDescriptive for ChronicleRequest {
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct ChronicleRequestBody {
+    customer_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    labels: Option<Vec<Label>>,
+    log_type: String,
+    entries: Vec<serde_json::Value>,
+}
+
 #[derive(Clone, Debug)]
 struct ChronicleEncoder {
     customer_id: String,
+    namespace: Option<String>,
+    labels: Option<Vec<Label>>,
     encoder: codecs::Encoder<()>,
     transformer: codecs::Transformer,
 }
@@ -366,10 +398,12 @@ impl Encoder<(String, Vec<Event>)> for ChronicleEncoder {
             })
             .collect::<Vec<_>>();
 
-        let json = json!({
-            "customer_id": self.customer_id,
-            "log_type": partition_key,
-            "entries": events,
+        let json = json!(ChronicleRequestBody {
+            customer_id: self.customer_id.clone(),
+            namespace: self.namespace.clone(),
+            labels: self.labels.clone(),
+            log_type: partition_key,
+            entries: events,
         });
 
         let size = as_tracked_write::<_, _, io::Error>(writer, &json, |writer, json| {
@@ -446,6 +480,12 @@ impl RequestBuilder<(String, Vec<Event>)> for ChronicleRequestBuilder {
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct Label {
+    key: String,
+    value: String,
+}
+
 impl ChronicleRequestBuilder {
     fn new(config: &ChronicleUnstructuredConfig) -> crate::Result<Self> {
         let transformer = config.encoding.transformer();
@@ -453,6 +493,15 @@ impl ChronicleRequestBuilder {
         let encoder = crate::codecs::Encoder::<()>::new(serializer);
         let encoder = ChronicleEncoder {
             customer_id: config.customer_id.clone(),
+            namespace: config.namespace.clone(),
+            labels: config.labels.as_ref().map(|labs| {
+                labs.iter()
+                    .map(|(k, v)| Label {
+                        key: k.to_string(),
+                        value: v.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+            }),
             encoder,
             transformer,
         };
@@ -567,6 +616,7 @@ mod integration_tests {
             indoc! { r#"
              endpoint = "{}"
              customer_id = "customer id"
+             namespace = "namespace"
              credentials_path = "{}"
              log_type = "{}"
              encoding.codec = "text"
@@ -656,6 +706,7 @@ mod integration_tests {
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct Log {
         customer_id: String,
+        namespace: String,
         log_type: String,
         log_text: String,
         ts_rfc3339: String,
