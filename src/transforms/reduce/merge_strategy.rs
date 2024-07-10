@@ -11,7 +11,8 @@ use vector_lib::usage_metrics::value_size;
 
 /// Strategies for merging events.
 #[configurable_component]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 #[serde(rename_all = "snake_case")]
 pub enum MergeStrategy {
     /// Discard all but the first value found.

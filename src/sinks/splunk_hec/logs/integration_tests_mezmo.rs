@@ -20,7 +20,9 @@ use crate::{
 use assay::assay;
 use serde_json::Value as JsonValue;
 use tokio::time::{sleep, Duration};
-use vector_lib::codecs::{JsonSerializerConfig, MetricTagValues};
+use vector_lib::codecs::{
+    encoding::format::JsonSerializerOptions, JsonSerializerConfig, MetricTagValues,
+};
 use vector_lib::lookup::lookup_v2::ConfigValuePath;
 
 const USERNAME: &str = "admin";
@@ -117,7 +119,7 @@ async fn splunk_mezmo_does_not_reshape_messages() {
     let cx = SinkContext::new_test();
 
     let config = config(
-        JsonSerializerConfig::new(MetricTagValues::Single).into(),
+        JsonSerializerConfig::new(MetricTagValues::Single, JsonSerializerOptions::default()).into(),
         vec![],
     )
     .await;
@@ -146,7 +148,7 @@ async fn splunk_mezmo_should_reshape_messages() {
     let cx = SinkContext::new_test();
 
     let config = config(
-        JsonSerializerConfig::new(MetricTagValues::Single).into(),
+        JsonSerializerConfig::new(MetricTagValues::Single, JsonSerializerOptions::default()).into(),
         vec![],
     )
     .await;

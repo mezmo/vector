@@ -309,8 +309,8 @@ mod tests {
     use vector_lib::btreemap;
     use vector_lib::codecs::encoding::{
         format::{
-            AvroSerializerConfig, GelfSerializer, JsonSerializer, LogfmtSerializer,
-            NativeJsonSerializer, RawMessageSerializer, TextSerializer,
+            AvroSerializerConfig, GelfSerializer, JsonSerializer, JsonSerializerOptions,
+            LogfmtSerializer, NativeJsonSerializer, RawMessageSerializer, TextSerializer,
         },
         Serializer,
     };
@@ -537,6 +537,7 @@ mod tests {
             Transformer::default(),
             Some(&Serializer::from(JsonSerializer::new(
                 MetricTagValues::Single,
+                JsonSerializerOptions::default(),
             ))),
         );
         assert_eq!(
@@ -546,7 +547,7 @@ mod tests {
 
         transformer = Transformer::new_with_mezmo_reshape(
             Transformer::default(),
-            Some(&Serializer::from(NativeJsonSerializer::new())),
+            Some(&Serializer::from(NativeJsonSerializer {})),
         );
         assert_eq!(
             transformer.should_mezmo_reshape, true,
@@ -587,7 +588,7 @@ mod tests {
 
         transformer = Transformer::new_with_mezmo_reshape(
             Transformer::default(),
-            Some(&Serializer::from(RawMessageSerializer::new())),
+            Some(&Serializer::from(RawMessageSerializer {})),
         );
         assert_eq!(
             transformer.should_mezmo_reshape, false,
@@ -607,7 +608,7 @@ mod tests {
 
         transformer = Transformer::new_with_mezmo_reshape(
             Transformer::default(),
-            Some(&Serializer::from(LogfmtSerializer::new())),
+            Some(&Serializer::from(LogfmtSerializer {})),
         );
         assert_eq!(
             transformer.should_mezmo_reshape, false,

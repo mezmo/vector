@@ -209,7 +209,6 @@ impl HecMetricsSinkConfig {
         let batch_settings = self.batch.into_batcher_settings()?;
 
         let sink = HecMetricsSink {
-            context: cx,
             service,
             batch_settings,
             request_builder,

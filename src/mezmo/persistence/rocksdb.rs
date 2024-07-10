@@ -46,8 +46,6 @@ enum RocksDBPersistenceError {
         #[snafu(source)]
         source: std::string::FromUtf8Error,
     },
-    #[snafu(display("Invalid db path: {path:?}"))]
-    InvalidPath { path: PathBuf },
     #[snafu(display("Invalid context: {mezmo_ctx:?}"))]
     InvalidContext { mezmo_ctx: MezmoContext },
     #[snafu(display("Missing required environment variable: {var}"))]

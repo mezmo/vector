@@ -1,5 +1,3 @@
-#![cfg(feature = "api-client")]
-
 use chrono::Utc;
 use futures_util::StreamExt;
 use reqwest::{

@@ -10,8 +10,6 @@ use crate::{enrichment_tables::EnrichmentTables, providers::Providers, secrets::
 
 #[cfg(feature = "api")]
 use super::api;
-#[cfg(feature = "enterprise")]
-use super::enterprise;
 use super::{
     compiler, schema, BoxedSink, BoxedSource, BoxedTransform, ComponentKey, Config,
     EnrichmentTableOuter, HealthcheckOptions, SinkOuter, SourceOuter, TestDefinition,
@@ -35,11 +33,6 @@ pub struct ConfigBuilder {
     #[configurable(metadata(docs::hidden))]
     #[serde(default)]
     pub schema: schema::Options,
-
-    #[cfg(feature = "enterprise")]
-    #[configurable(derived)]
-    #[serde(default)]
-    pub enterprise: Option<enterprise::Options>,
 
     #[configurable(derived)]
     #[serde(default)]
@@ -189,8 +182,6 @@ impl From<Config> for ConfigBuilder {
             #[cfg(feature = "api")]
             api,
             schema,
-            #[cfg(feature = "enterprise")]
-            enterprise,
             healthchecks,
             enrichment_tables,
             sources,
@@ -199,7 +190,6 @@ impl From<Config> for ConfigBuilder {
             tests,
             secret,
             graceful_shutdown_duration,
-            hash: _,
         } = config;
 
         let transforms = transforms
@@ -219,8 +209,6 @@ impl From<Config> for ConfigBuilder {
             #[cfg(feature = "api")]
             api,
             schema,
-            #[cfg(feature = "enterprise")]
-            enterprise,
             healthchecks,
             enrichment_tables,
             sources,
@@ -320,21 +308,6 @@ impl ConfigBuilder {
             errors.push(error);
         }
 
-        #[cfg(feature = "enterprise")]
-        {
-            match (self.enterprise.as_ref(), with.enterprise) {
-                (Some(_), Some(_)) => {
-                    errors.push(
-                        "duplicate 'enterprise' definition, only one definition allowed".to_owned(),
-                    );
-                }
-                (None, Some(other)) => {
-                    self.enterprise = Some(other);
-                }
-                _ => {}
-            };
-        }
-
         self.provider = with.provider;
 
         match self.global.merge(with.global) {
@@ -406,192 +379,5 @@ impl ConfigBuilder {
     #[cfg(test)]
     pub fn from_json(input: &str) -> Self {
         crate::config::format::deserialize(input, crate::config::format::Format::Json).unwrap()
-    }
-}
-
-#[cfg(all(
-    test,
-    feature = "enterprise",
-    feature = "api",
-    feature = "sources-demo_logs",
-    feature = "sinks-loki"
-))]
-mod tests {
-    use indexmap::IndexMap;
-
-    use crate::config::{
-        builder::{sort_json_value, to_sorted_json_string},
-        enterprise, ConfigBuilder,
-    };
-
-    use super::ConfigBuilderHash;
-
-    #[test]
-    /// If this test fails, it likely means an implementation detail has changed
-    /// which is likely to impact the final hash.
-    fn version_json_order() {
-        use serde_json::{json, Value};
-
-        use super::{ConfigBuilder, ConfigBuilderHash};
-
-        // Expected key order. This is important for guaranteeing that a hash is
-        // reproducible across versions.
-        let expected_keys = [
-            "api",
-            "enrichment_tables",
-            "global",
-            "healthchecks",
-            "provider",
-            "schema",
-            "secret",
-            "sinks",
-            "sources",
-            "tests",
-            "transforms",
-            "version",
-        ];
-
-        let builder = ConfigBuilder::default();
-
-        let mut value = json!(ConfigBuilderHash::from(&builder));
-        sort_json_value(&mut value);
-
-        match value {
-            // Should serialize to a map.
-            Value::Object(map) => {
-                // Check ordering.
-                assert!(map.keys().eq(expected_keys));
-            }
-            _ => panic!("should serialize to object"),
-        }
-    }
-
-    #[test]
-    /// If this hash changes, it means either the version of Vector has changed (here it's fixed),
-    /// the `ConfigBuilder` has changed what it serializes, or the implementation of `serde_json` has changed.
-    /// If this test fails, we should ideally be able to fix so that the original hash passes!
-    fn version_hash_match() {
-        let expected_hash = "6c98bea9d9e2f3133e2d39ba04592d17f96340a9bc4c8d697b09f5af388a76bd";
-        let builder = ConfigBuilder::default();
-        let mut hash_builder = ConfigBuilderHash::from(&builder);
-        hash_builder.version = "1.2.3".into();
-        assert_eq!(expected_hash, hash_builder.into_hash());
-    }
-
-    #[test]
-    fn append_keeps_enterprise() {
-        let mut base = ConfigBuilder {
-            enterprise: Some(enterprise::Options::default()),
-            ..Default::default()
-        };
-        let other = ConfigBuilder::default();
-        base.append(other).unwrap();
-        assert!(base.enterprise.is_some());
-    }
-
-    #[test]
-    fn append_sets_enterprise() {
-        let mut base = ConfigBuilder::default();
-        let other = ConfigBuilder {
-            enterprise: Some(enterprise::Options::default()),
-            ..Default::default()
-        };
-        base.append(other).unwrap();
-        assert!(base.enterprise.is_some());
-    }
-
-    #[test]
-    fn append_overwrites_enterprise() {
-        let base_ent = enterprise::Options::default();
-        let mut base = ConfigBuilder {
-            enterprise: Some(base_ent),
-            ..Default::default()
-        };
-        let other_ent = enterprise::Options::default();
-        let other = ConfigBuilder {
-            enterprise: Some(other_ent),
-            ..Default::default()
-        };
-        let errors = base.append(other).unwrap_err();
-        assert_eq!(
-            errors[0],
-            "duplicate 'enterprise' definition, only one definition allowed"
-        );
-    }
-
-    #[test]
-    fn version_hash_sorted() {
-        let control_config = toml::from_str::<ConfigBuilder>(
-            r#"
-        [enterprise]
-        api_key = "apikey"
-        configuration_key = "configkey"
-
-        [sources.foo]
-        type = "internal_logs"
-
-        [sinks.loki]
-        type = "loki"
-        endpoint = "https://localhost:1111"
-        inputs = ["foo"]
-
-        [sinks.loki.labels]
-        foo = '{{ foo }}'
-        bar = '{{ bar }}'
-        baz = '{{ baz }}'
-        ingest = "hello-world"
-        level = '{{ level }}'
-        module = '{{ module }}'
-        service = '{{ service }}'
-
-        [sinks.loki.encoding]
-        codec = "json"
-        "#,
-        )
-        .unwrap();
-        let expected_hash = ConfigBuilderHash::from(&control_config).into_hash();
-        for _ in 0..100 {
-            let experiment_config = toml::from_str::<ConfigBuilder>(
-                r#"
-            [enterprise]
-            api_key = "apikey"
-            configuration_key = "configkey"
-
-            [sources.foo]
-            type = "internal_logs"
-
-            [sinks.loki]
-            type = "loki"
-            endpoint = "https://localhost:1111"
-            inputs = ["foo"]
-
-            [sinks.loki.labels]
-            foo = '{{ foo }}'
-            bar = '{{ bar }}'
-            baz = '{{ baz }}'
-            ingest = "hello-world"
-            level = '{{ level }}'
-            module = '{{ module }}'
-            service = '{{ service }}'
-
-            [sinks.loki.encoding]
-            codec = "json"
-            "#,
-            )
-            .unwrap();
-            assert_eq!(
-                expected_hash,
-                ConfigBuilderHash::from(&experiment_config).into_hash()
-            );
-        }
-    }
-
-    #[test]
-    fn test_to_sorted_json_string() {
-        let ordered_map = IndexMap::from([("z", 26), ("a", 1), ("d", 4), ("c", 3), ("b", 2)]);
-        assert_eq!(
-            r#"{"a":1,"b":2,"c":3,"d":4,"z":26}"#.to_string(),
-            to_sorted_json_string(ordered_map)
-        );
     }
 }

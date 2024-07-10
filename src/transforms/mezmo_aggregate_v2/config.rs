@@ -162,7 +162,7 @@ impl MezmoAggregateV2Config {
             source: Some(self.source.clone()),
             ..Default::default()
         };
-        let (program, _, _, _) = remap_config.compile_vrl_program(
+        let (program, _, _) = remap_config.compile_vrl_program(
             ctx.enrichment_tables.clone(),
             ctx.merged_schema_definition.clone(),
             ctx.mezmo_ctx.clone(),

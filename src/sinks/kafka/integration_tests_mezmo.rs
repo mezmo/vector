@@ -24,7 +24,9 @@ use rdkafka::{
     consumer::{BaseConsumer, Consumer},
     Message, Offset, TopicPartitionList,
 };
-use vector_lib::codecs::{JsonSerializerConfig, MetricTagValues};
+use vector_lib::codecs::{
+    encoding::format::JsonSerializerOptions, JsonSerializerConfig, MetricTagValues,
+};
 use vector_lib::event::{BatchNotifier, BatchStatus};
 use vector_lib::lookup::lookup_v2::ConfigTargetPath;
 
@@ -54,8 +56,13 @@ async fn kafka_mezmo_does_not_reshape_messages() {
     let config = KafkaSinkConfig {
         bootstrap_servers: server.clone(),
         topic: Template::try_from(format!("{}-%Y%m%d", topic)).unwrap(),
+        healthcheck_topic: None,
         key_field: None,
-        encoding: JsonSerializerConfig::new(MetricTagValues::Single).into(),
+        encoding: JsonSerializerConfig::new(
+            MetricTagValues::Single,
+            JsonSerializerOptions::default(),
+        )
+        .into(),
         batch: BatchConfig::default(),
         compression: KafkaCompression::None,
         auth: kafka_auth.clone(),
@@ -162,8 +169,13 @@ async fn kafka_mezmo_reshapes_messages() {
     let config = KafkaSinkConfig {
         bootstrap_servers: server.clone(),
         topic: Template::try_from(format!("{}-%Y%m%d", topic)).unwrap(),
+        healthcheck_topic: None,
         key_field: None,
-        encoding: JsonSerializerConfig::new(MetricTagValues::Single).into(),
+        encoding: JsonSerializerConfig::new(
+            MetricTagValues::Single,
+            JsonSerializerOptions::default(),
+        )
+        .into(),
         batch: BatchConfig::default(),
         compression: KafkaCompression::None,
         auth: kafka_auth.clone(),

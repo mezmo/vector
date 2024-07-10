@@ -2598,9 +2598,9 @@ max_events = 3
             ),
             (
                 "(root | message).field_name".into(),
-                None,
+                Some("(root | message).field_name".into()),
                 true,
-                "Coalescing VRL is not supported",
+                "Coalescing VRL has been removed in vector 0.39",
             ),
         ];
 

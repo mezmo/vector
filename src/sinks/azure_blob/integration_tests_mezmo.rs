@@ -11,7 +11,10 @@ use crate::template::Template;
 use crate::test_util::{random_message_object_events_with_stream, random_string};
 use assay::assay;
 use std::{collections::BTreeMap, thread, time};
-use vector_lib::codecs::{JsonSerializerConfig, MetricTagValues, NewlineDelimitedEncoderConfig};
+use vector_lib::codecs::{
+    encoding::format::JsonSerializerOptions, JsonSerializerConfig, MetricTagValues,
+    NewlineDelimitedEncoderConfig,
+};
 
 // Use THEIR implementation - reduces code copying
 use super::integration_tests::AzureBlobSinkConfig;
@@ -718,7 +721,7 @@ async fn get_test_config(
         blob_prefix: Template::try_from(blob_prefix.clone()).unwrap(),
         encoding: (
             Some(NewlineDelimitedEncoderConfig::new()),
-            JsonSerializerConfig::new(MetricTagValues::Single),
+            JsonSerializerConfig::new(MetricTagValues::Single, JsonSerializerOptions::default()),
         )
             .into(),
         tags,

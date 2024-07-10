@@ -667,9 +667,7 @@ impl ConsumerStateInner<Consuming> {
                                 status = PartitionConsumerStatus::PartitionEOF;
                                 finalizer.take();
                             },
-                            _ => {
-                                emit!(KafkaReadError { error })
-                            }
+                            _ => emit!(KafkaReadError { error }),
                         },
                         Some(Ok(msg)) => {
                             emit!(KafkaBytesReceived {
@@ -908,6 +906,10 @@ async fn coordinate_kafka_callbacks(
                         let (deadline, mut state) = state.begin_drain(max_drain_ms, drain, true);
                         match consumer.assignment() {
                             Ok(tpl) => {
+                                // TODO  workaround for https://github.com/fede1024/rust-rdkafka/issues/681
+                                if tpl.capacity() == 0 {
+                                    return;
+                                }
                                 tpl.elements()
                                     .iter()
                                     .for_each(|el| {
@@ -1063,7 +1065,7 @@ fn parse_stream<'a>(
 
     let payload = Cursor::new(Bytes::copy_from_slice(payload));
 
-    let mut stream = FramedRead::new(payload, decoder);
+    let mut stream = FramedRead::with_capacity(payload, decoder, msg.payload_len());
     let (count, _) = stream.size_hint();
     let stream = stream! {
         debug!("parse_stream: [{partition_id}] starting");
@@ -1403,6 +1405,11 @@ impl KafkaSourceContext {
     /// each topic-partition has been set up. This function blocks until the
     /// rendezvous channel sender is dropped by the callback handler.
     fn consume_partitions(&self, tpl: &TopicPartitionList) {
+        // TODO  workaround for https://github.com/fede1024/rust-rdkafka/issues/681
+        if tpl.capacity() == 0 {
+            return;
+        }
+
         let topic_partitions: Vec<TopicPartition> = tpl
             .elements()
             .iter()
@@ -1414,6 +1421,7 @@ impl KafkaSourceContext {
             .join(",");
 
         debug!("consume_partitions: [{topic_partitions_log_frag}] starting to consume");
+
         let (send, rendezvous) = sync_channel(0);
         match self
             .callbacks
@@ -1507,6 +1515,10 @@ impl ConsumerContext for KafkaSourceContext {
             Rebalance::Assign(tpl) => self.consume_partitions(tpl),
 
             Rebalance::Revoke(tpl) => {
+                // TODO  workaround for https://github.com/fede1024/rust-rdkafka/issues/681
+                if tpl.capacity() == 0 {
+                    return;
+                }
                 self.revoke_partitions(tpl);
                 self.commit_consumer_state();
             }

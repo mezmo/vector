@@ -449,7 +449,8 @@ mod tests {
     use futures_util::{future::ready, stream};
     use vector_lib::codecs::encoding::FramingConfig;
     use vector_lib::codecs::{
-        JsonSerializerConfig, MetricTagValues, NewlineDelimitedEncoderConfig, TextSerializerConfig,
+        encoding::format::JsonSerializerOptions, JsonSerializerConfig, MetricTagValues,
+        NewlineDelimitedEncoderConfig, TextSerializerConfig,
     };
     use vector_lib::partition::Partitioner;
     use vector_lib::request_metadata::GroupedCountByteSize;
@@ -586,7 +587,10 @@ mod tests {
             ..default_config(
                 (
                     Some(NewlineDelimitedEncoderConfig::new()),
-                    JsonSerializerConfig::new(MetricTagValues::Single),
+                    JsonSerializerConfig::new(
+                        MetricTagValues::Single,
+                        JsonSerializerOptions::default(),
+                    ),
                 )
                     .into(),
             )
