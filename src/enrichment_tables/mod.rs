@@ -14,6 +14,9 @@ pub mod geoip;
 #[cfg(feature = "enrichment-tables-state_variables")]
 pub mod state_variables;
 
+#[cfg(feature = "enrichment-tables-mmdb")]
+pub mod mmdb;
+
 /// Configurable enrichment tables.
 #[configurable_component]
 #[derive(Clone, Debug)]
@@ -33,6 +36,12 @@ pub enum EnrichmentTables {
     /// The ability to look up "state variables" in a key/val fashion
     #[cfg(feature = "enrichment-tables-state_variables")]
     StateVariables(state_variables::StateVariablesConfig),
+
+    /// Exposes data from a [MaxMind][maxmind] database as an enrichment table.
+    ///
+    /// [maxmind]: https://www.maxmind.com/
+    #[cfg(feature = "enrichment-tables-mmdb")]
+    Mmdb(mmdb::MmdbConfig),
 }
 
 // TODO: Use `enum_dispatch` here.
@@ -44,6 +53,8 @@ impl NamedComponent for EnrichmentTables {
             Self::Geoip(config) => config.get_component_name(),
             #[cfg(feature = "enrichment-tables-state_variables")]
             Self::StateVariables(config) => config.get_component_name(),
+            #[cfg(feature = "enrichment-tables-mmdb")]
+            Self::Mmdb(config) => config.get_component_name(),
             #[allow(unreachable_patterns)]
             _ => unimplemented!(),
         }

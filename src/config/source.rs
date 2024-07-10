@@ -140,7 +140,7 @@ pub struct SourceContext {
 }
 
 impl SourceContext {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn new_shutdown(
         key: &ComponentKey,
         out: SourceSender,
@@ -164,7 +164,7 @@ impl SourceContext {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn new_test(
         out: SourceSender,
         schema_definitions: Option<HashMap<Option<String>, schema::Definition>>,

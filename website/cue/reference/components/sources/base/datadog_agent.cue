@@ -401,6 +401,17 @@ base: components: sources: datadog_agent: configuration: {
 		required: false
 		type: bool: default: false
 	}
+	parse_ddtags: {
+		description: """
+			If this is set to `true`, when log events contain the field `ddtags`, the string value that
+			contains a list of key:value pairs set by the Agent is parsed and expanded into an object.
+
+			Note: This setting introduced in 0.37.0 is incorrectly parsing into an object. This will be
+			fixed in 0.37.1 to parse into an array, which aligns with the Datadog intake.
+			"""
+		required: false
+		type: bool: default: false
+	}
 	store_api_key: {
 		description: """
 			If this is set to `true`, when incoming events contain a Datadog API key, it is
@@ -474,14 +485,14 @@ base: components: sources: datadog_agent: configuration: {
 			}
 			verify_certificate: {
 				description: """
-					Enables certificate verification.
+					Enables certificate verification. For components that create a server, this requires that the
+					client connections have a valid client certificate. For components that initiate requests,
+					this validates that the upstream has a valid certificate.
 
 					If enabled, certificates must not be expired and must be issued by a trusted
 					issuer. This verification operates in a hierarchical manner, checking that the leaf certificate (the
 					certificate presented by the client/server) is not only valid, but that the issuer of that certificate is also valid, and
 					so on until the verification process reaches a root certificate.
-
-					Relevant for both incoming and outgoing connections.
 
 					Do NOT set this to `false` unless you understand the risks of not verifying the validity of certificates.
 					"""

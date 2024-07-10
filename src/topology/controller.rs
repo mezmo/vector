@@ -13,9 +13,7 @@ use crate::config::enterprise::{
     report_on_reload, EnterpriseError, EnterpriseMetadata, EnterpriseReporter,
 };
 use crate::extra_context::ExtraContext;
-use crate::internal_events::{
-    VectorConfigLoadError, VectorRecoveryError, VectorReloadError, VectorReloaded,
-};
+use crate::internal_events::{VectorRecoveryError, VectorReloadError, VectorReloaded};
 
 use crate::{config, signal::ShutdownError, topology::RunningTopology};
 
@@ -58,7 +56,6 @@ impl std::fmt::Debug for TopologyController {
 
 #[derive(Clone, Debug)]
 pub enum ReloadOutcome {
-    NoConfig,
     MissingApiKey,
     Success,
     RolledBack,
@@ -66,21 +63,15 @@ pub enum ReloadOutcome {
 }
 
 impl TopologyController {
-    pub async fn reload(&mut self, new_config: Option<config::Config>) -> ReloadOutcome {
+    pub async fn reload(&mut self, new_config: config::Config) -> ReloadOutcome {
         self.reload_with_metrics(new_config, None).await
     }
 
     pub async fn reload_with_metrics(
         &mut self,
-        new_config: Option<config::Config>,
+        mut new_config: config::Config,
         metrics_tx: Option<mpsc::UnboundedSender<UsageMetrics>>,
     ) -> ReloadOutcome {
-        if new_config.is_none() {
-            emit!(VectorConfigLoadError);
-            return ReloadOutcome::NoConfig;
-        }
-        let mut new_config = new_config.unwrap();
-
         new_config
             .healthchecks
             .set_require_healthy(self.require_healthy);
