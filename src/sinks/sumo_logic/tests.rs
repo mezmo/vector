@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use vector_lib::buffers::EventCount;
 use vector_lib::event::{Event, LogEvent};
-use vrl::value::Value;
+use vrl::value::{KeyString, Value};
 
 use super::{
     config::{SumoLogicCredentials, SumoLogicSinkConfig},
@@ -16,10 +16,10 @@ fn generate_config() {
 
 #[test]
 fn test_sink_log_event() {
-    let mut map = HashMap::<String, Value>::new();
-    map.insert("message_0".to_owned(), Value::from("value_0".to_owned()));
-    map.insert("message_1".to_owned(), Value::from("value_1".to_owned()));
-    map.insert("message_2".to_owned(), Value::from("value_2".to_owned()));
+    let mut map = HashMap::<KeyString, Value>::new();
+    map.insert("message_0".into(), Value::from("value_0".to_owned()));
+    map.insert("message_1".into(), Value::from("value_1".to_owned()));
+    map.insert("message_2".into(), Value::from("value_2".to_owned()));
 
     let event = Event::Log(LogEvent::from(map));
     assert_eq!(event.event_count(), 1);

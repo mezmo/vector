@@ -102,7 +102,7 @@ mod tests {
     use tokio::time::sleep;
     use tokio_stream::wrappers::ReceiverStream;
     use vector_lib::event::metric::{Bucket, Quantile, Sample};
-    use vector_lib::event::Value;
+    use vector_lib::event::{KeyString, Value};
 
     use super::*;
     use crate::mezmo::user_trace::UserLogSubscription;
@@ -157,8 +157,8 @@ mod tests {
         //     "kind": "absolute",
         //     "value": { "type": "counter", "value": 36 }
         //   }
-        let mut message_map: BTreeMap<String, Value> = BTreeMap::new();
-        let mut value_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut message_map: BTreeMap<KeyString, Value> = BTreeMap::new();
+        let mut value_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         value_map.insert("type".into(), type_name.into());
         value_map.insert("value".into(), value.into());
         message_map.insert("name".into(), name.into());
@@ -172,7 +172,7 @@ mod tests {
 
     /// Creates a log event with the shape {"message": value, "timestamp": ts()}
     fn log_event_from_value(value: impl Into<Value> + std::fmt::Debug) -> LogEvent {
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         event_map.insert("message".into(), value.into());
         event_map.insert("timestamp".into(), ts().into());
         event_map.into()
@@ -260,7 +260,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn summary_test() {
-        let map: BTreeMap<String, Value> = serde_json::from_str(
+        let map: BTreeMap<KeyString, Value> = serde_json::from_str(
             r#"{
             "quantiles": [
                 {
@@ -332,7 +332,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn set_test() {
-        let map: BTreeMap<String, Value> =
+        let map: BTreeMap<KeyString, Value> =
             serde_json::from_str(r#"{"values": ["a", "b"]}"#).unwrap();
         let event = create_metric_event("active_admin_users", "set", map, None);
         let metadata = event.metadata().clone();
@@ -355,7 +355,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn distribution_test() {
-        let map: BTreeMap<String, Value> = serde_json::from_str(
+        let map: BTreeMap<KeyString, Value> = serde_json::from_str(
             r#"{
             "samples": [
                 {"value": 1, "rate": 300},
@@ -396,7 +396,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn histogram_test() {
-        let map: BTreeMap<String, Value> = serde_json::from_str(
+        let map: BTreeMap<KeyString, Value> = serde_json::from_str(
             r#"{
             "buckets": [
                 {
@@ -492,7 +492,7 @@ mod tests {
     #[serial]
     async fn invalid_subfield_test() {
         let log_stream = UserLogSubscription::subscribe().into_stream();
-        let map: BTreeMap<String, Value> =
+        let map: BTreeMap<KeyString, Value> =
             serde_json::from_str(r#"{"buckets": [], "count": null, "sum": 3}"#).unwrap();
         let event = create_metric_event("response_times", "histogram", map, None);
         assert_eq!(do_transform(event.into()).await, None);
@@ -503,7 +503,8 @@ mod tests {
     #[serial]
     async fn parse_value_failure_test() {
         let log_stream = UserLogSubscription::subscribe().into_stream();
-        let map: BTreeMap<String, Value> = serde_json::from_str(r#"{"hello": "world"}"#).unwrap();
+        let map: BTreeMap<KeyString, Value> =
+            serde_json::from_str(r#"{"hello": "world"}"#).unwrap();
         let event = log_event_from_value(map);
         assert_eq!(do_transform(event.into()).await, None);
         assert_error_message(

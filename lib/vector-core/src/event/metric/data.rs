@@ -1,7 +1,7 @@
 use crate::config::log_schema;
-use crate::event::BTreeMap;
-use crate::event::Value;
+use crate::event::{KeyString, Value};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 
 use chrono::{DateTime, Utc};
@@ -16,24 +16,24 @@ use super::{MetricKind, MetricValue};
 pub struct MetricArbitrary {
     /// Arbitrary data stored with an event
     #[serde(default = "default_arbitrary_value")]
-    pub(crate) value: BTreeMap<String, Value>,
+    pub(crate) value: BTreeMap<KeyString, Value>,
 }
 
-fn default_arbitrary_value() -> BTreeMap<String, Value> {
+fn default_arbitrary_value() -> BTreeMap<KeyString, Value> {
     BTreeMap::from([(
-        log_schema().user_metadata_key().to_string(),
+        log_schema().user_metadata_key().into(),
         Value::Object(BTreeMap::new()),
     )])
 }
 
 impl MetricArbitrary {
     /// Returns a reference to the metadata value
-    pub fn value(&self) -> &BTreeMap<String, Value> {
+    pub fn value(&self) -> &BTreeMap<KeyString, Value> {
         &self.value
     }
 
     /// Returns a mutable reference to the metadata value
-    pub fn value_mut(&mut self) -> &mut BTreeMap<String, Value> {
+    pub fn value_mut(&mut self) -> &mut BTreeMap<KeyString, Value> {
         &mut self.value
     }
 }

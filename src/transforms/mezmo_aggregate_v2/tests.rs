@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use tempfile::tempdir;
 use vector_lib::event::LogEvent;
 use vrl::btreemap;
+use vrl::value::KeyString;
 
 const ACCOUNT_ID: &str = "bea71e55-a1ec-4e5f-a5c0-c0e10b1a571c";
 
@@ -96,9 +97,10 @@ const fn aggregator_limits_custom_window_size(min_window_size: u32) -> Aggregato
     AggregatorLimits::new(200, 2000, min_window_size, 5)
 }
 fn log_event(json_event: impl AsRef<str>) -> Event {
-    let log_event: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(json_event.as_ref())
-        .unwrap()
-        .into();
+    let log_event: LogEvent =
+        serde_json::from_str::<BTreeMap<KeyString, Value>>(json_event.as_ref())
+            .unwrap()
+            .into();
     Event::from(log_event)
 }
 
@@ -167,7 +169,7 @@ fn metric_event_key(name: impl Into<String>, tags: Option<BTreeMap<String, Strin
     let mut res_tags = BTreeMap::new();
     if let Some(tags) = tags {
         for (k, v) in tags {
-            res_tags.insert(k, Value::from(v));
+            res_tags.insert(k.into(), Value::from(v));
         }
     }
     let tags = Value::from(res_tags);

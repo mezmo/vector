@@ -150,7 +150,7 @@ impl FunctionTransform for ProtobufToMetric {
                 {
                     if let Some(user_meta_obj) = metadata.as_object() {
                         for entry in user_meta_obj.iter() {
-                            user_metadata.insert(entry.0.to_string(), entry.1.clone());
+                            user_metadata.insert(entry.0.clone(), entry.1.clone());
                         }
                     }
                 }
@@ -168,7 +168,7 @@ impl FunctionTransform for ProtobufToMetric {
                 {
                     if let Some(meta_obj) = metadata.as_object() {
                         for entry in meta_obj.iter() {
-                            internal_metadata.insert(entry.0.to_string(), entry.1.clone());
+                            internal_metadata.insert(entry.0.clone(), entry.1.clone());
                         }
                     }
                 }
@@ -201,7 +201,7 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
-    use vector_lib::event::Value;
+    use vector_lib::event::{KeyString, Value};
 
     use crate::event::{Event, LogEvent};
     use crate::test_util::components::assert_transform_compliance;
@@ -217,7 +217,7 @@ mod tests {
     }
 
     fn log_event_from_bytes(msg: &[u8], metadata: &Value) -> LogEvent {
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         event_map.insert("message".into(), msg.into());
         event_map.insert("timestamp".into(), ts().into());
         event_map.insert("metadata".into(), metadata.clone());
@@ -254,11 +254,11 @@ mod tests {
             ("original_type".into(), "sum".into()),
             ("data_provider".into(), "otlp".into()),
             (
-                "headers".to_owned(),
+                "headers".into(),
                 Value::Object(BTreeMap::from([("key".into(), "value".into())])),
             ),
             (
-                "resource".to_owned(),
+                "resource".into(),
                 Value::Object(BTreeMap::from([
                     (
                         "attributes".into(),
@@ -275,7 +275,7 @@ mod tests {
                 ]))
             ),
             (
-                "scope".to_owned(),
+                "scope".into(),
                 Value::Object(BTreeMap::from([
                     ("attributes".into(), Value::Object(BTreeMap::new())),
                     ("dropped_attributes_count".into(), Value::Integer(0)),

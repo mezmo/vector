@@ -259,7 +259,7 @@ impl SinkConfig for OpentelemetrySinkConfig {
             .limit_max_events(self.batch.max_events.unwrap_or(DEFAULT_MAX_EVENTS))?
             .into_batcher_settings()?;
 
-        let request_settings = self.request.tower.unwrap_with(&Default::default());
+        let request_settings = self.request.tower.into_settings();
 
         let client = self.build_client(ctx.clone())?;
 

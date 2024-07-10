@@ -97,7 +97,6 @@ where
     }
 }
 
-#[derive(Debug)]
 pub struct TransformContext {
     // This is optional because currently there are a lot of places we use `TransformContext` that
     // may not have the relevant data available (e.g. tests). In the future it'd be nice to make it

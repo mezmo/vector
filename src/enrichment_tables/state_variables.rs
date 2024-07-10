@@ -13,7 +13,7 @@ use tokio_postgres::NoTls;
 use url::Url;
 use vector_lib::configurable::configurable_component;
 use vector_lib::enrichment::{Case, Condition, IndexHandle, Table};
-use vrl::value::Value;
+use vrl::value::{KeyString, Value};
 
 const QUERY_ALL_STATE_VARIABLES: &str =
     "SELECT account_id::text, pipeline_id::text, state::text FROM pipeline_state_variables";
@@ -248,7 +248,7 @@ impl StateVariables {
         &self,
         param_names: &HashMap<String, String>,
         select: Option<&[String]>,
-    ) -> Result<BTreeMap<String, Value>, String> {
+    ) -> Result<BTreeMap<KeyString, Value>, String> {
         let account_id = param_names
             .get("account_id")
             .expect("Condition field `account_id` not found");
@@ -259,36 +259,37 @@ impl StateVariables {
 
         let state = self.cache.get(&key).unwrap_or("{}".to_owned());
 
-        let json: BTreeMap<String, serde_json::Value> = match serde_json::from_str(state.as_str()) {
-            Ok(Some(variables)) => variables,
-            Ok(None) => {
-                return Ok(BTreeMap::new());
-            }
-            Err(err) => {
-                return Err(err.to_string());
-            }
-        };
+        let json: BTreeMap<KeyString, serde_json::Value> =
+            match serde_json::from_str(state.as_str()) {
+                Ok(Some(variables)) => variables,
+                Ok(None) => {
+                    return Ok(BTreeMap::new());
+                }
+                Err(err) => {
+                    return Err(err.to_string());
+                }
+            };
 
         // If the user is specifying `select` fields, then prune the rest. Otherwise, iterate
         // the whole object into the result. Create the return sructure containing Value objects.
 
-        let mut result: BTreeMap<String, Value> = BTreeMap::new();
+        let mut result: BTreeMap<KeyString, Value> = BTreeMap::new();
 
         match select {
             Some(select) if !select.is_empty() => {
                 for field in select.iter() {
-                    match json.get(field) {
+                    match json.get(field.as_str()) {
                         Some(serde_value) => {
-                            result.insert(field.to_string(), Value::from(serde_value))
+                            result.insert(field.clone().into(), Value::from(serde_value))
                         }
-                        _ => result.insert(field.to_string(), Value::Null),
+                        _ => result.insert(field.clone().into(), Value::Null),
                     };
                 }
             }
             _ => {
                 // No select fields - iterate all
                 for (field, serde_value) in json.iter() {
-                    result.insert(field.to_string(), Value::from(serde_value));
+                    result.insert(field.clone().into(), Value::from(serde_value));
                 }
             }
         }
@@ -305,7 +306,7 @@ impl Table for StateVariables {
         conditions: &'a [Condition<'a>],
         select: Option<&'a [String]>,
         _: Option<IndexHandle>,
-    ) -> Result<BTreeMap<String, Value>, String> {
+    ) -> Result<BTreeMap<KeyString, Value>, String> {
         let param_names = self.gather_query_parameters(conditions)?;
         let result = self.lookup(&param_names, select)?;
 
@@ -318,7 +319,7 @@ impl Table for StateVariables {
         _condition: &'a [Condition<'a>],
         _select: Option<&'a [String]>,
         _index: Option<IndexHandle>,
-    ) -> Result<Vec<BTreeMap<String, Value>>, String> {
+    ) -> Result<Vec<BTreeMap<KeyString, Value>>, String> {
         // This can be implemented if/when we look up variables for all pipelines of an account
         Ok(vec![BTreeMap::new()])
     }
@@ -428,7 +429,7 @@ mod tests {
 
         // Begin assertions
         let select = None;
-        let expected: BTreeMap<String, Value> = BTreeMap::from([
+        let expected: BTreeMap<KeyString, Value> = BTreeMap::from([
             ("var_1".into(), "my first value".into()),
             ("var_2".into(), "my second value".into()),
         ]);
@@ -437,7 +438,7 @@ mod tests {
         assert_eq!(Ok(expected), result, "No select fields returns everything");
 
         let select: Option<&[String]> = Some(&[]);
-        let expected: BTreeMap<String, Value> = BTreeMap::from([
+        let expected: BTreeMap<KeyString, Value> = BTreeMap::from([
             ("var_1".into(), "my first value".into()),
             ("var_2".into(), "my second value".into()),
         ]);
@@ -451,7 +452,7 @@ mod tests {
 
         let fields = ["var_2".to_string()];
         let select: Option<&[String]> = Some(&fields);
-        let expected: BTreeMap<String, Value> =
+        let expected: BTreeMap<KeyString, Value> =
             BTreeMap::from([("var_2".into(), "my second value".into())]);
         let result = state_variables.lookup(&param_names, select);
 

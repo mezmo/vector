@@ -3,7 +3,7 @@ use rand::Rng;
 use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use opentelemetry_rs::opentelemetry::metrics::{
     AggregationTemporality, AnyValue, AnyValueOneOfvalue, Exemplar, ExemplarOneOfvalue,
@@ -23,7 +23,7 @@ use vector_core::{
             MetricTagsAccessor, MetricToLogEvent, MetricValueAccessor, MetricValuePairs,
             MetricValueSerializable, MezmoMetric,
         },
-        Event, LogEvent, MetricKind, Value,
+        Event, KeyString, LogEvent, MetricKind, Value,
     },
 };
 
@@ -1023,12 +1023,13 @@ impl IntoValue for ScopeMetricValue<'_> {
             Value::Null
         };
 
-        Value::Object(btreemap! {
-            "name" => name,
-            "version" => version,
-            "attributes" => attributes.to_value(),
-            "dropped_attributes_count" => self.dropped_attributes_count,
-        })
+        let values: BTreeMap<KeyString, _> = btreemap! {
+            KeyString::from("name") => name,
+            KeyString::from("version") => version,
+            KeyString::from("attributes") => attributes.to_value(),
+            KeyString::from("dropped_attributes_count") => self.dropped_attributes_count,
+        };
+        Value::Object(values)
     }
 }
 
@@ -1080,8 +1081,8 @@ impl IntoValue for HistogramBucketValue {
     fn to_value(&self) -> Value {
         Value::Object(
             [
-                ("upper_limit".to_owned(), from_f64_or_zero(self.upper_limit)),
-                ("count".to_owned(), self.count.into()),
+                ("upper_limit".into(), from_f64_or_zero(self.upper_limit)),
+                ("count".into(), self.count.into()),
             ]
             .into_iter()
             .collect(),
@@ -1165,15 +1166,16 @@ impl DataPointBucketsMetricValue {
 
 impl IntoValue for DataPointBucketsMetricValue {
     fn to_value(&self) -> Value {
-        Value::Object(btreemap! {
-            "offset" => self.offset,
-            "bucket_counts" => Value::Array(
+        let value: BTreeMap<KeyString, _> = btreemap! {
+            KeyString::from("offset") => self.offset,
+            KeyString::from("bucket_counts") => Value::Array(
                 self.bucket_counts
                     .iter()
                     .map(|count| Value::from(*count))
                     .collect(),
             ),
-        })
+        };
+        Value::Object(value)
     }
 }
 
@@ -1679,7 +1681,6 @@ fn make_event(mut log_event: LogEvent) -> Event {
 mod tests {
     use super::*;
     use chrono::{NaiveDateTime, TimeZone, Utc};
-    use std::collections::BTreeMap;
     use std::ops::Deref;
 
     use vector_core::event::metric::{mezmo::to_metric, Bucket, Quantile};

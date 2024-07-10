@@ -437,6 +437,7 @@ async fn s3_flush_on_exhaustion() {
             auth: Default::default(),
             acknowledgements: Default::default(),
             file_consolidation_config: Default::default(),
+            timezone: Default::default(),
         }
     };
     let prefix = config.key_prefix.clone();
@@ -522,6 +523,7 @@ fn config(bucket: &str, batch_size: usize) -> S3SinkConfig {
         auth: Default::default(),
         acknowledgements: Default::default(),
         file_consolidation_config: Default::default(), //MEZMO: new property for s3-sink file consolidation
+        timezone: Default::default(),
     }
 }
 

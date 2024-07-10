@@ -335,18 +335,12 @@ impl MezmoLogClustering {
         } else if status == TransformStatus::AnnotateEvent {
             let mut cluster = BTreeMap::new();
 
+            cluster.insert("cluster_id".into(), Value::Bytes(group.cluster_id().into()));
             cluster.insert(
-                "cluster_id".to_string(),
-                Value::Bytes(group.cluster_id().into()),
-            );
-            cluster.insert(
-                "match_count".to_string(),
+                "match_count".into(),
                 Value::Integer(group.match_count() as i64),
             );
-            cluster.insert(
-                "template".to_string(),
-                Value::Bytes(format!("{}", group).into()),
-            );
+            cluster.insert("template".into(), Value::Bytes(format!("{}", group).into()));
 
             log.insert(
                 field_name.expect("to be set for annotate case").as_str(),

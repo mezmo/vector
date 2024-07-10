@@ -25,7 +25,7 @@ use vector_lib::{
     config::log_schema,
     event::{
         metric::{samples_to_buckets, Metric as MezmoMetric},
-        Event, MetricKind, MetricValue, StatisticKind, Value,
+        Event, KeyString, MetricKind, MetricValue, StatisticKind, Value,
     },
 };
 
@@ -93,7 +93,7 @@ static PER_WORD_TO_UCUM_INVERT: Lazy<HashMap<&'static str, &'static str>> =
     Lazy::new(|| PER_WORD_TO_UCUM.iter().map(|(_, v)| (*v, *v)).collect());
 
 fn get_property<'a>(
-    root: &'a BTreeMap<String, Value>,
+    root: &'a BTreeMap<KeyString, Value>,
     property_name: &'a str,
 ) -> Result<&'a Value, OpentelemetrySinkError> {
     match root.get(property_name) {
@@ -108,7 +108,7 @@ fn get_property<'a>(
 }
 
 fn get_float(
-    value_object: &BTreeMap<String, Value>,
+    value_object: &BTreeMap<KeyString, Value>,
     name: &str,
 ) -> Result<f64, OpentelemetrySinkError> {
     let value = get_property(value_object, name)?;
@@ -154,7 +154,7 @@ fn parse_u64(value: &Value, field_name: &str) -> Result<u64, OpentelemetrySinkEr
     Ok(val as u64)
 }
 
-fn get_object(value_object: &BTreeMap<String, Value>, name: &str) -> BTreeMap<String, Value> {
+fn get_object(value_object: &BTreeMap<KeyString, Value>, name: &str) -> BTreeMap<KeyString, Value> {
     get_property(value_object, name)
         .unwrap_or(&Value::Object(BTreeMap::new()))
         .as_object()
@@ -162,7 +162,7 @@ fn get_object(value_object: &BTreeMap<String, Value>, name: &str) -> BTreeMap<St
         .clone()
 }
 
-fn get_string_or_defailt<'a>(value_object: &BTreeMap<String, Value>, key: &'a str) -> String {
+fn get_string_or_defailt<'a>(value_object: &BTreeMap<KeyString, Value>, key: &'a str) -> String {
     match value_object.get(key) {
         Some(Value::Bytes(bytes)) => String::from_utf8_lossy(bytes).into_owned(),
         _ => String::new(),
@@ -908,7 +908,7 @@ mod test {
             otlp_event: bool,
             original_otlp_type: Option<&str>,
             resource_uniq_id: Option<[u8; 8]>,
-        ) -> BTreeMap<String, Value> {
+        ) -> BTreeMap<KeyString, Value> {
             let trace_id = Value::from(faster_hex::hex_string(&[
                 95, 70, 127, 231, 191, 66, 103, 108, 5, 226, 11, 164, 169, 14, 68, 142,
             ]));
@@ -924,40 +924,40 @@ mod test {
             let mut value = match self {
                 Self::Gauge => {
                     let mut value = btreemap! {
-                        "type" => Value::from("gauge"),
-                        "value" => Value::from(index as f64 * 11.0),
+                        KeyString::from("type") => Value::from("gauge"),
+                        KeyString::from("value") => Value::from(index as f64 * 11.0),
                     };
 
                     // Event generate out of otlp metric which came through the OTLP Source
                     // The value must contain arbitrary fields (otlp specific)
                     if otlp_event {
                         let mut arbitrary = btreemap! {
-                            "name" => Value::from("system.filesystem.usage"),
-                            "description" => Value::from("test_description"),
-                            "unit" => Value::from("GiBy/s"),
-                            "exemplars" => Value::Array(Vec::from([Value::Object(
+                            KeyString::from("name") => Value::from("system.filesystem.usage"),
+                            KeyString::from("description") => Value::from("test_description"),
+                            KeyString::from("unit") => Value::from("GiBy/s"),
+                            KeyString::from("exemplars") => Value::Array(Vec::from([Value::Object(
                                 btreemap! {
-                                    "filtered_attributes" => btreemap! {"foo" => Value::from("bar")},
-                                    "span_id" => span_id,
-                                    "trace_id" => trace_id,
-                                    "time_unix" => Value::from(
+                                    KeyString::from("filtered_attributes") => btreemap! {"foo" => Value::from("bar")},
+                                    KeyString::from("span_id") => span_id,
+                                    KeyString::from("trace_id") => trace_id,
+                                    KeyString::from("time_unix") => Value::from(
                                         Utc.from_utc_datetime(
                                             &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
                                                 .expect("timestamp should be a valid timestamp"),
                                         )
                                     ),
-                                    "value" => Value::Integer(10),
+                                    KeyString::from("value") => Value::Integer(10),
                                 }
 
                             )])),
-                            "flags" => Value::Integer(1),
-                            "start_time_unix" => Value::from(
+                            KeyString::from("flags") => Value::Integer(1),
+                            KeyString::from("start_time_unix") => Value::from(
                                 Utc.from_utc_datetime(
                                     &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
                                 )
                             ),
-                            "time_unix" => Value::from(
+                            KeyString::from("time_unix") => Value::from(
                                 Utc.from_utc_datetime(
                                     &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
@@ -966,9 +966,8 @@ mod test {
                         };
 
                         if original_otlp_type.unwrap() == "sum" {
-                            arbitrary
-                                .insert("aggregation_temporality".to_string(), Value::Integer(2));
-                            arbitrary.insert("is_monotonic".to_string(), Value::Boolean(false));
+                            arbitrary.insert("aggregation_temporality".into(), Value::Integer(2));
+                            arbitrary.insert("is_monotonic".into(), Value::Boolean(false));
                         }
 
                         value.append(&mut arbitrary);
@@ -978,47 +977,47 @@ mod test {
                 }
                 Self::Counter => {
                     let mut value = btreemap! {
-                        "type" => Value::from("counter"),
-                        "value" => Value::from(index as f64 * 11.0),
+                        KeyString::from("type") => Value::from("counter"),
+                        KeyString::from("value") => Value::from(index as f64 * 11.0),
                     };
 
                     // Event generate out of otlp metric which came through the OTLP Source
                     // The value must contain arbitrary fields (otlp specific)
                     if otlp_event {
                         let mut arbitrary = btreemap! {
-                            "name" => Value::from("system.filesystem.usage"),
-                            "description" => Value::from("test_description"),
-                            "unit" => Value::from("GiBy/s"),
-                            "exemplars" => Value::Array(Vec::from([Value::Object(
+                            KeyString::from("name") => Value::from("system.filesystem.usage"),
+                            KeyString::from("description") => Value::from("test_description"),
+                            KeyString::from("unit") => Value::from("GiBy/s"),
+                            KeyString::from("exemplars") => Value::Array(Vec::from([Value::Object(
                                 btreemap! {
-                                    "filtered_attributes" => btreemap! {"foo" => Value::from("bar")},
-                                    "span_id" => span_id,
-                                    "trace_id" => trace_id,
-                                    "time_unix" => Value::from(
+                                    KeyString::from("filtered_attributes") => btreemap! {KeyString::from("foo") => Value::from("bar")},
+                                    KeyString::from("span_id") => span_id,
+                                    KeyString::from("trace_id") => trace_id,
+                                    KeyString::from("time_unix") => Value::from(
                                         Utc.from_utc_datetime(
                                             &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
                                                 .expect("timestamp should be a valid timestamp"),
                                         )
                                     ),
-                                    "value" => Value::Integer(10),
+                                    KeyString::from("value") => Value::Integer(10),
                                 }
 
                             )])),
-                            "flags" => Value::Integer(1),
-                            "start_time_unix" => Value::from(
+                            KeyString::from("flags") => Value::Integer(1),
+                            KeyString::from("start_time_unix") => Value::from(
                                 Utc.from_utc_datetime(
                                     &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
                                 )
                             ),
-                            "time_unix" => Value::from(
+                            KeyString::from("time_unix") => Value::from(
                                 Utc.from_utc_datetime(
                                     &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
                                 )
                             ),
-                            "aggregation_temporality" => Value::Integer(2),
-                            "is_monotonic" => Value::Boolean(true),
+                            KeyString::from("aggregation_temporality") => Value::Integer(2),
+                            KeyString::from("is_monotonic") => Value::Boolean(true),
                         };
 
                         value.append(&mut arbitrary);
@@ -1032,74 +1031,74 @@ mod test {
                         values.push(Value::from(String::from((value as i32).to_string())));
                     }
                     btreemap! {
-                        "type" => Value::from("set"),
-                        "value" => Value::Object(btreemap! {
-                            "values" => Value::from(values),
+                        KeyString::from("type") => Value::from("set"),
+                        KeyString::from("value") => Value::Object(btreemap! {
+                            KeyString::from("values") => Value::from(values),
                         }),
                     }
                 }
                 Self::AggregatedHistogram => {
                     let mut value = btreemap! {
-                        "type" => Value::from("histogram"),
-                        "value" => Value::Object(btreemap! {
-                            "count" => Value::Integer(10),
-                            "sum" => from_f64_or_zero(3.7),
-                            "buckets" => Value::Array(Vec::from([
+                        KeyString::from("type") => Value::from("histogram"),
+                        KeyString::from("value") => Value::Object(btreemap! {
+                            KeyString::from("count") => Value::Integer(10),
+                            KeyString::from("sum") => from_f64_or_zero(3.7),
+                            KeyString::from("buckets") => Value::Array(Vec::from([
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 0.005,
-                                    "count" => 214,
+                                    KeyString::from("upper_limit") => 0.005,
+                                    KeyString::from("count") => 214,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 0.01,
-                                    "count" => 6,
+                                    KeyString::from("upper_limit") => 0.01,
+                                    KeyString::from("count") => 6,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 0.025,
-                                    "count" => 1,
+                                    KeyString::from("upper_limit") => 0.025,
+                                    KeyString::from("count") => 1,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 0.05,
-                                    "count" => 1,
+                                    KeyString::from("upper_limit") => 0.05,
+                                    KeyString::from("count") => 1,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 0.075,
-                                    "count" => 2,
+                                    KeyString::from("upper_limit") => 0.075,
+                                    KeyString::from("count") => 2,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 0.1,
-                                    "count" => 0,
+                                    KeyString::from("upper_limit") => 0.1,
+                                    KeyString::from("count") => 0,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 0.25,
-                                    "count" => 0,
+                                    KeyString::from("upper_limit") => 0.25,
+                                    KeyString::from("count") => 0,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 0.5,
-                                    "count" => 0,
+                                    KeyString::from("upper_limit") => 0.5,
+                                    KeyString::from("count") => 0,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 0.75,
-                                    "count" => 0,
+                                    KeyString::from("upper_limit") => 0.75,
+                                    KeyString::from("count") => 0,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 1.0,
-                                    "count" => 0,
+                                    KeyString::from("upper_limit") => 1.0,
+                                    KeyString::from("count") => 0,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 2.5,
-                                    "count" => 0,
+                                    KeyString::from("upper_limit") => 2.5,
+                                    KeyString::from("count") => 0,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 5.0,
-                                    "count" => 0,
+                                    KeyString::from("upper_limit") => 5.0,
+                                    KeyString::from("count") => 0,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 7.5,
-                                    "count" => 0,
+                                    KeyString::from("upper_limit") => 7.5,
+                                    KeyString::from("count") => 0,
                                 }),
                                 Value::Object(btreemap! {
-                                    "upper_limit" => 10.0,
-                                    "count" => 0,
+                                    KeyString::from("upper_limit") => 10.0,
+                                    KeyString::from("count") => 0,
                                 }),
                             ]))
                         }),
@@ -1109,26 +1108,26 @@ mod test {
                     // The value must contain arbitrary fields (otlp specific)
                     if otlp_event {
                         let mut arbitrary = btreemap! {
-                            "name" => Value::from("system.filesystem.usage"),
-                            "description" => Value::from("test_description"),
-                            "unit" => Value::from("GiBy/s"),
-                            "exemplars" => Value::Array(Vec::from([Value::Object(
+                            KeyString::from("name") => Value::from("system.filesystem.usage"),
+                            KeyString::from("description") => Value::from("test_description"),
+                            KeyString::from("unit") => Value::from("GiBy/s"),
+                            KeyString::from("exemplars") => Value::Array(Vec::from([Value::Object(
                                 btreemap! {
-                                    "filtered_attributes" => btreemap! {"foo" => Value::from("bar")},
-                                    "span_id" => span_id,
-                                    "trace_id" => trace_id,
-                                    "time_unix" => Value::from(
+                                    KeyString::from("filtered_attributes") => btreemap! {KeyString::from("foo") => Value::from("bar")},
+                                    KeyString::from("span_id") => span_id,
+                                    KeyString::from("trace_id") => trace_id,
+                                    KeyString::from("time_unix") => Value::from(
                                         Utc.from_utc_datetime(
                                             &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
                                                 .expect("timestamp should be a valid timestamp"),
                                         )
                                     ),
-                                    "value" => Value::Integer(10),
+                                    KeyString::from("value") => Value::Integer(10),
                                 }
 
                             )])),
-                            "flags" => Value::Integer(1),
-                            "bucket_counts" => Value::Array(Vec::from([
+                            KeyString::from("flags") => Value::Integer(1),
+                            KeyString::from("bucket_counts") => Value::Array(Vec::from([
                                 Value::Integer(214),
                                 Value::Integer(6),
                                 Value::Integer(1),
@@ -1146,7 +1145,7 @@ mod test {
                                 Value::Integer(0),
                             ])),
 
-                            "explicit_bounds" => Value::Array(Vec::from([
+                            KeyString::from("explicit_bounds") => Value::Array(Vec::from([
                                 from_f64_or_zero(0.005),
                                 from_f64_or_zero(0.01),
                                 from_f64_or_zero(0.025),
@@ -1162,21 +1161,21 @@ mod test {
                                 from_f64_or_zero(7.5),
                                 from_f64_or_zero(10.0),
                             ])),
-                            "max" => from_f64_or_zero(9.9),
-                            "min" => from_f64_or_zero(0.1),
-                            "start_time_unix" => Value::from(
+                            KeyString::from("max") => from_f64_or_zero(9.9),
+                            KeyString::from("min") => from_f64_or_zero(0.1),
+                            KeyString::from("start_time_unix") => Value::from(
                                 Utc.from_utc_datetime(
                                     &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
                                 )
                             ),
-                            "time_unix" => Value::from(
+                            KeyString::from("time_unix") => Value::from(
                                 Utc.from_utc_datetime(
                                     &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
                                 )
                             ),
-                            "aggregation_temporality" => Value::Integer(2),
+                            KeyString::from("aggregation_temporality") => Value::Integer(2),
                         };
 
                         value.append(&mut arbitrary);
@@ -1186,36 +1185,36 @@ mod test {
                 }
                 Self::DistributionHistogram => {
                     btreemap! {
-                        "type" => Value::from("distribution"),
-                        "value" => Value::Object(btreemap! {
-                            "samples" => Value::Array(Vec::from([
+                        KeyString::from("type") => Value::from("distribution"),
+                        KeyString::from("value") => Value::Object(btreemap! {
+                            KeyString::from("samples") => Value::Array(Vec::from([
                                 Value::Object(btreemap! {
-                                    "value" => 1.0,
-                                    "rate" => 3,
+                                    KeyString::from("value") => 1.0,
+                                    KeyString::from("rate") => 3,
                                 }),
                                 Value::Object(btreemap! {
-                                    "value" => 2.0,
-                                    "rate" => 3,
+                                    KeyString::from("value") => 2.0,
+                                    KeyString::from("rate") => 3,
                                 }),
                                 Value::Object(btreemap! {
-                                    "value" => 3.0,
-                                    "rate" => 2,
+                                    KeyString::from("value") => 3.0,
+                                    KeyString::from("rate") => 2,
                                 })
                             ])),
-                            "statistic" => Value::from("histogram"),
+                            KeyString::from("statistic") => Value::from("histogram"),
                         })
                     }
                 }
                 Self::AggregatedSummary => {
                     let mut value = btreemap! {
-                        "type" => Value::from("summary"),
-                        "value" => Value::Object(btreemap! {
-                            "count" => Value::Integer(10),
-                            "sum" => from_f64_or_zero(3.7),
-                            "quantiles" => Value::Array(Vec::from([
+                        KeyString::from("type") => Value::from("summary"),
+                        KeyString::from("value") => Value::Object(btreemap! {
+                            KeyString::from("count") => Value::Integer(10),
+                            KeyString::from("sum") => from_f64_or_zero(3.7),
+                            KeyString::from("quantiles") => Value::Array(Vec::from([
                                 Value::Object(btreemap! {
-                                    "quantile" => 0.005,
-                                    "value" => 10,
+                                    KeyString::from("quantile") => 0.005,
+                                    KeyString::from("value") => 10,
                                 })
                             ]))
                         }),
@@ -1225,25 +1224,25 @@ mod test {
                     // The value must contain arbitrary fields (otlp specific)
                     if otlp_event {
                         let mut arbitrary = btreemap! {
-                            "name" => Value::from("system.filesystem.usage"),
-                            "description" => Value::from("test_description"),
-                            "unit" => Value::from("GiBy/s"),
-                            "count" => Value::Integer(10),
-                            "sum" => from_f64_or_zero(10.0),
-                            "flags" => Value::Integer(1),
-                            "quantile_values" => Value::Array(Vec::from([
+                            KeyString::from("name") => Value::from("system.filesystem.usage"),
+                            KeyString::from("description") => Value::from("test_description"),
+                            KeyString::from("unit") => Value::from("GiBy/s"),
+                            KeyString::from("count") => Value::Integer(10),
+                            KeyString::from("sum") => from_f64_or_zero(10.0),
+                            KeyString::from("flags") => Value::Integer(1),
+                            KeyString::from("quantile_values") => Value::Array(Vec::from([
                                 Value::Object(btreemap! {
-                                    "quantile" => 0.005,
-                                    "value" => 10,
+                                    KeyString::from("quantile") => 0.005,
+                                    KeyString::from("value") => 10,
                                 })
                             ])),
-                            "start_time_unix" => Value::from(
+                            KeyString::from("start_time_unix") => Value::from(
                                 Utc.from_utc_datetime(
                                     &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
                                 )
                             ),
-                            "time_unix" => Value::from(
+                            KeyString::from("time_unix") => Value::from(
                                 Utc.from_utc_datetime(
                                     &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
@@ -1258,23 +1257,23 @@ mod test {
                 }
                 Self::DistributionSummary => {
                     btreemap! {
-                        "type" => Value::from("distribution"),
-                        "value" => Value::Object(btreemap! {
-                            "samples" => Value::Array(Vec::from([
+                        KeyString::from("type") => Value::from("distribution"),
+                        KeyString::from("value") => Value::Object(btreemap! {
+                            KeyString::from("samples") => Value::Array(Vec::from([
                                 Value::Object(btreemap! {
-                                    "value" => 1.0,
-                                    "rate" => 3,
+                                    KeyString::from("value") => 1.0,
+                                    KeyString::from("rate") => 3,
                                 }),
                                 Value::Object(btreemap! {
-                                    "value" => 2.0,
-                                    "rate" => 3,
+                                    KeyString::from("value") => 2.0,
+                                    KeyString::from("rate") => 3,
                                 }),
                                 Value::Object(btreemap! {
-                                    "value" => 3.0,
-                                    "rate" => 2,
+                                    KeyString::from("value") => 3.0,
+                                    KeyString::from("rate") => 2,
                                 })
                             ])),
-                            "statistic" => Value::from("summary"),
+                            KeyString::from("statistic") => Value::from("summary"),
                         })
                     }
                 }
@@ -1282,22 +1281,22 @@ mod test {
 
             if otlp_event {
                 value.insert(
-                    log_schema().user_metadata_key().to_string(),
+                    log_schema().user_metadata_key().into(),
                     Value::Object(btreemap! {
-                        "original_type" => Value::from(original_otlp_type.unwrap()),
-                        "data_provider" => Value::from("otlp"),
-                        "resource" => Value::Object(btreemap! {
-                            "attributes" => btreemap! {"foo" => Value::from("bar")},
-                            "dropped_attributes_count" => Value::Integer(1),
-                            "uniq_id" => Value::from(faster_hex::hex_string(&resource_uniq_id.unwrap())),
+                        KeyString::from("original_type") => Value::from(original_otlp_type.unwrap()),
+                        KeyString::from("data_provider") => Value::from("otlp"),
+                        KeyString::from("resource") => Value::Object(btreemap! {
+                            KeyString::from("attributes") => btreemap! {KeyString::from("foo") => Value::from("bar")},
+                            KeyString::from("dropped_attributes_count") => Value::Integer(1),
+                            KeyString::from("uniq_id") => Value::from(faster_hex::hex_string(&resource_uniq_id.unwrap())),
                         }),
-                        "scope" => Value::Object(btreemap! {
-                            "attributes" => btreemap! {"foo" => Value::from("bar")},
-                            "dropped_attributes_count" => Value::Integer(1),
-                            "name" => Value::from("test_name"),
-                            "version" => Value::Null,
+                        KeyString::from("scope") => Value::Object(btreemap! {
+                            KeyString::from("attributes") => btreemap! {KeyString::from("foo") => Value::from("bar")},
+                            KeyString::from("dropped_attributes_count") => Value::Integer(1),
+                            KeyString::from("name") => Value::from("test_name"),
+                            KeyString::from("version") => Value::Null,
                         }),
-                        "attributes" => btreemap! {"foo" => Value::from("bar")},
+                        KeyString::from("attributes") => btreemap! {"foo" => Value::from("bar")},
                     })
                 );
             }
@@ -1314,17 +1313,17 @@ mod test {
         original_otlp_type: Option<&str>,
         resource_uniq_id: Option<[u8; 8]>,
     ) -> Event {
-        let mut event_data = BTreeMap::<String, Value>::new();
+        let mut event_data = BTreeMap::<KeyString, Value>::new();
         let value =
             metric_type.generate_value(index, otlp_event, original_otlp_type, resource_uniq_id);
 
         event_data.insert(
-            "message".to_owned(),
+            "message".into(),
             Value::Object(btreemap! {
-                "kind" => Value::from(metric_kind),
-                "name" => Value::from("system_filesystem_usage_gibibytes_per_second"),
-                "tags" => btreemap! {"foo" => "bar"},
-                "value" => Value::from(value.clone())
+                KeyString::from("kind") => Value::from(metric_kind),
+                KeyString::from("name") => Value::from("system_filesystem_usage_gibibytes_per_second"),
+                KeyString::from("tags") => btreemap! {KeyString::from("foo") => "bar"},
+                KeyString::from("value") => Value::from(value.clone())
             }),
         );
 

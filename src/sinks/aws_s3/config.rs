@@ -1,5 +1,3 @@
-use std::convert::TryInto;
-
 use aws_sdk_s3::Client as S3Client;
 use tower::ServiceBuilder;
 use vector_lib::codecs::{
@@ -8,6 +6,7 @@ use vector_lib::codecs::{
 };
 use vector_lib::configurable::configurable_component;
 use vector_lib::sink::VectorSink;
+use vector_lib::TimeZone;
 
 use super::sink::S3RequestOptions;
 use crate::{
@@ -24,8 +23,8 @@ use crate::{
             sink::S3Sink,
         },
         util::{
-            BatchConfig, BulkSizeBasedDefaultBatchSettings, Compression, ServiceBuilderExt,
-            TowerRequestConfig,
+            timezone_to_offset, BatchConfig, BulkSizeBasedDefaultBatchSettings, Compression,
+            ServiceBuilderExt, TowerRequestConfig,
         },
         Healthcheck,
     },
@@ -148,6 +147,10 @@ pub struct S3SinkConfig {
     #[configurable(derived)]
     #[serde(default)]
     pub file_consolidation_config: FileConsolidationConfig,
+
+    #[configurable(derived)]
+    #[serde(default)]
+    pub timezone: Option<TimeZone>,
 }
 
 pub(super) fn default_key_prefix() -> String {
@@ -176,6 +179,7 @@ impl GenerateConfig for S3SinkConfig {
             auth: AwsAuthentication::default(),
             acknowledgements: Default::default(),
             file_consolidation_config: Default::default(),
+            timezone: Default::default(),
         })
         .unwrap()
     }
@@ -210,14 +214,21 @@ impl S3SinkConfig {
         // requests into in order to ship files to S3.  We build this here in
         // order to configure the client/service with retries, concurrency
         // limits, rate limits, and whatever else the client should have.
-        let request_limits = self.request.unwrap_with(&Default::default());
+        let request_limits = self.request.into_settings();
         let service = ServiceBuilder::new()
             .settings(request_limits, S3RetryLogic)
             .service(MezmoLoggingService::new(service, cx.mezmo_ctx));
 
+        let offset = self
+            .timezone
+            .or(cx.globals.timezone)
+            .and_then(timezone_to_offset);
+
         // Configure our partitioning/batching.
         let batch_settings = self.batch.into_batcher_settings()?;
-        let key_prefix = self.key_prefix.clone().try_into()?;
+
+        let key_prefix = Template::try_from(self.key_prefix.clone())?.with_tz_offset(offset);
+
         let ssekms_key_id = self
             .options
             .ssekms_key_id
@@ -225,6 +236,7 @@ impl S3SinkConfig {
             .cloned()
             .map(|ssekms_key_id| Template::try_from(ssekms_key_id.as_str()))
             .transpose()?;
+
         let partitioner = S3KeyPartitioner::new(key_prefix, ssekms_key_id);
 
         let (framer, serializer) = self.encoding.build(SinkType::MessageBased)?;
@@ -243,6 +255,7 @@ impl S3SinkConfig {
             filename_append_uuid: self.filename_append_uuid,
             encoder: (transformer, encoder),
             compression: self.compression,
+            filename_tz_offset: offset,
         };
 
         // MEZMO: added new file consolidation process for S3 sinks

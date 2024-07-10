@@ -11,7 +11,7 @@ use crate::{
             mezmo::from_f64_or_zero, Bucket, Metric, MetricArbitrary, MetricData, MetricKind,
             MetricName, MetricSeries, MetricTags, MetricTime, MetricValue, Quantile, Sample,
         },
-        LogEvent, StatisticKind, Value,
+        KeyString, LogEvent, StatisticKind, Value,
     },
 };
 
@@ -27,7 +27,7 @@ pub enum TransformError {
 
 fn parse_value(
     type_name: &str,
-    value_object: &BTreeMap<String, Value>,
+    value_object: &BTreeMap<KeyString, Value>,
 ) -> Result<MetricValue, TransformError> {
     match type_name {
         "counter" => Ok(MetricValue::Counter {
@@ -188,8 +188,8 @@ fn parse_string(value: &Value) -> Result<String, TransformError> {
 }
 
 fn parse_arbitrary(
-    value_object: &BTreeMap<String, Value>,
-    user_metadata: &BTreeMap<String, Value>,
+    value_object: &BTreeMap<KeyString, Value>,
+    user_metadata: &BTreeMap<KeyString, Value>,
 ) -> MetricArbitrary {
     let mut filtered_value = value_object
         .iter()
@@ -200,10 +200,10 @@ fn parse_arbitrary(
 
             Some((key.clone(), value.clone()))
         })
-        .collect::<BTreeMap<String, Value>>();
+        .collect::<BTreeMap<KeyString, Value>>();
 
     filtered_value.insert(
-        log_schema().user_metadata_key().to_string(),
+        log_schema().user_metadata_key().into(),
         Value::Object(user_metadata.clone()),
     );
 
@@ -212,7 +212,7 @@ fn parse_arbitrary(
     }
 }
 
-fn get_float(value_object: &BTreeMap<String, Value>, name: &str) -> Result<f64, TransformError> {
+fn get_float(value_object: &BTreeMap<KeyString, Value>, name: &str) -> Result<f64, TransformError> {
     let value = get_property(value_object, name)?;
 
     // Depending on the serialization format and input value (which we don't control)
@@ -231,7 +231,7 @@ fn get_float(value_object: &BTreeMap<String, Value>, name: &str) -> Result<f64, 
     }
 }
 
-fn get_u64(value_object: &BTreeMap<String, Value>, name: &str) -> Result<u64, TransformError> {
+fn get_u64(value_object: &BTreeMap<KeyString, Value>, name: &str) -> Result<u64, TransformError> {
     let value = get_property(value_object, name)?
         .as_integer()
         .ok_or_else(|| TransformError::FieldInvalidType { field: name.into() })?;
@@ -245,7 +245,7 @@ fn get_u64(value_object: &BTreeMap<String, Value>, name: &str) -> Result<u64, Tr
 }
 
 fn get_property<'a>(
-    root: &'a BTreeMap<String, Value>,
+    root: &'a BTreeMap<KeyString, Value>,
     property_name: &'a str,
 ) -> Result<&'a Value, TransformError> {
     match root.get(property_name) {
@@ -311,7 +311,7 @@ pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
         let mut map = MetricTags::default();
         for (k, v) in tags.iter() {
             map.insert(
-                k.clone(),
+                k.to_string(),
                 v.as_str().map(|v| v.to_string()).ok_or_else(|| {
                     TransformError::FieldInvalidType {
                         field: "tags".into(),
@@ -380,8 +380,8 @@ fn from_buckets(buckets: &[Bucket]) -> Value {
         .iter()
         .map(|b| {
             BTreeMap::from([
-                ("upper_limit".to_owned(), from_f64_or_zero(b.upper_limit)),
-                ("count".to_owned(), b.count.into()),
+                ("upper_limit".into(), from_f64_or_zero(b.upper_limit)),
+                ("count".into(), b.count.into()),
             ])
             .into()
         })
@@ -394,8 +394,8 @@ fn from_samples(samples: &[Sample]) -> Value {
         .iter()
         .map(|s| {
             BTreeMap::from([
-                ("value".to_owned(), from_f64_or_zero(s.value)),
-                ("rate".to_owned(), s.rate.into()),
+                ("value".into(), from_f64_or_zero(s.value)),
+                ("rate".into(), s.rate.into()),
             ])
             .into()
         })
@@ -408,8 +408,8 @@ fn from_quantiles(quantiles: &[Quantile]) -> Value {
         .iter()
         .map(|q| {
             BTreeMap::from([
-                ("value".to_owned(), from_f64_or_zero(q.value)),
-                ("quantile".to_owned(), from_f64_or_zero(q.quantile)),
+                ("value".into(), from_f64_or_zero(q.value)),
+                ("quantile".into(), from_f64_or_zero(q.quantile)),
             ])
             .into()
         })
@@ -419,7 +419,7 @@ fn from_quantiles(quantiles: &[Quantile]) -> Value {
 
 fn from_tags(tags: &MetricTags) -> Value {
     tags.iter_all()
-        .map(|(k, v)| (k.to_owned(), v.into()))
+        .map(|(k, v)| (k.into(), v.into()))
         .collect::<BTreeMap<_, _>>()
         .into()
 }
@@ -428,14 +428,14 @@ fn from_tags(tags: &MetricTags) -> Value {
 ///
 /// Will panic upon encountering unsupported metric type
 pub fn from_metric(metric: &Metric) -> LogEvent {
-    let mut values = BTreeMap::<String, Value>::new();
+    let mut values = BTreeMap::<KeyString, Value>::new();
 
-    values.insert("name".to_owned(), metric.name().into());
+    values.insert("name".into(), metric.name().into());
     if let Some(namespace) = metric.namespace() {
-        values.insert("namespace".to_owned(), namespace.into());
+        values.insert("namespace".into(), namespace.into());
     }
     values.insert(
-        "kind".to_owned(),
+        "kind".into(),
         if metric.kind() == MetricKind::Absolute {
             "absolute"
         } else {
@@ -444,37 +444,38 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
         .into(),
     );
     if let Some(tags) = metric.tags() {
-        values.insert("tags".to_owned(), from_tags(tags));
+        values.insert("tags".into(), from_tags(tags));
     }
 
     let mut value = match metric.value() {
         MetricValue::Counter { value } => BTreeMap::from([
-            ("type".to_owned(), "counter".into()),
-            ("value".to_owned(), from_f64_or_zero(*value)),
+            ("type".into(), "counter".into()),
+            ("value".into(), from_f64_or_zero(*value)),
         ]),
         MetricValue::Gauge { value } => BTreeMap::from([
-            ("type".to_owned(), "gauge".into()),
-            ("value".to_owned(), from_f64_or_zero(*value)),
+            ("type".into(), "gauge".into()),
+            ("value".into(), from_f64_or_zero(*value)),
         ]),
         MetricValue::Set { values } => BTreeMap::from([
-            ("type".to_owned(), "set".into()),
+            ("type".into(), "set".into()),
             (
-                "value".to_owned(),
+                "value".into(),
                 BTreeMap::from([(
-                    "values".to_owned(),
+                    "values".into(),
                     Value::Array(values.iter().map(|i| i.clone().into()).collect()),
                 )])
                 .into(),
             ),
         ]),
+
         MetricValue::Distribution { samples, statistic } => BTreeMap::from([
-            ("type".to_owned(), "distribution".into()),
+            ("type".into(), "distribution".into()),
             (
-                "value".to_owned(),
+                "value".into(),
                 BTreeMap::from([
-                    ("samples".to_owned(), from_samples(samples)),
+                    ("samples".into(), from_samples(samples)),
                     (
-                        "statistic".to_owned(),
+                        "statistic".into(),
                         if statistic == &StatisticKind::Histogram {
                             "histogram"
                         } else {
@@ -491,13 +492,13 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
             count,
             sum,
         } => BTreeMap::from([
-            ("type".to_owned(), "summary".into()),
+            ("type".into(), "summary".into()),
             (
-                "value".to_owned(),
+                "value".into(),
                 BTreeMap::from([
-                    ("quantiles".to_owned(), from_quantiles(quantiles)),
-                    ("count".to_owned(), (*count).into()),
-                    ("sum".to_owned(), from_f64_or_zero(*sum)),
+                    ("quantiles".into(), from_quantiles(quantiles)),
+                    ("count".into(), (*count).into()),
+                    ("sum".into(), from_f64_or_zero(*sum)),
                 ])
                 .into(),
             ),
@@ -507,13 +508,13 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
             count,
             sum,
         } => BTreeMap::from([
-            ("type".to_owned(), "histogram".into()),
+            ("type".into(), "histogram".into()),
             (
-                "value".to_owned(),
+                "value".into(),
                 Value::Object(BTreeMap::from([
-                    ("buckets".to_owned(), from_buckets(buckets)),
-                    ("count".to_owned(), (*count).into()),
-                    ("sum".to_owned(), from_f64_or_zero(*sum)),
+                    ("buckets".into(), from_buckets(buckets)),
+                    ("count".into(), (*count).into()),
+                    ("sum".into(), from_f64_or_zero(*sum)),
                 ])),
             ),
         ]),
@@ -524,10 +525,10 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
 
     value.remove(log_schema().user_metadata_key());
 
-    values.insert("value".to_owned(), value.into());
+    values.insert("value".into(), value.into());
 
     LogEvent::from_map(
-        BTreeMap::from([("message".to_owned(), Value::Object(values))]),
+        BTreeMap::from([("message".into(), Value::Object(values))]),
         Default::default(),
     )
 }
@@ -536,7 +537,7 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
 mod tests {
     use std::collections::BTreeMap;
 
-    use vrl::value::Value;
+    use vrl::value::{KeyString, Value};
 
     use crate::event::LogEvent;
 
@@ -544,7 +545,7 @@ mod tests {
 
     #[test]
     fn counter() {
-        let expected: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(
+        let expected: LogEvent = serde_json::from_str::<BTreeMap<KeyString, Value>>(
             r#"{
                 "message": {
                 "name": "count",
@@ -573,7 +574,7 @@ mod tests {
 
     #[test]
     fn count() {
-        let mut expected: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(
+        let mut expected: LogEvent = serde_json::from_str::<BTreeMap<KeyString, Value>>(
             r#"{
                 "message": {
                 "name": "count",
@@ -607,7 +608,7 @@ mod tests {
 
     #[test]
     fn gauge() {
-        let expected: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(
+        let expected: LogEvent = serde_json::from_str::<BTreeMap<KeyString, Value>>(
             r#"{
                 "message": {
                 "name": "gauge",
@@ -636,7 +637,7 @@ mod tests {
 
     #[test]
     fn set() {
-        let expected: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(
+        let expected: LogEvent = serde_json::from_str::<BTreeMap<KeyString, Value>>(
             r#"{
                 "message": {
                 "name": "set",
@@ -665,7 +666,7 @@ mod tests {
 
     #[test]
     fn summary() {
-        let expected: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(
+        let expected: LogEvent = serde_json::from_str::<BTreeMap<KeyString, Value>>(
             r#"{
                 "message": {
                 "name": "summary",
@@ -719,7 +720,7 @@ mod tests {
 
     #[test]
     fn histogram() {
-        let expected: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(
+        let expected: LogEvent = serde_json::from_str::<BTreeMap<KeyString, Value>>(
             r#"{
                 "message": {
                 "name": "histogram",
@@ -773,7 +774,7 @@ mod tests {
 
     #[test]
     fn distribution() {
-        let expected: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(
+        let expected: LogEvent = serde_json::from_str::<BTreeMap<KeyString, Value>>(
             r#"{
                 "message": {
                 "name": "distribution",

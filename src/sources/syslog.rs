@@ -104,7 +104,9 @@ pub enum Mode {
         receive_buffer_bytes: Option<usize>,
     },
 
-    /// Listen on UDS. (Unix domain socket)
+    /// Listen on UDS (Unix domain socket). This only supports Unix stream sockets.
+    ///
+    /// For Unix datagram sockets, use the `socket` source instead.
     #[cfg(unix)]
     Unix {
         /// The Unix socket path.
@@ -435,11 +437,7 @@ fn enrich_syslog_event(
 
 #[cfg(test)]
 mod test {
-    use std::{
-        collections::{BTreeMap, HashMap},
-        fmt,
-        str::FromStr,
-    };
+    use std::{collections::HashMap, fmt, str::FromStr};
     use vector_lib::lookup::{event_path, owned_value_path, OwnedTargetPath};
 
     use chrono::prelude::*;
@@ -451,7 +449,7 @@ mod test {
     use vector_lib::codecs::decoding::format::Deserializer;
     use vector_lib::lookup::PathPrefix;
     use vector_lib::{config::ComponentKey, schema::Definition};
-    use vrl::value::{kind::Collection, Kind, Value};
+    use vrl::value::{kind::Collection, Kind, ObjectMap, Value};
 
     use super::*;
     use crate::{
@@ -1428,7 +1426,7 @@ mod test {
         }
     }
 
-    fn structured_data_from_fields(fields: BTreeMap<String, Value>) -> StructuredData {
+    fn structured_data_from_fields(fields: ObjectMap) -> StructuredData {
         let mut structured_data = StructuredData::default();
 
         for (key, value) in fields.into_iter() {
@@ -1436,10 +1434,10 @@ mod test {
                 .into_object()
                 .unwrap()
                 .into_iter()
-                .map(|(k, v)| (k, value_to_string(v)))
+                .map(|(k, v)| (k.into(), value_to_string(v)))
                 .collect();
 
-            structured_data.insert(key, subfields);
+            structured_data.insert(key.into(), subfields);
         }
 
         structured_data

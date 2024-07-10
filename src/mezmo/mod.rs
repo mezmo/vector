@@ -76,7 +76,7 @@ impl From<&ComponentKind> for Value {
 /// Container for Mezmo-specific information that may be injected into a source, transform
 /// or sink context as long as the identifier for that component follows our naming pattern
 /// used when we generate pipeline components.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct MezmoContext {
     id: String,
     account_id: ContextIdentifier,

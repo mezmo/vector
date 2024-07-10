@@ -13,7 +13,7 @@ use vector_lib::{
     usage_metrics::log_event_size,
 };
 
-use vrl::value::Value;
+use vrl::value::{KeyString, Value};
 
 use std::future::ready;
 use std::{
@@ -216,7 +216,7 @@ impl LogClassification {
         }
     }
 
-    fn match_event_type(&self, message: &str) -> Option<String> {
+    fn match_event_type(&self, message: &str) -> Option<KeyString> {
         for pattern_name in self.patterns.iter() {
             let pattern = grok_patterns().get(pattern_name);
 
@@ -227,7 +227,7 @@ impl LogClassification {
 
             let pattern = pattern.unwrap();
             if let Some(_) = pattern.match_against(message) {
-                return Some(pattern_name.to_string());
+                return Some(pattern_name.clone().into());
             }
         }
 
@@ -237,7 +237,7 @@ impl LogClassification {
     fn match_from_line_fields(
         &self,
         value: &Value,
-        matches: &mut Vec<String>,
+        matches: &mut Vec<KeyString>,
         message_key: &mut String,
     ) {
         for line_field in self.line_fields.iter() {
@@ -387,7 +387,7 @@ mod tests {
     fn make_expected_annotations(
         input_event: &Event,
         line_field: Option<String>,
-        matches: Vec<String>,
+        matches: Vec<KeyString>,
     ) -> Value {
         let message_key = log_schema().message_key().unwrap().to_string();
         let message_key = match line_field {
@@ -400,8 +400,8 @@ mod tests {
             .expect("event always has fields under test");
 
         let mut annotations = BTreeMap::new();
-        annotations.insert("message_key".to_string(), Value::Bytes(message_key.into()));
-        annotations.insert("classification".to_string(), Value::Object(btreemap!(
+        annotations.insert("message_key".into(), Value::Bytes(message_key.into()));
+        annotations.insert("classification".into(), Value::Object(btreemap!(
             "event_count" => Value::Integer(1),
             "event_types" => Value::Object(matches.into_iter().map(|m| (m, Value::Integer(1))).collect()),
             "total_bytes" => Value::Integer(log_event_size(event_fields) as i64),
@@ -442,8 +442,7 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations =
-            make_expected_annotations(&event, None, vec!["HTTPD_COMBINEDLOG".to_string()]);
+        let annotations = make_expected_annotations(&event, None, vec!["HTTPD_COMBINEDLOG".into()]);
 
         // line is retained
         assert_eq!(
@@ -505,7 +504,7 @@ mod tests {
         };
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
-        let annotations = make_expected_annotations(&event, None, vec!["SYSLOGLINE".to_string()]);
+        let annotations = make_expected_annotations(&event, None, vec!["SYSLOGLINE".into()]);
 
         // line is retained
         assert_eq!(
@@ -548,7 +547,7 @@ mod tests {
             .await
             .unwrap();
         let annotations_syslog =
-            make_expected_annotations(&syslog_event, None, vec!["SYSLOGLINE".to_string()]);
+            make_expected_annotations(&syslog_event, None, vec!["SYSLOGLINE".into()]);
 
         assert_eq!(
             output_syslog.as_log().get(log_schema().annotations_key()),
@@ -558,11 +557,8 @@ mod tests {
         let output_pam_session = do_transform(config.clone(), pam_session_event.clone().into())
             .await
             .unwrap();
-        let annotations_pam_session = make_expected_annotations(
-            &pam_session_event,
-            None,
-            vec!["SYSLOGPAMSESSION".to_string()],
-        );
+        let annotations_pam_session =
+            make_expected_annotations(&pam_session_event, None, vec!["SYSLOGPAMSESSION".into()]);
 
         assert_eq!(
             output_pam_session
@@ -601,7 +597,7 @@ mod tests {
         let mut annotations = make_expected_annotations(
             &event,
             Some(".line".into()),
-            vec!["HTTPD_COMBINEDLOG".to_string()],
+            vec!["HTTPD_COMBINEDLOG".into()],
         );
 
         annotations.insert("app", Value::Bytes("test-app".into()));
@@ -731,7 +727,7 @@ mod tests {
         let mut annotations = make_expected_annotations(
             &event,
             Some(".syslog".to_string()),
-            vec!["SYSLOG5424LINE".to_string()],
+            vec!["SYSLOG5424LINE".into()],
         );
 
         annotations.insert("app", Value::Bytes("test-app".into()));
@@ -793,7 +789,7 @@ mod tests {
         let output = do_transform(config, event.clone().into()).await.unwrap();
 
         let mut annotations =
-            make_expected_annotations(&event, None, vec!["HTTPD_COMBINEDLOG".to_string()]);
+            make_expected_annotations(&event, None, vec!["HTTPD_COMBINEDLOG".into()]);
 
         annotations.insert("foo", Value::Bytes("bar".into()));
         annotations.insert(".classification.baz", Value::Bytes("qux".into()));

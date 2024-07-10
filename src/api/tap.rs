@@ -9,6 +9,7 @@ use tokio::sync::{
     mpsc::error::{SendError, TrySendError},
     oneshot,
 };
+use tracing::{Instrument, Span};
 use uuid::Uuid;
 use vector_lib::buffers::{topology::builder::TopologyBuilder, WhenFull};
 
@@ -233,7 +234,14 @@ impl TapController {
             }
         }
 
-        tokio::spawn(tap_handler(patterns, tap_tx, filter, watch_rx, shutdown_rx));
+        tokio::spawn(
+            tap_handler(patterns, tap_tx, filter, watch_rx, shutdown_rx).instrument(error_span!(
+                "tap_handler",
+                component_kind = "sink",
+                component_id = "_tap", // It isn't clear what the component_id should be here other than "_tap"
+                component_type = "tap",
+            )),
+        );
 
         Self { _shutdown }
     }
@@ -386,7 +394,7 @@ async fn tap_handler(
                             // target for the component, and spawn our transformer task which will
                             // wrap each event payload with the necessary metadata before forwarding
                             // it to our global tap receiver.
-                            let (tap_buffer_tx, mut tap_buffer_rx) = TopologyBuilder::standalone_memory(TAP_BUFFER_SIZE, WhenFull::DropNewest).await;
+                            let (tap_buffer_tx, mut tap_buffer_rx) = TopologyBuilder::standalone_memory(TAP_BUFFER_SIZE, WhenFull::DropNewest, &Span::current()).await;
                             let mut tap_transformer = TapTransformer::new(tx.clone(), output.clone(), filter.clone());
 
                             tokio::spawn(async move {
@@ -600,11 +608,11 @@ mod tests {
         );
 
         fanout
-            .send(vec![metric_event].into())
+            .send(vec![metric_event].into(), None)
             .await
             .expect("should not fail");
         fanout
-            .send(vec![log_event].into())
+            .send(vec![log_event].into(), None)
             .await
             .expect("should not fail");
 
@@ -716,6 +724,7 @@ mod tests {
                     tags: None,
                     metric: MetricTypeConfig::Gauge,
                 }],
+                all_metrics: None,
             },
         );
         config.add_sink(

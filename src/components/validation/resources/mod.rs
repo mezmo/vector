@@ -159,6 +159,7 @@ fn deserializer_config_to_serializer(config: &DeserializerConfig) -> encoding::S
         DeserializerConfig::NativeJson { .. } => SerializerConfig::NativeJson,
         DeserializerConfig::Gelf { .. } => SerializerConfig::Gelf,
         DeserializerConfig::Mezmo { .. } => SerializerConfig::Logfmt, // Mz always decodes to logs
+        DeserializerConfig::Avro { avro } => SerializerConfig::Avro { avro: avro.into() },
     };
 
     serializer_config

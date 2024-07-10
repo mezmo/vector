@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use vector_lib::event::{Event, Value};
+use vector_lib::event::{Event, KeyString, Value};
 
 use crate::sinks::prometheus::collector::{MetricCollector, StringCollector};
 
 use super::sink::SumoLogicSinkError;
 
-type KeyValData = HashMap<String, Value>;
+type KeyValData = HashMap<KeyString, Value>;
 type DataStore = HashMap<String, Vec<KeyValData>>;
 
 pub enum SumoLogicModel {
@@ -34,13 +34,10 @@ impl TryFrom<Vec<Event>> for SumoLogsModel {
             if let Event::Log(log) = buf_event {
                 let mut log_model = KeyValData::new();
                 for (k, v) in log.convert_to_fields() {
-                    log_model.insert(k, v.clone());
+                    log_model.insert(k.into(), v.clone());
                 }
                 if log.get("message").is_none() {
-                    log_model.insert(
-                        "message".to_owned(),
-                        Value::from("log from mezmo".to_owned()),
-                    );
+                    log_model.insert("message".into(), Value::from("log from mezmo".to_owned()));
                 }
                 logs_array.push(log_model);
             }

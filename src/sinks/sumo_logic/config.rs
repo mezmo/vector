@@ -181,7 +181,7 @@ impl SinkConfig for SumoLogicSinkConfig {
             .limit_max_events(self.batch.max_events.unwrap_or(DEFAULT_MAX_EVENTS))?
             .into_batcher_settings()?;
 
-        let request_limits = self.request.unwrap_with(&Default::default());
+        let request_limits = self.request.into_settings();
         let client = self.build_client(ctx.clone())?;
         let healthcheck = healthcheck(
             client.clone(),

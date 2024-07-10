@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     io::Cursor,
     pin::Pin,
     sync::{
@@ -50,7 +50,7 @@ use vector_lib::{
     config::{LegacyKey, LogNamespace},
     EstimatedJsonEncodedSizeOf,
 };
-use vrl::value::{kind::Collection, Kind};
+use vrl::value::{kind::Collection, Kind, ObjectMap};
 
 use crate::{
     codecs::{Decoder, DecodingConfig},
@@ -1126,7 +1126,7 @@ impl Keys {
 struct ReceivedMessage {
     timestamp: Option<DateTime<Utc>>,
     key: Value,
-    headers: BTreeMap<String, Value>,
+    headers: ObjectMap,
     topic: String,
     partition: i32,
     offset: i64,
@@ -1145,12 +1145,12 @@ impl ReceivedMessage {
             .map(|key| Value::from(Bytes::from(key.to_owned())))
             .unwrap_or(Value::Null);
 
-        let mut headers_map = BTreeMap::new();
+        let mut headers_map = ObjectMap::new();
         if let Some(headers) = msg.headers() {
             for header in headers.iter() {
                 if let Some(value) = header.value {
                     headers_map.insert(
-                        header.key.to_string(),
+                        header.key.into(),
                         Value::from(Bytes::from(value.to_owned())),
                     );
                 }
@@ -1325,6 +1325,7 @@ fn create_consumer(
             config.metrics.topic_lag_metric,
             acknowledgements,
             callbacks,
+            Span::current(),
         ))
         .context(CreateSnafu)?;
     let topics: Vec<&str> = config.topics.iter().map(|s| s.as_str()).collect();
@@ -1366,9 +1367,13 @@ impl KafkaSourceContext {
         expose_lag_metrics: bool,
         acknowledgements: bool,
         callbacks: UnboundedSender<KafkaCallback>,
+        span: Span,
     ) -> Self {
         Self {
-            stats: kafka::KafkaStatisticsContext { expose_lag_metrics },
+            stats: kafka::KafkaStatisticsContext {
+                expose_lag_metrics,
+                span,
+            },
             acknowledgements,
             consumer: OnceLock::default(),
             callbacks,
@@ -1683,7 +1688,6 @@ mod integration_test {
     };
     use stream_cancel::{Trigger, Tripwire};
     use tokio::time::sleep;
-    use vector_lib::buffers::topology::channel::BufferReceiver;
     use vector_lib::event::EventStatus;
     use vrl::{event_path, value};
 
@@ -1855,8 +1859,8 @@ mod integration_test {
                 assert_eq!(event.as_log()["topic"], topic.clone().into());
                 assert!(event.as_log().contains("partition"));
                 assert!(event.as_log().contains("offset"));
-                let mut expected_headers = BTreeMap::new();
-                expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                let mut expected_headers = ObjectMap::new();
+                expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                 assert_eq!(event.as_log()["headers"], Value::from(expected_headers));
             } else {
                 let meta = event.as_log().metadata().value();
@@ -1890,8 +1894,8 @@ mod integration_test {
                 assert!(meta.get(path!("kafka", "partition")).unwrap().is_integer(),);
                 assert!(meta.get(path!("kafka", "offset")).unwrap().is_integer(),);
 
-                let mut expected_headers = BTreeMap::new();
-                expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                let mut expected_headers = ObjectMap::new();
+                expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                 assert_eq!(
                     meta.get(path!("kafka", "headers")).unwrap(),
                     &Value::from(expected_headers)
@@ -1913,8 +1917,9 @@ mod integration_test {
         status: EventStatus,
     ) -> (SourceSender, impl Stream<Item = EventArray> + Unpin) {
         let (pipe, recv) = SourceSender::new_test_sender_with_buffer(100);
-        let recv = BufferReceiver::new(recv.into()).into_stream();
-        let recv = recv.then(move |mut events| async move {
+        let recv = recv.into_stream();
+        let recv = recv.then(move |item| async move {
+            let mut events = item.events;
             events.iter_logs_mut().for_each(|log| {
                 log.insert(event_path!("pipeline_id"), id.to_string());
             });
@@ -2316,8 +2321,6 @@ mod integration_test {
         };
         use vector_lib::config::LogNamespace;
 
-        use std::collections::BTreeMap;
-
         const KEY: &str = "my key";
         const HEADER_KEY: &str = "my header";
         const HEADER_VALUE: &str = "my header value";
@@ -2410,8 +2413,8 @@ mod integration_test {
                     assert_eq!(event.as_log()["topic"], topic.clone().into());
                     assert!(event.as_log().contains("partition"));
                     assert!(event.as_log().contains("offset"));
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(event.as_log()["headers"], Value::from(expected_headers));
                 } else {
                     let meta = event.as_log().metadata().value();
@@ -2445,8 +2448,8 @@ mod integration_test {
                     assert!(meta.get(path!("kafka", "partition")).unwrap().is_integer(),);
                     assert!(meta.get(path!("kafka", "offset")).unwrap().is_integer(),);
 
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(
                         meta.get(path!("kafka", "headers")).unwrap(),
                         &Value::from(expected_headers)
@@ -2512,8 +2515,8 @@ mod integration_test {
                     assert_eq!(event.as_log()["topic"], topic.clone().into());
                     assert!(event.as_log().contains("partition"));
                     assert!(event.as_log().contains("offset"));
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(event.as_log()["headers"], Value::from(expected_headers));
                 } else {
                     let meta = event.as_log().metadata().value();
@@ -2543,8 +2546,8 @@ mod integration_test {
                     assert!(meta.get(path!("kafka", "partition")).unwrap().is_integer(),);
                     assert!(meta.get(path!("kafka", "offset")).unwrap().is_integer(),);
 
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(
                         meta.get(path!("kafka", "headers")).unwrap(),
                         &Value::from(expected_headers)
@@ -2610,8 +2613,8 @@ mod integration_test {
                     assert_eq!(event.as_log()["topic"], topic.clone().into());
                     assert!(event.as_log().contains("partition"));
                     assert!(event.as_log().contains("offset"));
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(event.as_log()["headers"], Value::from(expected_headers));
                 } else {
                     let meta = event.as_log().metadata().value();
@@ -2641,8 +2644,8 @@ mod integration_test {
                     assert!(meta.get(path!("kafka", "partition")).unwrap().is_integer(),);
                     assert!(meta.get(path!("kafka", "offset")).unwrap().is_integer(),);
 
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(
                         meta.get(path!("kafka", "headers")).unwrap(),
                         &Value::from(expected_headers)

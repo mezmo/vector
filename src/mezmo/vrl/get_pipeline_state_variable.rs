@@ -59,7 +59,7 @@ struct GetPipelineStateVariableFn {
 
 impl FunctionExpression for GetPipelineStateVariableFn {
     fn resolve(&self, ctx: &mut Context) -> Resolved {
-        let name = self.name.resolve(ctx)?.to_string_lossy().to_string();
+        let name = KeyString::from(self.name.resolve(ctx)?.to_string_lossy());
 
         if self.mezmo_ctx.pipeline_id.is_none() {
             // Noop for non-pipeline components
@@ -81,16 +81,17 @@ impl FunctionExpression for GetPipelineStateVariableFn {
             "state_variables",
             Case::Sensitive, // unused
             &conditions,
-            Some(&[name.clone()]),
+            Some(&[name.to_string()]),
             None, // indexes aren't used
         ) {
             Ok(data) => {
+                let data = data.get(&name).unwrap();
                 debug!(
                     "get_pipeline_state_variable lookup result: {data:?}  Value: {}",
-                    data.get(&name).unwrap()
+                    &data
                 );
                 // The enrichment handles the case where keys aren't found.  If so, it's Value::Null
-                Ok(data.get(&name).unwrap().to_owned())
+                Ok(data.clone())
             }
             Err(err) => {
                 // This should only happen if the enrichment table is not accessible

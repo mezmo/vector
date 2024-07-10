@@ -25,6 +25,7 @@ Asus
 Atlassian
 Attab
 Audiosonic
+avsc
 Axioo
 Azend
 Bedove
@@ -108,6 +109,7 @@ Lifetab
 Lifetouch
 Lumia
 Malata
+manden
 Maxthon
 Mediacom
 Medion
@@ -140,6 +142,7 @@ PHILIPSTV
 POCs
 Panasonic
 Papyre
+pbs
 Phicomm
 Phototechnik
 Pingdom
