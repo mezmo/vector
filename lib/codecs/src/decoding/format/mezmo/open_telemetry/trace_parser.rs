@@ -224,8 +224,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{NaiveDateTime, TimeZone, Utc};
-    use std::ops::Deref;
+    use chrono::DateTime;
 
     use opentelemetry_rs::opentelemetry::metrics::{AnyValue, AnyValueOneOfvalue, KeyValue};
     use std::borrow::Cow;
@@ -298,13 +297,7 @@ mod tests {
         let traces = to_events(traces_data.clone());
 
         assert_eq!(
-            *traces[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("message")
-                .unwrap()
-                .deref(),
+            *traces[0].clone().into_log().value().get("message").unwrap(),
             Value::Object(BTreeMap::from([
                 ("name".into(), "test_span_name".into()),
                 ("trace_id".into(), Value::from("74726163655f6964")),
@@ -317,10 +310,8 @@ mod tests {
                 (
                     "start_timestamp".into(),
                     Value::from(
-                        Utc.from_utc_datetime(
-                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                .expect("timestamp should be a valid timestamp"),
-                        )
+                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                            .expect("timestamp should be a valid timestamp")
                     )
                 ),
                 ("dropped_attributes_count".into(), Value::Integer(10)),
@@ -329,10 +320,8 @@ mod tests {
                 (
                     "end_timestamp".into(),
                     Value::from(
-                        Utc.from_utc_datetime(
-                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 12_u32)
-                                .expect("timestamp should be a valid timestamp"),
-                        )
+                        DateTime::from_timestamp(1_579_134_612_i64, 12_u32)
+                            .expect("timestamp should be a valid timestamp")
                     )
                 ),
                 (
@@ -347,10 +336,8 @@ mod tests {
                         (
                             "timestamp".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 13_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 13_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                     ]))]))
@@ -389,7 +376,7 @@ mod tests {
         assert!(span_uniq_id.is_some());
 
         assert_eq!(
-            *metadata.deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 (
                     "resource".into(),

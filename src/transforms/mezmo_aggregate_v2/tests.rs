@@ -232,7 +232,7 @@ async fn record_single_metric() {
         size_ms: actual_size_ms,
         event: actual_event,
         ..
-    } = val.get(0).unwrap();
+    } = val.front().unwrap();
     assert_eq!(5, actual_size_ms.end - actual_size_ms.start);
     assert_eq!(
         *actual_event,
@@ -583,7 +583,7 @@ async fn flush_using_prev_value() {
     assert_eq!(actual_events.len(), 1);
     assert_eq!(
         *actual_events
-            .get(0)
+            .first()
             .unwrap()
             .as_log()
             .get(".message.value.value")
@@ -605,7 +605,7 @@ async fn flush_using_prev_value() {
     target.flush_finalized(&mut actual_events);
     assert_eq!(actual_events.len(), 1);
     let event = actual_events
-        .get(0)
+        .first()
         .unwrap()
         .as_log()
         .get(".message.value.value")

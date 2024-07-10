@@ -2,13 +2,15 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::{config::SinkContext, mezmo::user_trace::MezmoUserLog, user_log_error};
 use aws_sdk_s3::{
-    error::PutObjectError,
-    model::{ObjectCannedAcl, ServerSideEncryption, StorageClass},
+    operation::put_object::PutObjectError,
+    types::{ObjectCannedAcl, ServerSideEncryption, StorageClass},
     Client as S3Client,
 };
-use aws_smithy_client::SdkError;
+use aws_smithy_runtime_api::{
+    client::{orchestrator::HttpResponse, result::SdkError},
+    http::StatusCode,
+};
 use futures::FutureExt;
-use http::StatusCode;
 use snafu::Snafu;
 use vector_lib::configurable::configurable_component;
 use vrl::value::Value;
@@ -18,6 +20,7 @@ use crate::{
     aws::{create_client, is_retriable_error, AwsAuthentication, RegionOrEndpoint},
     common::s3::S3ClientBuilder,
     config::ProxyConfig,
+    http::status,
     sinks::{util::retries::RetryLogic, Healthcheck},
     tls::TlsConfig,
 };
@@ -307,7 +310,7 @@ impl From<S3CannedAcl> for ObjectCannedAcl {
 pub struct S3RetryLogic;
 
 impl RetryLogic for S3RetryLogic {
-    type Error = SdkError<PutObjectError>;
+    type Error = SdkError<PutObjectError, HttpResponse>;
     type Response = S3Response;
 
     fn is_retriable_error(&self, error: &Self::Error) -> bool {
@@ -341,18 +344,18 @@ pub fn build_healthcheck(
         match req {
             Ok(_) => Ok(()),
             Err(error) => Err(match error {
-                SdkError::ServiceError(err) => {
-                    let status = err.raw().http().status();
+                SdkError::ServiceError(inner) => {
+                    let status = inner.into_raw().status();
                     let msg = Value::from(format!(
                         "Error returned from destination with status code: {}",
                         status
                     ));
                     user_log_error!(cx.mezmo_ctx, msg);
 
-                    match status {
-                        StatusCode::FORBIDDEN => HealthcheckError::InvalidCredentials.into(),
-                        StatusCode::NOT_FOUND => HealthcheckError::UnknownBucket { bucket }.into(),
-                        status => HealthcheckError::UnknownStatus { status }.into(),
+                    match status.as_u16() {
+                        status::FORBIDDEN => HealthcheckError::InvalidCredentials.into(),
+                        status::NOT_FOUND => HealthcheckError::UnknownBucket { bucket }.into(),
+                        _ => HealthcheckError::UnknownStatus { status }.into(),
                     }
                 }
                 error => {
@@ -375,7 +378,7 @@ pub async fn create_service(
     let endpoint = region.endpoint();
     let region = region.region();
     let client =
-        create_client::<S3ClientBuilder>(auth, region.clone(), endpoint, proxy, tls_options, true)
+        create_client::<S3ClientBuilder>(auth, region.clone(), endpoint, proxy, tls_options)
             .await?;
     Ok(S3Service::new(client))
 }

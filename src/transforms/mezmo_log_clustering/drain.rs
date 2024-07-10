@@ -540,7 +540,7 @@ mod tests {
             let (group, _) = parser.add_log_line(line);
             let actual = format!("{}", group);
             assert_eq!(expected.to_string(), actual);
-            let gen_ids = cluster_map.entry(group.id).or_insert(HashSet::new());
+            let gen_ids = cluster_map.entry(group.id).or_default();
             gen_ids.insert(group.cluster_id());
         }
 

@@ -288,7 +288,7 @@ impl HttpFlusher {
         while start.elapsed() < self.max_delay {
             attempt += 1;
             match self.http_request(&metrics).await {
-                Ok(_) => {
+                Ok(()) => {
                     return;
                 }
                 Err(e) => {
@@ -548,6 +548,7 @@ mod tests {
         sleep(HTTP_FLUSHER_MAX_DELAY).await;
     }
 
+    #[allow(clippy::ptr_arg)]
     fn match_values(v: &Vec<HttpFlusherRequestBodyItem>) -> bool {
         if v.len() != 1 {
             return false;

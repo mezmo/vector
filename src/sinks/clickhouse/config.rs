@@ -1,5 +1,6 @@
 use http::{Request, StatusCode, Uri};
 use hyper::Body;
+use std::fmt;
 
 use super::{
     service::{ClickhouseRetryLogic, ClickhouseService},
@@ -12,6 +13,38 @@ use crate::{
         util::{RealtimeSizeBasedDefaultBatchSettings, UriSerde},
     },
 };
+
+/// Data format.
+///
+/// The format used to parse input/output data.
+///
+/// [formats]: https://clickhouse.com/docs/en/interfaces/formats
+#[configurable_component]
+#[derive(Clone, Copy, Debug, Derivative, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+#[derivative(Default)]
+#[allow(clippy::enum_variant_names)]
+pub enum Format {
+    #[derivative(Default)]
+    /// JSONEachRow.
+    JsonEachRow,
+
+    /// JSONAsObject.
+    JsonAsObject,
+
+    /// JSONAsString.
+    JsonAsString,
+}
+
+impl fmt::Display for Format {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Format::JsonEachRow => write!(f, "JSONEachRow"),
+            Format::JsonAsObject => write!(f, "JSONAsObject"),
+            Format::JsonAsString => write!(f, "JSONAsString"),
+        }
+    }
+}
 
 /// Configuration for the `clickhouse` sink.
 #[configurable_component(sink("clickhouse", "Deliver log data to a ClickHouse database."))]
@@ -31,6 +64,10 @@ pub struct ClickhouseConfig {
     #[configurable(metadata(docs::examples = "mydatabase"))]
     pub database: Option<Template>,
 
+    /// The format to parse input data.
+    #[serde(default)]
+    pub format: Format,
+
     /// Sets `input_format_skip_unknown_fields`, allowing ClickHouse to discard fields not present in the table schema.
     #[serde(default)]
     pub skip_unknown_fields: bool,
@@ -44,10 +81,7 @@ pub struct ClickhouseConfig {
     pub compression: Compression,
 
     #[configurable(derived)]
-    #[serde(
-        default,
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
-    )]
+    #[serde(default, skip_serializing_if = "crate::serde::is_default")]
     pub encoding: Transformer,
 
     #[configurable(derived)]
@@ -68,7 +102,7 @@ pub struct ClickhouseConfig {
     #[serde(
         default,
         deserialize_with = "crate::serde::bool_or_struct",
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
+        skip_serializing_if = "crate::serde::is_default"
     )]
     pub acknowledgements: AcknowledgementsConfig,
 }
@@ -114,6 +148,7 @@ impl SinkConfig for ClickhouseConfig {
             protocol,
             database,
             self.table.clone(),
+            self.format,
         );
 
         let healthcheck = Box::pin(healthcheck(client, endpoint, auth, cx));

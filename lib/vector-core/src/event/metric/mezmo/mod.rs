@@ -5,7 +5,6 @@ use opentelemetry_rs::opentelemetry::common::AnyValueOneOfvalue as OpenTelemetry
 use opentelemetry_rs::opentelemetry::common::ArrayValue as OpenTelemetryMetricArrayValue;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::ops::Deref;
 
 use crate::event::{
     metric::{MetricKind, TagValue},
@@ -260,7 +259,6 @@ impl<'a> IntoValue for Cow<'a, [u64]> {
         Value::Array(
             self.clone()
                 .as_ref()
-                .deref()
                 .iter()
                 .map(|val| Value::from(*val))
                 .collect::<Vec<Value>>(),
@@ -273,7 +271,6 @@ impl<'a> IntoValue for Cow<'a, [f64]> {
         Value::Array(
             self.clone()
                 .as_ref()
-                .deref()
                 .iter()
                 .map(|val| from_f64_or_zero(*val))
                 .collect::<Vec<Value>>(),

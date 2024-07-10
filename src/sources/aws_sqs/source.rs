@@ -1,7 +1,7 @@
 use std::{collections::HashMap, panic, str::FromStr, sync::Arc};
 
 use aws_sdk_sqs::{
-    model::{DeleteMessageBatchRequestEntry, MessageSystemAttributeName, QueueAttributeName},
+    types::{DeleteMessageBatchRequestEntry, MessageSystemAttributeName},
     Client as SqsClient,
 };
 use chrono::{DateTime, TimeZone, Utc};
@@ -108,9 +108,7 @@ impl SqsSource {
             .max_number_of_messages(MAX_BATCH_SIZE)
             .wait_time_seconds(self.poll_secs as i32)
             .visibility_timeout(self.visibility_timeout_secs as i32)
-            // I think this should be a known attribute
-            // https://github.com/awslabs/aws-sdk-rust/issues/411
-            .attribute_names(QueueAttributeName::from("SentTimestamp"))
+            .message_system_attribute_names(MessageSystemAttributeName::SentTimestamp)
             .send()
             .await;
 
@@ -208,7 +206,8 @@ async fn delete_messages(client: SqsClient, receipts: Vec<String>, queue_url: St
                 DeleteMessageBatchRequestEntry::builder()
                     .id(id.to_string())
                     .receipt_handle(receipt)
-                    .build(),
+                    .build()
+                    .expect("all required builder parameters specified"),
             );
         }
         if let Err(err) = batch.send().await {

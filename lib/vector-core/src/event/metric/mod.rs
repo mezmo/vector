@@ -962,7 +962,7 @@ mod test {
                 )
                 .with_namespace(Some("vector"))
             ),
-            r#"vector_namespace{} = 1.23"#
+            r"vector_namespace{} = 1.23"
         );
 
         assert_eq!(
@@ -1003,7 +1003,7 @@ mod test {
                     }
                 )
             ),
-            r#"four{} = histogram 3@1 4@2"#
+            r"four{} = histogram 3@1 4@2"
         );
 
         assert_eq!(
@@ -1019,7 +1019,7 @@ mod test {
                     }
                 )
             ),
-            r#"five{} = count=107 sum=103 53@51 54@52"#
+            r"five{} = count=107 sum=103 53@51 54@52"
         );
 
         assert_eq!(
@@ -1035,7 +1035,7 @@ mod test {
                     }
                 )
             ),
-            r#"six{} = count=2 sum=127 1@63 2@64"#
+            r"six{} = count=2 sum=127 1@63 2@64"
         );
     }
 

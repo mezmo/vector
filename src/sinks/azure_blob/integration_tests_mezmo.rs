@@ -708,7 +708,7 @@ async fn get_test_config(
     prefix: Option<String>,
     tags: Option<BTreeMap<String, String>>,
 ) -> AzureBlobSinkConfig {
-    let blob_prefix = if prefix.is_some() {
+    let blob_prefix = if let Some(..) = prefix {
         prefix.unwrap()
     } else {
         format!("unittest/{}/", random_string(10))

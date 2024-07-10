@@ -947,6 +947,7 @@ mod test {
                 schema: Default::default(),
                 schema_definitions: HashMap::default(),
                 mezmo_ctx: Default::default(),
+                extra_context: Default::default(),
             })
             .await
             .unwrap();

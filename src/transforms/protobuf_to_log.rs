@@ -200,7 +200,7 @@ impl FunctionTransform for ProtobufToLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+    use chrono::{DateTime, Utc};
     use std::collections::BTreeMap;
     use std::time::Duration;
     use tokio::sync::mpsc;
@@ -275,10 +275,8 @@ mod tests {
             (
                 "time".into(),
                 Value::from(
-                    Utc.from_utc_datetime(
-                        &NaiveDateTime::from_timestamp_opt(0_i64, 1000000_u32)
-                            .expect("timestamp should be a valid timestamp"),
-                    ),
+                    DateTime::from_timestamp(0_i64, 1000000_u32)
+                        .expect("timestamp should be a valid timestamp"),
                 ),
             ),
         ]);

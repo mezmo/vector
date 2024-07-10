@@ -1,4 +1,4 @@
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono::DateTime;
 use prometheus_remote_write::prometheus::{Label, MetricMetadata, MetricType, Sample, TimeSeries};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -135,7 +135,7 @@ fn matching_group<'a, 's, T: Default>(
     values: &'s mut SampleGroupMap<'a, T>,
     group: SampleGroupKey<'a>,
 ) -> &'s mut T {
-    values.entry(group).or_insert_with(T::default)
+    values.entry(group).or_default()
 }
 
 #[derive(Debug)]
@@ -358,9 +358,8 @@ impl<'a> TypedSampleGroupMap<'a> {
             if let (Some(timestamp_key), Some(timestamp)) =
                 (log_schema().timestamp_key(), key.timestamp)
             {
-                let ts = NaiveDateTime::from_timestamp_millis(timestamp)
+                let ts = DateTime::from_timestamp_millis(timestamp)
                     .expect("timestamp should be a valid timestamp");
-                let ts = Utc.from_utc_datetime(&ts);
                 log_event.insert((lookup::PathPrefix::Event, timestamp_key), ts);
             }
             out.push(log_event.into());

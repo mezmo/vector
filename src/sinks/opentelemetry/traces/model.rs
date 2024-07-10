@@ -283,7 +283,7 @@ mod test {
     use super::*;
 
     use crate::event::Value;
-    use chrono::{NaiveDateTime, TimeZone, Utc};
+    use chrono::DateTime;
     use opentelemetry::{
         trace::{
             Event as TraceEvent, Link, SpanContext, SpanId, SpanKind, Status, TraceFlags, TraceId,
@@ -361,16 +361,16 @@ mod test {
             "parent_span_id" => Value::from(parent_span_id_hex.clone()),
             // LOG-19724: this field is not currently captured/defined in our source impl
             "flags" => 1,
-            "start_timestamp" => Utc.from_utc_datetime(
-                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                    .expect("timestamp should be a valid timestamp"),
+            "start_timestamp" => (
+                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                    .expect("timestamp should be a valid timestamp")
             ),
             "dropped_attributes_count" => 1,
             "dropped_events_count" => 2,
             "dropped_links_count" => 3,
-            "end_timestamp" => Utc.from_utc_datetime(
-                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 12_u32)
-                    .expect("timestamp should be a valid timestamp"),
+            "end_timestamp" => (
+                DateTime::from_timestamp(1_579_134_612_i64, 12_u32)
+                    .expect("timestamp should be a valid timestamp")
             ),
             "events" => vec![
                 btreemap!{
@@ -379,9 +379,9 @@ mod test {
                     },
                     "dropped_attributes_count" => 4,
                     "name" => "test_name_1",
-                    "timestamp" => Utc.from_utc_datetime(
-                        &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 13_u32)
-                            .expect("timestamp should be a valid timestamp"),
+                    "timestamp" => (
+                        DateTime::from_timestamp(1_579_134_612_i64, 13_u32)
+                            .expect("timestamp should be a valid timestamp")
                     ),
                 },
                 btreemap!{
@@ -390,9 +390,9 @@ mod test {
                     },
                     "dropped_attributes_count" => 5,
                     "name" => "test_name_2",
-                    "timestamp" => Utc.from_utc_datetime(
-                        &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 14_u32)
-                            .expect("timestamp should be a valid timestamp"),
+                    "timestamp" => (
+                        DateTime::from_timestamp(1_579_134_612_i64, 14_u32)
+                            .expect("timestamp should be a valid timestamp")
                     ),
                 }
             ],
@@ -488,20 +488,16 @@ mod test {
         assert_eq!(
             span_data.start_time,
             <chrono::DateTime<chrono::Utc> as Into<SystemTime>>::into(
-                Utc.from_utc_datetime(
-                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                        .expect("timestamp should be a valid timestamp"),
-                )
+                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                    .expect("timestamp should be a valid timestamp")
             )
         );
 
         assert_eq!(
             span_data.end_time,
             <chrono::DateTime<chrono::Utc> as Into<SystemTime>>::into(
-                Utc.from_utc_datetime(
-                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 12_u32)
-                        .expect("timestamp should be a valid timestamp"),
-                )
+                DateTime::from_timestamp(1_579_134_612_i64, 12_u32)
+                    .expect("timestamp should be a valid timestamp")
             )
         );
 
@@ -509,10 +505,8 @@ mod test {
         expected_events.events = vec![
             TraceEvent::new(
                 "test_name_1",
-                Utc.from_utc_datetime(
-                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 13_u32)
-                        .expect("timestamp should be a valid timestamp"),
-                )
+                (DateTime::from_timestamp(1_579_134_612_i64, 13_u32)
+                    .expect("timestamp should be a valid timestamp"))
                 .into(),
                 vec![KeyValue::new(
                     "test".to_string(),
@@ -522,10 +516,8 @@ mod test {
             ),
             TraceEvent::new(
                 "test_name_2",
-                Utc.from_utc_datetime(
-                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 14_u32)
-                        .expect("timestamp should be a valid timestamp"),
-                )
+                (DateTime::from_timestamp(1_579_134_612_i64, 14_u32)
+                    .expect("timestamp should be a valid timestamp"))
                 .into(),
                 vec![KeyValue::new(
                     "test".to_string(),

@@ -450,15 +450,12 @@ pub trait OpentelemetryModelMatch {
 mod test {
 
     use super::*;
-    use chrono::{NaiveDateTime, TimeZone, Utc};
 
     #[test]
     fn test_value_to_system_time_timestamp() {
         let value = Value::Timestamp(
-            Utc.from_utc_datetime(
-                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                    .expect("timestamp should be a valid timestamp"),
-            ),
+            chrono::DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                .expect("timestamp should be a valid timestamp"),
         );
 
         let expected =
