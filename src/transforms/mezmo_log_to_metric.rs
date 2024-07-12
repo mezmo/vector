@@ -92,6 +92,7 @@ impl FunctionTransform for LogToMetric {
 
 #[cfg(test)]
 mod tests {
+    use crate::event::metric::MetricArbitrary;
     use chrono::{offset::TimeZone, DateTime, NaiveDateTime, Utc};
     use futures_util::{Stream, StreamExt};
     use serde_json;
@@ -230,6 +231,9 @@ mod tests {
                 metadata,
             )
             .with_timestamp(Some(ts()))
+            .with_arbitrary(MetricArbitrary {
+                value: BTreeMap::from([("metadata".into(), Value::Object(BTreeMap::new()))]),
+            })
         );
     }
 
@@ -255,6 +259,9 @@ mod tests {
             )
             .with_namespace(Some("my_namespace"))
             .with_timestamp(Some(ts()))
+            .with_arbitrary(MetricArbitrary {
+                value: BTreeMap::from([("metadata".into(), Value::Object(BTreeMap::new()))]),
+            })
         );
     }
     #[tokio::test]
@@ -326,6 +333,9 @@ mod tests {
                 metadata,
             )
             .with_timestamp(Some(ts()))
+            .with_arbitrary(MetricArbitrary {
+                value: BTreeMap::from([("metadata".into(), Value::Object(BTreeMap::new()))]),
+            })
         );
     }
 
@@ -349,6 +359,9 @@ mod tests {
                 metadata,
             )
             .with_timestamp(Some(ts()))
+            .with_arbitrary(MetricArbitrary {
+                value: BTreeMap::from([("metadata".into(), Value::Object(BTreeMap::new()))]),
+            })
         );
     }
 
@@ -390,6 +403,9 @@ mod tests {
                 metadata,
             )
             .with_timestamp(Some(ts()))
+            .with_arbitrary(MetricArbitrary {
+                value: BTreeMap::from([("metadata".into(), Value::Object(BTreeMap::new()))]),
+            })
         );
     }
 
@@ -463,6 +479,9 @@ mod tests {
                 metadata,
             )
             .with_timestamp(Some(ts()))
+            .with_arbitrary(MetricArbitrary {
+                value: BTreeMap::from([("metadata".into(), Value::Object(BTreeMap::new()))]),
+            })
         );
     }
 
