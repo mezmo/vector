@@ -1,3 +1,10 @@
+## [4.0.1](https://github.com/answerbook/vector/compare/v4.0.0...v4.0.1) (2024-07-12)
+
+
+### Chores
+
+* **kafka**: tweak debug logging in kafka sources [284b636](https://github.com/answerbook/vector/commit/284b636d1de366feda7abe10bf163855d01ddde7) - Dan Hable [LOG-20279](https://logdna.atlassian.net/browse/LOG-20279)
+
 # [4.0.0](https://github.com/answerbook/vector/compare/v3.23.0...v4.0.0) (2024-07-10)
 
 
