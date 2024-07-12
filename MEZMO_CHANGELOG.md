@@ -1,3 +1,15 @@
+## [4.0.2](https://github.com/answerbook/vector/compare/v4.0.1...v4.0.2) (2024-07-12)
+
+
+### Bug Fixes
+
+* **performance**: fixes to improve performance [cf71f6a](https://github.com/answerbook/vector/commit/cf71f6aafe64ceb98f3576c119d0ab83be4c4623) - Sergey Opria [LOG-20272](https://logdna.atlassian.net/browse/LOG-20272)
+
+
+### Miscellaneous
+
+* Merge pull request #486 from answerbook/sopria/LOG-20272 [bbb6c48](https://github.com/answerbook/vector/commit/bbb6c485cf846210b11a8c65c1236325b24e6123) - GitHub [LOG-20272](https://logdna.atlassian.net/browse/LOG-20272)
+
 ## [4.0.1](https://github.com/answerbook/vector/compare/v4.0.0...v4.0.1) (2024-07-12)
 
 
