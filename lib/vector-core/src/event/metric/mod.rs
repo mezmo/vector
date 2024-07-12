@@ -179,6 +179,12 @@ impl Metric {
         self
     }
 
+    #[must_use]
+    pub fn with_arbitrary(mut self, value: MetricArbitrary) -> Self {
+        self.data.arbitrary = value;
+        self
+    }
+
     /// Gets a reference to the series of this metric.
     ///
     /// The "series" is the name of the metric itself, including any tags. In other words, it is the unique identifier
