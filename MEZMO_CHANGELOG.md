@@ -1,3 +1,15 @@
+## [4.0.3](https://github.com/answerbook/vector/compare/v4.0.2...v4.0.3) (2024-07-16)
+
+
+### Bug Fixes
+
+* **performance**: set metadata only for otlp metrics [8678c3e](https://github.com/answerbook/vector/commit/8678c3ec1718ce735147a3c22b2fd6358f137833) - Sergey Opria [LOG-20272](https://logdna.atlassian.net/browse/LOG-20272)
+
+
+### Miscellaneous
+
+* Merge pull request #487 from answerbook/sopria/LOG-20272 [2e336ea](https://github.com/answerbook/vector/commit/2e336eab65bb4dc64aef4f9d3c239ee7ed6c3dc5) - GitHub [LOG-20272](https://logdna.atlassian.net/browse/LOG-20272)
+
 ## [4.0.2](https://github.com/answerbook/vector/compare/v4.0.1...v4.0.2) (2024-07-12)
 
 
