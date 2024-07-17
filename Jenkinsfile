@@ -145,11 +145,14 @@ pipeline {
               }
               steps {
                 script {
+                  def semver = npm.semver()
+                  def pkg_version = "${semver.version}+${BRANCH_BUILD}"
                   buildx.build(
                     project: PROJECT_NAME
                   , push: false
                   , tags: [BRANCH_BUILD]
                   , dockerfile: "distribution/docker/mezmo/Dockerfile"
+                  , args: [RELEASE_VERSION: pkg_version]
                   )
                 }
               }
@@ -165,11 +168,14 @@ pipeline {
           steps {
             script {
               def tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
+              def semver = npm.semver()
+              def pkg_version = "${semver.version}+${tag}"
               buildx.build(
                 project: PROJECT_NAME
               , push: true
               , tags: [tag]
               , dockerfile: "distribution/docker/mezmo/Dockerfile"
+              , args: [RELEASE_VERSION: pkg_version]
               )
             }
             sh './release-tool clean'
@@ -220,6 +226,7 @@ pipeline {
           , push: true
           , tags: [tag]
           , dockerfile: "distribution/docker/mezmo/Dockerfile"
+          , args: [RELEASE_VERSION: tag]
           )
         }
         sh './release-tool clean'
