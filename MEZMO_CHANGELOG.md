@@ -1,3 +1,10 @@
+## [4.0.4](https://github.com/answerbook/vector/compare/v4.0.3...v4.0.4) (2024-07-22)
+
+
+### Chores
+
+* set vector ver to release ver [806d409](https://github.com/answerbook/vector/commit/806d4096f14a78a6840e2ae73032ccee146a9eaf) - Matt March [LOG-19935](https://logdna.atlassian.net/browse/LOG-19935)
+
 ## [4.0.3](https://github.com/answerbook/vector/compare/v4.0.2...v4.0.3) (2024-07-16)
 
 
