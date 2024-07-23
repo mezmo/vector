@@ -147,7 +147,6 @@ fn redacted_diagnostics(source: &str, diagnostics: DiagnosticList) -> String {
         "{}{}",
         "File contents were redacted.",
         Formatter::new(&redacted_source, diagnostics)
-            .colored()
             .to_string()
             .replace(placeholder, " ")
     )
@@ -197,10 +196,7 @@ impl RemapConfig {
 
         compile_vrl(&source, &functions, &state, config)
             .map_err(|diagnostics| match self.file {
-                None => Formatter::new(&source, diagnostics)
-                    .colored()
-                    .to_string()
-                    .into(),
+                None => Formatter::new(&source, diagnostics).to_string().into(),
                 Some(_) => redacted_diagnostics(&source, diagnostics).into(),
             })
             .map(|result| {
