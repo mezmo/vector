@@ -1,3 +1,15 @@
+## [4.0.5](https://github.com/answerbook/vector/compare/v4.0.4...v4.0.5) (2024-07-23)
+
+
+### Bug Fixes
+
+* **validate**: do not colorize output [7efd22f](https://github.com/answerbook/vector/commit/7efd22ff104bb3fe4a108a47ef6ed2633469d638) - Mike Del Tito [LOG-19759](https://logdna.atlassian.net/browse/LOG-19759)
+
+
+### Miscellaneous
+
+* Merge pull request #489 from answerbook/mdeltito/LOG-19759 [4de760b](https://github.com/answerbook/vector/commit/4de760bc3abce5124c1b0d7ceecfdbefdc6942ca) - GitHub [LOG-19759](https://logdna.atlassian.net/browse/LOG-19759)
+
 ## [4.0.4](https://github.com/answerbook/vector/compare/v4.0.3...v4.0.4) (2024-07-22)
 
 
