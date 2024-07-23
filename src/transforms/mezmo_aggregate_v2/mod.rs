@@ -513,10 +513,17 @@ impl TaskTransform<Event> for MezmoAggregateV2 {
             let mut output:Vec<Event> = Vec::new();
             let mut done = false;
 
-            match &self.state_persistence {
-                Some(_) => debug!("MezmoAggregateV2: state persistence enabled"),
-                None => debug!("MezmoAggregateV2: state persistence not enabled"),
-            }
+            let flush_on_shutdown = match &self.state_persistence {
+                Some(_) => {
+                    debug!("MezmoAggregateV2: state persistence enabled, state will not flush on shutdown");
+                    false
+                },
+                None => {
+                    debug!("MezmoAggregateV2: state persistence not enabled, state will flush on shutdown");
+                    true
+                },
+            };
+
             while !done {
                 select! {
                     _ = flush_interval.tick() => {
@@ -530,9 +537,11 @@ impl TaskTransform<Event> for MezmoAggregateV2 {
                     maybe_event = input_events.next() => {
                         match maybe_event {
                             None => {
-                                for (_, windows) in self.data.iter_mut() {
-                                    for datum in windows.drain(0..) {
-                                        output.push(datum.event);
+                                if flush_on_shutdown {
+                                    for (_, windows) in self.data.iter_mut() {
+                                        for datum in windows.drain(0..) {
+                                            output.push(datum.event);
+                                        }
                                     }
                                 }
                                 done = true;
