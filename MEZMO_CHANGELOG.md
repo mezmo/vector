@@ -1,3 +1,11 @@
+## [4.0.6](https://github.com/answerbook/vector/compare/v4.0.5...v4.0.6) (2024-07-24)
+
+
+### Bug Fixes
+
+* **aggregate-v2**: Consume finalizers during state persistence [c94122d](https://github.com/answerbook/vector/commit/c94122d387e187cfb65028b7ca672610b8ff4edd) - Dan Hable [LOG-19818](https://logdna.atlassian.net/browse/LOG-19818)
+* **aggregate-v2**: skip flush if state persistence is enabled [d959a20](https://github.com/answerbook/vector/commit/d959a20bb51c7dce86fe75a4e518d8eb933c9de3) - Dan Hable [LOG-19913](https://logdna.atlassian.net/browse/LOG-19913)
+
 ## [4.0.5](https://github.com/answerbook/vector/compare/v4.0.4...v4.0.5) (2024-07-23)
 
 
