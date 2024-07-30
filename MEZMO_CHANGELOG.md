@@ -1,3 +1,10 @@
+# [4.1.0](https://github.com/answerbook/vector/compare/v4.0.6...v4.1.0) (2024-07-30)
+
+
+### Features
+
+* **vrl**: Bump VRL to version 11 (#483) [4ac6537](https://github.com/answerbook/vector/commit/4ac6537104088b4a0a557fec25a20406a3087faf) - GitHub [LOG-20270](https://logdna.atlassian.net/browse/LOG-20270)
+
 ## [4.0.6](https://github.com/answerbook/vector/compare/v4.0.5...v4.0.6) (2024-07-24)
 
 
