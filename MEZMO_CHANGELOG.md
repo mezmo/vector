@@ -1,3 +1,15 @@
+# [4.2.0](https://github.com/answerbook/vector/compare/v4.1.0...v4.2.0) (2024-08-02)
+
+
+### Features
+
+* track active profilers with each revision [7ee6c12](https://github.com/answerbook/vector/commit/7ee6c12a1fb83ed80ee22ba2ddfabd6e91841ada) - Jacob Hull [LOG-20395](https://logdna.atlassian.net/browse/LOG-20395)
+
+
+### Miscellaneous
+
+* Merge pull request #492 from answerbook/jakedipity/LOG-20395 [6c2bbb1](https://github.com/answerbook/vector/commit/6c2bbb163d4da979e9a150073e7f57e9d867c62c) - GitHub [LOG-20395](https://logdna.atlassian.net/browse/LOG-20395)
+
 # [4.1.0](https://github.com/answerbook/vector/compare/v4.0.6...v4.1.0) (2024-07-30)
 
 
