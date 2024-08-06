@@ -13,7 +13,7 @@ use crate::{
     built_info, http::HttpClient, internal_events::mezmo_config::MezmoConfigServiceResponse,
 };
 
-use super::{MezmoPartitionConfig, PipelineId, ProfilerTransformId, Revision, RevisionId};
+use super::{MezmoPartitionConfig, PipelineId, Revision, RevisionId};
 
 #[async_trait::async_trait]
 pub(crate) trait ConfigService: Send + Sync {
@@ -23,11 +23,7 @@ pub(crate) trait ConfigService: Send + Sync {
     /// Given a list of current revisions, it returns the new revision configuration (if any).
     async fn get_new_revisions(
         &self,
-        current_revisions: Vec<(
-            PipelineId,
-            Option<RevisionId>,
-            Option<Vec<ProfilerTransformId>>,
-        )>,
+        current_revisions: Vec<(PipelineId, Option<RevisionId>)>,
     ) -> Result<HashMap<PipelineId, Revision>, String>;
 
     /// Set the loaded_revision_id for the given list of pipelines. This indicates the revision
@@ -98,10 +94,7 @@ struct LatestRevisionsRequest {
 #[derive(Serialize, Deserialize)]
 struct LatestRevisionRequestItem {
     pipeline_id: PipelineId,
-    #[serde(skip_serializing_if = "Option::is_none")]
     revision_id: Option<RevisionId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    profiler_transform_ids: Option<Vec<ProfilerTransformId>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -134,21 +127,14 @@ impl ConfigService for DefaultConfigService {
 
     async fn get_new_revisions(
         &self,
-        current_revisions: Vec<(
-            PipelineId,
-            Option<RevisionId>,
-            Option<Vec<ProfilerTransformId>>,
-        )>,
+        current_revisions: Vec<(PipelineId, Option<RevisionId>)>,
     ) -> Result<HashMap<PipelineId, Revision>, String> {
         let revisions: Vec<LatestRevisionRequestItem> = current_revisions
             .into_iter()
-            .map(
-                |(pipeline_id, revision_id, profiler_transform_ids)| LatestRevisionRequestItem {
-                    pipeline_id,
-                    revision_id,
-                    profiler_transform_ids,
-                },
-            )
+            .map(|(pipeline_id, revision_id)| LatestRevisionRequestItem {
+                pipeline_id,
+                revision_id,
+            })
             .collect();
         let body =
             serde_json::to_vec(&LatestRevisionsRequest { revisions }).map_err(|e| e.to_string())?;
