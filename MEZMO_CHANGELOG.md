@@ -1,3 +1,10 @@
+## [4.2.2](https://github.com/answerbook/vector/compare/v4.2.1...v4.2.2) (2024-08-06)
+
+
+### Chores
+
+* revert track active profilers with each revision [65178a1](https://github.com/answerbook/vector/commit/65178a1dc190d11ae0453dedb5e3e57b4851aeb8) - Dan Hable [LOG-9999999](https://logdna.atlassian.net/browse/LOG-9999999)
+
 ## [4.2.1](https://github.com/answerbook/vector/compare/v4.2.0...v4.2.1) (2024-08-06)
 
 
