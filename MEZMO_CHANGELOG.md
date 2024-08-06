@@ -1,3 +1,15 @@
+## [4.2.1](https://github.com/answerbook/vector/compare/v4.2.0...v4.2.1) (2024-08-06)
+
+
+### Bug Fixes
+
+* **kubernetes**: pods rolling in order [b2c6c7d](https://github.com/answerbook/vector/commit/b2c6c7d8f75c7b3073d0b5e8fe3f9499a768d873) - Martin Hansen [INFRA-7234](https://logdna.atlassian.net/browse/INFRA-7234)
+
+
+### Miscellaneous
+
+* Merge pull request #493 from answerbook/martin/roll-in-parallel [964f3e4](https://github.com/answerbook/vector/commit/964f3e44bc5a60b7ea890de08c4fd8af943d5cf3) - GitHub
+
 # [4.2.0](https://github.com/answerbook/vector/compare/v4.1.0...v4.2.0) (2024-08-02)
 
 
