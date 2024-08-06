@@ -6,6 +6,7 @@ use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use opentelemetry_rs::opentelemetry::common::{AnyValue, AnyValueOneOfvalue, KeyValue};
 use std::borrow::Cow;
+use std::cell::Cell;
 
 use smallvec::SmallVec;
 
@@ -28,6 +29,10 @@ use vrl::value::Kind;
 
 use opentelemetry_rs::Error as OpenTelemetryError;
 
+thread_local! {
+    static OTLP_REQUEST_COUNTER: Cell<u64> = Cell::new(0);
+}
+
 const MAX_METADATA_SIZE: usize = 32 * 1024;
 const NANO_RATIO: u64 = 1_000_000_000;
 
@@ -38,6 +43,15 @@ pub fn nano_to_timestamp(time_unix_nano: u64) -> Value {
         DateTime::from_timestamp(ms, nanos).expect("timestamp should be a valid timestamp")
     } else {
         Utc::now()
+    })
+}
+
+// WORNING: This function cannot be used within async/await context
+pub fn get_uniq_request_id() -> [u8; 8] {
+    OTLP_REQUEST_COUNTER.with(|cell| {
+        let next_value = cell.get().wrapping_add(1);
+        cell.set(next_value);
+        next_value.to_be_bytes()
     })
 }
 

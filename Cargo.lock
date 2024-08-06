@@ -10806,6 +10806,7 @@ dependencies = [
  "hyper 0.14.28",
  "hyper-openssl",
  "hyper-proxy",
+ "iana-time-zone",
  "indexmap 2.2.6",
  "indoc",
  "infer 0.15.0",
@@ -11282,7 +11283,7 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 [[package]]
 name = "vrl"
 version = "0.11.0"
-source = "git+ssh://git@github.com/mezmo/vrl.git?rev=v0.17.1#b456e73f25caf1df77ab20ba7f217ac95ce2515f"
+source = "git+ssh://git@github.com/mezmo/vrl.git?rev=v0.18.0#6ef94ddcdb44bcff78a81bd1050acca961e0f936"
 dependencies = [
  "aes",
  "ansi_term",

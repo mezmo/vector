@@ -1,4 +1,3 @@
-use crate::config::log_schema;
 use crate::event::{KeyString, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -16,14 +15,11 @@ use super::{MetricKind, MetricValue};
 pub struct MetricArbitrary {
     /// Arbitrary data stored with an event
     #[serde(default = "default_arbitrary_value")]
-    pub(crate) value: BTreeMap<KeyString, Value>,
+    pub value: BTreeMap<KeyString, Value>,
 }
 
 fn default_arbitrary_value() -> BTreeMap<KeyString, Value> {
-    BTreeMap::from([(
-        log_schema().user_metadata_key().into(),
-        Value::Object(BTreeMap::new()),
-    )])
+    BTreeMap::new()
 }
 
 impl MetricArbitrary {

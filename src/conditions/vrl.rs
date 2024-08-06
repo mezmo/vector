@@ -64,18 +64,15 @@ impl ConditionalConfig for VrlConfig {
             program,
             warnings,
             config: _,
-        } = compile_vrl(&self.source, &functions, &state, config).map_err(|diagnostics| {
-            Formatter::new(&self.source, diagnostics)
-                .colored()
-                .to_string()
-        })?;
+        } = compile_vrl(&self.source, &functions, &state, config)
+            .map_err(|diagnostics| Formatter::new(&self.source, diagnostics).to_string())?;
 
         if !program.final_type_info().result.is_boolean() {
             return Err("VRL conditions must return a boolean.".into());
         }
 
         if !warnings.is_empty() {
-            let warnings = Formatter::new(&self.source, warnings).colored().to_string();
+            let warnings = Formatter::new(&self.source, warnings).to_string();
             warn!(message = "VRL compilation warning.", %warnings);
         }
 
@@ -142,7 +139,6 @@ impl Conditional for Vrl {
                         Box::new(err) as Box<dyn vrl::diagnostic::DiagnosticMessage>
                     ),
                 )
-                .colored()
                 .to_string();
                 format!("source execution aborted: {}", err)
             }
@@ -153,7 +149,6 @@ impl Conditional for Vrl {
                         Box::new(err) as Box<dyn vrl::diagnostic::DiagnosticMessage>
                     ),
                 )
-                .colored()
                 .to_string();
                 format!("source execution failed: {}", err)
             }

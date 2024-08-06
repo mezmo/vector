@@ -138,12 +138,15 @@ proptest-derive = "0.4.0"
 serde_json = { version = "1.0.112", default-features = false, features = ["raw_value", "std"] }
 serde = { version = "1.0.196", default-features = false, features = ["alloc", "derive", "rc"] }
 toml = { version = "0.8.10", default-features = false, features = ["display", "parse"] }
-vrl = { version = "0.11.0", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.17.1", features = ["arbitrary", "cli", "test", "test_framework"] }
+vrl = { version = "0.11.0", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.18.0", features = ["cli", "test", "test_framework", "arbitrary"] }
+# version 0.1.59 is required by the updated VRL crate
+iana-time-zone = { version = "0.1.60" }
 
 [dependencies]
 pin-project.workspace = true
 clap.workspace = true
 vrl.workspace = true
+iana-time-zone.workspace = true
 
 # Internal libs
 dnsmsg-parser = { path = "lib/dnsmsg-parser", optional = true }

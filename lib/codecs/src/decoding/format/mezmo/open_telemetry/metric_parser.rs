@@ -1,5 +1,3 @@
-use rand::Rng;
-
 use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 use std::borrow::Cow;
@@ -30,7 +28,7 @@ use vector_core::{
 use vector_common::btreemap;
 
 use crate::decoding::format::mezmo::open_telemetry::{
-    nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
+    get_uniq_request_id, nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
 };
 
 const METRIC_TIMESTAMP_KEY: &str = "message.value.time_unix";
@@ -1395,8 +1393,8 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
             .fold(acc, |acc, sms| acc + sms.metrics.len())
     });
     let mut out = SmallVec::with_capacity(metric_count);
-    let resource_uniq_id: [u8; 8] = rand::thread_rng().gen();
-    let resource_uniq_id: Value = Value::from(faster_hex::hex_string(&resource_uniq_id));
+
+    let resource_uniq_id: Value = Value::from(faster_hex::hex_string(&get_uniq_request_id()));
 
     for resource_metric in metric_request.resource_metrics {
         let recource =
