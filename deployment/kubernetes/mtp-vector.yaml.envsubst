@@ -108,7 +108,7 @@ spec:
           version: "${APP_VERSION}"
       spec:
         serviceName: vector-{{partition-id}}
-        podManagementPolicy: "OrderedReady"
+        podManagementPolicy: "Parallel"
         selector:
           matchLabels:
             app: vector
