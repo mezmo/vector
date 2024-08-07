@@ -1,5 +1,6 @@
 use http::{Request, StatusCode, Uri};
 use hyper::Body;
+use mezmo::user_log_error;
 use std::fmt;
 
 use super::{

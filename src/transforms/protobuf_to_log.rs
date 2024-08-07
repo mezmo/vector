@@ -7,12 +7,11 @@ use vector_lib::{
     lookup::PathPrefix,
 };
 
-use crate::mezmo::user_trace::handle_deserializer_error;
+use mezmo::{user_trace::handle_deserializer_error, MezmoContext};
 
 use crate::{
     config::{DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext},
     event::{Event, LogEvent},
-    mezmo::MezmoContext,
     schema,
     transforms::{FunctionTransform, OutputBuffer, Transform},
 };

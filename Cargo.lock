@@ -5619,6 +5619,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "mezmo"
+version = "0.1.0"
+dependencies = [
+ "bytes 1.5.0",
+ "futures-util",
+ "moka",
+ "serde",
+ "serial_test",
+ "snafu 0.7.5",
+ "tokio",
+ "tokio-stream",
+ "tokio-test",
+ "tracing 0.1.40",
+ "uuid",
+ "vector-config",
+ "vector-core",
+ "vector-lib",
+ "vrl",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10824,6 +10845,7 @@ dependencies = [
  "md-5",
  "metrics",
  "metrics-tracing-context",
+ "mezmo",
  "mlua",
  "mockall",
  "moka",

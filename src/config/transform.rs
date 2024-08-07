@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use crate::mezmo::MezmoContext;
+use mezmo::MezmoContext;
 use async_trait::async_trait;
 use dyn_clone::DynClone;
 use serde::Serialize;

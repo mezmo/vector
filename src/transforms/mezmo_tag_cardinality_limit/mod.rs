@@ -14,9 +14,9 @@ use crate::{
         MezmoTagCardinalityLimitRejectingEvent, MezmoTagCardinalityLimitRejectingTag,
         MezmoTagCardinalityValueLimitReached,
     },
-    mezmo::{user_trace::handle_transform_error, MezmoContext},
     transforms::TaskTransform,
 };
+use mezmo::{user_trace::handle_transform_error, MezmoContext};
 
 mod config;
 mod tag_value_set;

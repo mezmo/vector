@@ -1,13 +1,5 @@
 use std::{borrow::Cow, sync::Arc};
 
-use bytes::Bytes;
-use futures_util::future::BoxFuture;
-use http::{Request, StatusCode, Uri};
-use hyper::Body;
-use snafu::{ResultExt, Snafu};
-use vector_lib::lookup::lookup_v2::{OptionalTargetPath, OptionalValuePath};
-use vector_lib::{config::proxy::ProxyConfig, event::EventRef};
-
 use super::{
     request::HecRequest,
     service::{HttpRequestBuilder, MetadataFields},
@@ -17,7 +9,7 @@ use crate::{
     config::SinkContext,
     http::HttpClient,
     internal_events::TemplateRenderingError,
-    mezmo::user_trace::{MezmoHttpBatchLoggingService, MezmoUserLog},
+    mezmo::user_trace::MezmoHttpBatchLoggingService,
     sinks::{
         self,
         util::{http::HttpBatchService, SinkBatchSettings},
@@ -25,8 +17,15 @@ use crate::{
     },
     template::Template,
     tls::{TlsConfig, TlsSettings},
-    user_log_error,
 };
+use bytes::Bytes;
+use futures_util::future::BoxFuture;
+use http::{Request, StatusCode, Uri};
+use hyper::Body;
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
+use snafu::{ResultExt, Snafu};
+use vector_lib::lookup::lookup_v2::{OptionalTargetPath, OptionalValuePath};
+use vector_lib::{config::proxy::ProxyConfig, event::EventRef};
 use vrl::value::Value;
 
 #[derive(Clone, Copy, Debug, Default)]

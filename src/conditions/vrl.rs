@@ -11,8 +11,9 @@ use crate::{
     conditions::{Condition, Conditional, ConditionalConfig},
     event::{Event, VrlTarget},
     internal_events::VrlConditionExecutionError,
-    mezmo::{vrl as mezmo_vrl_functions, MezmoContext},
 };
+
+use mezmo::{functions as mezmo_vrl_functions, MezmoContext};
 
 /// A condition that uses the [Vector Remap Language](https://vector.dev/docs/reference/vrl) (VRL) [boolean expression](https://vector.dev/docs/reference/vrl#boolean-expressions) against an event.
 #[configurable_component]

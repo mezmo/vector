@@ -27,11 +27,11 @@ use crate::{
     config::{log_schema, ComponentKey, DataType, Input, TransformConfig, TransformContext},
     event::{Event, TargetEvents, VrlTarget},
     internal_events::{RemapMappingAbort, RemapMappingError},
-    mezmo::{vrl as mezmo_vrl_functions, MezmoContext},
     schema,
     transforms::{SyncTransform, Transform, TransformOutputsBuf},
     Result,
 };
+use mezmo::{functions as mezmo_vrl_functions, MezmoContext};
 
 const DROPPED: &str = "dropped";
 

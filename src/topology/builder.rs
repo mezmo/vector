@@ -44,7 +44,7 @@ use super::{
     task::{Task, TaskOutput, TaskResult},
     BuiltBuffer, ConfigDiff,
 };
-use crate::mezmo::MezmoContext;
+use mezmo::MezmoContext;
 use crate::{
     config::{
         ComponentKey, Config, DataType, EnrichmentTableConfig, Input, Inputs, OutputId,

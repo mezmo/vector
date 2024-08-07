@@ -1,8 +1,10 @@
-use crate::mezmo::MezmoContext;
-use vector_lib::enrichment::{
+use crate::MezmoContext;
+use enrichment::{
     vrl_util::Error as EnrichmentTableError, Case, Condition, TableRegistry, TableSearch,
 };
+use tracing::{debug, warn};
 use vrl::prelude::*;
+
 #[derive(Clone, Copy, Debug)]
 pub struct GetPipelineStateVariable;
 

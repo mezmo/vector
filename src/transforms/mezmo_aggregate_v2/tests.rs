@@ -1,9 +1,9 @@
 use crate::config::TransformContext;
 use crate::event::BatchNotifier;
-use crate::mezmo::MezmoContext;
 use crate::transforms::mezmo_aggregate_v2::config::{AggregatorLimits, MezmoAggregateV2Config};
 use crate::transforms::mezmo_aggregate_v2::*;
 use assay::assay;
+use mezmo::MezmoContext;
 use serde_json::json;
 use std::collections::BTreeMap;
 use tempfile::tempdir;

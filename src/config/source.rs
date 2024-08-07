@@ -17,7 +17,7 @@ use vector_lib::{
 };
 
 use super::{schema, ComponentKey, ProxyConfig, Resource};
-use crate::mezmo::MezmoContext;
+use mezmo::MezmoContext;
 use crate::{extra_context::ExtraContext, shutdown::ShutdownSignal, SourceSender};
 
 pub type BoxedSource = Box<dyn SourceConfig>;
