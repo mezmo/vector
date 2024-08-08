@@ -2189,6 +2189,7 @@ dependencies = [
  "futures 0.3.30",
  "indoc",
  "memchr",
+ "mezmo",
  "once_cell",
  "opentelemetry-rs",
  "ordered-float 4.2.0",
@@ -5623,6 +5624,7 @@ name = "mezmo"
 version = "0.1.0"
 dependencies = [
  "bytes 1.5.0",
+ "enrichment",
  "futures-util",
  "moka",
  "serde",
@@ -5635,7 +5637,6 @@ dependencies = [
  "uuid",
  "vector-config",
  "vector-core",
- "vector-lib",
  "vrl",
 ]
 
