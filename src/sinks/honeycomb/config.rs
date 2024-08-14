@@ -3,9 +3,9 @@
 use bytes::Bytes;
 use futures::FutureExt;
 use http::{Request, StatusCode, Uri};
+use mezmo::user_log_error;
 use vector_lib::sensitive_string::SensitiveString;
 use vrl::value::Kind;
-use mezmo::user_log_error;
 
 use crate::{
     http::HttpClient,

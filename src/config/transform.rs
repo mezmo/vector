@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use mezmo::MezmoContext;
 use async_trait::async_trait;
 use dyn_clone::DynClone;
+use mezmo::MezmoContext;
 use serde::Serialize;
 use vector_lib::configurable::attributes::CustomAttribute;
 use vector_lib::configurable::{

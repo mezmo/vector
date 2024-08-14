@@ -44,7 +44,6 @@ use super::{
     task::{Task, TaskOutput, TaskResult},
     BuiltBuffer, ConfigDiff,
 };
-use mezmo::MezmoContext;
 use crate::{
     config::{
         ComponentKey, Config, DataType, EnrichmentTableConfig, Input, Inputs, OutputId,
@@ -61,6 +60,7 @@ use crate::{
     utilization::wrap,
     SourceSender,
 };
+use mezmo::MezmoContext;
 
 static ENRICHMENT_TABLES: Lazy<vector_lib::enrichment::TableRegistry> =
     Lazy::new(vector_lib::enrichment::TableRegistry::default);
