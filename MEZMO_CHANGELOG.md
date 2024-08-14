@@ -1,3 +1,16 @@
+# [4.4.0](https://github.com/answerbook/vector/compare/v4.3.0...v4.4.0) (2024-08-14)
+
+
+### Features
+
+* **data-profiler**: usage metrics tracking [f34edd7](https://github.com/answerbook/vector/commit/f34edd7d01c6a27a7d952e30e0570bc983a6e86b) - dominic-mcallister-logdna [LOG-20462](https://logdna.atlassian.net/browse/LOG-20462)
+
+
+### Miscellaneous
+
+* Merge pull request #594 from answerbook/dominic/LOG-20462 [2f7bcd4](https://github.com/answerbook/vector/commit/2f7bcd4d2153bfe5c9a87858ab69f96bd828cd3c) - GitHub [LOG-20462](https://logdna.atlassian.net/browse/LOG-20462)
+* Revert "chore: revert track active profilers with each revision" [22ce274](https://github.com/answerbook/vector/commit/22ce2747ca30261c6bb037ded858f0fac71a3df2) - dominic-mcallister-logdna
+
 # [4.3.0](https://github.com/answerbook/vector/compare/v4.2.2...v4.3.0) (2024-08-14)
 
 
