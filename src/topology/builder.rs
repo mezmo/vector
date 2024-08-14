@@ -355,6 +355,7 @@ impl<'a> Builder<'a> {
                 schema_definitions,
                 schema: self.config.schema,
                 mezmo_ctx,
+                extra_context: self.extra_context.clone(),
             };
             let source = source.inner.build(context).await;
             let server = match source {
@@ -492,6 +493,7 @@ impl<'a> Builder<'a> {
                 merged_schema_definition: merged_definition.clone(),
                 mezmo_ctx,
                 schema: self.config.schema,
+                extra_context: self.extra_context.clone(),
             };
 
             let node = TransformNode::from_parts(

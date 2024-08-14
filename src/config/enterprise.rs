@@ -105,10 +105,7 @@ pub struct Options {
     pub max_retries: u32,
 
     #[configurable(derived)]
-    #[serde(
-        default,
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
-    )]
+    #[serde(default, skip_serializing_if = "crate::serde::is_default")]
     proxy: ProxyConfig,
 
     /// A map of additional tags for metrics sent to Observability Pipelines.
@@ -394,7 +391,7 @@ pub(crate) fn report_on_reload(
 ) -> Option<EnterpriseReporter<BoxFuture<'static, ()>>> {
     attach_enterprise_components(config, &metadata);
 
-    let enterprise = match enterprise {
+    match enterprise {
         Some(enterprise) => {
             enterprise.send(report_configuration(config_paths, metadata));
             None
@@ -404,9 +401,7 @@ pub(crate) fn report_on_reload(
             enterprise.send(report_configuration(config_paths, metadata));
             Some(enterprise)
         }
-    };
-
-    enterprise
+    }
 }
 
 pub(crate) fn attach_enterprise_components(config: &mut Config, metadata: &EnterpriseMetadata) {

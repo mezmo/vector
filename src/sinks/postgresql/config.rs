@@ -38,10 +38,7 @@ pub struct PostgreSQLSchemaConfig {
     pub table: String,
 
     #[configurable(derived)]
-    #[serde(
-        default,
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
-    )]
+    #[serde(default, skip_serializing_if = "crate::serde::is_default")]
     pub fields: Vec<PostgreSQLFieldConfig>,
 }
 
@@ -91,10 +88,7 @@ pub struct PostgreSQLSinkConfig {
     pub schema: PostgreSQLSchemaConfig,
 
     #[configurable(derived)]
-    #[serde(
-        default,
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
-    )]
+    #[serde(default, skip_serializing_if = "crate::serde::is_default")]
     pub conflicts: Option<PostgreSQLConflictsConfig>,
 
     /// Maximum size of the Postgres connection pool for this instance.
@@ -106,7 +100,7 @@ pub struct PostgreSQLSinkConfig {
     #[serde(
         default,
         deserialize_with = "crate::serde::bool_or_struct",
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
+        skip_serializing_if = "crate::serde::is_default"
     )]
     pub acknowledgements: AcknowledgementsConfig,
 }

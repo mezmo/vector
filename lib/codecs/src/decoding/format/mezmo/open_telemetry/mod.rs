@@ -3,7 +3,7 @@ mod metric_parser;
 mod trace_parser;
 
 use bytes::Bytes;
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use opentelemetry_rs::opentelemetry::common::{AnyValue, AnyValueOneOfvalue, KeyValue};
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -40,10 +40,7 @@ pub fn nano_to_timestamp(time_unix_nano: u64) -> Value {
     Value::Timestamp(if time_unix_nano > 0 {
         let ms: i64 = (time_unix_nano / NANO_RATIO).try_into().unwrap();
         let nanos: u32 = (time_unix_nano % NANO_RATIO) as u32;
-        Utc.from_utc_datetime(
-            &NaiveDateTime::from_timestamp_opt(ms, nanos)
-                .expect("timestamp should be a valid timestamp"),
-        )
+        DateTime::from_timestamp(ms, nanos).expect("timestamp should be a valid timestamp")
     } else {
         Utc::now()
     })

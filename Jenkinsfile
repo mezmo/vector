@@ -80,7 +80,10 @@ pipeline {
       stages {
         stage('Lint and test release'){
           when {
-            expression { !(env.TOP_COMMIT ==~ /^Merge remote-tracking branch.*$/) }
+            allOf {
+                expression { !(env.TOP_COMMIT ==~ /^Merge remote-tracking branch.*$/) }
+                expression { !(env.TOP_COMMIT ==~ /^Merge upstream.*$/) }
+            }
           }
           tools {
             nodejs 'NodeJS 20'

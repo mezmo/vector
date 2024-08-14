@@ -1,7 +1,7 @@
 #[cfg(feature = "opentelemetry-sink-integration-tests")]
 #[cfg(test)]
 mod test {
-    use chrono::{NaiveDateTime, TimeZone, Utc};
+    use chrono::DateTime;
     use indoc::indoc;
     use std::collections::BTreeMap;
 
@@ -76,10 +76,10 @@ mod test {
                                     KeyString::from("span_id") => span_id,
                                     KeyString::from("trace_id") => trace_id,
                                     KeyString::from("time_unix") => Value::from(
-                                        Utc.from_utc_datetime(
-                                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+
+                                            DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
                                                 .expect("timestamp should be a valid timestamp"),
-                                        )
+
                                     ),
                                     KeyString::from("value") => Value::Integer(10),
                                 }
@@ -87,16 +87,16 @@ mod test {
                             )])),
                             KeyString::from("flags") => Value::Integer(1),
                             KeyString::from("start_time_unix") => Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+
+                                    DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
-                                )
+
                             ),
                             KeyString::from("time_unix") => Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+
+                                    DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
-                                )
+
                             ),
                         };
 
@@ -129,10 +129,10 @@ mod test {
                                     KeyString::from("span_id") => span_id,
                                     KeyString::from("trace_id") => trace_id,
                                     "time_unix" => Value::from(
-                                        Utc.from_utc_datetime(
-                                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+
+                                            DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
                                                 .expect("timestamp should be a valid timestamp"),
-                                        )
+
                                     ),
                                     KeyString::from("value") => Value::Integer(10),
                                 }
@@ -140,16 +140,16 @@ mod test {
                             )])),
                             KeyString::from("flags") => Value::Integer(1),
                             KeyString::from("start_time_unix") => Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+
+                                    DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
-                                )
+
                             ),
                             KeyString::from("time_unix") => Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+
+                                    DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
-                                )
+
                             ),
                             KeyString::from("aggregation_temporality") => Value::Integer(2),
                             KeyString::from("is_monotonic") => Value::Boolean(true),
@@ -252,10 +252,10 @@ mod test {
                                     KeyString::from("span_id") => span_id,
                                     KeyString::from("trace_id") => trace_id,
                                     KeyString::from("time_unix") => Value::from(
-                                        Utc.from_utc_datetime(
-                                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+
+                                            DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
                                                 .expect("timestamp should be a valid timestamp"),
-                                        )
+
                                     ),
                                     KeyString::from("value") => Value::Integer(10),
                                 }
@@ -299,16 +299,16 @@ mod test {
                             KeyString::from("max") => from_f64_or_zero(9.9),
                             KeyString::from("min") => from_f64_or_zero(0.1),
                             KeyString::from("start_time_unix") => Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+
+                                    DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
-                                )
+
                             ),
                             KeyString::from("time_unix") => Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+
+                                    DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
-                                )
+
                             ),
                             KeyString::from("aggregation_temporality") => Value::Integer(2),
                         };
@@ -372,16 +372,16 @@ mod test {
                                 })
                             ])),
                             KeyString::from("start_time_unix") => Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+
+                                    DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
-                                )
+
                             ),
                             KeyString::from("time_unix") => Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
+
+                                    DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
                                         .expect("timestamp should be a valid timestamp"),
-                                )
+
                             ),
                         };
 
@@ -469,16 +469,16 @@ mod test {
             KeyString::from("parent_span_id") => Value::from(parent_span_id_hex.clone()),
             // LOG-19724: this field is not currently captured/defined in our source impl
             KeyString::from("flags") => 1,
-            KeyString::from("start_timestamp") => Utc.from_utc_datetime(
-                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                    .expect("timestamp should be a valid timestamp"),
+            KeyString::from("start_timestamp") => (
+                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                    .expect("timestamp should be a valid timestamp")
             ),
             KeyString::from("dropped_attributes_count") => 1,
             KeyString::from("dropped_events_count") => 2,
             KeyString::from("dropped_links_count") => 3,
-            KeyString::from("end_timestamp") => Utc.from_utc_datetime(
-                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 12_u32)
-                    .expect("timestamp should be a valid timestamp"),
+            KeyString::from("end_timestamp") => (
+                DateTime::from_timestamp(1_579_134_612_i64, 12_u32)
+                    .expect("timestamp should be a valid timestamp")
             ),
             KeyString::from("events") => vec![
                 btreemap!{
@@ -487,9 +487,9 @@ mod test {
                     },
                     KeyString::from("dropped_attributes_count") => 4,
                     KeyString::from("name") => "test_name_1",
-                    KeyString::from("timestamp") => Utc.from_utc_datetime(
-                        &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 13_u32)
-                            .expect("timestamp should be a valid timestamp"),
+                    KeyString::from("timestamp") => (
+                        DateTime::from_timestamp(1_579_134_612_i64, 13_u32)
+                            .expect("timestamp should be a valid timestamp")
                     ),
                 },
                 btreemap!{
@@ -498,9 +498,9 @@ mod test {
                     },
                     KeyString::from("dropped_attributes_count") => 5,
                     KeyString::from("name") => "test_name_2",
-                    KeyString::from("timestamp") => Utc.from_utc_datetime(
-                        &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 14_u32)
-                            .expect("timestamp should be a valid timestamp"),
+                    KeyString::from("timestamp") => (
+                        DateTime::from_timestamp(1_579_134_612_i64, 14_u32)
+                            .expect("timestamp should be a valid timestamp")
                     ),
                 }
             ],
@@ -647,19 +647,15 @@ mod test {
                     (
                         "observed_timestamp".into(),
                         Value::from(
-                            Utc.from_utc_datetime(
-                                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 0o11_u32)
-                                    .expect("timestamp should be a valid timestamp"),
-                            ),
+                            DateTime::from_timestamp(1_579_134_612_i64, 0o11_u32)
+                                .expect("timestamp should be a valid timestamp"),
                         ),
                     ),
                     (
                         "time".into(),
                         Value::from(
-                            Utc.from_utc_datetime(
-                                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 0o11_u32)
-                                    .expect("timestamp should be a valid timestamp"),
-                            ),
+                            DateTime::from_timestamp(1_579_134_612_i64, 0o11_u32)
+                                .expect("timestamp should be a valid timestamp"),
                         ),
                     ),
                     ("severity_number".into(), 17.into()),

@@ -185,7 +185,7 @@ impl StateVariables {
         let state_poller = tokio::task::spawn(async move {
             loop {
                 match fetch_states_from_db(&spawn_cache, &spawn_pool).await {
-                    Ok(row_len) if row_len == 0 => {
+                    Ok(0) => {
                         warn!("Warning: The state variables DB table appears to be empty")
                     }
                     Ok(row_len) => debug!("Loaded {row_len} entries"),

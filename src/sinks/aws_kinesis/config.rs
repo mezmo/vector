@@ -10,7 +10,7 @@ use crate::{
         util::{retries::RetryLogic, TowerRequestConfig},
     },
 };
-use aws_sdk_firehose::types::SdkError;
+use aws_sdk_firehose::error::SdkError;
 
 use super::{
     record::{Record, SendRecord},
@@ -63,7 +63,7 @@ pub struct KinesisSinkBaseConfig {
     #[serde(
         default,
         deserialize_with = "crate::serde::bool_or_struct",
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
+        skip_serializing_if = "crate::serde::is_default"
     )]
     pub acknowledgements: AcknowledgementsConfig,
 

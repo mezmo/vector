@@ -129,10 +129,9 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
 mod tests {
     use super::*;
 
-    use chrono::{NaiveDateTime, TimeZone, Utc};
+    use chrono::DateTime;
     use std::borrow::Cow;
     use std::collections::BTreeMap;
-    use std::ops::Deref;
 
     use opentelemetry_rs::opentelemetry::{
         common::{AnyValue, AnyValueOneOfvalue, InstrumentationScope, KeyValue},
@@ -193,8 +192,7 @@ mod tests {
                 .into_log()
                 .value()
                 .get("metadata")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             Value::Object(BTreeMap::from([
                 (
                     "attributes".into(),
@@ -207,19 +205,15 @@ mod tests {
                 (
                     "observed_timestamp".into(),
                     Value::from(
-                        Utc.from_utc_datetime(
-                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                .expect("timestamp should be a valid timestamp"),
-                        )
+                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                            .expect("timestamp should be a valid timestamp")
                     )
                 ),
                 (
                     "time".into(),
                     Value::from(
-                        Utc.from_utc_datetime(
-                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                .expect("timestamp should be a valid timestamp"),
-                        )
+                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                            .expect("timestamp should be a valid timestamp")
                     )
                 ),
                 ("severity_number".into(), 1.into()),
@@ -258,8 +252,7 @@ mod tests {
                 .into_log()
                 .value()
                 .get("message")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             "asdf".into(),
         );
     }

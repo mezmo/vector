@@ -76,11 +76,7 @@ impl TryFrom<Event> for OpentelemetryLogsModel {
         if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
             if let Some(value) = metadata.get("attributes") {
                 if let OtlpAnyValue::Map(attrs) = value_to_otlp_any_value(value.clone()) {
-                    let attributes = attrs
-                        .clone()
-                        .into_iter()
-                        .map(|(key, val)| (key, val))
-                        .collect::<Vec<_>>();
+                    let attributes = attrs.clone().into_iter().collect::<Vec<_>>();
 
                     record_builder = record_builder.with_attributes(attributes);
                 }
@@ -174,7 +170,7 @@ mod test {
     use super::*;
 
     use crate::event::Value;
-    use chrono::{NaiveDateTime, TimeZone, Utc};
+    use chrono::DateTime;
     use std::collections::BTreeMap;
     use std::time::SystemTime;
     use vector_lib::event::{Event, LogEvent};
@@ -254,19 +250,15 @@ mod test {
                     (
                         "observed_timestamp".into(),
                         Value::from(
-                            Utc.from_utc_datetime(
-                                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 0o11_u32)
-                                    .expect("timestamp should be a valid timestamp"),
-                            ),
+                            DateTime::from_timestamp(1_579_134_612_i64, 0o11_u32)
+                                .expect("timestamp should be a valid timestamp"),
                         ),
                     ),
                     (
                         "time".into(),
                         Value::from(
-                            Utc.from_utc_datetime(
-                                &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 0o11_u32)
-                                    .expect("timestamp should be a valid timestamp"),
-                            ),
+                            DateTime::from_timestamp(1_579_134_612_i64, 0o11_u32)
+                                .expect("timestamp should be a valid timestamp"),
                         ),
                     ),
                     ("severity_number".into(), 17.into()),
