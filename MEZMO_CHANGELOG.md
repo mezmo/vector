@@ -1,3 +1,25 @@
+# [4.5.0](https://github.com/answerbook/vector/compare/v4.4.0...v4.5.0) (2024-08-15)
+
+
+### Chores
+
+* fix formatting [940b25c](https://github.com/answerbook/vector/commit/940b25c067ef8fc8904a511bcf29b1888d5cdffe) - Mike Del Tito [LOG-20433](https://logdna.atlassian.net/browse/LOG-20433)
+
+
+### Code Refactoring
+
+* move user_log and vrl functions into `mezmo` crate [f79c8b9](https://github.com/answerbook/vector/commit/f79c8b9920e4c21ef94d8760b9f0f6b0f4a6e6e8) - Mike Del Tito [LOG-20433](https://logdna.atlassian.net/browse/LOG-20433)
+
+
+### Features
+
+* **codecs**: wire up mezmo vrl functions to vrl decoder [124ad1c](https://github.com/answerbook/vector/commit/124ad1cbc2851a62eecdc2d04381eb63a1b65a1c) - Mike Del Tito [LOG-20433](https://logdna.atlassian.net/browse/LOG-20433)
+
+
+### Miscellaneous
+
+* Merge pull request #595 from answerbook/mdeltito/LOG-20433 [e438399](https://github.com/answerbook/vector/commit/e438399ceab6b92ff2af4eebdf76532585fcf739) - GitHub [LOG-20433](https://logdna.atlassian.net/browse/LOG-20433)
+
 # [4.4.0](https://github.com/answerbook/vector/compare/v4.3.0...v4.4.0) (2024-08-14)
 
 
