@@ -1,3 +1,15 @@
+## [4.5.1](https://github.com/answerbook/vector/compare/v4.5.0...v4.5.1) (2024-08-15)
+
+
+### Chores
+
+* disable dependabot [12cda61](https://github.com/answerbook/vector/commit/12cda614635af474fb021c8c6e2451726aca7b68) - Mike Del Tito [LOG-20473](https://logdna.atlassian.net/browse/LOG-20473)
+
+
+### Miscellaneous
+
+* Merge pull request #597 from answerbook/mdeltito/disable-dependabot [6f06adf](https://github.com/answerbook/vector/commit/6f06adfc2fea0397b4ecd53636925b8075e7f1cb) - GitHub
+
 # [4.5.0](https://github.com/answerbook/vector/compare/v4.4.0...v4.5.0) (2024-08-15)
 
 
