@@ -301,11 +301,11 @@ mod tests {
     use super::*;
     use crate::{
         event::LogEvent,
-        mezmo::MezmoContext,
         test_util::components::assert_transform_compliance,
         transforms::{test::create_topology, Transform},
     };
     use config::MezmoThrottleConfig;
+    use mezmo::MezmoContext;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
 

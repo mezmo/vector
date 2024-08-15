@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use crate::{config::SinkContext, mezmo::user_trace::MezmoUserLog, user_log_error};
+use crate::config::SinkContext;
 use aws_sdk_s3::{
     operation::put_object::PutObjectError,
     types::{ObjectCannedAcl, ServerSideEncryption, StorageClass},
@@ -11,6 +11,7 @@ use aws_smithy_runtime_api::{
     http::StatusCode,
 };
 use futures::FutureExt;
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 use snafu::Snafu;
 use vector_lib::configurable::configurable_component;
 use vrl::value::Value;

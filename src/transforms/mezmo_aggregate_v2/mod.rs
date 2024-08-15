@@ -1,10 +1,8 @@
-use crate::{
-    conditions::Condition, mezmo::persistence::PersistenceConnection,
-    mezmo::user_trace::MezmoUserLog, mezmo::MezmoContext, user_log_error,
-};
+use crate::{conditions::Condition, mezmo::persistence::PersistenceConnection};
 use async_stream::stream;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
+use mezmo::{user_log_error, user_trace::MezmoUserLog, MezmoContext};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;

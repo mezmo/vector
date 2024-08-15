@@ -107,6 +107,7 @@ members = [
   "lib/k8s-e2e-tests",
   "lib/k8s-test-framework",
   "lib/loki-logproto",
+  "lib/mezmo",
   "lib/portpicker",
   "lib/prometheus-parser",
   "lib/opentelemetry-proto",
@@ -156,6 +157,7 @@ tracing-limit = { path = "lib/tracing-limit" }
 vector-lib = { path = "lib/vector-lib", default-features = false, features = ["vrl"] }
 vector-vrl-functions = { path = "lib/vector-vrl/functions" }
 loki-logproto = { path = "lib/loki-logproto", optional = true }
+mezmo = { path = "lib/mezmo", default-features = false }
 
 # Tokio / Futures
 async-stream = { version = "0.3.5", default-features = false }

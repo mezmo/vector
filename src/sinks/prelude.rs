@@ -32,10 +32,7 @@ pub use crate::{
     config::{DataType, GenerateConfig, SinkConfig, SinkContext},
     event::{Event, LogEvent},
     internal_events::{SinkRequestBuildError, TemplateRenderingError},
-    mezmo::{
-        user_trace::{MezmoLoggingService, MezmoUserLog, UserLoggingError, UserLoggingResponse},
-        MezmoContext,
-    }, // Mezmo-added re-exports for use in most sinks
+    mezmo::user_trace::{MezmoLoggingService, UserLoggingError, UserLoggingResponse},
     register_validatable_component,
     sinks::{
         util::{
@@ -52,5 +49,5 @@ pub use crate::{
     },
     template::{Template, TemplateParseError},
     tls::TlsConfig,
-    user_log_error, // Mezmo macro
 };
+pub use mezmo::{user_log_error, user_trace::MezmoUserLog, MezmoContext};

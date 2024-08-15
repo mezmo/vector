@@ -12,10 +12,10 @@ use crate::{
     common::datadog::{self, get_api_base_endpoint},
     config::SinkContext,
     http::{HttpClient, HttpError},
-    mezmo::user_trace::{MezmoUserLog, UserLoggingError},
+    mezmo::user_trace::UserLoggingError,
     sinks::HealthcheckError,
-    user_log_error,
 };
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 
 use super::Healthcheck;
 

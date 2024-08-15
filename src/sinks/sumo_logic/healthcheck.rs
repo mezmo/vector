@@ -1,10 +1,8 @@
 use http::Request;
 use std::sync::Arc;
 
-use crate::{
-    config::SinkContext, http::HttpClient, mezmo::user_trace::MezmoUserLog,
-    sinks::HealthcheckError, user_log_error,
-};
+use crate::{config::SinkContext, http::HttpClient, sinks::HealthcheckError};
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 use vrl::value::Value;
 
 use super::config::SumoLogicCredentials;

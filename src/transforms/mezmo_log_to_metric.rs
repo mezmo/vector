@@ -4,14 +4,13 @@ use vector_lib::config::{LogNamespace, TransformOutput};
 use vector_lib::configurable::configurable_component;
 use vector_lib::event::metric::mezmo::to_metric;
 
-use crate::mezmo::user_trace::handle_transform_error;
 use crate::{
     config::{DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext},
     event::Event,
-    mezmo::MezmoContext,
     schema,
     transforms::{FunctionTransform, OutputBuffer, Transform},
 };
+use mezmo::{user_trace::handle_transform_error, MezmoContext};
 
 /// Configuration for the `mezmo_log_to_metric` transform.
 #[configurable_component(transform("mezmo_log_to_metric"))]

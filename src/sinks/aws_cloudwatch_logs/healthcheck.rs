@@ -1,13 +1,11 @@
 use aws_sdk_cloudwatchlogs::error::SdkError;
 use aws_sdk_cloudwatchlogs::operation::describe_log_groups::DescribeLogGroupsError;
 use aws_sdk_cloudwatchlogs::Client as CloudwatchLogsClient;
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 use snafu::Snafu;
-
-use crate::{
-    config::SinkContext, mezmo::user_trace::MezmoUserLog,
-    sinks::aws_cloudwatch_logs::config::CloudwatchLogsSinkConfig, user_log_error,
-};
 use vrl::value::Value;
+
+use crate::{config::SinkContext, sinks::aws_cloudwatch_logs::config::CloudwatchLogsSinkConfig};
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Snafu)]

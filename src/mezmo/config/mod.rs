@@ -18,16 +18,13 @@ use crate::{
         MezmoConfigBuildFailure, MezmoConfigBuilderCreate, MezmoConfigReloadSignalSend,
         MezmoConfigVrlValidation, MezmoConfigVrlValidationError, MezmoGenerateConfigError,
     },
-    mezmo::user_trace::MezmoUserLog,
     providers::BuildResult,
     signal,
     topology::schema,
-    user_log_error,
 };
+use mezmo::{user_trace::MezmoUserLog, MezmoContext};
 
 use self::service::{ConfigService, DefaultConfigService};
-
-use super::MezmoContext;
 
 /// Request settings.
 #[configurable_component]
@@ -513,15 +510,15 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
                 if let Err(error) = transform.build(&context).await {
                     if let Some(ctx) = &mezmo_ctx {
                         match &ctx.pipeline_id {
-                            Some(super::ContextIdentifier::Value { id: _ }) => {
-                                user_log_error!(
+                            Some(mezmo::ContextIdentifier::Value { id: _ }) => {
+                                mezmo::user_log_error!(
                                 mezmo_ctx,
                                 "Error loading existing transform component. Please contact support");
                                 failures.push(format!(
                                     "Error validating VRL in transform {key}: {error}"
                                 ));
                             }
-                            Some(super::ContextIdentifier::Shared) => {
+                            Some(mezmo::ContextIdentifier::Shared) => {
                                 // This shouldn't happen...
                                 failures
                                     .push(format!("Invalid VRL found in shared component {key}"));

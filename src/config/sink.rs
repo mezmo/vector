@@ -1,4 +1,4 @@
-use crate::mezmo::MezmoContext;
+use mezmo::MezmoContext;
 use std::cell::RefCell;
 
 use async_trait::async_trait;
