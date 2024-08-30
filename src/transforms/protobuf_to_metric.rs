@@ -4,12 +4,11 @@ use smallvec::SmallVec;
 use vector_lib::configurable::configurable_component;
 use vector_lib::{codecs::decoding::MezmoDeserializer, config::LogNamespace, event::Value};
 
-use crate::mezmo::user_trace::handle_deserializer_error;
+use mezmo::{user_trace::handle_deserializer_error, MezmoContext};
 
 use crate::{
     config::{DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext},
     event::{Event, LogEvent},
-    mezmo::MezmoContext,
     schema,
     transforms::{FunctionTransform, OutputBuffer, Transform},
 };

@@ -223,7 +223,7 @@ impl Application {
             opts.log_level(),
             opts.root.internal_log_rate_limit,
         );
-        mezmo::user_trace::init(opts.root.user_log_rate_limit);
+        ::mezmo::user_trace::init(opts.root.user_log_rate_limit);
 
         // Can only log this after initializing the logging subsystem
         if opts.root.openssl_no_probe {

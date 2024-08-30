@@ -11,7 +11,7 @@ use vector_lib::codecs::{
 use crate::{
     codecs::{EncodingConfigWithFraming, SinkType},
     http::{Auth, HttpClient, MaybeAuth},
-    mezmo::user_trace::{MezmoLoggingService, MezmoUserLog},
+    mezmo::user_trace::MezmoLoggingService,
     sinks::{
         prelude::*,
         util::{

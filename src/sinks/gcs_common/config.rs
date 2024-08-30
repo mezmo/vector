@@ -8,14 +8,13 @@ use vrl::value::Value;
 use crate::{
     gcp::{GcpAuthenticator, GcpError},
     http::HttpClient,
-    mezmo::{user_trace::MezmoUserLog, MezmoContext},
     sinks::{
         gcs_common::service::GcsResponse,
         util::retries::{RetryAction, RetryLogic},
         Healthcheck, HealthcheckError,
     },
-    user_log_error,
 };
+use mezmo::{user_log_error, user_trace::MezmoUserLog, MezmoContext};
 
 pub const BASE_URL: &str = "https://storage.googleapis.com/";
 

@@ -23,9 +23,9 @@ use uuid::Uuid;
 use vector_lib::config::{log_schema, TransformOutput};
 use vector_lib::configurable::configurable_component;
 
-use crate::mezmo::MezmoContext;
 use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogClusterStatus};
 use crate::transforms::mezmo_log_clustering::store::save_in_loop;
+use mezmo::MezmoContext;
 use vector_lib::event::LogEvent;
 use vector_lib::usage_metrics::{get_annotations, get_db_config, AnnotationSet};
 use vrl::value::Value;

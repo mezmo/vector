@@ -1,7 +1,4 @@
-use crate::{
-    mezmo::{user_trace::MezmoUserLog, MezmoContext},
-    user_log,
-};
+use crate::{context::MezmoContext, user_log, user_trace::MezmoUserLog};
 use bytes::Bytes;
 use vrl::{prelude::*, value::Value};
 

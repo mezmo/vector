@@ -1066,7 +1066,6 @@ fn parse_stream<'a>(
     let mut stream = FramedRead::new(payload, decoder);
     let (count, _) = stream.size_hint();
     let stream = stream! {
-        debug!("parse_stream: [{partition_id}] starting");
         while let Some(result) = stream.next().await {
             match result {
                 Ok((events, _byte_size)) => {
@@ -1076,12 +1075,10 @@ fn parse_stream<'a>(
                         topic: &rmsg.topic,
                         partition: rmsg.partition,
                     });
-                    debug!("parse_stream: [{partition_id}] parsing {} events", events.len());
                     for mut event in events {
                         rmsg.apply(keys, &mut event, log_namespace);
                         yield event;
                     }
-                    debug!("parse_stream: [{partition_id}] finished parsing");
                 },
                 Err(error) => {
                     // Error is logged by `codecs::Decoder`, no further handling
@@ -1094,7 +1091,6 @@ fn parse_stream<'a>(
                 }
             }
         }
-        debug!("parse_stream: [{partition_id}] finished");
     }
     .boxed();
     Some((count, stream))

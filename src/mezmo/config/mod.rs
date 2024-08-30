@@ -18,16 +18,13 @@ use crate::{
         MezmoConfigBuildFailure, MezmoConfigBuilderCreate, MezmoConfigReloadSignalSend,
         MezmoConfigVrlValidation, MezmoConfigVrlValidationError, MezmoGenerateConfigError,
     },
-    mezmo::user_trace::MezmoUserLog,
     providers::BuildResult,
     signal,
     topology::schema,
-    user_log_error,
 };
+use mezmo::{user_trace::MezmoUserLog, MezmoContext};
 
 use self::service::{ConfigService, DefaultConfigService};
-
-use super::MezmoContext;
 
 /// Request settings.
 #[configurable_component]
@@ -137,6 +134,7 @@ fn poll_config(
 // Alias types for readability
 type PipelineId = String;
 type RevisionId = String;
+type ProfilerTransformId = String;
 
 struct MezmoConfigBuilder {
     service: Box<dyn ConfigService>,
@@ -151,6 +149,7 @@ struct MezmoConfigBuilder {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Revision {
     id: RevisionId,
+    profiler_transform_ids: Option<Vec<ProfilerTransformId>>,
     config: String,
 }
 
@@ -177,7 +176,12 @@ impl MezmoConfigBuilder {
 
         let revisions = self
             .service
-            .get_new_revisions(pipelines.iter().map(|id| (id.clone(), None)).collect())
+            .get_new_revisions(
+                pipelines
+                    .iter()
+                    .map(|id| (id.clone(), None, None))
+                    .collect(),
+            )
             .await
             .map_err(|e| vec![e])?;
 
@@ -292,8 +296,14 @@ impl MezmoConfigBuilder {
             match self.cache.get_key_value(&pipeline_id) {
                 Some(existing) if existing.1.id != revision.id => {
                     info!(
-                        "Building config for updated pipeline {} with revision {}",
-                        &pipeline_id, &revision.id
+                        "Building config for new revision {} of pipeline {}",
+                        &revision.id, &pipeline_id
+                    );
+                }
+                Some(_) => {
+                    info!(
+                        "Refreshing config for revision {} of pipeline {}",
+                        &revision.id, &pipeline_id
                     );
                 }
                 None => {
@@ -301,11 +311,6 @@ impl MezmoConfigBuilder {
                         "Building config for new pipeline {} with revision {}",
                         &pipeline_id, &revision.id
                     );
-                }
-                Some(_) => {
-                    // Revision matched the stored revision, there's a problem with the logic or the service
-                    warn!("Unexpected existing revision for pipeline {}", &pipeline_id);
-                    continue;
                 }
             }
 
@@ -355,9 +360,15 @@ impl MezmoConfigBuilder {
         let current_revisions: Vec<_> = pipelines
             .iter()
             .map(|pipeline_id| {
+                let (revision_id, profiler_transform_ids) = self
+                    .cache
+                    .get(pipeline_id)
+                    .map(|r| (r.id.clone(), r.profiler_transform_ids.clone()))
+                    .unzip();
                 (
                     pipeline_id.clone(),
-                    self.cache.get(pipeline_id).map(|r| r.id.clone()),
+                    revision_id,
+                    profiler_transform_ids.flatten(),
                 )
             })
             .collect();
@@ -499,15 +510,15 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
                 if let Err(error) = transform.build(&context).await {
                     if let Some(ctx) = &mezmo_ctx {
                         match &ctx.pipeline_id {
-                            Some(super::ContextIdentifier::Value { id: _ }) => {
-                                user_log_error!(
+                            Some(mezmo::ContextIdentifier::Value { id: _ }) => {
+                                mezmo::user_log_error!(
                                 mezmo_ctx,
                                 "Error loading existing transform component. Please contact support");
                                 failures.push(format!(
                                     "Error validating VRL in transform {key}: {error}"
                                 ));
                             }
-                            Some(super::ContextIdentifier::Shared) => {
+                            Some(mezmo::ContextIdentifier::Shared) => {
                                 // This shouldn't happen...
                                 failures
                                     .push(format!("Invalid VRL found in shared component {key}"));
@@ -573,7 +584,7 @@ mod tests {
             async fn get_pipelines_by_partition(&self) -> Result<(Vec<PipelineId>, String), String>;
             async fn get_new_revisions(
                 &self,
-                current_revisions: Vec<(PipelineId, Option<RevisionId>)>,
+                current_revisions: Vec<(PipelineId, Option<RevisionId>, Option<Vec<ProfilerTransformId>>)>,
             ) -> Result<HashMap<PipelineId, Revision>, String>;
             async fn set_loaded_revisions(
                 &self,
@@ -624,6 +635,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("a"),
+                    profiler_transform_ids: None,
                     config: S!("invalid_test_config"),
                 },
             )]))
@@ -644,6 +656,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("revision1"),
+                    profiler_transform_ids: None,
                     config: S!(r#"
                     [sources.in]
                     type="stdin"
@@ -687,6 +700,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("revision1"),
+                    profiler_transform_ids: None,
                     config: S!(r#"
                     [sources.in]
                     type="stdin"
@@ -740,6 +754,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("revision1"),
+                    profiler_transform_ids: None,
                     config: S!(r#"
                     [sources.in]
                     type="stdin"
@@ -823,9 +838,9 @@ mod tests {
             .and(path(latest_revisions_url))
             .respond_with(ResponseTemplate::new(StatusCode::OK).set_body_raw(r#"{
                 "pipeline1": {"id": "rev1", "config": "[sources.in1]\ntype = \"test_basic\"\n\n[sinks.out1]\ninputs = [\"in1\"]\ntype = \"test_basic\""},
-                "pipeline2": {"id": "rev999", "config": "[sources.in2]\ntype = \"test_basic\"\n\n[sinks.out2]\ninputs = [\"in2\"]\ntype = \"test_basic\""}
+                "pipeline2": {"id": "rev999", "profiler_transform_ids": ["prof1"], "config": "[sources.in2]\ntype = \"test_basic\"\n\n[sinks.out2]\ninputs = [\"in2\"]\ntype = \"test_basic\""}
             }"#, "application/json"))
-            .up_to_n_times(2)
+            .up_to_n_times(1)
             .with_priority(1)
             .mount(&mock_server)
             .await;
@@ -835,6 +850,7 @@ mod tests {
             .respond_with(
                 ResponseTemplate::new(StatusCode::OK).set_body_raw("{}", "application/json"),
             )
+            .up_to_n_times(2)
             .with_priority(2)
             .mount(&mock_server)
             .await;
@@ -889,11 +905,35 @@ mod tests {
         );
         assert_eq!(b.cache.len(), 2, "Pipelines cached");
 
+        // First request for latest revisions should not include revision_id or
+        // profiler_transform_ids
+        assert_eq!(
+            mock_server.received_requests().await.unwrap()[1].body,
+            serde_json::to_vec(&json!({
+                "revisions": [
+                    {"pipeline_id":"pipeline1"},
+                    {"pipeline_id":"pipeline2"}
+                ]
+            }))
+            .unwrap()
+        );
+
         // Second time
         let (config_builder, loaded) = b.build_incrementally().await?;
         assert_eq!(loaded.len(), 0, "No new events");
         assert!(config_builder.is_none(), "No new config");
         assert_eq!(b.cache.len(), 2, "Pipelines still cached");
+
+        // Second request for latest revisions should include "profiler_transform_ids"
+        assert_eq!(
+            mock_server.received_requests().await.unwrap()[3].body,
+            serde_json::to_vec(&json!({
+                "revisions": [
+                    {"pipeline_id":"pipeline1", "revision_id":"rev1"},
+                    {"pipeline_id":"pipeline2", "revision_id":"rev999", "profiler_transform_ids": ["prof1"]}
+                ]
+            })).unwrap()
+        );
 
         // Following times
         let (_, loaded) = b.build_incrementally().await?;
@@ -969,6 +1009,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("revision1"),
+                    profiler_transform_ids: None,
                     config: S!(r#"
                     [sources.in]
                     type="stdin"
@@ -1014,6 +1055,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("revision1"),
+                    profiler_transform_ids: None,
                     config: S!(r#"
                     [sources.in]
                     type="stdin"

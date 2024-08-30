@@ -1,7 +1,6 @@
 use super::config::LokiConfig;
-use crate::{
-    config::SinkContext, http::HttpClient, mezmo::user_trace::MezmoUserLog, user_log_error,
-};
+use crate::{config::SinkContext, http::HttpClient};
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 use vrl::value::Value;
 
 async fn fetch_status(

@@ -14,7 +14,6 @@ use crate::sinks::util::service::TowerRequestConfigDefaults;
 use crate::{
     codecs::{Encoder, EncodingConfigWithFraming, SinkType, Transformer},
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
-    mezmo::user_trace::MezmoUserLog,
     sinks::{
         azure_common::{
             self, config::AzureBlobRetryLogic, service::AzureBlobService, sink::AzureBlobSink,
@@ -26,8 +25,9 @@ use crate::{
         Healthcheck, VectorSink,
     },
     template::Template,
-    user_log_error, Result,
+    Result,
 };
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 
 // MEZMO: added dependencies for s3-sink file consolidation
 use crate::sinks::azure_blob::file_consolidator_async::{
