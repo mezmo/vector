@@ -1,12 +1,13 @@
 use crate::config::TransformContext;
-use crate::mezmo::MezmoContext;
+use crate::event::BatchNotifier;
 use crate::transforms::mezmo_aggregate_v2::config::{AggregatorLimits, MezmoAggregateV2Config};
 use crate::transforms::mezmo_aggregate_v2::*;
 use assay::assay;
+use mezmo::MezmoContext;
 use serde_json::json;
 use std::collections::BTreeMap;
 use tempfile::tempdir;
-use vector_lib::event::LogEvent;
+use vector_lib::event::{BatchStatus, LogEvent};
 use vrl::btreemap;
 use vrl::value::KeyString;
 
@@ -739,6 +740,28 @@ async fn with_initial_state() {
         ],
         new_res,
     );
+}
+
+#[assay(env = [("POD_NAME", "vector-test0-0")])]
+async fn persist_state_marks_delivered() {
+    let tmp_path = tempdir().expect("Could not create temp dir").into_path();
+    let state_persistence_base_path = tmp_path.to_str();
+    let limits = AggregatorLimits::new(1, 5000, 1, 5);
+
+    let mut target = new_aggregator(None, limits.clone(), state_persistence_base_path).await;
+    let (event, mut batch_recv) = {
+        // The `BatchNotifier` instance is cloned in the call stack for `with_batch_notifier` and
+        // if original isn't dropped, it will prevent the batch status from updating when the finalizers
+        // are dropped.
+        let (notifier, recv) = BatchNotifier::new_with_receiver();
+        let event = counter("a", None, 3.0).with_batch_notifier(&notifier);
+        (event, recv)
+    };
+
+    target.record(event);
+    target.persist_state();
+
+    assert_eq!(batch_recv.try_recv(), Ok(BatchStatus::Delivered));
 }
 
 #[tokio::test]

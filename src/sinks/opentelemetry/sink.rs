@@ -14,19 +14,16 @@ use crate::{
     event::Event,
     http::get_http_scheme_from_uri,
     internal_events::SinkRequestBuildError,
-    mezmo::{
-        user_trace::{MezmoUserLog, UserLoggingError},
-        MezmoContext,
-    },
+    sinks::prelude::*,
     sinks::util::{
         metadata::RequestMetadataBuilder, request_builder::EncodeResult, Compression,
         RequestBuilder, SinkBuilderExt,
     },
-    user_log_error,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::{BoxStream, StreamExt};
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 use tower::Service;
 use vector_lib::{
     config::log_schema,

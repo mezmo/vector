@@ -1,13 +1,11 @@
 use std::collections::BTreeMap;
 use std::time::SystemTime;
 
-use crate::user_log_error;
 use crate::{
     codecs::Transformer,
     config::{AcknowledgementsConfig, GenerateConfig, Input, SinkConfig, SinkContext},
     event::Event,
     http::{Auth, HttpClient},
-    mezmo::user_trace::MezmoUserLog,
     schema,
     sinks::util::{
         http::{HttpEventEncoder, HttpSink, PartitionHttpSink},
@@ -19,6 +17,7 @@ use crate::{
 use bytes::Bytes;
 use futures::{FutureExt, SinkExt};
 use http::{Request, StatusCode, Uri};
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 use serde_json::json;
 use vector_lib::configurable::configurable_component;
 use vector_lib::lookup::PathPrefix;

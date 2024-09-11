@@ -1,10 +1,8 @@
-use crate::{
-    conditions::Condition, mezmo::persistence::PersistenceConnection,
-    mezmo::user_trace::MezmoUserLog, mezmo::MezmoContext, user_log_error,
-};
+use crate::{conditions::Condition, mezmo::persistence::PersistenceConnection};
 use async_stream::stream;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
+use mezmo::{user_log_error, user_trace::MezmoUserLog, MezmoContext};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
@@ -29,6 +27,7 @@ use vrl::{
     value::Value,
 };
 
+use crate::event::{EventStatus, Finalizable};
 #[cfg(test)]
 use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -441,7 +440,7 @@ impl MezmoAggregateV2 {
 
     /// Saves the current `data` to persistent storage. This is intended to be called from the
     /// polling loop on an interval defined by the `state_persistence_tick_ms` field.
-    fn persist_state(&self) {
+    fn persist_state(&mut self) {
         if let Some(state_persistence) = &self.state_persistence {
             let value = serde_json::to_string(&self.data);
             if let Err(err) = value {
@@ -450,7 +449,21 @@ impl MezmoAggregateV2 {
             }
 
             match state_persistence.set(STATE_PERSISTENCE_KEY, &value.unwrap()) {
-                Ok(_) => debug!("MezmoAggregateV2: state persisted"),
+                Ok(_) => {
+                    // LOG-19818: Many usages of the aggregate processor span a time boundary that
+                    // causes heartburn with kafka acknowledgements. If we've persisted the data
+                    // locally, then update the status on the finalizers as delivered; the processor
+                    // will now provide the durability.
+                    for windows in self.data.values_mut() {
+                        for window in windows.iter_mut() {
+                            window
+                                .event
+                                .take_finalizers()
+                                .update_status(EventStatus::Delivered);
+                        }
+                    }
+                    debug!("MezmoAggregateV2: state persisted")
+                }
                 Err(err) => error!("MezmoAggregateV2: failed to persist state: {}", err),
             }
         }
@@ -498,10 +511,17 @@ impl TaskTransform<Event> for MezmoAggregateV2 {
             let mut output:Vec<Event> = Vec::new();
             let mut done = false;
 
-            match &self.state_persistence {
-                Some(_) => debug!("MezmoAggregateV2: state persistence enabled"),
-                None => debug!("MezmoAggregateV2: state persistence not enabled"),
-            }
+            let flush_on_shutdown = match &self.state_persistence {
+                Some(_) => {
+                    debug!("MezmoAggregateV2: state persistence enabled, state will not flush on shutdown");
+                    false
+                },
+                None => {
+                    debug!("MezmoAggregateV2: state persistence not enabled, state will flush on shutdown");
+                    true
+                },
+            };
+
             while !done {
                 select! {
                     _ = flush_interval.tick() => {
@@ -515,9 +535,11 @@ impl TaskTransform<Event> for MezmoAggregateV2 {
                     maybe_event = input_events.next() => {
                         match maybe_event {
                             None => {
-                                for (_, windows) in self.data.iter_mut() {
-                                    for datum in windows.drain(0..) {
-                                        output.push(datum.event);
+                                if flush_on_shutdown {
+                                    for (_, windows) in self.data.iter_mut() {
+                                        for datum in windows.drain(0..) {
+                                            output.push(datum.event);
+                                        }
                                     }
                                 }
                                 done = true;

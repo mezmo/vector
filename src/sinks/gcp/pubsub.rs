@@ -4,6 +4,7 @@ use futures::{FutureExt, SinkExt};
 use http::{Request, Uri};
 use hyper::Body;
 use indoc::indoc;
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 use serde_json::{json, Value};
 use snafu::{ResultExt, Snafu};
 use tokio_util::codec::Encoder as _;
@@ -15,7 +16,6 @@ use crate::{
     event::Event,
     gcp::{GcpAuthConfig, GcpAuthenticator, Scope, PUBSUB_URL},
     http::HttpClient,
-    mezmo::user_trace::MezmoUserLog,
     sinks::{
         gcs_common::config::healthcheck_response,
         util::{
@@ -25,7 +25,6 @@ use crate::{
         Healthcheck, UriParseSnafu, VectorSink,
     },
     tls::{TlsConfig, TlsSettings},
-    user_log_error,
 };
 
 #[derive(Debug, Snafu)]

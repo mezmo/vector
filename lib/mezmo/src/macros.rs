@@ -2,8 +2,8 @@
 #[macro_export]
 macro_rules! callsite {
     ($type:literal) => {{
-        static CALLSITE: $crate::mezmo::callsite::Callsite =
-            $crate::mezmo::callsite::Callsite(std::concat!($type, " ", file!(), ":", line!()));
+        static CALLSITE: $crate::callsite::Callsite =
+            $crate::callsite::Callsite(std::concat!($type, " ", file!(), ":", line!()));
         &CALLSITE
     }};
 }
@@ -17,7 +17,7 @@ macro_rules! callsite {
 #[macro_export]
 macro_rules! user_log {
     ("debug", $user_log:expr, $message:expr, $rate_limit_secs:expr, $captured_data:expr, $vrl_position:expr) => {{
-        use $crate::mezmo::callsite::{Callsite, CallsiteIdentity};
+        use $crate::callsite::{Callsite, CallsiteIdentity};
         static CALLSITE: &'static Callsite = $crate::callsite!("user_log");
         $user_log.debug(
             $message,
@@ -30,7 +30,7 @@ macro_rules! user_log {
         );
     }};
     ("info", $user_log:expr, $message:expr, $rate_limit_secs:expr, $captured_data:expr, $vrl_position:expr) => {{
-        use $crate::mezmo::callsite::{Callsite, CallsiteIdentity};
+        use $crate::callsite::{Callsite, CallsiteIdentity};
         static CALLSITE: &'static Callsite = $crate::callsite!("user_log");
         $user_log.info(
             $message,
@@ -43,7 +43,7 @@ macro_rules! user_log {
         );
     }};
     ("warn", $user_log:expr, $message:expr, $rate_limit_secs:expr, $captured_data:expr, $vrl_position:expr) => {{
-        use $crate::mezmo::callsite::{Callsite, CallsiteIdentity};
+        use $crate::callsite::{Callsite, CallsiteIdentity};
         static CALLSITE: &'static Callsite = $crate::callsite!("user_log");
         $user_log.warn(
             $message,
@@ -56,7 +56,7 @@ macro_rules! user_log {
         );
     }};
     ("error", $user_log:expr, $message:expr, $rate_limit_secs:expr, $captured_data:expr, $vrl_position:expr) => {{
-        use $crate::mezmo::callsite::{Callsite, CallsiteIdentity};
+        use $crate::callsite::{Callsite, CallsiteIdentity};
         static CALLSITE: &'static Callsite = $crate::callsite!("user_log");
         $user_log.error(
             $message,

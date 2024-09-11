@@ -18,7 +18,7 @@ use vector_vrl_functions::set_semantic_meaning::MeaningList;
 use vrl::compiler::runtime::{Runtime, Terminate};
 use vrl::compiler::state::ExternalEnv;
 use vrl::compiler::{CompileConfig, ExpressionError, Function, Program, TypeState, VrlRuntime};
-use vrl::diagnostic::{DiagnosticMessage, Formatter, Note};
+use vrl::diagnostic::{DiagnosticList, DiagnosticMessage, Formatter, Note};
 use vrl::path;
 use vrl::path::ValuePath;
 use vrl::value::{Kind, Value};
@@ -27,11 +27,11 @@ use crate::{
     config::{log_schema, ComponentKey, DataType, Input, TransformConfig, TransformContext},
     event::{Event, TargetEvents, VrlTarget},
     internal_events::{RemapMappingAbort, RemapMappingError},
-    mezmo::{vrl as mezmo_vrl_functions, MezmoContext},
     schema,
     transforms::{SyncTransform, Transform, TransformOutputsBuf},
     Result,
 };
+use mezmo::{functions as mezmo_vrl_functions, MezmoContext};
 
 const DROPPED: &str = "dropped";
 
@@ -132,6 +132,25 @@ pub struct RemapConfig {
     pub runtime: VrlRuntime,
 }
 
+/// The propagated errors should not contain file contents to prevent exposing sensitive data.
+fn redacted_diagnostics(source: &str, diagnostics: DiagnosticList) -> String {
+    let placeholder = '*';
+    // The formatter depends on whitespaces.
+    let redacted_source: String = source
+        .chars()
+        .map(|c| if c.is_whitespace() { c } else { placeholder })
+        .collect();
+    // Remove placeholder chars to hide the content length.
+    format!(
+        "{}{}",
+        "File contents were redacted.",
+        Formatter::new(&redacted_source, diagnostics)
+            .colored()
+            .to_string()
+            .replace(placeholder, " ")
+    )
+}
+
 impl RemapConfig {
     pub(crate) fn compile_vrl_program(
         &self,
@@ -175,16 +194,19 @@ impl RemapConfig {
         }
 
         compile_vrl(&source, &functions, &state, config)
-            .map_err(|diagnostics| {
-                Formatter::new(&source, diagnostics)
+            .map_err(|diagnostics| match self.file {
+                None => Formatter::new(&source, diagnostics)
                     .colored()
                     .to_string()
-                    .into()
+                    .into(),
+                Some(_) => redacted_diagnostics(&source, diagnostics).into(),
             })
             .map(|result| {
                 (
                     result.program,
-                    Formatter::new(&source, result.warnings).to_string(),
+                    Formatter::new(&source, result.warnings)
+                        .colored()
+                        .to_string(),
                     functions,
                     result.config,
                 )

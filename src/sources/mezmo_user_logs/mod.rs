@@ -106,13 +106,13 @@ mod tests {
     use super::*;
     use crate::{
         event::Event,
-        mezmo::{user_trace::MezmoUserLog, MezmoContext},
-        sinks::prelude::Value,
         test_util::{
             collect_ready,
             components::{assert_source_compliance, SOURCE_TAGS},
         },
     };
+    use mezmo::{user_trace::MezmoUserLog, MezmoContext};
+    use vector_lib::event::Value;
 
     // The exitence of the captured data wrapper is a hidden implementation detail.
     // This function will create the wrapper so the values can be tested more directly
@@ -137,13 +137,13 @@ mod tests {
             let id = "v1:kafka:internal_source:component_abc:pipeline_123:account_123".to_owned();
             let ctx = MezmoContext::try_from(id).ok();
 
-            crate::user_log_debug!(ctx, "debug msg");
-            crate::user_log_info!(ctx, "info msg");
-            crate::user_log_warn!(ctx, "warn msg");
-            crate::user_log_error!(ctx, "error msg");
+            mezmo::user_log_debug!(ctx, "debug msg");
+            mezmo::user_log_info!(ctx, "info msg");
+            mezmo::user_log_warn!(ctx, "warn msg");
+            mezmo::user_log_error!(ctx, "error msg");
 
             // With `captured_data` using the `user_log` macro
-            crate::user_log!(
+            mezmo::user_log!(
                 "debug",
                 ctx,
                 "captured debug",
@@ -151,9 +151,9 @@ mod tests {
                 Some("captured string".into()),
                 None
             );
-            crate::user_log!("info", ctx, "captured info", None, Some(12345.into()), None);
-            crate::user_log!("warn", ctx, "captured warn", None, Some(false.into()), None);
-            crate::user_log!(
+            mezmo::user_log!("info", ctx, "captured info", None, Some(12345.into()), None);
+            mezmo::user_log!("warn", ctx, "captured warn", None, Some(false.into()), None);
+            mezmo::user_log!(
                 "error",
                 ctx,
                 "captured error",
@@ -161,7 +161,7 @@ mod tests {
                 Some(btreemap! { "my_key" => "my_val"}.into()),
                 None
             );
-            crate::user_log!(
+            mezmo::user_log!(
                 "error",
                 ctx,
                 "captured array error",
@@ -171,12 +171,12 @@ mod tests {
             );
 
             // `captured_data` using the overloaded macros
-            crate::user_log_warn!(
+            mezmo::user_log_warn!(
                 ctx,
                 "overloaded warn msg",
                 captured_data: "overloaded captured string".into()
             );
-            crate::user_log_error!(ctx, "overloaded error msg", captured_data: 54321.into());
+            mezmo::user_log_error!(ctx, "overloaded error msg", captured_data: 54321.into());
 
             let expected: Vec<(&str, &str, Option<Value>)> = vec![
                 ("DEBUG", "debug msg", None),

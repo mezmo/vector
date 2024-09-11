@@ -52,6 +52,15 @@ pub struct MezmoThrottleConfig {
     /// flush interval.
     #[serde(default = "default_state_persistence_max_jitter_ms")]
     pub(super) state_persistence_max_jitter_ms: u64,
+
+    /// Guard rail value that limits the number of unique key field values that the throttle
+    /// component will hold. After this limit point, user errors will be generated.
+    #[serde(default = "default_max_keys_allowed")]
+    pub(super) max_keys_allowed: usize,
+}
+
+const fn default_max_keys_allowed() -> usize {
+    20_000
 }
 
 const fn default_state_persistence_base_path() -> Option<String> {

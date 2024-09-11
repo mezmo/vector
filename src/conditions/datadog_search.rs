@@ -11,10 +11,8 @@ use vrl::datadog_filter::{
 use vrl::datadog_search_syntax::parse;
 use vrl::datadog_search_syntax::{Comparison, ComparisonValue, Field};
 
-use crate::{
-    conditions::{Condition, Conditional, ConditionalConfig},
-    mezmo::MezmoContext,
-};
+use crate::conditions::{Condition, Conditional, ConditionalConfig};
+use mezmo::MezmoContext;
 
 /// A condition that uses the [Datadog Search](https://docs.datadoghq.com/logs/explorer/search_syntax/) query syntax against an event.
 #[configurable_component]
