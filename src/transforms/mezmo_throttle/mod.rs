@@ -1,13 +1,3 @@
-use async_stream::stream;
-use chrono::Utc;
-use futures::{Stream, StreamExt};
-use rand::Rng;
-use serde::{Deserialize, Serialize};
-use snafu::Snafu;
-use std::collections::{HashMap, VecDeque};
-use std::time::Duration;
-use std::{num::NonZeroU32, pin::Pin};
-
 use crate::{
     conditions::{AnyCondition, Condition},
     config::TransformContext,
@@ -17,8 +7,22 @@ use crate::{
     template::Template,
     transforms::TaskTransform,
 };
+use async_stream::stream;
+use chrono::Utc;
+use futures::{Stream, StreamExt};
+use mezmo::user_trace::MezmoUserLog;
+use mezmo::{user_log_error, MezmoContext};
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use snafu::Snafu;
+use std::collections::{HashMap, VecDeque};
+use std::time::Duration;
+use std::{num::NonZeroU32, pin::Pin};
+use vrl::value::Value;
 
 mod config;
+#[cfg(test)]
+mod tests;
 
 // The key for the state persistence db.
 const STATE_PERSISTENCE_KEY: &str = "state";
@@ -77,9 +81,31 @@ impl ThrottleBucket {
         self.deque.push_back(now);
         Some(())
     }
+
+    pub fn still_active(&mut self, now: i64) -> bool {
+        self.retain_recent(now);
+        !self.deque.is_empty()
+    }
+}
+
+fn event_key_value(event: &Event, key_field: &Option<Template>) -> String {
+    let res = key_field.as_ref().and_then(|template| {
+        template
+            .render_string(event)
+            .map_err(|error| {
+                emit!(TemplateRenderingError {
+                    error,
+                    field: Some("key_field"),
+                    drop_event: false,
+                })
+            })
+            .ok()
+    });
+    res.unwrap_or("".to_string())
 }
 
 pub struct Throttle<C: Clock> {
+    mezmo_ctx: Option<MezmoContext>,
     keys: HashMap<String, ThrottleBucket>,
     window_ms: u64,
     threshold: NonZeroU32,
@@ -89,6 +115,7 @@ pub struct Throttle<C: Clock> {
     state_persistence: Option<Box<dyn PersistenceConnection>>,
     state_persistence_tick_ms: u64,
     state_persistence_max_jitter_ms: u64,
+    max_keys_allowed: usize,
 }
 
 impl<C> Throttle<C>
@@ -111,24 +138,23 @@ where
             .map(|condition| condition.build(&context.enrichment_tables, context.mezmo_ctx.clone()))
             .transpose()?;
 
+        let mezmo_ctx = context.mezmo_ctx.clone();
         let state_persistence_tick_ms = config.state_persistence_tick_ms;
         let state_persistence_max_jitter_ms = config.state_persistence_max_jitter_ms;
-        let state_persistence: Option<Box<dyn PersistenceConnection>> = match (
-            &config.state_persistence_base_path,
-            context.mezmo_ctx.clone(),
-        ) {
-            (Some(base_path), Some(mezmo_ctx)) => Some(Box::new(
-                RocksDBPersistenceConnection::new(base_path, &mezmo_ctx)?,
-            )),
-            (_, Some(mezmo_ctx)) => {
-                debug!(
-                    "MezmoThrottle: state persistence not enabled for component {}",
-                    mezmo_ctx.id()
-                );
-                None
-            }
-            (_, _) => None,
-        };
+        let state_persistence: Option<Box<dyn PersistenceConnection>> =
+            match (&config.state_persistence_base_path, &mezmo_ctx) {
+                (Some(base_path), Some(mezmo_ctx)) => Some(Box::new(
+                    RocksDBPersistenceConnection::new(base_path, mezmo_ctx)?,
+                )),
+                (_, Some(mezmo_ctx)) => {
+                    debug!(
+                        "MezmoThrottle: state persistence not enabled for component {}",
+                        mezmo_ctx.id()
+                    );
+                    None
+                }
+                (_, _) => None,
+            };
 
         let initial_data: HashMap<String, ThrottleBucket> = match &state_persistence {
             Some(state_persistence) => load_initial_state(state_persistence),
@@ -145,6 +171,8 @@ where
             state_persistence,
             state_persistence_tick_ms,
             state_persistence_max_jitter_ms,
+            mezmo_ctx,
+            max_keys_allowed: config.max_keys_allowed,
         })
     }
 
@@ -163,6 +191,34 @@ where
                 Err(err) => error!("MezmoThrottle: failed to persist state: {}", err),
             }
         }
+    }
+
+    fn should_throttle(&mut self, event: Event) -> Option<Event> {
+        // LOG-20577: Only add an entry to the throttle HashMap if there is room to protect
+        // the SaaS resources (memory and persistence storage).
+        let key = event_key_value(&event, &self.key_field);
+        if !self.keys.contains_key(&key) && self.keys.len() >= self.max_keys_allowed {
+            user_log_error!(
+                self.mezmo_ctx,
+                "Reached the limit of unique event key values to throttle. Throttle is disabled for this key value.",
+                captured_data: Value::from(key.clone())
+            );
+            return Some(event);
+        }
+
+        self.keys
+            .entry(key.clone())
+            .or_insert_with(|| ThrottleBucket::new(self.window_ms, self.threshold))
+            .accept(self.clock.now())
+            .map(|_| event)
+            .or_else(|| {
+                emit!(ThrottleEventDiscarded {
+                    key,
+                    // Set to true to maintain previous behaviour
+                    emit_events_discarded_per_key: true
+                });
+                None
+            })
     }
 }
 
@@ -230,39 +286,13 @@ where
                                     },
                                     _ => (true, event)
                                 };
+
                                 let output = if throttle {
-
-                                    let key = self.key_field.as_ref().and_then(|t| {
-                                        t.render_string(&event)
-                                            .map_err(|error| {
-                                                emit!(TemplateRenderingError {
-                                                    error,
-                                                    field: Some("key_field"),
-                                                    drop_event: false,
-                                                })
-                                            })
-                                            .ok()
-                                    }).unwrap_or("".to_string());
-
-                                    match self.keys
-                                    .entry(key.clone())
-                                    .or_insert_with(|| ThrottleBucket::new(self.window_ms, self.threshold))
-                                    .accept(self.clock.now()) {
-                                        Some(_) => {
-                                            Some(event)
-                                        }
-                                        None => {
-                                            emit!(ThrottleEventDiscarded{
-                                                key,
-                                                // Set to true to maintain previous behaviour
-                                                emit_events_discarded_per_key: true
-                                            });
-                                            None
-                                        }
-                                    }
+                                    self.should_throttle(event)
                                 } else {
                                     Some(event)
                                 };
+
                                 if let Some(event) = output {
                                     yield event;
                                 }
@@ -271,6 +301,11 @@ where
                         }
                     }
                 };
+
+                // It's important with the limit on the number of entries allowed to remove any of the
+                // entries that are now empty.
+                self.keys.retain(|_, bucket| bucket.still_active(self.clock.now()));
+
                 if done {
                     self.persist_state();
                     break;
@@ -284,362 +319,4 @@ where
 pub enum ConfigError {
     #[snafu(display("`threshold`, and `window_ms` must be non-zero"))]
     NonZero,
-}
-
-#[cfg(test)]
-mod tests {
-    use assay::assay;
-    use std::sync::{
-        atomic::{AtomicI64, Ordering},
-        Arc,
-    };
-    use std::task::Poll;
-    use tempfile::tempdir;
-
-    use futures::SinkExt;
-
-    use super::*;
-    use crate::{
-        event::LogEvent,
-        test_util::components::assert_transform_compliance,
-        transforms::{test::create_topology, Transform},
-    };
-    use config::MezmoThrottleConfig;
-    use mezmo::MezmoContext;
-    use tokio::sync::mpsc;
-    use tokio_stream::wrappers::ReceiverStream;
-
-    #[derive(Clone, Default)]
-    struct MockThrottleClock {
-        now: Arc<AtomicI64>,
-    }
-    impl MockThrottleClock {
-        fn increment_by(&self, i: i64) {
-            self.now.fetch_add(i, Ordering::Relaxed);
-        }
-    }
-    impl Clock for MockThrottleClock {
-        #[inline(always)]
-        fn now(&self) -> i64 {
-            self.now.load(Ordering::Relaxed)
-        }
-    }
-
-    #[test]
-    fn generate_config() {
-        crate::test_util::test_generate_config::<MezmoThrottleConfig>();
-    }
-
-    #[tokio::test]
-    async fn throttle_events() {
-        let clock = MockThrottleClock::default();
-        let config = toml::from_str::<MezmoThrottleConfig>(
-            r#"
-    threshold = 2
-    window_ms = 5
-    "#,
-        )
-        .unwrap();
-
-        let throttle = Throttle::new(&config, &TransformContext::default(), clock.clone())
-            .map(Transform::event_task)
-            .unwrap();
-
-        let throttle = throttle.into_task();
-
-        let (mut tx, rx) = futures::channel::mpsc::channel(10);
-        let mut out_stream = throttle.transform_events(Box::pin(rx));
-
-        // tokio interval is always immediately ready, so we poll once to make sure
-        // we trip it/set the interval in the future
-        assert_eq!(Poll::Pending, futures::poll!(out_stream.next()));
-
-        tx.send(LogEvent::default().into()).await.unwrap();
-        tx.send(LogEvent::default().into()).await.unwrap();
-
-        let mut count = 0_u8;
-        while count < 2 {
-            if let Some(_event) = out_stream.next().await {
-                count += 1;
-            } else {
-                panic!("Unexpectedly received None in output stream");
-            }
-        }
-        assert_eq!(2, count);
-
-        clock.increment_by(2);
-
-        tx.send(LogEvent::default().into()).await.unwrap();
-
-        // We should be back to pending, having the second event dropped
-        assert_eq!(Poll::Pending, futures::poll!(out_stream.next()));
-
-        clock.increment_by(3);
-
-        tx.send(LogEvent::default().into()).await.unwrap();
-
-        // The rate limiter should now be refreshed and allow an additional event through
-        if let Some(_event) = out_stream.next().await {
-        } else {
-            panic!("Unexpectedly received None in output stream");
-        }
-
-        // We should be back to pending, having nothing waiting for us
-        assert_eq!(Poll::Pending, futures::poll!(out_stream.next()));
-
-        tx.disconnect();
-
-        // And still nothing there
-        assert_eq!(Poll::Ready(None), futures::poll!(out_stream.next()));
-    }
-
-    #[tokio::test]
-    async fn throttle_exclude() {
-        let clock = MockThrottleClock::default();
-        let config = toml::from_str::<MezmoThrottleConfig>(
-            r#"
-threshold = 2
-window_ms = 5
-exclude = """
-exists(.special)
-"""
-"#,
-        )
-        .unwrap();
-
-        let throttle = Throttle::new(&config, &TransformContext::default(), clock.clone())
-            .map(Transform::event_task)
-            .unwrap();
-
-        let throttle = throttle.into_task();
-
-        let (mut tx, rx) = futures::channel::mpsc::channel(10);
-        let mut out_stream = throttle.transform_events(Box::pin(rx));
-
-        // tokio interval is always immediately ready, so we poll once to make sure
-        // we trip it/set the interval in the future
-        assert_eq!(Poll::Pending, futures::poll!(out_stream.next()));
-
-        tx.send(LogEvent::default().into()).await.unwrap();
-        tx.send(LogEvent::default().into()).await.unwrap();
-
-        let mut count = 0_u8;
-        while count < 2 {
-            if let Some(_event) = out_stream.next().await {
-                count += 1;
-            } else {
-                panic!("Unexpectedly received None in output stream");
-            }
-        }
-        assert_eq!(2, count);
-
-        clock.increment_by(2);
-
-        tx.send(LogEvent::default().into()).await.unwrap();
-
-        // We should be back to pending, having the second event dropped
-        assert_eq!(Poll::Pending, futures::poll!(out_stream.next()));
-
-        let mut special_log = LogEvent::default();
-        special_log.insert("special", "true");
-        tx.send(special_log.into()).await.unwrap();
-        // The rate limiter should allow this log through regardless of current limit
-        if let Some(_event) = out_stream.next().await {
-        } else {
-            panic!("Unexpectedly received None in output stream");
-        }
-
-        clock.increment_by(3);
-
-        tx.send(LogEvent::default().into()).await.unwrap();
-
-        // The rate limiter should now be refreshed and allow an additional event through
-        if let Some(_event) = out_stream.next().await {
-        } else {
-            panic!("Unexpectedly received None in output stream");
-        }
-
-        // We should be back to pending, having nothing waiting for us
-        assert_eq!(Poll::Pending, futures::poll!(out_stream.next()));
-
-        tx.disconnect();
-
-        // And still nothing there
-        assert_eq!(Poll::Ready(None), futures::poll!(out_stream.next()));
-    }
-
-    #[tokio::test]
-    async fn throttle_buckets() {
-        let clock = MockThrottleClock::default();
-        let config = toml::from_str::<MezmoThrottleConfig>(
-            r#"
-    threshold = 1
-    window_ms = 5
-    key_field = "{{ bucket }}"
-    "#,
-        )
-        .unwrap();
-
-        let throttle = Throttle::new(&config, &TransformContext::default(), clock)
-            .map(Transform::event_task)
-            .unwrap();
-
-        let throttle = throttle.into_task();
-
-        let (mut tx, rx) = futures::channel::mpsc::channel(10);
-        let mut out_stream = throttle.transform_events(Box::pin(rx));
-
-        // tokio interval is always immediately ready, so we poll once to make sure
-        // we trip it/set the interval in the future
-        assert_eq!(Poll::Pending, futures::poll!(out_stream.next()));
-
-        let mut log_a = LogEvent::default();
-        log_a.insert("bucket", "a");
-        let mut log_b = LogEvent::default();
-        log_b.insert("bucket", "b");
-        tx.send(log_a.into()).await.unwrap();
-        tx.send(log_b.into()).await.unwrap();
-
-        let mut count = 0_u8;
-        while count < 2 {
-            if let Some(_event) = out_stream.next().await {
-                count += 1;
-            } else {
-                panic!("Unexpectedly received None in output stream");
-            }
-        }
-        assert_eq!(2, count);
-
-        // We should be back to pending, having nothing waiting for us
-        assert_eq!(Poll::Pending, futures::poll!(out_stream.next()));
-
-        tx.disconnect();
-
-        // And still nothing there
-        assert_eq!(Poll::Ready(None), futures::poll!(out_stream.next()));
-    }
-
-    #[assay(env = [("POD_NAME", "vector-test0-0")])]
-    async fn with_initial_state() {
-        let tmp_path = tempdir().expect("Could not create temp dir").into_path();
-        let state_persistence_base_path = tmp_path.to_str().unwrap();
-
-        let clock = MockThrottleClock::default();
-        let config = toml::from_str::<MezmoThrottleConfig>(
-            format!(
-                r#"
-    threshold = 4
-    window_ms = 5
-    state_persistence_base_path = "{state_persistence_base_path}"
-    "#
-            )
-            .as_str(),
-        )
-        .unwrap();
-
-        let mezmo_ctx = MezmoContext::try_from(
-            "v1:throttle:transform:component_id:pipeline_id:cea71e55-a1ec-4e5f-a5c0-c0e10b1a571c"
-                .to_string(),
-        )
-        .ok();
-        let context = TransformContext {
-            mezmo_ctx,
-            ..Default::default()
-        };
-
-        let mut throttle = Throttle::new(&config, &context, clock.clone()).unwrap();
-
-        // This config allows 4 events over the window.
-        // Initialize the state with 2 events, then send 2 more below to hit the threshold.
-        // Subsequent events do not pass through until the clock is advanced past the window.
-        let mut initial_deque = VecDeque::new();
-        initial_deque.push_back(0);
-        initial_deque.push_back(0);
-        let initial_keys = HashMap::from([(
-            "".to_string(),
-            ThrottleBucket {
-                window_ms: 5,
-                threshold: NonZeroU32::new(4).unwrap(),
-                deque: initial_deque,
-            },
-        )]);
-        throttle.keys = initial_keys;
-        throttle.persist_state();
-
-        let throttle = Transform::event_task(throttle);
-        let throttle = throttle.into_task();
-
-        let (mut tx, rx) = futures::channel::mpsc::channel(10);
-        let mut out_stream = throttle.transform_events(Box::pin(rx));
-
-        // tokio interval is always immediately ready, so we poll once to make sure
-        // we trip it/set the interval in the future
-        assert_eq!(Poll::Pending, futures::poll!(out_stream.next()));
-
-        // Send 2 events to hit the threshold
-        tx.send(LogEvent::default().into()).await.unwrap();
-        tx.send(LogEvent::default().into()).await.unwrap();
-
-        let mut count = 0_u8;
-        while count < 2 {
-            if let Some(_event) = out_stream.next().await {
-                count += 1;
-            } else {
-                panic!("Unexpectedly received None in output stream");
-            }
-        }
-        assert_eq!(2, count);
-
-        clock.increment_by(2);
-
-        tx.send(LogEvent::default().into()).await.unwrap();
-
-        // Pending after the 3rd event (represents the 5th event from this instance)
-        assert_eq!(Poll::Pending, futures::poll!(out_stream.next()));
-
-        clock.increment_by(3);
-
-        tx.send(LogEvent::default().into()).await.unwrap();
-
-        // The rate limiter should now be refreshed and allow an additional event through
-        if let Some(_event) = out_stream.next().await {
-        } else {
-            panic!("Unexpectedly received None in output stream");
-        }
-
-        // We should be back to pending, having nothing waiting for us
-        assert_eq!(Poll::Pending, futures::poll!(out_stream.next()));
-
-        tx.disconnect();
-
-        // And still nothing there
-        assert_eq!(Poll::Ready(None), futures::poll!(out_stream.next()));
-    }
-
-    #[tokio::test]
-    async fn emits_internal_events() {
-        assert_transform_compliance(async move {
-            let config = MezmoThrottleConfig {
-                threshold: 1,
-                window_ms: 1000,
-                key_field: None,
-                exclude: None,
-                state_persistence_base_path: None,
-                state_persistence_tick_ms: 1,
-                state_persistence_max_jitter_ms: 1,
-            };
-            let (tx, rx) = mpsc::channel(1);
-            let (topology, mut out) = create_topology(ReceiverStream::new(rx), config).await;
-
-            let log = LogEvent::from("hello world");
-            tx.send(log.into()).await.unwrap();
-
-            _ = out.recv().await;
-
-            drop(tx);
-            topology.stop().await;
-            assert_eq!(out.recv().await, None);
-        })
-        .await
-    }
 }

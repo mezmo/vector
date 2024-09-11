@@ -1,3 +1,10 @@
+## [4.5.2](https://github.com/answerbook/vector/compare/v4.5.1...v4.5.2) (2024-09-06)
+
+
+### Bug Fixes
+
+* **throttle**: limit number of events stored [083765e](https://github.com/answerbook/vector/commit/083765ec64e66f160a979942577034cc4c047fcc) - Dan Hable [LOG-20577](https://logdna.atlassian.net/browse/LOG-20577)
+
 ## [4.5.1](https://github.com/answerbook/vector/compare/v4.5.0...v4.5.1) (2024-08-15)
 
 
