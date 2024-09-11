@@ -14,6 +14,7 @@ use crate::{
 };
 use http::{Request, StatusCode, Uri};
 use hyper::Body;
+use mezmo::user_log_error;
 use std::fmt;
 use vector_lib::codecs::{encoding::Framer, JsonSerializerConfig, NewlineDelimitedEncoderConfig};
 

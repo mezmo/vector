@@ -110,6 +110,7 @@ members = [
   "lib/k8s-e2e-tests",
   "lib/k8s-test-framework",
   "lib/loki-logproto",
+  "lib/mezmo",
   "lib/portpicker",
   "lib/prometheus-parser",
   "lib/opentelemetry-proto",
@@ -158,6 +159,7 @@ tracing-limit = { path = "lib/tracing-limit" }
 vector-lib = { path = "lib/vector-lib", default-features = false, features = ["vrl"] }
 vector-vrl-functions = { path = "lib/vector-vrl/functions" }
 loki-logproto = { path = "lib/loki-logproto", optional = true }
+mezmo = { path = "lib/mezmo", default-features = false }
 
 # Tokio / Futures
 async-stream = { version = "0.3.5", default-features = false }
@@ -1035,6 +1037,7 @@ disable-resolv-conf = []
 shutdown-tests = ["api", "sinks-blackhole", "sinks-console", "sinks-prometheus", "sources", "transforms-lua", "transforms-remap", "unix"]
 cli-tests = ["sinks-blackhole", "sinks-socket", "sources-demo_logs", "sources-file", "sources-mezmo_demo_logs"]
 test-utils = []
+component-test-utils = []
 
 # End-to-End testing-related features
 all-e2e-tests = [

@@ -13,10 +13,10 @@ use crate::{
     common::datadog,
     config::SinkContext,
     http::{HttpClient, HttpError},
-    mezmo::user_trace::{MezmoUserLog, UserLoggingError},
+    mezmo::user_trace::UserLoggingError,
     sinks::HealthcheckError,
-    user_log_error,
 };
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 
 #[cfg(feature = "sinks-datadog_events")]
 pub mod events;

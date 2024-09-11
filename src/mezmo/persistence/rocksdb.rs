@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::mezmo::MezmoContext;
 use crate::Error;
+use mezmo::MezmoContext;
 
 use super::PersistenceConnection;
 

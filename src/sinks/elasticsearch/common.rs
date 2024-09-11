@@ -15,7 +15,6 @@ use super::{
 use crate::{
     config::SinkContext,
     http::{HttpClient, MaybeAuth},
-    mezmo::user_trace::MezmoUserLog,
     sinks::{
         elasticsearch::{
             ElasticsearchAuthConfig, ElasticsearchCommonMode, ElasticsearchConfig, ParseError,
@@ -25,8 +24,8 @@ use crate::{
     },
     tls::TlsSettings,
     transforms::metric_to_log::MetricToLog,
-    user_log_error,
 };
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 use vrl::value::Value;
 
 #[derive(Debug, Clone)]

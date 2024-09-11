@@ -5,7 +5,6 @@ use crate::{
         pulsar::sink::{healthcheck, PulsarSink},
     },
     template::Template,
-    user_log_error,
 };
 use futures_util::FutureExt;
 use pulsar::{

@@ -1,4 +1,3 @@
-use rand::Rng;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use vector_core::event::metric::mezmo::IntoValue;
@@ -18,7 +17,7 @@ use vector_core::{
 use vector_common::btreemap;
 
 use crate::decoding::format::mezmo::open_telemetry::{
-    nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
+    get_uniq_request_id, nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
 };
 
 pub fn parse_traces_request(bytes: &[u8]) -> vector_common::Result<smallvec::SmallVec<[Event; 1]>> {
@@ -113,9 +112,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                 scope.insert("schema_url".into(), Value::from(scope_spans.schema_url));
 
                 let scope = Value::from(scope);
-
-                let span_uniq_id: [u8; 8] = rand::thread_rng().gen();
-                let span_uniq_id: Value = Value::from(faster_hex::hex_string(&span_uniq_id));
+                let span_uniq_id: Value = Value::from(faster_hex::hex_string(&get_uniq_request_id()));
 
                 acc.extend(scope_spans.spans.into_iter().map(|span| {
                     let links = Value::Array(

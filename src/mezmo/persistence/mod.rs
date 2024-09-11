@@ -1,6 +1,6 @@
 mod rocksdb;
-use crate::mezmo::MezmoContext;
 use crate::Error;
+use mezmo::MezmoContext;
 
 pub(crate) use rocksdb::RocksDBPersistenceConnection;
 

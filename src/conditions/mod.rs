@@ -1,7 +1,8 @@
 #![allow(missing_docs)]
 use vector_lib::configurable::configurable_component;
 
-use crate::{event::Event, mezmo::MezmoContext};
+use crate::event::Event;
+use mezmo::MezmoContext;
 
 mod datadog_search;
 pub(crate) mod is_log;

@@ -138,9 +138,11 @@ impl UsageMetricsKey {
             return false;
         };
 
-        // Only internal instances of the log classification component should be tracked
-        // for profiling.
-        !internal && self.component_type == "mezmo_log_classification"
+        // log classification should be tracked for both
+        // shared source usage and transform profiling
+        !internal
+            && (self.component_type == "mezmo_log_classification"
+                || self.component_type == "data-profiler")
     }
 
     /// Determines whether the component with this key should be tracked for billing
@@ -982,6 +984,11 @@ mod tests {
         assert!(value.is_tracked_for_profiling());
         assert!(!value.is_tracked_for_billing());
 
+        let value: UsageMetricsKey = "v1:data-profiler:transform:comp1:account1".parse().unwrap();
+        assert!(value.is_tracked());
+        assert!(value.is_tracked_for_profiling());
+        assert!(!value.is_tracked_for_billing());
+
         let value: UsageMetricsKey = "v1:filter-by-field:transform:comp1:pipe1:account1"
             .parse()
             .unwrap();
@@ -1044,32 +1051,37 @@ mod tests {
 
     #[assay(env = [("USAGE_METRICS_PROFILE_ENABLED", "true")])]
     fn track_usage_key_profiling_only() {
-        let key: UsageMetricsKey = "v1:mezmo_log_classification:transform:comp1:account1"
-            .parse()
-            .unwrap();
-        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
-        event_map.insert(
-            log_schema().message_key().unwrap().to_string().into(),
-            "the message".into(),
-        );
+        let component_ids = vec![
+            "v1:mezmo_log_classification:transform:comp1:account1",
+            "v1:data-profiler:transform:comp2:account1",
+        ];
 
-        let mut event: LogEvent = event_map.into();
-        event.insert(annotation_path(vec!["app"].as_ref()).as_str(), "app-1");
+        for component_id in component_ids {
+            let key: UsageMetricsKey = component_id.parse().unwrap();
+            let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
+            event_map.insert(
+                log_schema().message_key().unwrap().to_string().into(),
+                "the message".into(),
+            );
 
-        let mut rx = track_usage_test(&key, event);
-        let tracked = rx.try_recv();
-        assert!(tracked.is_ok());
+            let mut event: LogEvent = event_map.into();
+            event.insert(annotation_path(vec!["app"].as_ref()).as_str(), "app-1");
 
-        let tracked = tracked.unwrap();
-        assert_eq!(tracked.key, key, "should be the same key");
-        assert!(
-            tracked.billing.is_none(),
-            "should NOT contain billing metrics"
-        );
-        assert!(
-            tracked.usage_by_annotation.is_some(),
-            "should contain profiling metrics"
-        );
+            let mut rx = track_usage_test(&key, event);
+            let tracked = rx.try_recv();
+            assert!(tracked.is_ok());
+
+            let tracked = tracked.unwrap();
+            assert_eq!(tracked.key, key, "should be the same key");
+            assert!(
+                tracked.billing.is_none(),
+                "should NOT contain billing metrics"
+            );
+            assert!(
+                tracked.usage_by_annotation.is_some(),
+                "should contain profiling metrics"
+            );
+        }
     }
 
     #[test]

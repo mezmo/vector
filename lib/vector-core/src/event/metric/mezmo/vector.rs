@@ -25,6 +25,14 @@ pub enum TransformError {
     NumberTruncation { field: String },
 }
 
+const OTLP_METADATA_FIELDS: [&str; 5] = [
+    "resource",
+    "scope",
+    "attributes",
+    "data_provider",
+    "original_type",
+];
+
 fn parse_value(
     type_name: &str,
     value_object: &BTreeMap<KeyString, Value>,
@@ -202,10 +210,25 @@ fn parse_arbitrary(
         })
         .collect::<BTreeMap<KeyString, Value>>();
 
-    filtered_value.insert(
-        log_schema().user_metadata_key().into(),
-        Value::Object(user_metadata.clone()),
-    );
+    // Fetch OTLP specific metadata fields.
+    let filtered_metadata: BTreeMap<KeyString, Value> = user_metadata
+        .iter()
+        .filter_map(|(key, value)| {
+            let i = OTLP_METADATA_FIELDS.iter().position(|&v| v == key.as_str());
+            if i.is_some() {
+                return Some((key.clone(), value.clone()));
+            }
+
+            None
+        })
+        .collect();
+
+    if !filtered_metadata.is_empty() {
+        filtered_value.insert(
+            log_schema().user_metadata_key().into(),
+            Value::Object(filtered_metadata),
+        );
+    }
 
     MetricArbitrary {
         value: filtered_value,

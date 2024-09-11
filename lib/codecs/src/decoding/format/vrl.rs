@@ -2,6 +2,7 @@ use crate::decoding::format::Deserializer;
 use crate::BytesDeserializerConfig;
 use bytes::Bytes;
 use derivative::Derivative;
+use mezmo::functions as mezmo_vrl_functions;
 use smallvec::{smallvec, SmallVec};
 use vector_config_macros::configurable_component;
 use vector_core::config::{DataType, LogNamespace};
@@ -53,9 +54,12 @@ impl VrlDeserializerConfig {
             external: ExternalEnv::default(),
         };
 
+        let mut functions = vrl::stdlib::all();
+        functions.extend(mezmo_vrl_functions::vrl_functions());
+
         match compile_vrl(
             &self.vrl.source,
-            &vrl::stdlib::all(),
+            &functions,
             &state,
             CompileConfig::default(),
         ) {

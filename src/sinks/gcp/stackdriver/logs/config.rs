@@ -13,10 +13,10 @@ use crate::{
             BoxedRawValue, RealtimeSizeBasedDefaultBatchSettings,
         },
     },
-    user_log_error,
 };
 use http::{Request, Uri};
 use hyper::Body;
+use mezmo::user_log_error;
 use snafu::Snafu;
 use std::collections::HashMap;
 use vector_lib::lookup::lookup_v2::ConfigValuePath;

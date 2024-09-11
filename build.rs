@@ -174,9 +174,13 @@ fn main() {
     let pkg_name = tracker
         .get_env_var("CARGO_PKG_NAME")
         .expect("Cargo-provided environment variables should always exist!");
-    let pkg_version = tracker
-        .get_env_var("CARGO_PKG_VERSION")
-        .expect("Cargo-provided environment variables should always exist!");
+    let pkg_version = if let Some(version) = tracker.get_env_var("RELEASE_VERSION") {
+        version
+    } else {
+        tracker
+            .get_env_var("CARGO_PKG_VERSION")
+            .expect("Cargo-provided environment variables should always exist!")
+    };
     let pkg_description = tracker
         .get_env_var("CARGO_PKG_DESCRIPTION")
         .expect("Cargo-provided environment variables should always exist!");

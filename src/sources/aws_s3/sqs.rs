@@ -32,7 +32,6 @@ use vrl::core::Value;
 
 use crate::codecs::Decoder;
 use crate::event::{Event, LogEvent};
-use crate::mezmo::{user_trace::MezmoUserLog, MezmoContext};
 use crate::sources::util::backoff::LogBackoff;
 use crate::tls::TlsConfig;
 use crate::{
@@ -48,8 +47,9 @@ use crate::{
     shutdown::ShutdownSignal,
     sources::aws_s3::AwsS3Config,
     sources::util::backoff::Backoff,
-    user_log_error, SourceSender,
+    SourceSender,
 };
+use mezmo::{user_log_error, user_trace::MezmoUserLog, MezmoContext};
 use vector_lib::config::{log_schema, LegacyKey, LogNamespace};
 use vector_lib::event::MaybeAsLogMut;
 use vector_lib::lookup::{metadata_path, path, PathPrefix};
