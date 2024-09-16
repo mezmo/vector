@@ -69,6 +69,15 @@ spec:
           namespace: pipeline
           key: config-reduce-byte-threshold-all-states
 
+    - name: mezmo_event_trace_enabled
+      optional: true
+      default: '1'
+      valueFrom:
+        configMapKeyRef:
+            name: vector
+            namespace: pipeline
+            key: event-trace-enable
+
   strTemplates:
   - |
 
@@ -211,6 +220,9 @@ spec:
 
                 - name: AGGREGATION_CARDINALITY_LIMIT
                   value: "{{{aggregation-cardinality-limit}}}"
+
+                - name: MEZMO_EVENT_TRACE_ENABLED
+                  value: "{{{mezmo_event_trace_enabled}}}"
 
                 args:
                   - --config-dir
