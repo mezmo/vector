@@ -25,7 +25,8 @@ spec:
           "requests-memory": "32Gi",
           "requests-storage": "10Gi",
           "storage-class": "gp3-us-east-1a",
-          "limits-memory": "72Gi"
+          "limits-memory": "72Gi",
+          "aggregation-cardinality-limit": 20000
         }]
       valueFrom:
         configMapKeyRef:
@@ -207,6 +208,9 @@ spec:
 
                 - name: REDUCE_BYTE_THRESHOLD_ALL_STATES
                   value: "{{{config_reduce_byte_threshold_all_states}}}"
+
+                - name: AGGREGATION_CARDINALITY_LIMIT
+                  value: {{aggregation-cardinality-limit}}
 
                 args:
                   - --config-dir
