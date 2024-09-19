@@ -1,3 +1,10 @@
+# [4.6.0](https://github.com/answerbook/vector/compare/v4.5.2...v4.6.0) (2024-09-19)
+
+
+### Features
+
+* Read cardinality limit from env if available (#603) [7f73a92](https://github.com/answerbook/vector/commit/7f73a927fb24c4f16a6a7064e3759d0697dee5af) - GitHub [LOG-20626](https://logdna.atlassian.net/browse/LOG-20626)
+
 ## [4.5.2](https://github.com/answerbook/vector/compare/v4.5.1...v4.5.2) (2024-09-06)
 
 
