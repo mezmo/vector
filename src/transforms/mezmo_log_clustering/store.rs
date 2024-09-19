@@ -20,6 +20,7 @@ const DB_MAX_PARALLEL_EXECUTIONS: usize = 8;
 
 const INSERT_USAGE_QUERY: &str = "INSERT INTO usage_metrics_log_cluster (ts, component_id, log_cluster_id, count, size) VALUES ($1, $2, $3, $4, $5)";
 const INSERT_LOG_CLUSTER_QUERY: &str = "INSERT INTO log_clusters (ts, account_id, component_id, log_cluster_id, template, first_seen_at, annotations) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
+const INSERT_LOG_CLUSTER_SAMPLES_QUERY: &str = "INSERT INTO log_clusters_samples (ts, account_id, component_id, log_cluster_id, sample) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING";
 
 async fn init_db_pool(config: Config) -> crate::Result<Pool> {
     let pool = config
@@ -106,6 +107,8 @@ pub(crate) async fn save_in_loop(
                         aggregated_info.annotation_set = info.annotation_set;
                     }
 
+                    info.samples.iter().for_each(|s| aggregated_info.samples.push(s.clone()));
+
                     if new_templates > MAX_NEW_TEMPLATES_QUEUED {
                         break;
                     }
@@ -139,9 +142,12 @@ async fn save(
         }
     };
 
-    let (Ok(usage_stmt), Ok(log_cluster_stmt)) = (
+    let (Ok(usage_stmt), Ok(log_cluster_stmt), Ok(log_cluster_samples_stmt)) = (
         client.prepare_cached(INSERT_USAGE_QUERY).await,
         client.prepare_cached(INSERT_LOG_CLUSTER_QUERY).await,
+        client
+            .prepare_cached(INSERT_LOG_CLUSTER_SAMPLES_QUERY)
+            .await,
     ) else {
         error!("Could not prepare statement for log clustering");
         return;
@@ -150,12 +156,14 @@ async fn save(
     // Use references, avoid copying
     let mut usage: Vec<(&ComponentInfo, &LogGroupAggregateInfo)> = Vec::new();
     let mut log_clusters = Vec::new();
+    let mut log_clusters_samples = Vec::new();
     for (k, v) in aggregated.iter() {
         for (_, aggregate_info) in v.iter() {
             usage.push((k, aggregate_info));
 
             if aggregate_info.template.is_some() {
                 log_clusters.push((k, aggregate_info));
+                log_clusters_samples.push((k, aggregate_info));
             }
         }
     }
@@ -166,6 +174,19 @@ async fn save(
         let iter = Arc::new(Mutex::new(log_clusters.into_iter()));
         let futures = (0..DB_MAX_PARALLEL_EXECUTIONS).map(|_| {
             insert_log_clusters_sequentially(&client, &log_cluster_stmt, Arc::clone(&iter))
+        });
+
+        join_all(futures).await;
+    }
+
+    if !log_clusters_samples.is_empty() {
+        let iter = Arc::new(Mutex::new(log_clusters_samples.into_iter()));
+        let futures = (0..DB_MAX_PARALLEL_EXECUTIONS).map(|_| {
+            insert_log_clusters_samples_sequentially(
+                &client,
+                &log_cluster_samples_stmt,
+                Arc::clone(&iter),
+            )
         });
 
         join_all(futures).await;
@@ -213,6 +234,39 @@ async fn insert_log_clusters(
 
     if let Err(error) = client.execute(stmt, &params).await {
         error!(message = "Log cluster insert failed", %error);
+    }
+}
+
+async fn insert_log_clusters_samples_sequentially(
+    client: &Object,
+    stmt: &Statement,
+    iter: Arc<Mutex<IntoIter<(&ComponentInfo, &LogGroupAggregateInfo)>>>,
+) {
+    while let Some((k, v)) = get_next(Arc::clone(&iter)).await {
+        insert_log_clusters_samples(client, stmt, k, v).await;
+    }
+}
+
+async fn insert_log_clusters_samples(
+    client: &Object,
+    stmt: &Statement,
+    component_info: &ComponentInfo,
+    aggregate_info: &LogGroupAggregateInfo,
+) {
+    for sample in &aggregate_info.samples {
+        let json_set = Json(sample);
+        let ts = Utc::now();
+        let params: Vec<&(dyn ToSql + Sync)> = vec![
+            &ts,
+            &component_info.account_id,
+            &component_info.component_id,
+            &aggregate_info.cluster_id,
+            &json_set,
+        ];
+
+        if let Err(error) = client.execute(stmt, &params).await {
+            error!(message = "Log cluster sample insert failed", %error);
+        }
     }
 }
 

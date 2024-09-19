@@ -1,6 +1,8 @@
 use base64::Engine;
 use blake2::{digest::consts::U8, Blake2b, Digest};
+use lru::LruCache;
 use std::{borrow::Cow, collections::HashMap, fmt::Display, num::NonZeroUsize};
+use vrl::value::Value;
 
 type Blake2b64 = Blake2b<U8>;
 
@@ -11,6 +13,9 @@ pub type LocalId = usize;
 pub struct LogCluster<'a> {
     template_tokens: Vec<Token<'a>>,
     match_count: usize,
+    samples: HashMap<String, LogSample>,
+    samples_count: usize,
+    enough_samples: bool,
     /// The local numeric identifier (auto-incremental)
     id: LocalId,
 }
@@ -18,6 +23,10 @@ pub struct LogCluster<'a> {
 impl<'a> LogCluster<'a> {
     pub const fn match_count(&self) -> usize {
         self.match_count
+    }
+
+    pub fn samples_mut(&mut self) -> &mut HashMap<String, LogSample> {
+        &mut self.samples
     }
 
     /// A global cluster ID that will (hopefully) converge across multiple
@@ -47,6 +56,9 @@ impl<'a> LogCluster<'a> {
                 })
                 .collect(),
             match_count: 1,
+            samples: HashMap::new(),
+            samples_count: 0,
+            enough_samples: false,
             id: cluster_id,
         }
     }
@@ -99,6 +111,18 @@ impl<'a> LogCluster<'a> {
             }
         }
         updated
+    }
+
+    pub fn get_unstored_samples(&self) -> Vec<&LogSample> {
+        self.samples
+            .iter()
+            .filter(|(_, sample)| !sample.is_stored())
+            .map(|(_, sample)| sample)
+            .collect::<Vec<&LogSample>>()
+    }
+
+    fn clear_samples(&mut self) {
+        self.samples = HashMap::new();
     }
 }
 
@@ -179,28 +203,72 @@ pub enum LogClusterStatus {
     None,
 }
 
+#[derive(Debug)]
+pub struct LogSample {
+    pub line: String,
+    pub sample: Value,
+    stored: bool,
+}
+
+impl LogSample {
+    const fn new(line: String) -> Self {
+        Self {
+            line,
+            sample: Value::Null,
+            stored: false,
+        }
+    }
+
+    pub fn id(&self) -> String {
+        let mut hasher = Blake2b64::new();
+        hasher.update(self.line.as_bytes());
+        base64::engine::general_purpose::STANDARD_NO_PAD.encode(hasher.finalize())
+    }
+
+    pub fn sample(mut self, sample: Value) -> Self {
+        self.sample = sample;
+        self
+    }
+
+    pub const fn is_stored(&self) -> bool {
+        self.stored
+    }
+
+    pub fn mark_as_stored(&mut self) -> &Self {
+        if !self.stored {
+            self.stored = true;
+            // Once the sample is stored we don't need potentially heavy object in memory.
+            self.sample = Value::Null;
+        }
+
+        self
+    }
+}
+
 pub struct LogParser<'a> {
     first_level: HashMap<usize, Node<'a>>, // First level keyed by the number of tokens in the log
-    clusters: lru::LruCache<usize, LogCluster<'a>>, // Clusters stored in a cache by cluster ID
+    clusters: LruCache<usize, LogCluster<'a>>, // Clusters stored in a cache by cluster ID
     clusters_count: usize,
     sim_threshold: f64,
     max_node_depth: usize,
     max_children: usize,
     parameterize_numeric_tokens: bool,
     extra_delimiters: Vec<char>,
+    max_log_samples_amount: NonZeroUsize,
 }
 
 impl<'a> LogParser<'a> {
-    pub fn new(max_clusters: NonZeroUsize) -> Self {
+    pub fn new(max_clusters: NonZeroUsize, max_log_samples_amount: NonZeroUsize) -> Self {
         Self {
             first_level: HashMap::new(),
-            clusters: lru::LruCache::new(max_clusters),
+            clusters: LruCache::new(max_clusters),
             clusters_count: 0,
             sim_threshold: 0.4,
             max_node_depth: 8,
             max_children: 40,
             parameterize_numeric_tokens: true,
             extra_delimiters: Vec::new(),
+            max_log_samples_amount,
         }
     }
 
@@ -231,10 +299,22 @@ impl<'a> LogParser<'a> {
         self
     }
 
-    pub fn add_log_line(&mut self, line: &str) -> (&LogCluster, LogClusterStatus) {
+    pub fn mark_cluster_samples_as_stored(&mut self, cluster_id: usize) {
+        if let Some(cluster) = self.clusters.get_mut(&cluster_id) {
+            cluster.samples.iter_mut().for_each(|(_, sample)| {
+                sample.mark_as_stored();
+            });
+        }
+    }
+
+    pub fn add_log_line(
+        &mut self,
+        line: &str,
+        sample_context: Option<&Value>,
+    ) -> (&LogCluster, LogClusterStatus) {
         let tokens = tokenize(line, &self.extra_delimiters);
 
-        match self.tree_search(&tokens) {
+        let (cluster, cluster_status) = match self.tree_search(&tokens) {
             None => {
                 // No cluster found for the log line, create a new cluster.
                 self.clusters_count += 1;
@@ -242,7 +322,7 @@ impl<'a> LogParser<'a> {
                 let cluster = LogCluster::new(cluster_id, self.parameterize_numeric_tokens, tokens);
                 self.add_seq_to_prefix_tree(&cluster); // Add the node path to the new cluster.
                 (
-                    self.clusters.get_or_insert(cluster_id, || cluster),
+                    self.clusters.get_or_insert_mut(cluster_id, || cluster),
                     LogClusterStatus::ChangedTemplate,
                 )
             }
@@ -260,7 +340,33 @@ impl<'a> LogParser<'a> {
                     },
                 )
             }
+        };
+
+        if !cluster.enough_samples {
+            let log_sample = LogSample::new(line.to_string());
+            let log_sample_id = log_sample.id();
+            let samples = cluster.samples_mut();
+
+            // Add unique only samples
+            if let std::collections::hash_map::Entry::Vacant(entry) = samples.entry(log_sample_id) {
+                // Clone and assign a sample_context to a sample only if
+                // the sample is going to be added to a cluster.
+                let log_sample = log_sample.sample(sample_context.unwrap_or(&Value::Null).clone());
+                entry.insert(log_sample);
+                cluster.samples_count += 1;
+
+                if cluster.samples_count >= self.max_log_samples_amount.into() {
+                    // Stop samples collection once the threshold is reached
+                    cluster.enough_samples = true;
+                }
+            }
+        } else if !cluster.samples.is_empty() && cluster.get_unstored_samples().is_empty() {
+            // Clear the samples once the threshold is reached to free up memory.
+            // All samples have to be stored.
+            cluster.clear_samples();
         }
+
+        (cluster, cluster_status)
     }
 
     // Update the prefix tree with the new cluster creating a new node path where necessary.
@@ -412,7 +518,7 @@ fn tokenize<'a>(s: &'a str, extra_delimiters: &[char]) -> Tokens<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    use std::collections::{BTreeMap, HashSet};
     use std::{num::NonZeroUsize, vec};
 
     use super::{tokenize, LogParser};
@@ -438,9 +544,12 @@ mod tests {
             "Dec <*> <*> LabSZ <*> input_userauth_request: invalid user <*> [preauth]",
         ];
 
-        let mut parser = LogParser::new(NonZeroUsize::new(1000).unwrap());
+        let mut parser = LogParser::new(
+            NonZeroUsize::new(1000).unwrap(),
+            NonZeroUsize::new(5).unwrap(),
+        );
         for (line, expected) in lines.iter().zip(expected.iter()) {
-            let (group, _) = parser.add_log_line(line);
+            let (group, _) = parser.add_log_line(line, None);
             let actual = format!("{}", group);
             assert_eq!(expected.to_string(), actual);
         }
@@ -467,11 +576,14 @@ mod tests {
             "Dec <*> <*> LabSZ <*> input_userauth_request: invalid user pgadmin [preauth]",
         ];
 
-        let mut parser = LogParser::new(NonZeroUsize::new(1000).unwrap())
-            .sim_threshold(0.75)
-            .max_node_depth(4);
+        let mut parser = LogParser::new(
+            NonZeroUsize::new(1000).unwrap(),
+            NonZeroUsize::new(5).unwrap(),
+        )
+        .sim_threshold(0.75)
+        .max_node_depth(4);
         for (line, expected) in lines.iter().zip(expected.iter()) {
-            let (group, _) = parser.add_log_line(line);
+            let (group, _) = parser.add_log_line(line, None);
             let actual = format!("{}", group);
             assert_eq!(expected.to_string(), actual);
         }
@@ -479,7 +591,8 @@ mod tests {
 
     #[test]
     fn max_clusters() {
-        let mut parser = LogParser::new(NonZeroUsize::new(1).unwrap()); // Only one max cluster
+        let mut parser =
+            LogParser::new(NonZeroUsize::new(1).unwrap(), NonZeroUsize::new(5).unwrap()); // Only one max cluster
 
         let lines = vec![
             "A format 1",
@@ -498,7 +611,7 @@ mod tests {
         ];
 
         for (line, expected) in lines.iter().zip(expected.iter()) {
-            let (group, _) = parser.add_log_line(line);
+            let (group, _) = parser.add_log_line(line, None);
             let actual = format!("{}", group);
             assert_eq!(expected.0.to_string(), actual);
             assert_eq!(expected.1, group.id);
@@ -507,9 +620,12 @@ mod tests {
 
     #[test]
     fn stable_cluster_id_test() {
-        let mut parser = LogParser::new(NonZeroUsize::new(100).unwrap())
-            .sim_threshold(0.5)
-            .max_node_depth(6);
+        let mut parser = LogParser::new(
+            NonZeroUsize::new(100).unwrap(),
+            NonZeroUsize::new(5).unwrap(),
+        )
+        .sim_threshold(0.5)
+        .max_node_depth(6);
 
         let lines = vec![
             "A format 1",
@@ -537,7 +653,7 @@ mod tests {
 
         let mut cluster_map = HashMap::<usize, HashSet<String>>::new();
         for (line, expected) in lines.iter().zip(expected.iter()) {
-            let (group, _) = parser.add_log_line(line);
+            let (group, _) = parser.add_log_line(line, None);
             let actual = format!("{}", group);
             assert_eq!(expected.to_string(), actual);
             let gen_ids = cluster_map.entry(group.id).or_default();
@@ -553,17 +669,20 @@ mod tests {
 
     #[test]
     fn several_wildcards_followed_by_token_test() {
-        let mut parser = LogParser::new(NonZeroUsize::new(100).unwrap())
-            .sim_threshold(0.9)
-            .max_node_depth(8)
-            .max_children(16);
+        let mut parser = LogParser::new(
+            NonZeroUsize::new(100).unwrap(),
+            NonZeroUsize::new(5).unwrap(),
+        )
+        .sim_threshold(0.9)
+        .max_node_depth(8)
+        .max_children(16);
 
         let lines = vec![
             "1 x X 0", "1 y Y 0", "1 z Z 0", "1 1 O 0", "1 y Y 0", "1 m M 0", "1 n N 0",
         ];
 
         for line in lines.iter() {
-            let (group, _) = parser.add_log_line(line);
+            let (group, _) = parser.add_log_line(line, None);
             let _actual = format!("{}", group);
         }
         let root = parser.first_level.get(&4).unwrap();
@@ -588,5 +707,107 @@ mod tests {
             &['$', '-'],
         );
         assert_eq!(tokens, vec!["a", "b", "c", "abc", "def", "xyz"]);
+    }
+
+    #[test]
+    fn collect_samples() {
+        let lines = vec![
+            "test message 1",
+            "test message 1",
+            "test message 1",
+            "test message 2",
+            "test message 2",
+            "test message 2",
+            "test message N",
+            "Something completely different 1",
+            "Something completely different 1",
+            "Something completely different 3",
+            "Something completely different 3",
+            "Something completely different 2",
+            "Something completely different 2",
+            "Something completely different N",
+        ];
+
+        let expected = vec![
+            "test message 1",
+            "test message 2",
+            "Something completely different 1",
+            "Something completely different 3",
+        ];
+
+        let mut parser = LogParser::new(
+            NonZeroUsize::new(1000).unwrap(),
+            NonZeroUsize::new(2).unwrap(),
+        );
+
+        let mut stored_samples: Vec<String> = Vec::new();
+
+        for line in lines.iter() {
+            let (group, _) = parser.add_log_line(line, None);
+
+            let samples = group.get_unstored_samples();
+            samples
+                .iter()
+                .for_each(|s| stored_samples.push(s.line.clone()));
+
+            let local_id = group.local_id();
+            parser.mark_cluster_samples_as_stored(local_id);
+        }
+
+        for (line, expected) in stored_samples.iter().zip(expected.iter()) {
+            assert_eq!(*line, expected.to_string());
+        }
+    }
+
+    #[test]
+    fn collect_samples_clear() {
+        let mut parser = LogParser::new(
+            NonZeroUsize::new(1000).unwrap(),
+            NonZeroUsize::new(2).unwrap(),
+        );
+
+        let sample_context = Value::Object(BTreeMap::from([(
+            "message".into(),
+            Value::Object(BTreeMap::from([("foo".into(), "bar".into())])),
+        )]));
+
+        // This line will be added to samples
+        let (group, _) = parser.add_log_line("test message 1", Some(&sample_context));
+        let local_id = group.local_id();
+        assert_eq!(group.samples.len(), 1);
+        assert_eq!(group.samples_count, 1);
+        assert!(!group.enough_samples);
+        assert_eq!(
+            group.get_unstored_samples().first().unwrap().sample,
+            sample_context
+        );
+        // Mark all samples as stored
+        parser.mark_cluster_samples_as_stored(local_id);
+
+        // This line will be added to samples
+        // We are not gonna mark samples as stored to prevent them from being cleared
+        let (group, _) = parser.add_log_line("test message 2", None);
+        assert_eq!(group.samples.len(), 2);
+        assert_eq!(group.samples_count, 2);
+        assert!(group.enough_samples);
+
+        // At this point the threshold is reached
+        let (group, _) = parser.add_log_line("test message 3", None);
+
+        // Samples map should NOT be cleared yet cause there are unstored samples
+        assert_eq!(group.samples.len(), 2);
+        assert_eq!(group.samples_count, 2);
+        assert!(group.enough_samples);
+
+        let local_id = group.local_id();
+        // Mark all samples as stored
+        parser.mark_cluster_samples_as_stored(local_id);
+
+        let (group, _) = parser.add_log_line("test message 4", None);
+
+        // Samples map SHOULD be cleared
+        assert_eq!(group.samples.len(), 0);
+        assert_eq!(group.samples_count, 2);
+        assert!(group.enough_samples);
     }
 }
