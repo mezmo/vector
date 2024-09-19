@@ -1,3 +1,10 @@
+## [4.6.1](https://github.com/answerbook/vector/compare/v4.6.0...v4.6.1) (2024-09-19)
+
+
+### Bug Fixes
+
+* Make cardinality limit config value a string (#605) [c975b89](https://github.com/answerbook/vector/commit/c975b8985829d2e08dec6d238b749f42f5ed9eab) - GitHub [LOG-20630](https://logdna.atlassian.net/browse/LOG-20630)
+
 # [4.6.0](https://github.com/answerbook/vector/compare/v4.5.2...v4.6.0) (2024-09-19)
 
 
