@@ -210,7 +210,7 @@ spec:
                   value: "{{{config_reduce_byte_threshold_all_states}}}"
 
                 - name: AGGREGATION_CARDINALITY_LIMIT
-                  value: {{aggregation-cardinality-limit}}
+                  value: "{{{aggregation-cardinality-limit}}}"
 
                 args:
                   - --config-dir
