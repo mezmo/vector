@@ -26,7 +26,7 @@ spec:
           "requests-storage": "10Gi",
           "storage-class": "gp3-us-east-1a",
           "limits-memory": "72Gi",
-          "aggregation-cardinality-limit": 20000
+          "aggregation-cardinality-limit": "20000"
         }]
       valueFrom:
         configMapKeyRef:
