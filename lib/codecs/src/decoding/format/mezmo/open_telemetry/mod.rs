@@ -30,7 +30,7 @@ use vrl::value::Kind;
 use opentelemetry_rs::Error as OpenTelemetryError;
 
 thread_local! {
-    static OTLP_REQUEST_COUNTER: Cell<u64> = Cell::new(0);
+    static OTLP_REQUEST_COUNTER: Cell<u64> = const { Cell::new(0) };
 }
 
 const MAX_METADATA_SIZE: usize = 32 * 1024;

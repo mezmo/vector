@@ -2,7 +2,7 @@ use std::{collections::HashMap, net::SocketAddr};
 
 use bytes::{Bytes, BytesMut};
 use chrono::Utc;
-use http::{StatusCode, Uri};
+use http::StatusCode;
 use http_serde;
 use tokio_util::codec::Decoder as _;
 use vrl::value::{kind::Collection, Kind};
@@ -22,14 +22,12 @@ use vector_lib::{
 
 use crate::{
     codecs::{Decoder, DecodingConfig},
-    components::validation::*,
     config::{
         GenerateConfig, Resource, SourceAcknowledgementsConfig, SourceConfig, SourceContext,
         SourceOutput,
     },
     event::{Event, Value},
     http::KeepaliveConfig,
-    register_validatable_component,
     serde::{bool_or_struct, default_decoding},
     sources::util::{http::HttpMethod, Encoding, ErrorMessage, HttpSource, HttpSourceAuthConfig},
     tls::TlsEnableableConfig,
@@ -270,30 +268,6 @@ impl Default for SimpleHttpConfig {
 }
 
 impl_generate_config_from_default!(SimpleHttpConfig);
-
-impl ValidatableComponent for SimpleHttpConfig {
-    fn validation_configuration() -> ValidationConfiguration {
-        let config = Self {
-            decoding: Some(DeserializerConfig::Json(Default::default())),
-            ..Default::default()
-        };
-
-        let listen_addr_http = format!("http://{}/", config.address);
-        let uri = Uri::try_from(&listen_addr_http).expect("should not fail to parse URI");
-
-        let external_resource = ExternalResource::new(
-            ResourceDirection::Push,
-            HttpResourceConfig::from_parts(uri, Some(config.method.into())),
-            config
-                .get_decoding_config()
-                .expect("should not fail to get decoding config"),
-        );
-
-        ValidationConfiguration::from_source(Self::NAME, config, Some(external_resource))
-    }
-}
-
-register_validatable_component!(SimpleHttpConfig);
 
 const fn default_http_method() -> HttpMethod {
     HttpMethod::Post
@@ -577,6 +551,7 @@ mod tests {
 
     use crate::sources::http_server::HttpMethod;
     use crate::{
+        components::validation::prelude::*,
         config::{log_schema, SourceConfig, SourceContext},
         event::{Event, EventStatus, Value},
         test_util::{
@@ -590,7 +565,7 @@ mod tests {
         Compression,
     };
     use futures::Stream;
-    use http::{HeaderMap, Method, StatusCode};
+    use http::{HeaderMap, Method, StatusCode, Uri};
     use similar_asserts::assert_eq;
     use vector_lib::codecs::{
         decoding::{DeserializerConfig, FramingConfig},
@@ -1741,4 +1716,35 @@ mod tests {
             );
         }
     }
+
+    impl ValidatableComponent for SimpleHttpConfig {
+        fn validation_configuration() -> ValidationConfiguration {
+            let config = Self {
+                decoding: Some(DeserializerConfig::Json(Default::default())),
+                ..Default::default()
+            };
+
+            let listen_addr_http = format!("http://{}/", config.address);
+            let uri = Uri::try_from(&listen_addr_http).expect("should not fail to parse URI");
+
+            let external_resource = ExternalResource::new(
+                ResourceDirection::Push,
+                HttpResourceConfig::from_parts(uri, Some(config.method.into())),
+                config
+                    .get_decoding_config()
+                    .expect("should not fail to get decoding config"),
+            );
+
+            ValidationConfiguration::from_source(
+                Self::NAME,
+                vec![ComponentTestCaseConfig::from_source(
+                    config,
+                    None,
+                    Some(external_resource),
+                )],
+            )
+        }
+    }
+
+    register_validatable_component!(SimpleHttpConfig);
 }

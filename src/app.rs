@@ -418,99 +418,99 @@ async fn handle_signal(
             // We use build_no_validation() to speed up building
             // Configs were fully validated when generated and better errors
             // won't help us much at this point (as it will blow up anyway)
-            let new_config = config_builder
+            if let Ok(new_config) = config_builder
                 .build_no_validation()
                 .map_err(handle_config_errors)
-                .ok();
+            {
+                emit!(MezmoConfigCompile {
+                    elapsed: Instant::now() - start
+                });
 
-            emit!(MezmoConfigCompile {
-                elapsed: Instant::now() - start
-            });
+                let mut reload_outcome = None;
+                let reload_future =
+                    topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone()));
 
-            let mut reload_outcome = ReloadOutcome::NoConfig;
-            let reload_future =
-                topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone()));
+                tokio::pin!(reload_future);
 
-            tokio::pin!(reload_future);
-
-            // LOG-17772: Set a maximum amount of time to wait for configuration reloading before
-            // triggering corrective action. By default, this will wait for 150 seconds / 2.5 minutes.
-            let config_reload_max_sec = std::env::var("CONFIG_RELOAD_MAX_SEC").unwrap_or_else(|_| {
+                // LOG-17772: Set a maximum amount of time to wait for configuration reloading before
+                // triggering corrective action. By default, this will wait for 150 seconds / 2.5 minutes.
+                let config_reload_max_sec = std::env::var("CONFIG_RELOAD_MAX_SEC").unwrap_or_else(|_| {
                 warn!("couldn't read value for CONFIG_RELOAD_MAX_SEC env var, default will be used");
                 "150".to_owned()
             });
-            let config_reload_max_sec = config_reload_max_sec.parse::<usize>().unwrap_or_else(|_| {
+                let config_reload_max_sec = config_reload_max_sec.parse::<usize>().unwrap_or_else(|_| {
                 warn!("failed to parse CONFIG_RELOAD_MAX_SEC value {config_reload_max_sec}, default will be used");
                 150
             });
-            let mut reload_future_done = false;
-            for i in 1..=config_reload_max_sec {
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                        info!("Waiting for topology to be reloaded after {i} secs")
-                    },
-                    outcome = &mut reload_future => {
-                        reload_outcome = outcome;
-                        reload_future_done = true;
-                        break;
+                let mut reload_future_done = false;
+                for i in 1..=config_reload_max_sec {
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                            info!("Waiting for topology to be reloaded after {i} secs")
+                        },
+                        outcome = &mut reload_future => {
+                            reload_outcome = Some(outcome);
+                            reload_future_done = true;
+                            break;
+                        }
                     }
                 }
-            }
 
-            let elapsed = Instant::now() - start;
+                let elapsed = Instant::now() - start;
 
-            // LOG-17772: If the config reload future doesn't resolve in the allotted
-            // time, then crash the vector process and allow k8s to respawn the process
-            // in order to get config reloading to work again. Note that panic! doesn't
-            // work to terminate the process since the higher level code traps the panic
-            // and prevents termination.
-            if !reload_future_done {
-                emit!(MezmoConfigReload {
-                    elapsed,
-                    success: false
-                });
-                error!("New topology reload future failed to resolved within the limit.");
-                std::process::abort();
-            }
+                // LOG-17772: If the config reload future doesn't resolve in the allotted
+                // time, then crash the vector process and allow k8s to respawn the process
+                // in order to get config reloading to work again. Note that panic! doesn't
+                // work to terminate the process since the higher level code traps the panic
+                // and prevents termination.
+                if !reload_future_done {
+                    emit!(MezmoConfigReload {
+                        elapsed,
+                        success: false
+                    });
+                    error!("New topology reload future failed to resolved within the limit.");
+                    std::process::abort();
+                }
 
-            match reload_outcome {
-                ReloadOutcome::NoConfig => {
-                    emit!(MezmoConfigReload {
-                        elapsed,
-                        success: false
-                    });
-                    warn!("Config reload resulted in no config");
+                match reload_outcome {
+                    Some(ReloadOutcome::MissingApiKey) => {
+                        emit!(MezmoConfigReload {
+                            elapsed,
+                            success: false
+                        });
+                        warn!("Config reload missing API key");
+                    }
+                    Some(ReloadOutcome::Success) => {
+                        emit!(MezmoConfigReload {
+                            elapsed,
+                            success: true
+                        });
+                        info!("Config reload succeeded, took {:?}", elapsed);
+                    }
+                    Some(ReloadOutcome::RolledBack) => {
+                        emit!(MezmoConfigReload {
+                            elapsed,
+                            success: false
+                        });
+                        warn!("Config reload rolled back");
+                    }
+                    Some(ReloadOutcome::FatalError(error)) => {
+                        emit!(MezmoConfigReload {
+                            elapsed,
+                            success: false
+                        });
+                        error!("Config reload fatal error");
+                        return Some(SignalTo::Shutdown(Some(error)));
+                    }
+                    None => {
+                        emit!(MezmoConfigReload {
+                            elapsed,
+                            success: false
+                        });
+                        warn!("Config reload resulted in no config");
+                    }
                 }
-                ReloadOutcome::MissingApiKey => {
-                    emit!(MezmoConfigReload {
-                        elapsed,
-                        success: false
-                    });
-                    warn!("Config reload missing API key");
-                }
-                ReloadOutcome::Success => {
-                    emit!(MezmoConfigReload {
-                        elapsed,
-                        success: true
-                    });
-                    info!("Config reload succeeded, took {:?}", elapsed);
-                }
-                ReloadOutcome::RolledBack => {
-                    emit!(MezmoConfigReload {
-                        elapsed,
-                        success: false
-                    });
-                    warn!("Config reload rolled back");
-                }
-                ReloadOutcome::FatalError(error) => {
-                    emit!(MezmoConfigReload {
-                        elapsed,
-                        success: false
-                    });
-                    error!("Config reload fatal error");
-                    return Some(SignalTo::Shutdown(Some(error)));
-                }
-            }
+            };
             None
         }
         Ok(SignalTo::ReloadFromDisk) => {
@@ -522,18 +522,21 @@ async fn handle_signal(
             }
 
             // Reload config
-            let new_config = config::load_from_paths_with_provider_and_secrets(
+            if let Ok(new_config) = config::load_from_paths_with_provider_and_secrets(
                 &topology_controller.config_paths,
                 signal_handler,
                 allow_empty_config,
             )
             .await
             .map_err(handle_config_errors)
-            .ok();
+            {
+                if let ReloadOutcome::FatalError(error) =
+                    topology_controller.reload(new_config).await
+                {
+                    return Some(SignalTo::Shutdown(Some(error)));
+                }
+            };
 
-            if let ReloadOutcome::FatalError(error) = topology_controller.reload(new_config).await {
-                return Some(SignalTo::Shutdown(Some(error)));
-            }
             None
         }
         Err(RecvError::Lagged(amt)) => {

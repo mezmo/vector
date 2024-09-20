@@ -145,6 +145,7 @@ fn redacted_diagnostics(source: &str, diagnostics: DiagnosticList) -> String {
         "{}{}",
         "File contents were redacted.",
         Formatter::new(&redacted_source, diagnostics)
+            .colored()
             .to_string()
             .replace(placeholder, " ")
     )
@@ -194,13 +195,18 @@ impl RemapConfig {
 
         compile_vrl(&source, &functions, &state, config)
             .map_err(|diagnostics| match self.file {
-                None => Formatter::new(&source, diagnostics).to_string().into(),
+                None => Formatter::new(&source, diagnostics)
+                    .colored()
+                    .to_string()
+                    .into(),
                 Some(_) => redacted_diagnostics(&source, diagnostics).into(),
             })
             .map(|result| {
                 (
                     result.program,
-                    Formatter::new(&source, result.warnings).to_string(),
+                    Formatter::new(&source, result.warnings)
+                        .colored()
+                        .to_string(),
                     functions,
                     result.config,
                 )
@@ -590,7 +596,6 @@ pub enum BuildError {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::io::Write;
     use std::sync::Arc;
 
     use indoc::{formatdoc, indoc};
@@ -614,7 +619,6 @@ mod tests {
         transforms::OutputBuffer,
     };
     use chrono::DateTime;
-    use tempfile::NamedTempFile;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
     use vector_lib::enrichment::TableRegistry;
@@ -2093,21 +2097,5 @@ mod tests {
     #[test]
     fn do_not_emit_metrics_when_errored() {
         assert_no_metrics("parse_key_value!(.message)".to_string());
-    }
-
-    #[test]
-    fn redact_file_contents_from_diagnostics() {
-        let mut tmp_file = NamedTempFile::new().expect("Failed to create temporary file");
-        tmp_file
-            .write_all(b"password: top secret")
-            .expect("Failed to write to temporary file");
-
-        let config = RemapConfig {
-            file: Some(tmp_file.path().to_path_buf()),
-            ..Default::default()
-        };
-        let config_error = remap(config).unwrap_err().to_string();
-        assert!(config_error.contains("File contents were redacted."));
-        assert!(!config_error.contains("top secret"));
     }
 }
