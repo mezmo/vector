@@ -123,8 +123,12 @@ const fn default_flush_tick_ms() -> u64 {
     5
 }
 
-const fn default_mem_cardinality_limit() -> u32 {
-    20_000
+fn default_mem_cardinality_limit() -> u32 {
+    let fallback_value = 20_000;
+    match std::env::var("AGGREGATION_CARDINALITY_LIMIT") {
+        Ok(val) => val.parse::<u32>().unwrap_or(fallback_value), // Fallback if parsing fails
+        Err(_) => fallback_value, // Fallback if the env var is not set
+    }
 }
 
 const fn default_mem_window_limit() -> u32 {
