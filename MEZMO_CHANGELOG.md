@@ -1,3 +1,15 @@
+# [5.1.0](https://github.com/answerbook/vector/compare/v5.0.0...v5.1.0) (2024-09-24)
+
+
+### Features
+
+* **contextual logs**: add contextual logs for data profiling [4d1e5a2](https://github.com/answerbook/vector/commit/4d1e5a24ecf96a245bb217852aefe19ff1b08500) - Sergey Opria [LOG-20584](https://logdna.atlassian.net/browse/LOG-20584)
+
+
+### Miscellaneous
+
+* Merge pull request #604 from answerbook/sopria/LOG-20584 [3311491](https://github.com/answerbook/vector/commit/33114913e7acc599f035efea69a67622a79d1c61) - GitHub [LOG-20584](https://logdna.atlassian.net/browse/LOG-20584)
+
 # [5.0.0](https://github.com/answerbook/vector/compare/v4.6.1...v5.0.0) (2024-09-20)
 
 
