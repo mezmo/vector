@@ -3,7 +3,7 @@ use crate::transforms::mezmo_log_clustering::{
     ComponentInfo, LocalId, LogGroupAggregateInfo, LogGroupInfo,
 };
 use chrono::Utc;
-use deadpool_postgres::{Config, Object, Pool, Runtime};
+use deadpool_postgres::Object;
 use futures_util::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +13,8 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio_postgres::types::{Json, ToSql};
-use tokio_postgres::{NoTls, Statement};
+use tokio_postgres::Statement;
+use vector_lib::mezmo;
 
 const MAX_NEW_TEMPLATES_QUEUED: usize = 100;
 const DB_MAX_PARALLEL_EXECUTIONS: usize = 8;
@@ -22,18 +23,26 @@ const INSERT_USAGE_QUERY: &str = "INSERT INTO usage_metrics_log_cluster (ts, com
 const INSERT_LOG_CLUSTER_QUERY: &str = "INSERT INTO log_clusters (ts, account_id, component_id, log_cluster_id, template, first_seen_at, annotations) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
 const INSERT_LOG_CLUSTER_SAMPLES_QUERY: &str = "INSERT INTO log_clusters_samples (ts, account_id, component_id, log_cluster_id, sample) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING";
 
-async fn init_db_pool(config: Config) -> crate::Result<Pool> {
-    let pool = config
-        .create_pool(Some(Runtime::Tokio1), NoTls)
-        .map_err(|_| "Init pool fail")?;
+async fn init_db_pool() -> crate::Result<String> {
+    let conn_str = match mezmo::postgres::get_connection_string("metrics") {
+        Ok(conn_str) => conn_str,
+        Err(err) => {
+            return Err(format!(
+                "Could not find metrics database connection string in env: {err:?}"
+            )
+            .into())
+        }
+    };
 
     // Preemptively try to connect to the db to fail fast
-    let client = pool.get().await.map_err(|e| {
-        format!(
-            "There was an error connecting to usage metrics db for log clustering: {:?}",
-            e
-        )
-    })?;
+    let client = mezmo::postgres::db_connection(&conn_str)
+        .await
+        .map_err(|e| {
+            format!(
+                "There was an error connecting to usage metrics db for log clustering: {:?}",
+                e
+            )
+        })?;
 
     // Check that the queries are valid on init
     client
@@ -51,18 +60,14 @@ async fn init_db_pool(config: Config) -> crate::Result<Pool> {
         .await
         .map_err(|e| format!("There was an error preparing log clusters query: {:?}", e))?;
 
-    Ok(pool)
+    Ok(conn_str)
 }
 
-pub(crate) async fn save_in_loop(
-    mut rx: UnboundedReceiver<LogGroupInfo>,
-    config: Config,
-    agg_window: Duration,
-) {
-    let pool = match init_db_pool(config).await {
-        Ok(p) => p,
-        Err(error) => {
-            error!(message = "There was error initializing log clustering db client", %error);
+pub(crate) async fn save_in_loop(mut rx: UnboundedReceiver<LogGroupInfo>, agg_window: Duration) {
+    let conn_str = match init_db_pool().await {
+        Ok(conn_str) => conn_str,
+        Err(err) => {
+            error!(message = "There was error initializing log clustering db client", %err);
             error!("No log clustering data will be stored in the db");
             // Dequeue and ignore
             while let Some(_) = rx.recv().await {
@@ -121,12 +126,12 @@ pub(crate) async fn save_in_loop(
             }
         }
 
-        save(&pool, aggregated).await;
+        save(&conn_str, aggregated).await;
     }
 }
 
 async fn save(
-    pool: &Pool,
+    conn_str: &str,
     aggregated: HashMap<ComponentInfo, HashMap<LocalId, LogGroupAggregateInfo>>,
 ) {
     if aggregated.is_empty() {
@@ -134,7 +139,7 @@ async fn save(
     }
 
     let start = Instant::now();
-    let client = match pool.get().await {
+    let client = match mezmo::postgres::db_connection(conn_str).await {
         Ok(client) => client,
         Err(error) => {
             error!(message = "Could not get a client from pool for log clustering", %error);

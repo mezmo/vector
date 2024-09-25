@@ -1,18 +1,13 @@
 use crate::config::EnrichmentTableConfig;
-use deadpool_postgres::{Config, Pool, Runtime};
 use moka::sync::Cache;
 use snafu::Snafu;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{
-    collections::{BTreeMap, HashMap},
-    env,
-};
 use tokio::task::JoinHandle;
-use tokio_postgres::NoTls;
-use url::Url;
 use vector_lib::configurable::configurable_component;
 use vector_lib::enrichment::{Case, Condition, IndexHandle, Table};
+use vector_lib::mezmo;
 use vrl::value::{KeyString, Value};
 
 const QUERY_ALL_STATE_VARIABLES: &str =
@@ -43,83 +38,18 @@ pub enum StateVariablesDBError {
     },
 }
 
-fn get_db_config() -> Result<Config, StateVariablesDBError> {
-    let db_url = match env::var("MEZMO_PIPELINE_DB_URL").ok() {
-        Some(url) => url,
-        _ => {
-            error!(message = "Can't connect to postgres DB. URL not found.",);
-            return Err(StateVariablesDBError::UrlInvalid);
-        }
-    };
-
-    // The library deadpool postgres does not support urls like tokio_postgres::connect
-    // Implement our own
-    let url = Url::parse(db_url.as_str()).map_err(|_| StateVariablesDBError::UrlInvalid)?;
-    if url.scheme() != "postgresql" && url.scheme() != "postgres" {
-        error!(
-            message = "Invalid scheme for state variables enrichment table",
-            scheme = url.scheme()
-        );
-        return Err(StateVariablesDBError::UrlInvalid);
-    }
-
-    let mut cfg = Config::new();
-    cfg.host = url.host().map(|h| h.to_string());
-    cfg.port = url.port();
-    cfg.user = (!url.username().is_empty()).then(|| {
-        urlencoding::decode(url.username())
-            .expect("UTF-8")
-            .to_string()
-    });
-    cfg.password = url
-        .password()
-        .map(|v| urlencoding::decode(v).expect("UTF-8").to_string());
-    if let Some(mut path_segments) = url.path_segments() {
-        if let Some(first) = path_segments.next() {
-            cfg.dbname = Some(first.into());
-        }
-    }
-
-    Ok(cfg)
-}
-
-async fn connect_db() -> Result<Pool, StateVariablesDBError> {
-    let db_config = get_db_config()?;
-
-    let pool = db_config
-        .create_pool(Some(Runtime::Tokio1), NoTls)
-        .map_err(|err| StateVariablesDBError::ConnectionError {
-            message: format!("Could not create DB pool: {err:?}"),
-        })?;
-
-    let client = pool
-        .get()
-        .await
-        .map_err(|err| StateVariablesDBError::ConnectionError {
-            message: format!("Could not get a DB pool connection: {err:?}"),
-        })?;
-
-    // This does not need to be prepared, but leaving it here in case we improve the design to use bind parameters.
-    // Plus, it helps us verify that the db connection is good.
-    client
-        .prepare_cached(QUERY_ALL_STATE_VARIABLES)
-        .await
-        .map_err(|err| StateVariablesDBError::QueryError {
-            message: format!("Could not prepare database query: {err:?}"),
-        })?;
-
-    Ok(pool)
-}
-
 fn get_cache_key(account_id: &str, pipeline_id: &str) -> String {
     format!("{}:{}", account_id, pipeline_id)
 }
 
 async fn fetch_states_from_db(
     cache: &Arc<Cache<String, String>>,
-    pool: &Arc<Pool>,
 ) -> Result<usize, StateVariablesDBError> {
-    match pool.get().await {
+    let Ok(conn_str) = mezmo::postgres::get_connection_string("pipeline") else {
+        error!(message = "Can't connect to postgres DB. URL not found.",);
+        return Err(StateVariablesDBError::UrlInvalid);
+    };
+    match mezmo::postgres::db_connection(&conn_str).await {
         Ok(client) => {
             let result = client.query(QUERY_ALL_STATE_VARIABLES, &[]).await;
             match result {
@@ -172,19 +102,16 @@ impl StateVariables {
     /// Impl for the state variables enrichment table
     pub async fn new() -> Result<Self, StateVariablesDBError> {
         let cache = Arc::new(Cache::new(MAX_CACHE_ENTRIES));
-        let pool = Arc::new(connect_db().await?);
-
-        let row_count = fetch_states_from_db(&cache, &pool).await?;
+        let row_count = fetch_states_from_db(&cache).await?;
         if row_count == 0 {
             warn!("Warning: The state variables DB table appears to be empty");
         }
 
-        let spawn_pool = Arc::clone(&pool);
         let spawn_cache = Arc::clone(&cache);
 
         let state_poller = tokio::task::spawn(async move {
             loop {
-                match fetch_states_from_db(&spawn_cache, &spawn_pool).await {
+                match fetch_states_from_db(&spawn_cache).await {
                     Ok(0) => {
                         warn!("Warning: The state variables DB table appears to be empty")
                     }
