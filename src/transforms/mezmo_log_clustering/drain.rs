@@ -14,8 +14,6 @@ pub struct LogCluster<'a> {
     template_tokens: Vec<Token<'a>>,
     match_count: usize,
     samples: HashMap<String, LogSample>,
-    samples_count: usize,
-    enough_samples: bool,
     /// The local numeric identifier (auto-incremental)
     id: LocalId,
 }
@@ -57,8 +55,6 @@ impl<'a> LogCluster<'a> {
                 .collect(),
             match_count: 1,
             samples: HashMap::new(),
-            samples_count: 0,
-            enough_samples: false,
             id: cluster_id,
         }
     }
@@ -249,6 +245,7 @@ pub struct LogParser<'a> {
     first_level: HashMap<usize, Node<'a>>, // First level keyed by the number of tokens in the log
     clusters: LruCache<usize, LogCluster<'a>>, // Clusters stored in a cache by cluster ID
     clusters_count: usize,
+    samples_counts: HashMap<String, usize>,
     sim_threshold: f64,
     max_node_depth: usize,
     max_children: usize,
@@ -263,6 +260,7 @@ impl<'a> LogParser<'a> {
             first_level: HashMap::new(),
             clusters: LruCache::new(max_clusters),
             clusters_count: 0,
+            samples_counts: HashMap::new(),
             sim_threshold: 0.4,
             max_node_depth: 8,
             max_children: 40,
@@ -342,23 +340,24 @@ impl<'a> LogParser<'a> {
             }
         };
 
-        if !cluster.enough_samples {
+        let cluster_id = cluster.cluster_id();
+        let sample_count = *self.samples_counts.get(&cluster_id).unwrap_or(&0);
+
+        if sample_count < self.max_log_samples_amount.into() {
             let log_sample = LogSample::new(line.to_string());
             let log_sample_id = log_sample.id();
-            let samples = cluster.samples_mut();
 
             // Add unique only samples
-            if let std::collections::hash_map::Entry::Vacant(entry) = samples.entry(log_sample_id) {
+            if let std::collections::hash_map::Entry::Vacant(entry) =
+                cluster.samples_mut().entry(log_sample_id.clone())
+            {
                 // Clone and assign a sample_context to a sample only if
                 // the sample is going to be added to a cluster.
                 let log_sample = log_sample.sample(sample_context.unwrap_or(&Value::Null).clone());
-                entry.insert(log_sample);
-                cluster.samples_count += 1;
 
-                if cluster.samples_count >= self.max_log_samples_amount.into() {
-                    // Stop samples collection once the threshold is reached
-                    cluster.enough_samples = true;
-                }
+                entry.insert(log_sample);
+                let sample_count = sample_count + 1;
+                self.samples_counts.insert(cluster_id, sample_count);
             }
         } else if !cluster.samples.is_empty() && cluster.get_unstored_samples().is_empty() {
             // Clear the samples once the threshold is reached to free up memory.
@@ -754,6 +753,8 @@ mod tests {
             parser.mark_cluster_samples_as_stored(local_id);
         }
 
+        assert_eq!(stored_samples.len(), expected.len());
+
         for (line, expected) in stored_samples.iter().zip(expected.iter()) {
             assert_eq!(*line, expected.to_string());
         }
@@ -773,33 +774,33 @@ mod tests {
 
         // This line will be added to samples
         let (group, _) = parser.add_log_line("test message 1", Some(&sample_context));
+        let cluster_id = group.cluster_id();
         let local_id = group.local_id();
         assert_eq!(group.samples.len(), 1);
-        assert_eq!(group.samples_count, 1);
-        assert!(!group.enough_samples);
         assert_eq!(
             group.get_unstored_samples().first().unwrap().sample,
             sample_context
         );
+        assert_eq!(parser.samples_counts.get(&cluster_id), Some(&1));
+
         // Mark all samples as stored
         parser.mark_cluster_samples_as_stored(local_id);
 
         // This line will be added to samples
         // We are not gonna mark samples as stored to prevent them from being cleared
         let (group, _) = parser.add_log_line("test message 2", None);
+        let cluster_id = group.cluster_id();
         assert_eq!(group.samples.len(), 2);
-        assert_eq!(group.samples_count, 2);
-        assert!(group.enough_samples);
+        assert_eq!(parser.samples_counts.get(&cluster_id), Some(&2));
 
         // At this point the threshold is reached
         let (group, _) = parser.add_log_line("test message 3", None);
+        let cluster_id = group.cluster_id();
+        let local_id = group.local_id();
 
         // Samples map should NOT be cleared yet cause there are unstored samples
         assert_eq!(group.samples.len(), 2);
-        assert_eq!(group.samples_count, 2);
-        assert!(group.enough_samples);
-
-        let local_id = group.local_id();
+        assert_eq!(parser.samples_counts.get(&cluster_id), Some(&2));
         // Mark all samples as stored
         parser.mark_cluster_samples_as_stored(local_id);
 
@@ -807,7 +808,69 @@ mod tests {
 
         // Samples map SHOULD be cleared
         assert_eq!(group.samples.len(), 0);
-        assert_eq!(group.samples_count, 2);
-        assert!(group.enough_samples);
+        assert_eq!(parser.samples_counts.get(&cluster_id), Some(&2));
+    }
+
+    #[test]
+    fn collect_samples_clusters_overflow() {
+        let lines = vec![
+            "[LocalLog partition=__cluster_metadata-0, dir=/tmp/kafka-logs] Deleting segment files LogSegment(baseOffset=3094, size=2160, lastModifiedTime=1727197040113, largestRecordTimestamp=1727197040088),LogSegment(baseOffset=3124, size=2160, lastModifiedTime=1727197055158, largestRecordTimestamp=1727197055133)",
+            "[LocalLog partition=__cluster_metadata-0, dir=/tmp/kafka-logs] Deleting segment files LogSegment(baseOffset=3094, size=2160, lastModifiedTime=1727197040113, largestRecordTimestamp=1727197040088),LogSegment(baseOffset=3124, size=2160, lastModifiedTime=1727197055158, largestRecordTimestamp=1727197055134)",
+            "test message 1",
+            "test message 1",
+            "test message 2",
+            "test message 2",
+            "test message 2",
+            "test message N",
+            "[LocalLog partition=__cluster_metadata-0, dir=/tmp/kafka-logs] Deleting segment files LogSegment(baseOffset=3094, size=2160, lastModifiedTime=1727197040113, largestRecordTimestamp=1727197040088),LogSegment(baseOffset=3124, size=2160, lastModifiedTime=1727197055158, largestRecordTimestamp=1727197055135)",
+            "[LocalLog partition=__cluster_metadata-0, dir=/tmp/kafka-logs] Deleting segment files LogSegment(baseOffset=3094, size=2160, lastModifiedTime=1727197040113, largestRecordTimestamp=1727197040088),LogSegment(baseOffset=3124, size=2160, lastModifiedTime=1727197055158, largestRecordTimestamp=1727197055136)",
+            "Something completely different 1",
+            "Something completely different 1",
+            "Something completely different 3",
+            "Something completely different 3",
+            "Something completely different 2",
+            "Something completely different 2",
+            "Something completely different N",
+            "Successfully connected to Mongo",
+            "Successfully connected to Mongo",
+            "Successfully connected to Mongo",
+            "Successfully connected to Redis",
+            "Successfully connected to Redis",
+            "Successfully connected to Redis",
+        ];
+
+        let expected = vec![
+            "[LocalLog partition=__cluster_metadata-0, dir=/tmp/kafka-logs] Deleting segment files LogSegment(baseOffset=3094, size=2160, lastModifiedTime=1727197040113, largestRecordTimestamp=1727197040088),LogSegment(baseOffset=3124, size=2160, lastModifiedTime=1727197055158, largestRecordTimestamp=1727197055133)",
+            "[LocalLog partition=__cluster_metadata-0, dir=/tmp/kafka-logs] Deleting segment files LogSegment(baseOffset=3094, size=2160, lastModifiedTime=1727197040113, largestRecordTimestamp=1727197040088),LogSegment(baseOffset=3124, size=2160, lastModifiedTime=1727197055158, largestRecordTimestamp=1727197055134)",
+            "test message 1",
+            "test message 2",
+            "Something completely different 1",
+            "Something completely different 3",
+            "Successfully connected to Mongo",
+            "Successfully connected to Redis",
+        ];
+
+        let mut parser =
+            LogParser::new(NonZeroUsize::new(3).unwrap(), NonZeroUsize::new(2).unwrap());
+
+        let mut stored_samples: Vec<String> = Vec::new();
+
+        for line in lines.iter() {
+            let (group, _) = parser.add_log_line(line, None);
+
+            let samples = group.get_unstored_samples();
+            samples
+                .iter()
+                .for_each(|s| stored_samples.push(s.line.clone()));
+
+            let local_id = group.local_id();
+            parser.mark_cluster_samples_as_stored(local_id);
+        }
+
+        assert_eq!(stored_samples.len(), expected.len());
+
+        for (line, expected) in stored_samples.iter().zip(expected.iter()) {
+            assert_eq!(*line, expected.to_string());
+        }
     }
 }
