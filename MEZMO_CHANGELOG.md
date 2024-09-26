@@ -1,3 +1,15 @@
+## [5.2.4](https://github.com/answerbook/vector/compare/v5.2.3...v5.2.4) (2024-09-26)
+
+
+### Bug Fixes
+
+* **contextual logs**: sample overflow fix [3c58d31](https://github.com/answerbook/vector/commit/3c58d312292bd4e75902f93fd2f1120e501b6739) - Sergey Opria [LOG-20654](https://logdna.atlassian.net/browse/LOG-20654)
+
+
+### Miscellaneous
+
+* Merge pull request #614 from answerbook/sopria/LOG-20654 [7d74831](https://github.com/answerbook/vector/commit/7d7483170684968eb1f25d534ce7bedcd97c17fa) - GitHub [LOG-20654](https://logdna.atlassian.net/browse/LOG-20654)
+
 ## [5.2.3](https://github.com/answerbook/vector/compare/v5.2.2...v5.2.3) (2024-09-26)
 
 
