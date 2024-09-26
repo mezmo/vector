@@ -1,3 +1,15 @@
+## [5.2.1](https://github.com/answerbook/vector/compare/v5.2.0...v5.2.1) (2024-09-26)
+
+
+### Bug Fixes
+
+* **postgres**: Use a single connection pool [638cc3e](https://github.com/answerbook/vector/commit/638cc3ebb809b529506ffea2cb17df6a63b87603) - Dan Hable [LOG-20615](https://logdna.atlassian.net/browse/LOG-20615)
+
+
+### Miscellaneous
+
+* Merge pull request #610 from answerbook/dhable/LOG-20615 [8cf4c0f](https://github.com/answerbook/vector/commit/8cf4c0f949603dcc19c67708ffceddb93a13d013) - GitHub [LOG-20615](https://logdna.atlassian.net/browse/LOG-20615)
+
 # [5.2.0](https://github.com/answerbook/vector/compare/v5.1.0...v5.2.0) (2024-09-26)
 
 
