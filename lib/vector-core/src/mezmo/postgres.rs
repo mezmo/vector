@@ -115,7 +115,7 @@ pub async fn db_connection(conn_str: &str) -> Result<Object, DbError> {
     let mut write_lock = DB_POOLS.write().await;
     // It could be possible for two threads not find an entry and both then attempt an init.
     // Check once we have the write lock one more time to see if anything needs to be done.
-    if write_lock.contains_key(conn_str) {
+    if !write_lock.contains_key(conn_str) {
         let pool_cfg = parse_endpoint_url(conn_str)?;
         let pool = create_pool(&pool_cfg)?;
         write_lock.insert(conn_str.to_string(), pool);
