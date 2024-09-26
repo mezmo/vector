@@ -1,3 +1,10 @@
+## [5.2.2](https://github.com/answerbook/vector/compare/v5.2.1...v5.2.2) (2024-09-26)
+
+
+### Chores
+
+* **tests**: adding some additional test cases [26cd427](https://github.com/answerbook/vector/commit/26cd42721ff5777342d595aded188e1bed268f99) - Dan Hable [LOG-20615](https://logdna.atlassian.net/browse/LOG-20615)
+
 ## [5.2.1](https://github.com/answerbook/vector/compare/v5.2.0...v5.2.1) (2024-09-26)
 
 
