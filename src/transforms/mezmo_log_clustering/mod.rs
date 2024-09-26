@@ -1,9 +1,7 @@
-use deadpool_postgres::PoolConfig;
 use std::borrow::Cow;
 use std::time::{Duration, SystemTime};
 use std::{
     collections::{BTreeMap, HashMap},
-    env,
     future::ready,
     num::NonZeroUsize,
 };
@@ -27,13 +25,11 @@ use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogClusterStatus};
 use crate::transforms::mezmo_log_clustering::store::save_in_loop;
 use mezmo::MezmoContext;
 use vector_lib::event::LogEvent;
-use vector_lib::usage_metrics::{get_annotations, get_db_config, AnnotationSet};
+use vector_lib::usage_metrics::{get_annotations, AnnotationSet};
 use vrl::value::Value;
 
 mod drain;
 mod store;
-
-const DEFAULT_DB_CONNECTION_POOL_SIZE: usize = 2;
 
 /// Configuration for the `mezmo_log_clustering` transform.
 #[configurable_component(transform("mezmo_log_clustering"))]
@@ -115,18 +111,6 @@ impl TransformConfig for MezmoLogClusteringConfig {
         // Create a channel with a db connection pool only once
         let mut key = None;
         let db_tx = if self.store_metrics {
-            let db_url = env::var("MEZMO_METRICS_DB_URL").ok();
-            let Some(db_url) = db_url else {
-                return Err(
-                    "Cannot store log clustering metrics without MEZMO_METRICS_DB_URL being set"
-                        .into(),
-                );
-            };
-
-            let Ok(mut config) = get_db_config(db_url.as_str()) else {
-                return Err("Invalid db url".into());
-            };
-            config.pool = Some(PoolConfig::new(DEFAULT_DB_CONNECTION_POOL_SIZE));
             let Some(mezmo_ctx) = context.mezmo_ctx.as_ref() else {
                 return Err("Cannot store log clustering metrics without a component key".into());
             };
@@ -142,7 +126,7 @@ impl TransformConfig for MezmoLogClusteringConfig {
                     // Start saving in the background
                     // This task will be running forever, topology changes should not affect it
                     tokio::spawn(async move {
-                        save_in_loop(rx, config, store_metrics_flush_interval).await;
+                        save_in_loop(rx, store_metrics_flush_interval).await;
                     });
 
                     tx
