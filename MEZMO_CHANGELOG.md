@@ -1,3 +1,10 @@
+## [5.2.3](https://github.com/answerbook/vector/compare/v5.2.2...v5.2.3) (2024-09-26)
+
+
+### Bug Fixes
+
+* **postgres**: fixed stupid logic mistake [603953d](https://github.com/answerbook/vector/commit/603953d4a3eed43c4f94d064e267b2583425e52a) - Dan Hable [LOG-20615](https://logdna.atlassian.net/browse/LOG-20615)
+
 ## [5.2.2](https://github.com/answerbook/vector/compare/v5.2.1...v5.2.2) (2024-09-26)
 
 
