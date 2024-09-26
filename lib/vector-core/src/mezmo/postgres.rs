@@ -191,4 +191,19 @@ mod tests {
         assert_eq!(config.password, Some("A_>BX/WN><ZZ;Bg".to_string()));
         assert_eq!(config.dbname, Some("metrics".to_string()));
     }
+
+    #[test]
+    fn parse_endpoint_url_failures() {
+        let bad_inputs = vec![
+            "",
+            " ",
+            "this is not a valid url!!!!!!!!!",
+            "http://user1:pass@server/db1",
+        ];
+
+        for input in bad_inputs {
+            let actual = parse_endpoint_url(input);
+            assert!(matches!(actual, Err(DbError::DbEndpointUrlInvalid)));
+        }
+    }
 }
