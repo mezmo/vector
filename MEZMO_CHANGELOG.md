@@ -1,3 +1,10 @@
+# [5.2.0](https://github.com/answerbook/vector/compare/v5.1.0...v5.2.0) (2024-09-26)
+
+
+### Features
+
+* **sources**: `demo-logs` can work with user-provided data [cf3680e](https://github.com/answerbook/vector/commit/cf3680e162abd2af0eb2e3300d17c86b771d5808) - Darin Spivey [LOG-20639](https://logdna.atlassian.net/browse/LOG-20639)
+
 # [5.1.0](https://github.com/answerbook/vector/compare/v5.0.0...v5.1.0) (2024-09-24)
 
 
