@@ -1,3 +1,10 @@
+# [5.3.0](https://github.com/answerbook/vector/compare/v5.2.4...v5.3.0) (2024-09-27)
+
+
+### Features
+
+* **tracing**: Mezmo transform tracing [94f66ca](https://github.com/answerbook/vector/commit/94f66ca99036f673f01a56a4e9c4fdf543e167e5) - Dan Hable [LOG-20623](https://logdna.atlassian.net/browse/LOG-20623)
+
 ## [5.2.4](https://github.com/answerbook/vector/compare/v5.2.3...v5.2.4) (2024-09-26)
 
 
