@@ -71,7 +71,7 @@ spec:
 
     - name: mezmo_event_trace_enabled
       optional: true
-      default: '1'
+      default: '0'
       valueFrom:
         configMapKeyRef:
             name: vector
