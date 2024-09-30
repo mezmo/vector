@@ -142,7 +142,7 @@ proptest-derive = "0.4.0"
 serde_json = { version = "1.0.114", default-features = false, features = ["raw_value", "std"] }
 serde = { version = "1.0.197", default-features = false, features = ["alloc", "derive", "rc"] }
 toml = { version = "0.8.12", default-features = false, features = ["display", "parse"] }
-vrl = { version = "0.13.0", git = "ssh://git@github.com/mezmo/vrl.git", ref="v0.19.0", features = ["arbitrary", "cli", "test", "test_framework"] }
+vrl = { version = "0.13.0", git = "ssh://git@github.com/mezmo/vrl.git", ref="v0.20.0", features = ["arbitrary", "cli", "test", "test_framework"] }
 # version 0.1.59 is required by the updated VRL crate
 iana-time-zone = { version = "0.1.60" }
 
@@ -255,8 +255,8 @@ number_prefix = { version = "0.4.0", default-features = false, features = ["std"
 ratatui = { version = "0.26.1", optional = true, default-features = false, features = ["crossterm"] }
 
 # Datadog Pipelines
-# datadog-filter = { package = "datadog-filter", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.14.0" }
-# datadog-search-syntax = { package = "datadog-search-syntax", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.14.0" }
+# datadog-filter = { package = "datadog-filter", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.20.0" }
+# datadog-search-syntax = { package = "datadog-search-syntax", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.20.0" }
 
 hex = { version = "0.4.3", default-features = false } # Do not do `optional`
 sha2 = { version = "0.10.8", default-features = false } # Do not do `optional`
