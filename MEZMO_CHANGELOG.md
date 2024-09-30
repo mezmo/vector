@@ -1,3 +1,10 @@
+# [5.4.0](https://github.com/answerbook/vector/compare/v5.3.0...v5.4.0) (2024-09-30)
+
+
+### Features
+
+* **tracing**: disable event tracing by default [9874e48](https://github.com/answerbook/vector/commit/9874e4841ca828973690db825e6ee54c317ca44b) - Dan Hable [LOG-20623](https://logdna.atlassian.net/browse/LOG-20623)
+
 # [5.3.0](https://github.com/answerbook/vector/compare/v5.2.4...v5.3.0) (2024-09-27)
 
 
