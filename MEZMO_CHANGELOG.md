@@ -1,3 +1,10 @@
+# [5.5.0](https://github.com/answerbook/vector/compare/v5.4.0...v5.5.0) (2024-09-30)
+
+
+### Features
+
+* Bump VRL version to 0.20.0 (#615) [3273917](https://github.com/answerbook/vector/commit/3273917ebe3aa38f56bc980533d36ead7026767e) - GitHub [LOG-20673](https://logdna.atlassian.net/browse/LOG-20673)
+
 # [5.4.0](https://github.com/answerbook/vector/compare/v5.3.0...v5.4.0) (2024-09-30)
 
 
