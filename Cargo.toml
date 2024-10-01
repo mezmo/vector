@@ -256,8 +256,8 @@ number_prefix = { version = "0.4.0", default-features = false, features = ["std"
 ratatui = { version = "0.26.2", optional = true, default-features = false, features = ["crossterm"] }
 
 # Datadog Pipelines
-# datadog-filter = { package = "datadog-filter", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.14.0" }
-# datadog-search-syntax = { package = "datadog-search-syntax", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.14.0" }
+# datadog-filter = { package = "datadog-filter", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.20.0" }
+# datadog-search-syntax = { package = "datadog-search-syntax", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.20.0" }
 
 hex = { version = "0.4.3", default-features = false } # Do not do `optional`
 sha2 = { version = "0.10.8", default-features = false } # Do not do `optional`
@@ -424,9 +424,9 @@ tower-test = "0.4.0"
 vector-lib = { path = "lib/vector-lib", default-features = false, features = ["vrl", "test"] }
 vrl.workspace = true
 
-temp-env = "0.3.1"
 wiremock = "0.5.22"
 zstd = { version = "0.13.0", default-features = false }
+temp-env = "0.3.1"
 
 [patch.crates-io]
 # The upgrade for `tokio-util` >= 0.6.9 is blocked on https://github.com/vectordotdev/vector/issues/11257.
@@ -869,7 +869,7 @@ sinks-blackhole = []
 sinks-chronicle = []
 sinks-clickhouse = []
 sinks-console = []
-sinks-databend = ["dep:databend-client"]
+sinks-databend = ["databend-client"]
 sinks-datadog_events = []
 sinks-datadog_logs = []
 sinks-datadog_metrics = ["protobuf-build", "dep:prost-reflect"]

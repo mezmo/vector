@@ -1,3 +1,81 @@
+# [5.5.0](https://github.com/answerbook/vector/compare/v5.4.0...v5.5.0) (2024-09-30)
+
+
+### Features
+
+* Bump VRL version to 0.20.0 (#615) [3273917](https://github.com/answerbook/vector/commit/3273917ebe3aa38f56bc980533d36ead7026767e) - GitHub [LOG-20673](https://logdna.atlassian.net/browse/LOG-20673)
+
+# [5.4.0](https://github.com/answerbook/vector/compare/v5.3.0...v5.4.0) (2024-09-30)
+
+
+### Features
+
+* **tracing**: disable event tracing by default [9874e48](https://github.com/answerbook/vector/commit/9874e4841ca828973690db825e6ee54c317ca44b) - Dan Hable [LOG-20623](https://logdna.atlassian.net/browse/LOG-20623)
+
+# [5.3.0](https://github.com/answerbook/vector/compare/v5.2.4...v5.3.0) (2024-09-27)
+
+
+### Features
+
+* **tracing**: Mezmo transform tracing [94f66ca](https://github.com/answerbook/vector/commit/94f66ca99036f673f01a56a4e9c4fdf543e167e5) - Dan Hable [LOG-20623](https://logdna.atlassian.net/browse/LOG-20623)
+
+## [5.2.4](https://github.com/answerbook/vector/compare/v5.2.3...v5.2.4) (2024-09-26)
+
+
+### Bug Fixes
+
+* **contextual logs**: sample overflow fix [3c58d31](https://github.com/answerbook/vector/commit/3c58d312292bd4e75902f93fd2f1120e501b6739) - Sergey Opria [LOG-20654](https://logdna.atlassian.net/browse/LOG-20654)
+
+
+### Miscellaneous
+
+* Merge pull request #614 from answerbook/sopria/LOG-20654 [7d74831](https://github.com/answerbook/vector/commit/7d7483170684968eb1f25d534ce7bedcd97c17fa) - GitHub [LOG-20654](https://logdna.atlassian.net/browse/LOG-20654)
+
+## [5.2.3](https://github.com/answerbook/vector/compare/v5.2.2...v5.2.3) (2024-09-26)
+
+
+### Bug Fixes
+
+* **postgres**: fixed stupid logic mistake [603953d](https://github.com/answerbook/vector/commit/603953d4a3eed43c4f94d064e267b2583425e52a) - Dan Hable [LOG-20615](https://logdna.atlassian.net/browse/LOG-20615)
+
+## [5.2.2](https://github.com/answerbook/vector/compare/v5.2.1...v5.2.2) (2024-09-26)
+
+
+### Chores
+
+* **tests**: adding some additional test cases [26cd427](https://github.com/answerbook/vector/commit/26cd42721ff5777342d595aded188e1bed268f99) - Dan Hable [LOG-20615](https://logdna.atlassian.net/browse/LOG-20615)
+
+## [5.2.1](https://github.com/answerbook/vector/compare/v5.2.0...v5.2.1) (2024-09-26)
+
+
+### Bug Fixes
+
+* **postgres**: Use a single connection pool [638cc3e](https://github.com/answerbook/vector/commit/638cc3ebb809b529506ffea2cb17df6a63b87603) - Dan Hable [LOG-20615](https://logdna.atlassian.net/browse/LOG-20615)
+
+
+### Miscellaneous
+
+* Merge pull request #610 from answerbook/dhable/LOG-20615 [8cf4c0f](https://github.com/answerbook/vector/commit/8cf4c0f949603dcc19c67708ffceddb93a13d013) - GitHub [LOG-20615](https://logdna.atlassian.net/browse/LOG-20615)
+
+# [5.2.0](https://github.com/answerbook/vector/compare/v5.1.0...v5.2.0) (2024-09-26)
+
+
+### Features
+
+* **sources**: `demo-logs` can work with user-provided data [cf3680e](https://github.com/answerbook/vector/commit/cf3680e162abd2af0eb2e3300d17c86b771d5808) - Darin Spivey [LOG-20639](https://logdna.atlassian.net/browse/LOG-20639)
+
+# [5.1.0](https://github.com/answerbook/vector/compare/v5.0.0...v5.1.0) (2024-09-24)
+
+
+### Features
+
+* **contextual logs**: add contextual logs for data profiling [4d1e5a2](https://github.com/answerbook/vector/commit/4d1e5a24ecf96a245bb217852aefe19ff1b08500) - Sergey Opria [LOG-20584](https://logdna.atlassian.net/browse/LOG-20584)
+
+
+### Miscellaneous
+
+* Merge pull request #604 from answerbook/sopria/LOG-20584 [3311491](https://github.com/answerbook/vector/commit/33114913e7acc599f035efea69a67622a79d1c61) - GitHub [LOG-20584](https://logdna.atlassian.net/browse/LOG-20584)
+
 # [5.0.0](https://github.com/answerbook/vector/compare/v4.6.1...v5.0.0) (2024-09-20)
 
 

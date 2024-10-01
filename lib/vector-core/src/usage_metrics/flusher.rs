@@ -1,6 +1,7 @@
+use super::{AnnotationMap, AnnotationSet, UsageMetricsKey, UsageMetricsValue};
+use crate::mezmo;
 use async_trait::async_trait;
 use chrono::Utc;
-use deadpool_postgres::{Pool, Runtime};
 use futures::future::join_all;
 use http::{header, HeaderName, HeaderValue};
 use reqwest::Client;
@@ -15,12 +16,9 @@ use std::{cmp, time::Duration};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio_postgres::types::ToSql;
-use tokio_postgres::NoTls;
 use uuid::Uuid;
 use vector_common::internal_event::emit;
 use vector_common::internal_event::usage_metrics::InsertFailed;
-
-use super::{get_db_config, AnnotationMap, AnnotationSet, UsageMetricsKey, UsageMetricsValue};
 
 const INSERT_BILLING_QUERY: &str =
     "INSERT INTO usage_metrics (event_ts, account_id, pipeline_id, component_id, processor, metric, value) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
@@ -45,22 +43,23 @@ pub(crate) enum DbFlusherError {
 }
 
 pub(crate) struct DbFlusher {
-    pool: Pool,
+    conn_str: String,
     processor_name: String,
 }
 
 impl DbFlusher {
-    pub(crate) async fn new(endpoint_url: String, pod_name: &str) -> Result<Self, DbFlusherError> {
-        let cfg = get_db_config(&endpoint_url).map_err(|_| DbFlusherError::UrlInvalid)?;
-        let pool = cfg
-            .create_pool(Some(Runtime::Tokio1), NoTls)
-            .map_err(|_| DbFlusherError::ConnectionError)?;
+    pub(crate) async fn new(pod_name: &str) -> Result<Self, DbFlusherError> {
+        let Ok(conn_str) = mezmo::postgres::get_connection_string("metrics") else {
+            return Err(DbFlusherError::UrlInvalid);
+        };
 
-        // Preemptively try to connect to the db to fail fast
-        let client = pool.get().await.map_err(|error| {
-            error!(message = "There was an error connecting to usage metrics db", %error);
-            DbFlusherError::ConnectionError
-        })?;
+        let client = mezmo::postgres::db_connection(&conn_str)
+            .await
+            .map_err(|error| {
+                error!(message = "There was an error connecting to usage metrics db", %error);
+                DbFlusherError::ConnectionError
+            })?;
+
         // Check that the query is valid on init
         client
             .prepare_cached(INSERT_BILLING_QUERY)
@@ -72,7 +71,7 @@ impl DbFlusher {
 
         let processor_name = format!("app=vector,pod={pod_name},version={VECTOR_VERSION}");
         Ok(Self {
-            pool,
+            conn_str,
             processor_name,
         })
     }
@@ -105,7 +104,7 @@ impl DbFlusher {
             &value,
         ];
 
-        match self.pool.get().await {
+        match mezmo::postgres::db_connection(&self.conn_str).await {
             Ok(client) => {
                 if let Ok(stmt) = client.prepare_cached(INSERT_BILLING_QUERY).await {
                     let result_count = client.execute(&stmt, &params_count);
@@ -154,7 +153,7 @@ impl DbFlusher {
         let params: Vec<&(dyn ToSql + Sync)> =
             vec![&ts, &account_id, &k.component_id, &count, &size, &json_set];
 
-        match self.pool.get().await {
+        match mezmo::postgres::db_connection(&self.conn_str).await {
             Ok(client) => {
                 if let Ok(stmt) = client.prepare_cached(INSERT_PROFILES_QUERY).await {
                     match client.execute(&stmt, &params).await {
@@ -453,34 +452,6 @@ mod tests {
 
     static HTTP_FLUSHER_PATH: &str = "/v1/http-flusher-test";
     static HTTP_FLUSHER_MAX_DELAY: Duration = Duration::from_millis(400);
-
-    #[test]
-    fn get_db_config_test() {
-        let config = get_db_config("postgresql://user1:pass@server/db1").unwrap();
-        assert_eq!(config.host, Some("server".to_string()));
-        assert_eq!(config.user, Some("user1".to_string()));
-        assert_eq!(config.password, Some("pass".to_string()));
-        assert_eq!(config.dbname, Some("db1".to_string()));
-
-        let config = get_db_config("postgres://user1:pass@server/db1?zzz=1").unwrap();
-        assert_eq!(config.host, Some("server".to_string()));
-        assert_eq!(config.user, Some("user1".to_string()));
-        assert_eq!(config.password, Some("pass".to_string()));
-        assert_eq!(config.dbname, Some("db1".to_string()));
-
-        assert!(get_db_config("http://abc.com/sa").is_err());
-        assert!(get_db_config("http://abc.com/sa").is_err());
-
-        let config = get_db_config("postgresql://metrics:A_%3EBX%2FWN%3E%3CZZ%3BBg@pipeline-primary.pipeline.svc:5432/metrics").unwrap();
-        assert_eq!(config.port, Some(5432));
-        assert_eq!(
-            config.host,
-            Some("pipeline-primary.pipeline.svc".to_string())
-        );
-        assert_eq!(config.user, Some("metrics".to_string()));
-        assert_eq!(config.password, Some("A_>BX/WN><ZZ;Bg".to_string()));
-        assert_eq!(config.dbname, Some("metrics".to_string()));
-    }
 
     #[tokio::test]
     async fn http_flusher_should_not_retry_client_errors() {

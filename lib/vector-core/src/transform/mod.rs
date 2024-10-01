@@ -350,8 +350,8 @@ pub fn update_runtime_schema_definition(
 
 #[derive(Debug, Clone)]
 pub struct TransformOutputsBuf {
-    primary_buffer: Option<OutputBuffer>,
-    named_buffers: HashMap<String, OutputBuffer>,
+    pub primary_buffer: Option<OutputBuffer>,
+    pub named_buffers: HashMap<String, OutputBuffer>,
 }
 
 impl TransformOutputsBuf {
@@ -522,7 +522,7 @@ impl OutputBuffer {
         self.0.iter().flat_map(EventArray::iter_events)
     }
 
-    fn events_mut(&mut self) -> impl Iterator<Item = EventMutRef> {
+    pub fn events_mut(&mut self) -> impl Iterator<Item = EventMutRef> {
         self.0.iter_mut().flat_map(EventArray::iter_events_mut)
     }
 

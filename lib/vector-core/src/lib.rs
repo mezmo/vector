@@ -40,6 +40,7 @@ pub mod event;
 pub mod fanout;
 pub mod ipallowlist;
 pub mod metrics;
+pub mod mezmo;
 pub mod partition;
 pub mod schema;
 pub mod serde;
