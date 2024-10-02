@@ -1,3 +1,15 @@
+## [5.5.1](https://github.com/answerbook/vector/compare/v5.5.0...v5.5.1) (2024-10-02)
+
+
+### Bug Fixes
+
+* **mtp**: Expose connection pool param in template [83aec51](https://github.com/answerbook/vector/commit/83aec516ef64ddce1d4ac73764d8b0ac0943a738) - Dan Hable [LOG-20694](https://logdna.atlassian.net/browse/LOG-20694)
+
+
+### Chores
+
+* **deps**: bump deadpool_postgres [e9c8bf1](https://github.com/answerbook/vector/commit/e9c8bf11c5a09e3ebbca92a4b36a792f89f160f9) - Dan Hable [LOG-20694](https://logdna.atlassian.net/browse/LOG-20694)
+
 # [5.5.0](https://github.com/answerbook/vector/compare/v5.4.0...v5.5.0) (2024-09-30)
 
 

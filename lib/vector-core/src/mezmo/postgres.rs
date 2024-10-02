@@ -19,7 +19,7 @@ pub enum DbError {
     PoolError { cause: String },
 }
 
-const DEFAULT_DB_CONNECTION_POOL_SIZE: usize = 8;
+const DEFAULT_DB_CONNECTION_POOL_SIZE: usize = 4;
 
 fn connection_pool_size() -> usize {
     if let Ok(value) = env::var("DB_CONNECTION_POOL_SIZE") {
