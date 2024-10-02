@@ -2846,15 +2846,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "deadpool-postgres"
-version = "0.10.5"
+name = "deadpool"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "836a24a9d49deefe610b8b60c767a7412e9a931d79a89415cd2d2d71630ca8d7"
+checksum = "6541a3916932fe57768d4be0b1ffb5ec7cbf74ca8c903fdfd5c0fe8aa958f0ed"
 dependencies = [
- "deadpool",
- "log",
+ "deadpool-runtime",
+ "num_cpus",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool-postgres"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ab8a4ea925ce79678034870834602a2980f4b88c09e97feb266496dbb4493d2"
+dependencies = [
+ "async-trait",
+ "deadpool 0.12.1",
+ "getrandom 0.2.11",
  "tokio",
  "tokio-postgres",
+ "tracing 0.1.40",
 ]
 
 [[package]]
@@ -4480,7 +4493,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2 0.5.7",
  "tokio",
  "tower-service",
  "tracing 0.1.40",
@@ -9343,7 +9356,7 @@ version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38d1e02fca405f6280643174a50c942219f0bbf4dbf7d480f1dd864d6f211ae5"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "proc-macro2 1.0.78",
  "quote 1.0.35",
  "syn 2.0.48",
@@ -12094,7 +12107,7 @@ dependencies = [
  "assert-json-diff",
  "async-trait",
  "base64 0.21.7",
- "deadpool",
+ "deadpool 0.9.5",
  "futures 0.3.30",
  "futures-timer",
  "http-types",
