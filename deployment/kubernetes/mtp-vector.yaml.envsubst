@@ -78,6 +78,15 @@ spec:
             namespace: pipeline
             key: event-trace-enable
 
+    - name: db_connection_pool_size
+      optional: true
+      default: '4'
+      valueFrom:
+        configMapKeyRef:
+            name: vector
+            namespace: pipeline
+            key: db-connection-pool-size
+
   strTemplates:
   - |
 
@@ -223,6 +232,9 @@ spec:
 
                 - name: MEZMO_EVENT_TRACE_ENABLED
                   value: "{{{mezmo_event_trace_enabled}}}"
+
+                - name: DB_CONNECTION_POOL_SIZE
+                  value: "{{{db_connection_pool_size}}}"
 
                 args:
                   - --config-dir
