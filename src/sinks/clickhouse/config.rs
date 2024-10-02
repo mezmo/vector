@@ -80,6 +80,10 @@ pub struct ClickhouseConfig {
     #[serde(default)]
     pub date_time_best_effort: bool,
 
+    /// Sets `insert_distributed_one_random_shard`, allowing ClickHouse to insert data into a random shard when using Distributed Table Engine.
+    #[serde(default)]
+    pub insert_random_shard: bool,
+
     #[configurable(derived)]
     #[serde(default = "Compression::gzip_default")]
     pub compression: Compression,
@@ -130,6 +134,7 @@ impl SinkConfig for ClickhouseConfig {
             endpoint: endpoint.clone(),
             skip_unknown_fields: self.skip_unknown_fields,
             date_time_best_effort: self.date_time_best_effort,
+            insert_random_shard: self.insert_random_shard,
             compression: self.compression,
         };
 

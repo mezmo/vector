@@ -154,12 +154,6 @@ pub fn build_uri(
     uri.parse::<Uri>()
 }
 
-pub fn config_host_key_target_path() -> OptionalTargetPath {
-    OptionalTargetPath {
-        path: crate::config::log_schema().host_key_target_path().cloned(),
-    }
-}
-
 pub fn config_host_key() -> OptionalValuePath {
     OptionalValuePath {
         path: crate::config::log_schema().host_key().cloned(),
@@ -171,12 +165,6 @@ pub fn config_timestamp_key_target_path() -> OptionalTargetPath {
         path: crate::config::log_schema()
             .timestamp_key_target_path()
             .cloned(),
-    }
-}
-
-pub fn config_timestamp_key() -> OptionalValuePath {
-    OptionalValuePath {
-        path: crate::config::log_schema().timestamp_key().cloned(),
     }
 }
 

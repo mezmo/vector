@@ -14,6 +14,7 @@
     clippy::redundant_async_block,
     clippy::redundant_closure_call
 )]
+#![allow(async_fn_in_trait)]
 
 #[macro_use]
 extern crate tracing;

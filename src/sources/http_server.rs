@@ -1724,6 +1724,8 @@ mod tests {
                 ..Default::default()
             };
 
+            let log_namespace: LogNamespace = config.log_namespace.unwrap_or(false).into();
+
             let listen_addr_http = format!("http://{}/", config.address);
             let uri = Uri::try_from(&listen_addr_http).expect("should not fail to parse URI");
 
@@ -1737,6 +1739,7 @@ mod tests {
 
             ValidationConfiguration::from_source(
                 Self::NAME,
+                log_namespace,
                 vec![ComponentTestCaseConfig::from_source(
                     config,
                     None,

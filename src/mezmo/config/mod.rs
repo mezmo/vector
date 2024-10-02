@@ -421,17 +421,19 @@ async fn generate_config(
 
     let config_str = parts.join("\n");
 
-    let (config_builder, warnings) = config::load::<_, ConfigBuilder>(
+    let config_builder = config::load::<_, ConfigBuilder>(
         config_str.as_bytes(),
         crate::config::format::Format::Toml,
-    )?;
-
-    if !warnings.is_empty() {
-        warn!("{} warnings during config load", warnings.len());
-        for warning in warnings {
-            warn!("Config load warn: {}", warning);
+    )
+    .map_err(|warnings| {
+        if !warnings.is_empty() {
+            warn!("{} warnings during config load", warnings.len());
+            for warning in warnings.iter() {
+                warn!("Config load warn: {}", warning);
+            }
         }
-    }
+        warnings
+    })?;
 
     if !validate_vrl {
         return Ok(config_builder);
@@ -440,7 +442,7 @@ async fn generate_config(
     let start = Instant::now();
     let errors = if let Some((_, r)) = updated {
         // Update only validates the new pipeline's configuration
-        let (config_builder, _) = config::load::<_, ConfigBuilder>(
+        let config_builder = config::load::<_, ConfigBuilder>(
             r.config.as_bytes(),
             crate::config::format::Format::Toml,
         )?;
@@ -542,7 +544,6 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
     }
 }
 
-#[async_trait::async_trait]
 impl ProviderConfig for MezmoPartitionConfig {
     async fn build(&mut self, signal_handler: &mut signal::SignalHandler) -> BuildResult {
         let poll_interval_secs = self.poll_interval_secs;
