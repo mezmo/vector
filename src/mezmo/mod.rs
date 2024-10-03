@@ -4,6 +4,7 @@ use vector_lib::config::log_schema;
 use vector_lib::event::LogEvent;
 
 pub mod config;
+pub mod event_trace;
 #[cfg(feature = "component-persistence")]
 pub mod persistence;
 #[cfg(feature = "api-client")]

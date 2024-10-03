@@ -1,4 +1,3 @@
-use deadpool_postgres::PoolError;
 use snafu::Snafu;
 use tokio_postgres::error::Error as PostgreSQLError;
 
@@ -10,8 +9,8 @@ pub(crate) mod sink;
 
 #[derive(Debug, Snafu)]
 pub enum PostgreSQLSinkError {
-    #[snafu(display("Failed to obtain connection from pool: {}", source))]
-    PoolError { source: PoolError },
+    #[snafu(display("Failed to obtain connection from pool: {}", message))]
+    PoolError { message: String },
 
     #[snafu(display("Failed to execute DB statement: {}", source))]
     SqlError { source: PostgreSQLError },

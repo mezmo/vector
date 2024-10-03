@@ -44,6 +44,7 @@ use super::{
     task::{Task, TaskOutput, TaskResult},
     BuiltBuffer, ConfigDiff,
 };
+use crate::mezmo::event_trace::{MezmoSyncTransformTrace, MezmoTaskTransformTrace};
 use crate::{
     config::{
         ComponentKey, Config, DataType, EnrichmentTableConfig, Input, Inputs, OutputId,
@@ -826,6 +827,7 @@ fn build_sync_transform(
     input_rx: BufferReceiver<EventArray>,
     usage_tracker: Box<dyn OutputUsageTracker>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
+    let t = MezmoSyncTransformTrace::maybe_wrap(node.key.clone(), t);
     let (outputs, controls) = TransformOutputs::new(node.outputs, &node.key);
 
     let runner = Runner::new(
@@ -1021,6 +1023,7 @@ fn build_task_transform(
     outputs: &[TransformOutput],
     usage_tracker: Box<dyn OutputUsageTracker>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
+    let t = MezmoTaskTransformTrace::maybe_wrap(key.clone(), t);
     let (mut fanout, control) = Fanout::new();
 
     let input_rx = crate::utilization::wrap(input_rx.into_stream());

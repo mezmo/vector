@@ -48,8 +48,6 @@ pub struct ApplicationConfig {
     pub internal_topologies: Vec<RunningTopology>,
     #[cfg(feature = "api")]
     pub api: config::api::Options,
-    #[cfg(feature = "enterprise")]
-    pub enterprise: Option<EnterpriseReporter<BoxFuture<'static, ()>>>,
     pub metrics_tx: mpsc::UnboundedSender<UsageMetrics>,
     pub extra_context: ExtraContext,
 }
@@ -89,14 +87,6 @@ impl ApplicationConfig {
         config: Config,
         extra_context: ExtraContext,
     ) -> Result<Self, ExitCode> {
-        // This is ugly, but needed to allow `config` to be mutable for building the enterprise
-        // features, but also avoid a "does not need to be mutable" warning when the enterprise
-        // feature is not enabled.
-        #[cfg(feature = "enterprise")]
-        let mut config = config;
-        #[cfg(feature = "enterprise")]
-        let enterprise = build_enterprise(&mut config, config_paths.clone())?;
-
         let (metrics_tx, metrics_rx) = mpsc::unbounded_channel::<UsageMetrics>();
         start_publishing_metrics(metrics_rx)
             .await
@@ -120,8 +110,6 @@ impl ApplicationConfig {
             internal_topologies: Vec::new(),
             #[cfg(feature = "api")]
             api,
-            #[cfg(feature = "enterprise")]
-            enterprise,
             metrics_tx,
             extra_context,
         })

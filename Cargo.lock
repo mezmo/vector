@@ -2907,15 +2907,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "deadpool-postgres"
-version = "0.10.5"
+name = "deadpool"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "836a24a9d49deefe610b8b60c767a7412e9a931d79a89415cd2d2d71630ca8d7"
+checksum = "6541a3916932fe57768d4be0b1ffb5ec7cbf74ca8c903fdfd5c0fe8aa958f0ed"
 dependencies = [
- "deadpool",
- "log",
+ "deadpool-runtime",
+ "num_cpus",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool-postgres"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ab8a4ea925ce79678034870834602a2980f4b88c09e97feb266496dbb4493d2"
+dependencies = [
+ "async-trait",
+ "deadpool 0.12.1",
+ "getrandom 0.2.15",
  "tokio",
  "tokio-postgres",
+ "tracing 0.1.40",
 ]
 
 [[package]]
@@ -3105,14 +3118,15 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.10.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7eefe29e8dd614abbee51a1616654cab123c4c56850ab83f5b7f1e1f9977bf7c"
+checksum = "5cd50aea158e9a57c9c9075ca7a3dfa4c08d9a468b405832383876f9df85379b"
 dependencies = [
  "bytes 1.6.0",
  "futures-util",
  "moka 0.12.8",
  "octseq",
+ "pin-project-lite",
  "rand 0.8.5",
  "serde",
  "smallvec",
@@ -4591,7 +4605,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.7",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing 0.1.40",
@@ -11072,6 +11086,7 @@ dependencies = [
  "hyper 0.14.30",
  "hyper-openssl",
  "hyper-proxy",
+ "iana-time-zone",
  "indexmap 2.2.6",
  "indoc",
  "infer 0.16.0",
@@ -11552,7 +11567,7 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 [[package]]
 name = "vrl"
 version = "0.16.0"
-source = "git+ssh://git@github.com/mezmo/vrl.git?branch=c-nixon/upstream-0.16#b029734989fab945c88662ef89027d9419da3a0e"
+source = "git+ssh://git@github.com/mezmo/vrl.git?branch=c-nixon/upstream-0.16#c571620cc693c0df43ac97267f2915a19a2e7743"
 dependencies = [
  "aes",
  "ansi_term",
@@ -12235,7 +12250,7 @@ dependencies = [
  "assert-json-diff",
  "async-trait",
  "base64 0.21.7",
- "deadpool",
+ "deadpool 0.9.5",
  "futures 0.3.30",
  "futures-timer",
  "http-types",

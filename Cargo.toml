@@ -142,12 +142,15 @@ proptest-derive = { version = "0.4.0" }
 serde_json = { version = "1.0.117", default-features = false, features = ["raw_value", "std"] }
 serde = { version = "1.0.203", default-features = false, features = ["alloc", "derive", "rc"] }
 toml = { version = "0.8.14", default-features = false, features = ["display", "parse"] }
-vrl = { version = "0.16.0", git = "ssh://git@github.com/mezmo/vrl.git", branch = "c-nixon/upstream-0.16", features = ["arbitrary", "cli", "test", "test_framework"] }
+vrl = { version = "=0.16.0", git = "ssh://git@github.com/mezmo/vrl.git", tag = "v1.0.0", features = ["arbitrary", "cli", "test", "test_framework"] }
+# version 0.1.59 is required by the updated VRL crate
+iana-time-zone = { version = "0.1.60" }
 
 [dependencies]
 pin-project.workspace = true
 clap.workspace = true
 vrl.workspace = true
+iana-time-zone.workspace = true
 proptest = { workspace = true, optional = true }
 proptest-derive = { workspace = true, optional = true }
 
@@ -255,8 +258,8 @@ number_prefix = { version = "0.4.0", default-features = false, features = ["std"
 ratatui = { version = "0.26.3", optional = true, default-features = false, features = ["crossterm"] }
 
 # Datadog Pipelines
-# datadog-filter = { package = "datadog-filter", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.14.0" }
-# datadog-search-syntax = { package = "datadog-search-syntax", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.14.0" }
+# datadog-filter = { package = "datadog-filter", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.20.0" }
+# datadog-search-syntax = { package = "datadog-search-syntax", git = "ssh://git@github.com/mezmo/vrl.git", rev = "v0.20.0" }
 
 hex = { version = "0.4.3", default-features = false } # Do not do `optional`
 sha2 = { version = "0.10.8", default-features = false } # Do not do `optional`
@@ -283,7 +286,7 @@ cidr-utils = { version = "0.6.1", default-features = false }
 colored = { version = "2.1.0", default-features = false }
 csv = { version = "1.3", default-features = false }
 databend-client ={ version = "0.18.3", default-features = false, features = ["rustls"], optional = true }
-deadpool-postgres = { version = "0.10.2"}
+deadpool-postgres = { version = "0.14.0"}
 derivative = { version = "2.2.0", default-features = false }
 dirs-next = { version = "2.0.0", default-features = false, optional = true }
 dyn-clone = { version = "1.0.17", default-features = false }
@@ -747,6 +750,8 @@ transforms-tag_cardinality_limit = ["dep:bloomy", "dep:hashbrown"]
 transforms-throttle = ["dep:governor"]
 transforms-protobuf_to_metric = []
 transforms-protobuf_to_log = []
+
+# Implementations of transforms
 transforms-impl-sample = []
 transforms-impl-dedupe = ["dep:lru"]
 transforms-impl-reduce = []
@@ -908,19 +913,6 @@ sinks-sumo_logic = []
 sinks-webhdfs = ["dep:opendal"]
 sinks-opentelemetry = []
 
-# Datadog integration
-enterprise = [
-  # Mezmo: disabled in favor of *-mezmo feature lists
-  # This feature with the above dependencies is kept for convience of future upstream merges
-  # "sinks-datadog_logs",
-  # "sinks-datadog_metrics",
-  # "sources-host_metrics",
-  # "sources-internal_logs",
-  # "sources-internal_metrics",
-  # "transforms-remap",
-  # "transforms-filter",
-]
-
 # Identifies that the build is a nightly build
 nightly = []
 
@@ -1065,14 +1057,6 @@ vector-unit-test-tests = [
   "transforms-filter",
   "transforms-reduce",
   "sinks-console"
-]
-enterprise-tests = [
-  "enterprise",
-  "sources-demo_logs",
-  "sources-mezmo_demo_logs",
-  "sinks-blackhole",
-  "sinks-loki",
-  "api",
 ]
 
 component-validation-runner = ["dep:tonic", "sources-internal_logs", "sources-internal_metrics", "sources-vector", "sinks-vector"]
