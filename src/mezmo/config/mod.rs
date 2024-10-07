@@ -683,7 +683,7 @@ mod tests {
         };
         let config_builder = b.build_all().await.expect("to build successfully");
         assert!(
-            b.cache.get("pipeline1").is_some(),
+            b.cache.contains_key("pipeline1"),
             "pipeline should be in the cache"
         );
         let result = validate_config(config_builder).await;
@@ -726,7 +726,7 @@ mod tests {
         };
         let config_builder = b.build_all().await.expect("to build successfully");
         assert!(
-            b.cache.get("pipeline1").is_some(),
+            b.cache.contains_key("pipeline1"),
             "pipeline should be in the cache"
         );
         let result = validate_config(config_builder).await;
@@ -780,7 +780,7 @@ mod tests {
         };
         let config_builder = b.build_all().await.expect("to build successfully");
         assert!(
-            b.cache.get("pipeline1").is_none(),
+            !b.cache.contains_key("pipeline1"),
             "pipeline should NOT be in the cache"
         );
         let result = validate_config(config_builder).await;
@@ -993,8 +993,8 @@ mod tests {
 
         let (_, loaded) = b.build_incrementally().await?;
         assert_eq!(loaded.len(), 2, "First reload and then the good pipelines");
-        assert!(b.cache.get("pipeline1").is_some(), "Pipeline 1 cached");
-        assert!(b.cache.get("pipeline4").is_some(), "Pipeline 3 cached");
+        assert!(b.cache.contains_key("pipeline1"), "Pipeline 1 cached");
+        assert!(b.cache.contains_key("pipeline4"), "Pipeline 3 cached");
         assert_eq!(b.cache.len(), 2, "Pipelines cached");
         Ok(())
     }

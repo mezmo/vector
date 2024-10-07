@@ -225,8 +225,8 @@ mod tests {
     fn new_output_buf() -> TransformOutputsBuf {
         TransformOutputsBuf::new_with_capacity(
             vec![
-                TransformOutput::new(DataType::all(), HashMap::new()),
-                TransformOutput::new(DataType::all(), HashMap::new()).with_port("dropped"),
+                TransformOutput::new(DataType::all_bits(), HashMap::new()),
+                TransformOutput::new(DataType::all_bits(), HashMap::new()).with_port("dropped"),
             ],
             1,
         )

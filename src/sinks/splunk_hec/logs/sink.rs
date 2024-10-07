@@ -34,13 +34,13 @@ use vrl::path::OwnedTargetPath;
 //       `None` type and an empty string. This is necessary because `OptionalTargetPath` deserializes an
 //       empty string to a `None` path internally.
 pub struct HecLogsSink<S> {
-    pub context: SinkContext,
     pub service: S,
     pub request_builder: HecLogsRequestBuilder,
     pub batch_settings: BatcherSettings,
     pub sourcetype: Option<Template>,
     pub source: Option<Template>,
     pub index: Option<Template>,
+    #[allow(unused)]
     pub indexed_fields: Vec<OwnedValuePath>,
     pub host_key: Option<OptionalTargetPath>,
     pub timestamp_nanos_key: Option<String>,
@@ -53,6 +53,7 @@ pub struct HecLogData<'a> {
     pub sourcetype: Option<&'a Template>,
     pub source: Option<&'a Template>,
     pub index: Option<&'a Template>,
+    #[allow(unused)]
     pub indexed_fields: &'a [OwnedValuePath],
     pub host_key: Option<OptionalTargetPath>,
     pub timestamp_nanos_key: Option<&'a String>,

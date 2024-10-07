@@ -3,8 +3,6 @@ use std::{num::NonZeroUsize, path::PathBuf, process::ExitStatus, time::Duration}
 
 use exitcode::ExitCode;
 use futures::StreamExt;
-#[cfg(feature = "enterprise")]
-use futures_util::future::BoxFuture;
 use once_cell::race::OnceNonZeroUsize;
 use std::time::Instant;
 use tokio::sync::broadcast::error::RecvError;
@@ -15,11 +13,6 @@ use tokio::{
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use vector_lib::usage_metrics::{start_publishing_metrics, UsageMetrics};
 
-#[cfg(feature = "enterprise")]
-use crate::config::enterprise::{
-    attach_enterprise_components, report_configuration, EnterpriseError, EnterpriseMetadata,
-    EnterpriseReporter,
-};
 use crate::extra_context::ExtraContext;
 #[cfg(feature = "api")]
 use crate::{api, internal_events::ApiStarted};
@@ -55,8 +48,6 @@ pub struct ApplicationConfig {
     pub internal_topologies: Vec<RunningTopology>,
     #[cfg(feature = "api")]
     pub api: config::api::Options,
-    #[cfg(feature = "enterprise")]
-    pub enterprise: Option<EnterpriseReporter<BoxFuture<'static, ()>>>,
     pub metrics_tx: mpsc::UnboundedSender<UsageMetrics>,
     pub extra_context: ExtraContext,
 }
@@ -96,14 +87,6 @@ impl ApplicationConfig {
         config: Config,
         extra_context: ExtraContext,
     ) -> Result<Self, ExitCode> {
-        // This is ugly, but needed to allow `config` to be mutable for building the enterprise
-        // features, but also avoid a "does not need to be mutable" warning when the enterprise
-        // feature is not enabled.
-        #[cfg(feature = "enterprise")]
-        let mut config = config;
-        #[cfg(feature = "enterprise")]
-        let enterprise = build_enterprise(&mut config, config_paths.clone())?;
-
         let (metrics_tx, metrics_rx) = mpsc::unbounded_channel::<UsageMetrics>();
         start_publishing_metrics(metrics_rx)
             .await
@@ -127,8 +110,6 @@ impl ApplicationConfig {
             internal_topologies: Vec::new(),
             #[cfg(feature = "api")]
             api,
-            #[cfg(feature = "enterprise")]
-            enterprise,
             metrics_tx,
             extra_context,
         })
@@ -278,8 +259,6 @@ impl Application {
             topology: config.topology,
             config_paths: config.config_paths.clone(),
             require_healthy: root_opts.require_healthy,
-            #[cfg(feature = "enterprise")]
-            enterprise_reporter: config.enterprise,
             extra_context: config.extra_context,
         });
 
@@ -672,7 +651,6 @@ pub async fn load_configs(
     );
 
     // config::init_log_schema should be called before initializing sources.
-    #[cfg(not(feature = "enterprise-tests"))]
     config::init_log_schema(&config_paths, true).map_err(handle_config_errors)?;
 
     let mut config = config::load_from_paths_with_provider_and_secrets(
@@ -692,43 +670,6 @@ pub async fn load_configs(
     config.graceful_shutdown_duration = graceful_shutdown_duration;
 
     Ok(config)
-}
-
-#[cfg(feature = "enterprise")]
-// Enable enterprise features, if applicable.
-fn build_enterprise(
-    config: &mut Config,
-    config_paths: Vec<ConfigPath>,
-) -> Result<Option<EnterpriseReporter<BoxFuture<'static, ()>>>, ExitCode> {
-    if config.enterprise.is_some() {
-        warn!("DEPRECATED: The `enterprise` feature has been deprecated and will be removed in the next release.");
-    }
-
-    crate::ENTERPRISE_ENABLED
-        .set(
-            config
-                .enterprise
-                .as_ref()
-                .map(|e| e.enabled)
-                .unwrap_or_default(),
-        )
-        .expect("double initialization of enterprise enabled flag");
-
-    match EnterpriseMetadata::try_from(&*config) {
-        Ok(metadata) => {
-            let enterprise = EnterpriseReporter::new();
-
-            attach_enterprise_components(config, &metadata);
-            enterprise.send(report_configuration(config_paths, metadata));
-
-            Ok(Some(enterprise))
-        }
-        Err(EnterpriseError::MissingApiKey) => {
-            error!("Enterprise configuration incomplete: missing API key.");
-            Err(exitcode::CONFIG)
-        }
-        Err(_) => Ok(None),
-    }
 }
 
 pub fn init_logging(color: bool, format: LogFormat, log_level: &str, rate: u64) {

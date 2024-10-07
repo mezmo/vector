@@ -2,9 +2,8 @@
 #[allow(unused_imports)]
 use std::collections::HashSet;
 
-use snafu::Snafu;
-
 pub mod dedupe;
+pub mod reduce;
 pub mod sample;
 
 #[cfg(feature = "transforms-aggregate")]
@@ -37,8 +36,6 @@ pub mod mezmo_throttle;
 pub mod protobuf_to_log;
 #[cfg(feature = "transforms-protobuf_to_metric")]
 pub mod protobuf_to_metric;
-#[cfg(feature = "transforms-reduce")]
-pub mod reduce;
 #[cfg(feature = "transforms-remap")]
 pub mod remap;
 #[cfg(feature = "transforms-route")]
@@ -52,15 +49,6 @@ pub use vector_lib::transform::{
     FunctionTransform, OutputBuffer, SyncTransform, TaskTransform, Transform, TransformOutputs,
     TransformOutputsBuf,
 };
-
-#[derive(Debug, Snafu)]
-enum BuildError {
-    #[snafu(display("Invalid regular expression: {}", source))]
-    InvalidRegex { source: regex::Error },
-
-    #[snafu(display("Invalid substring expression: {}", name))]
-    InvalidSubstring { name: String },
-}
 
 #[cfg(test)]
 mod test {

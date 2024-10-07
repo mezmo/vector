@@ -1,5 +1,3 @@
-#![cfg(feature = "component-persistence")]
-
 mod rocksdb;
 use crate::Error;
 use mezmo::MezmoContext;

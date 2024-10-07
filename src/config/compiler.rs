@@ -40,19 +40,11 @@ pub fn compile(
         }
     }
 
-    #[cfg(feature = "enterprise")]
-    let hash = Some(builder.sha256_hash());
-
-    #[cfg(not(feature = "enterprise"))]
-    let hash = None;
-
     let ConfigBuilder {
         global,
         #[cfg(feature = "api")]
         api,
         schema,
-        #[cfg(feature = "enterprise")]
-        enterprise,
         healthchecks,
         enrichment_tables,
         sources,
@@ -110,9 +102,6 @@ pub fn compile(
             #[cfg(feature = "api")]
             api,
             schema,
-            #[cfg(feature = "enterprise")]
-            enterprise,
-            hash,
             healthchecks,
             enrichment_tables,
             sources,

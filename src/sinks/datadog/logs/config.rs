@@ -192,7 +192,7 @@ mod test {
     use crate::codecs::EncodingConfigWithFraming;
     use crate::components::validation::prelude::*;
     use vector_lib::{
-        codecs::{JsonSerializerConfig, MetricTagValues},
+        codecs::{encoding::format::JsonSerializerOptions, JsonSerializerConfig, MetricTagValues},
         config::LogNamespace,
     };
 
@@ -215,7 +215,8 @@ mod test {
 
             let encoding = EncodingConfigWithFraming::new(
                 None,
-                JsonSerializerConfig::new(MetricTagValues::Full).into(),
+                JsonSerializerConfig::new(MetricTagValues::Full, JsonSerializerOptions::default())
+                    .into(),
                 config.encoding.clone(),
             );
 

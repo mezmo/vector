@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::{
     collections::BTreeMap,
     fs::File,
@@ -11,13 +12,14 @@ use vector_lib::codecs::MetricTagValues;
 use vector_lib::compile_vrl;
 use vector_lib::config::{LogNamespace, OutputId, TransformOutput};
 use vector_lib::configurable::configurable_component;
+use vector_lib::enrichment::TableRegistry;
 use vector_lib::lookup::{metadata_path, owned_value_path, PathPrefix};
 use vector_lib::schema::Definition;
 use vector_lib::TimeZone;
 use vector_vrl_functions::set_semantic_meaning::MeaningList;
 use vrl::compiler::runtime::{Runtime, Terminate};
 use vrl::compiler::state::ExternalEnv;
-use vrl::compiler::{CompileConfig, ExpressionError, Function, Program, TypeState, VrlRuntime};
+use vrl::compiler::{CompileConfig, ExpressionError, Program, TypeState, VrlRuntime};
 use vrl::diagnostic::{DiagnosticList, DiagnosticMessage, Formatter, Note};
 use vrl::path;
 use vrl::path::ValuePath;
@@ -34,15 +36,17 @@ use crate::{
 use mezmo::{functions as mezmo_vrl_functions, MezmoContext};
 
 const DROPPED: &str = "dropped";
+type CacheKey = (TableRegistry, schema::Definition);
+type CacheValue = (Program, String, MeaningList);
 
 /// Configuration for the `remap` transform.
 #[configurable_component(transform(
     "remap",
     "Modify your observability data as it passes through your topology using Vector Remap Language (VRL)."
 ))]
-#[derive(Clone, Debug, Derivative)]
+#[derive(Derivative)]
 #[serde(deny_unknown_fields)]
-#[derivative(Default)]
+#[derivative(Default, Debug)]
 pub struct RemapConfig {
     /// The [Vector Remap Language][vrl] (VRL) program to execute for each event.
     ///
@@ -130,6 +134,30 @@ pub struct RemapConfig {
     #[configurable(derived, metadata(docs::hidden))]
     #[serde(default)]
     pub runtime: VrlRuntime,
+
+    #[configurable(derived, metadata(docs::hidden))]
+    #[serde(skip)]
+    #[derivative(Debug = "ignore")]
+    /// Cache can't be `BTreeMap` or `HashMap` because of `TableRegistry`, which doesn't allow us to inspect tables inside it.
+    /// And even if we allowed the inspection, the tables can be huge, resulting in a long comparison or hash computation
+    /// while using `Vec` allows us to use just a shallow comparison
+    pub cache: Mutex<Vec<(CacheKey, std::result::Result<CacheValue, String>)>>,
+}
+
+impl Clone for RemapConfig {
+    fn clone(&self) -> Self {
+        Self {
+            source: self.source.clone(),
+            file: self.file.clone(),
+            metric_tag_values: self.metric_tag_values,
+            timezone: self.timezone,
+            drop_on_error: self.drop_on_error,
+            drop_on_abort: self.drop_on_abort,
+            reroute_dropped: self.reroute_dropped,
+            runtime: self.runtime,
+            cache: Mutex::new(Default::default()),
+        }
+    }
 }
 
 /// The propagated errors should not contain file contents to prevent exposing sensitive data.
@@ -154,10 +182,20 @@ fn redacted_diagnostics(source: &str, diagnostics: DiagnosticList) -> String {
 impl RemapConfig {
     pub(crate) fn compile_vrl_program(
         &self,
-        enrichment_tables: vector_lib::enrichment::TableRegistry,
+        enrichment_tables: TableRegistry,
         merged_schema_definition: schema::Definition,
         mezmo_ctx: Option<MezmoContext>,
-    ) -> Result<(Program, String, Vec<Box<dyn Function>>, CompileConfig)> {
+    ) -> Result<CacheValue> {
+        if let Some((_, res)) = self
+            .cache
+            .lock()
+            .expect("Data poisoned")
+            .iter()
+            .find(|v| v.0 .0 == enrichment_tables && v.0 .1 == merged_schema_definition)
+        {
+            return res.clone().map_err(Into::into);
+        }
+
         let source = match (&self.source, &self.file) {
             (Some(source), None) => source.to_owned(),
             (None, Some(path)) => {
@@ -187,13 +225,13 @@ impl RemapConfig {
         };
         let mut config = CompileConfig::default();
 
-        config.set_custom(enrichment_tables);
+        config.set_custom(enrichment_tables.clone());
         config.set_custom(MeaningList::default());
         if let Some(ctx) = mezmo_ctx {
             config.set_custom(ctx)
         }
 
-        compile_vrl(&source, &functions, &state, config)
+        let res = compile_vrl(&source, &functions, &state, config)
             .map_err(|diagnostics| match self.file {
                 None => Formatter::new(&source, diagnostics)
                     .colored()
@@ -207,10 +245,16 @@ impl RemapConfig {
                     Formatter::new(&source, result.warnings)
                         .colored()
                         .to_string(),
-                    functions,
-                    result.config,
+                    result.config.get_custom::<MeaningList>().unwrap().clone(),
                 )
-            })
+            });
+
+        self.cache
+            .lock()
+            .expect("Data poisoned")
+            .push(((enrichment_tables, merged_schema_definition), res.clone()));
+
+        res.map_err(Into::into)
     }
 }
 
@@ -305,12 +349,12 @@ impl TransformConfig for RemapConfig {
             );
         }
 
-        let default_output = TransformOutput::new(DataType::all(), default_definitions);
+        let default_output = TransformOutput::new(DataType::all_bits(), default_definitions);
 
         if self.reroute_dropped {
             vec![
                 default_output,
-                TransformOutput::new(DataType::all(), dropped_definitions).with_port(DROPPED),
+                TransformOutput::new(DataType::all_bits(), dropped_definitions).with_port(DROPPED),
             ]
         } else {
             vec![default_output]
@@ -378,7 +422,7 @@ impl Remap<AstRunner> {
         context: &TransformContext,
     ) -> crate::Result<(Self, String)> {
         let mezmo_ctx = context.mezmo_ctx.clone();
-        let (program, warnings, _, _) = config.compile_vrl_program(
+        let (program, warnings, _) = config.compile_vrl_program(
             context.enrichment_tables.clone(),
             context.merged_schema_definition.clone(),
             mezmo_ctx,
@@ -1448,7 +1492,7 @@ mod tests {
         //         LogNamespace::Legacy
         //     ),
         //     vec![TransformOutput::new(
-        //         DataType::all(),
+        //         DataType::all_bits(),
         //         [("test".into(), schema_definition)].into()
         //     )]
         // );
@@ -1515,8 +1559,8 @@ mod tests {
     fn collect_outputs(ft: &mut dyn SyncTransform, event: Event) -> CollectedOuput {
         let mut outputs = TransformOutputsBuf::new_with_capacity(
             vec![
-                TransformOutput::new(DataType::all(), HashMap::new()),
-                TransformOutput::new(DataType::all(), HashMap::new()).with_port(DROPPED),
+                TransformOutput::new(DataType::all_bits(), HashMap::new()),
+                TransformOutput::new(DataType::all_bits(), HashMap::new()).with_port(DROPPED),
             ],
             1,
         );
@@ -1542,8 +1586,8 @@ mod tests {
     ) -> std::result::Result<Event, Event> {
         let mut outputs = TransformOutputsBuf::new_with_capacity(
             vec![
-                TransformOutput::new(DataType::all(), HashMap::new()),
-                TransformOutput::new(DataType::all(), HashMap::new()).with_port(DROPPED),
+                TransformOutput::new(DataType::all_bits(), HashMap::new()),
+                TransformOutput::new(DataType::all_bits(), HashMap::new()).with_port(DROPPED),
             ],
             1,
         );
@@ -1709,7 +1753,7 @@ mod tests {
 
     //     assert_eq!(
     //         vec![TransformOutput::new(
-    //             DataType::all(),
+    //             DataType::all_bits(),
     //             // The `never` definition should have been passed on to the end.
     //             [(
     //                 "in".into(),
@@ -1735,7 +1779,7 @@ mod tests {
 
     //     assert_eq!(
     //         vec![TransformOutput::new(
-    //             DataType::all(),
+    //             DataType::all_bits(),
     //             [(
     //                 "in1".into(),
     //                 Definition::default_legacy_namespace()
@@ -1788,7 +1832,7 @@ mod tests {
 
     //     assert_eq!(
     //         vec![TransformOutput::new(
-    //             DataType::all(),
+    //             DataType::all_bits(),
     //             [(
     //                 "in".into(),
     //                 Definition::new_with_default_metadata(
@@ -1820,7 +1864,7 @@ mod tests {
 
     //     assert_eq!(
     //         vec![TransformOutput::new(
-    //             DataType::all(),
+    //             DataType::all_bits(),
     //             [(
     //                 "in1".into(),
     //                 Definition::default_legacy_namespace()
@@ -1869,7 +1913,7 @@ mod tests {
 
         assert_eq!(
             vec![TransformOutput::new(
-                DataType::all(),
+                DataType::all_bits(),
                 [(
                     "in".into(),
                     Definition::new_with_default_metadata(

@@ -10,6 +10,7 @@ use similar_asserts::assert_eq;
 use tokio_stream::StreamExt;
 use vector_lib::codecs::{
     decoding::format::{Deserializer, JsonDeserializerConfig, JsonDeserializerOptions},
+    encoding::format::JsonSerializerOptions,
     encoding::FramingConfig,
     JsonSerializerConfig, MetricTagValues,
 };
@@ -1084,7 +1085,7 @@ fn json_config(bucket: &str, batch_size: usize) -> S3SinkConfig {
         region: RegionOrEndpoint::with_both("minio", s3_address()),
         encoding: (
             None::<FramingConfig>,
-            JsonSerializerConfig::new(MetricTagValues::Single),
+            JsonSerializerConfig::new(MetricTagValues::Single, JsonSerializerOptions::default()),
         )
             .into(),
         compression: Compression::None,

@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ARG GITHUB_TOKEN
 RUN git config --global url."https://${GITHUB_TOKEN}@github.com".insteadOf ssh://git@github.com
 
-RUN rustup run "${RUST_VERSION}" cargo install cargo-nextest --version 0.9.64 --locked
+RUN rustup run "${RUST_VERSION}" cargo install cargo-nextest --version 0.9.72 --locked
 
 COPY scripts/environment/install-protoc.sh /
 COPY tests/data/ca/certs /certs

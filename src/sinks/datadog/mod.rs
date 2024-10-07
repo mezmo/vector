@@ -8,16 +8,15 @@ use vector_lib::{
 };
 use vrl::value::Value;
 
+use super::Healthcheck;
 use crate::{
-    common::datadog::{self, get_api_base_endpoint},
+    common::datadog,
     config::SinkContext,
     http::{HttpClient, HttpError},
     mezmo::user_trace::UserLoggingError,
     sinks::HealthcheckError,
 };
 use mezmo::{user_log_error, user_trace::MezmoUserLog};
-
-use super::Healthcheck;
 
 #[cfg(feature = "sinks-datadog_events")]
 pub mod events;
@@ -147,12 +146,19 @@ impl DatadogCommonConfig {
         client: HttpClient,
         cx: SinkContext,
     ) -> crate::Result<Healthcheck> {
-        let validate_endpoint =
-            get_api_validate_endpoint(self.endpoint.as_ref(), self.site.as_str())?;
+        let validate_endpoint = self.get_api_endpoint(self.site.as_str())?;
 
         let api_key: String = self.default_api_key.clone().into();
 
         Ok(build_healthcheck_future(client, validate_endpoint, api_key, cx).boxed())
+    }
+
+    /// Gets the API endpoint with a given suffix path.
+    ///
+    /// If `endpoint` is not specified, we fallback to `site`.
+    fn get_api_endpoint(&self, path: &str) -> crate::Result<Uri> {
+        let base = datadog::get_api_base_endpoint(self.endpoint.as_deref(), self.site.as_str());
+        [&base, path].join("").parse().map_err(Into::into)
     }
 }
 
@@ -183,15 +189,6 @@ async fn build_healthcheck_future(
         StatusCode::OK => Ok(()),
         other => Err(HealthcheckError::UnexpectedStatus { status: other }.into()),
     }
-}
-
-/// Gets the API endpoint for validating credentials.
-///
-/// If `endpoint` is not specified, we fallback to `site`.
-fn get_api_validate_endpoint(endpoint: Option<&String>, site: &str) -> crate::Result<Uri> {
-    let base = get_api_base_endpoint(endpoint, site);
-    let validate = format!("{}{}", base, "/api/v1/validate");
-    validate.parse::<Uri>().map_err(Into::into)
 }
 
 #[derive(Debug, Snafu)]

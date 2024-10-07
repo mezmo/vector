@@ -736,7 +736,7 @@ fn maybe_compile_vrl_script(
         ctx.mezmo_ctx.clone(),
     );
     match result {
-        Ok((program, _, _, _)) => Ok(Some(program)),
+        Ok((program, _, _)) => Ok(Some(program)),
         Err(err) => Err(Error::new(
             ErrorKind::Other,
             format!("Error compiling VRL program. Reason: {}", err),
