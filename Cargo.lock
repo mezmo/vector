@@ -11567,7 +11567,7 @@ checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 [[package]]
 name = "vrl"
 version = "0.16.0"
-source = "git+ssh://git@github.com/mezmo/vrl.git?branch=c-nixon/upstream-0.16#c571620cc693c0df43ac97267f2915a19a2e7743"
+source = "git+ssh://git@github.com/mezmo/vrl.git?tag=v1.0.0#8fd3fac06d3c32187e735f737d7fa2f66bbfa2a5"
 dependencies = [
  "aes",
  "ansi_term",

@@ -51,7 +51,11 @@ impl AllocationGroupId {
 
         let group_id = GROUP_ID.fetch_add(1, Ordering::Relaxed);
 
-        if group_id != NUM_GROUPS as u16 {
+        // Mezmo: Since we increased the number of allocation groups to track larger than
+        // u8::MAX but less than u16::MAX, we need to use an inequality to check for whether
+        // registration is successful instead of not equals. Using not equals allows for group
+        // ids outside the bound of the allocation tracking and panic events.
+        if group_id < NUM_GROUPS as u16 {
             Some(AllocationGroupId::from_raw(group_id))
         } else {
             None
