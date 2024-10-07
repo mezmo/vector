@@ -1,3 +1,10 @@
+## [7.0.1](https://github.com/answerbook/vector/compare/v7.0.0...v7.0.1) (2024-10-07)
+
+
+### Bug Fixes
+
+* **alloc-tracking**: Check group id bounds correctly [fdd92cf](https://github.com/answerbook/vector/commit/fdd92cf75dc31531b9d445245c6c07b714335c23) - Dan Hable [LOG-20705](https://logdna.atlassian.net/browse/LOG-20705)
+
 # [7.0.0](https://github.com/answerbook/vector/compare/v6.0.0...v7.0.0) (2024-10-07)
 
 
