@@ -1,9 +1,9 @@
+use futures::{future::try_join_all, FutureExt};
+use std::sync::Arc;
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroUsize,
 };
-
-use futures::{future::try_join_all, FutureExt};
 use tokio::sync::{
     mpsc as tokio_mpsc,
     mpsc::error::{SendError, TrySendError},
@@ -133,14 +133,20 @@ impl TapPayload {
 
 /// A `TapTransformer` transforms raw events and ships them to the global tap receiver.
 #[derive(Clone)]
-pub struct TapTransformer {
+pub struct TapTransformer<F>
+where
+    F: Fn(EventArray) -> EventArray + Send + Sync + 'static,
+{
     tap_tx: TapSender,
     output: TapOutput,
-    filter: Option<Condition>,
+    filter: Option<Arc<F>>,
 }
 
-impl TapTransformer {
-    pub const fn new(tap_tx: TapSender, output: TapOutput, filter: Option<Condition>) -> Self {
+impl<F> TapTransformer<F>
+where
+    F: Fn(EventArray) -> EventArray + Send + Sync + 'static,
+{
+    pub const fn new(tap_tx: TapSender, output: TapOutput, filter: Option<Arc<F>>) -> Self {
         Self {
             tap_tx,
             output,
@@ -149,7 +155,11 @@ impl TapTransformer {
     }
 
     pub fn try_send(&mut self, events: EventArray) {
-        let events = apply_filter(&self.filter, events);
+        let mut events = events;
+        if let Some(filter) = &self.filter {
+            events = filter(events);
+        }
+
         let payload = match events {
             EventArray::Logs(logs) => TapPayload::Log(self.output.clone(), logs),
             EventArray::Metrics(metrics) => TapPayload::Metric(self.output.clone(), metrics),
@@ -167,35 +177,32 @@ impl TapTransformer {
 }
 
 /// Filters an [EventArray] based on a [Condition]
-fn apply_filter(filter: &Option<Condition>, events: EventArray) -> EventArray {
-    match filter {
-        Some(condition) => match events {
-            EventArray::Logs(logs) => logs
-                .into_iter()
-                .filter_map(|event| match condition.check(event.into()) {
-                    (true, event) => Some(event.into_log()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .into(),
-            EventArray::Metrics(metrics) => metrics
-                .into_iter()
-                .filter_map(|event| match condition.check(event.into()) {
-                    (true, event) => Some(event.into_metric()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .into(),
-            EventArray::Traces(traces) => traces
-                .into_iter()
-                .filter_map(|event| match condition.check(event.into()) {
-                    (true, event) => Some(event.into_trace()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .into(),
-        },
-        None => events,
+fn apply_filter(condition: &Condition, events: EventArray) -> EventArray {
+    match events {
+        EventArray::Logs(logs) => logs
+            .into_iter()
+            .filter_map(|event| match condition.check(event.into()) {
+                (true, event) => Some(event.into_log()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .into(),
+        EventArray::Metrics(metrics) => metrics
+            .into_iter()
+            .filter_map(|event| match condition.check(event.into()) {
+                (true, event) => Some(event.into_metric()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .into(),
+        EventArray::Traces(traces) => traces
+            .into_iter()
+            .filter_map(|event| match condition.check(event.into()) {
+                (true, event) => Some(event.into_trace()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .into(),
     }
 }
 
@@ -218,21 +225,21 @@ impl TapController {
     ) -> Self {
         let (_shutdown, shutdown_rx) = oneshot::channel();
 
-        let mut filter = None;
-        if let Some(source) = filter_source {
+        // mezmo: compile the VRL source here and provide a Fn closure to the controller instead
+        let filter = filter_source.and_then(|source| {
             let config = VrlConfig {
                 source,
                 runtime: Default::default(),
             };
 
-            filter = match config.build(&Default::default(), Default::default()) {
-                Ok(condition) => Some(condition),
+            match config.build(&Default::default(), Default::default()) {
+                Ok(condition) => Some(move |events: EventArray| apply_filter(&condition, events)),
                 Err(err) => {
                     error!(message = "Failed to build tap filter condition.", ?err,);
                     None
                 }
             }
-        }
+        });
 
         tokio::spawn(
             tap_handler(patterns, tap_tx, filter, watch_rx, shutdown_rx).instrument(error_span!(
@@ -308,13 +315,15 @@ async fn send_invalid_output_pattern_match(
 
 /// Returns a tap handler that listens for topology changes, and connects sinks to observe
 /// `LogEvent`s` when a component matches one or more of the provided patterns.
-async fn tap_handler(
+async fn tap_handler<F>(
     patterns: TapPatterns,
     tx: TapSender,
-    filter: Option<Condition>,
+    filter: Option<F>,
     mut watch_rx: WatchRx,
     mut shutdown_rx: ShutdownRx,
-) {
+) where
+    F: Fn(EventArray) -> EventArray + Send + Sync + 'static,
+{
     debug!(message = "Started tap.", outputs_patterns = ?patterns.for_outputs, inputs_patterns = ?patterns.for_inputs);
 
     // Sinks register for the current tap. Contains the id of the matched component, and
@@ -328,6 +337,9 @@ async fn tap_handler(
     // The patterns that matched on the last iteration, to compare with the latest
     // round of matches when sending notifications.
     let mut last_matches = HashSet::new();
+
+    // mezmo: allows passing the filter Fn across loop iterations and threads
+    let filter = filter.map(Arc::new);
 
     loop {
         tokio::select! {
