@@ -564,7 +564,6 @@ mod tests {
     use crate::topology;
 
     use super::*;
-    use http::StatusCode;
     use mockall::mock;
     use serde_json::json;
     use wiremock::{
@@ -809,7 +808,7 @@ mod tests {
 
         Mock::given(matchers::method("GET"))
             .and(path(pipelines_by_partition_url))
-            .respond_with(ResponseTemplate::new(StatusCode::OK).set_body_raw(
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
                 r#"{
                 "pipeline_ids": ["pipeline1", "pipeline2"],
                 "common_config_toml": "data_dir = \"/data/vector\""
@@ -824,7 +823,7 @@ mod tests {
         // No pipelines after that
         Mock::given(matchers::method("GET"))
             .and(path(pipelines_by_partition_url))
-            .respond_with(ResponseTemplate::new(StatusCode::OK).set_body_raw(
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
                 r#"{
                 "pipeline_ids": [],
                 "common_config_toml": "data_dir = \"/data/vector\""
@@ -837,7 +836,7 @@ mod tests {
 
         Mock::given(matchers::method("POST"))
             .and(path(latest_revisions_url))
-            .respond_with(ResponseTemplate::new(StatusCode::OK).set_body_raw(r#"{
+            .respond_with(ResponseTemplate::new(200).set_body_raw(r#"{
                 "pipeline1": {"id": "rev1", "config": "[sources.in1]\ntype = \"test_basic\"\n\n[sinks.out1]\ninputs = [\"in1\"]\ntype = \"test_basic\""},
                 "pipeline2": {"id": "rev999", "profiler_transform_ids": ["prof1"], "config": "[sources.in2]\ntype = \"test_basic\"\n\n[sinks.out2]\ninputs = [\"in2\"]\ntype = \"test_basic\""}
             }"#, "application/json"))
@@ -848,9 +847,7 @@ mod tests {
 
         Mock::given(matchers::method("POST"))
             .and(path(latest_revisions_url))
-            .respond_with(
-                ResponseTemplate::new(StatusCode::OK).set_body_raw("{}", "application/json"),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_raw("{}", "application/json"))
             .up_to_n_times(2)
             .with_priority(2)
             .mount(&mock_server)
@@ -865,9 +862,7 @@ mod tests {
         Mock::given(matchers::method("POST"))
             .and(path(loaded_revisions_url))
             .and(matchers::body_json(&expected_loaded_revisions))
-            .respond_with(
-                ResponseTemplate::new(StatusCode::OK).set_body_raw("{}", "application/json"),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_raw("{}", "application/json"))
             .with_priority(2)
             .mount(&mock_server)
             .await;
@@ -953,7 +948,7 @@ mod tests {
 
         Mock::given(matchers::method("GET"))
             .and(path(pipelines_by_partition_url))
-            .respond_with(ResponseTemplate::new(StatusCode::OK).set_body_raw(
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
                 r#"{
                 "pipeline_ids": ["pipeline1", "pipeline2", "pipeline3", "pipeline4"],
                 "common_config_toml": "data_dir = \"/data/vector\""
@@ -965,7 +960,7 @@ mod tests {
 
         Mock::given(matchers::method("POST"))
             .and(path(latest_revisions_url))
-            .respond_with(ResponseTemplate::new(StatusCode::OK).set_body_raw(r#"{
+            .respond_with(ResponseTemplate::new(200).set_body_raw(r#"{
                 "pipeline1": {"id": "rev1", "config": "[sources.in]\ntype = \"test_basic\"\n\n[sinks.out]\ninputs = [\"in\"]\ntype = \"test_basic\""},
                 "pipeline2": {"id": "rev2", "config": "\nTHIS_IS_INVALID"},
                 "pipeline3": {"id": "rev3", "config": "[sources.in]\ntype = \"DOES_NOT_EXIST\"\n"},

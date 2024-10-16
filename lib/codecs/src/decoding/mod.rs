@@ -10,10 +10,11 @@ use bytes::{Bytes, BytesMut};
 pub use error::StreamDecodingError;
 pub use format::{
     BoxedDeserializer, BytesDeserializer, BytesDeserializerConfig, GelfDeserializer,
-    GelfDeserializerConfig, GelfDeserializerOptions, JsonDeserializer, JsonDeserializerConfig,
-    JsonDeserializerOptions, MezmoDeserializer, NativeDeserializer, NativeDeserializerConfig,
-    NativeJsonDeserializer, NativeJsonDeserializerConfig, NativeJsonDeserializerOptions,
-    ProtobufDeserializer, ProtobufDeserializerConfig, ProtobufDeserializerOptions,
+    GelfDeserializerConfig, GelfDeserializerOptions, InfluxdbDeserializer,
+    InfluxdbDeserializerConfig, JsonDeserializer, JsonDeserializerConfig, JsonDeserializerOptions,
+    MezmoDeserializer, NativeDeserializer, NativeDeserializerConfig, NativeJsonDeserializer,
+    NativeJsonDeserializerConfig, NativeJsonDeserializerOptions, ProtobufDeserializer,
+    ProtobufDeserializerConfig, ProtobufDeserializerOptions,
 };
 #[cfg(feature = "syslog")]
 pub use format::{SyslogDeserializer, SyslogDeserializerConfig, SyslogDeserializerOptions};
@@ -252,6 +253,11 @@ pub enum DeserializerConfig {
     /// [implementation]: https://github.com/Graylog2/go-gelf/blob/v2/gelf/reader.go
     Gelf(GelfDeserializerConfig),
 
+    /// Decodes the raw bytes as an [Influxdb Line Protocol][influxdb] message.
+    ///
+    /// [influxdb]: https://docs.influxdata.com/influxdb/cloud/reference/syntax/line-protocol
+    Influxdb(InfluxdbDeserializerConfig),
+
     /// Decode the raw bytes using one of Mezmo's deserializers
     ///
     /// Delegates the Deserializer configuration to the MezmoDeserializer
@@ -309,6 +315,12 @@ impl From<NativeJsonDeserializerConfig> for DeserializerConfig {
     }
 }
 
+impl From<InfluxdbDeserializerConfig> for DeserializerConfig {
+    fn from(config: InfluxdbDeserializerConfig) -> Self {
+        Self::Influxdb(config)
+    }
+}
+
 impl DeserializerConfig {
     /// Build the `Deserializer` from this configuration.
     pub fn build(&self) -> vector_common::Result<Deserializer> {
@@ -329,6 +341,7 @@ impl DeserializerConfig {
             }
             DeserializerConfig::NativeJson(config) => Ok(Deserializer::NativeJson(config.build())),
             DeserializerConfig::Gelf(config) => Ok(Deserializer::Gelf(config.build())),
+            DeserializerConfig::Influxdb(config) => Ok(Deserializer::Influxdb(config.build())),
             DeserializerConfig::Mezmo(config) => Ok(Deserializer::Boxed(config.build())),
             DeserializerConfig::Vrl(config) => Ok(Deserializer::Vrl(config.build()?)),
         }
@@ -341,7 +354,7 @@ impl DeserializerConfig {
             DeserializerConfig::Native => FramingConfig::LengthDelimited(Default::default()),
             DeserializerConfig::Bytes
             | DeserializerConfig::Json(_)
-            | DeserializerConfig::Gelf(_)
+            | DeserializerConfig::Influxdb(_)
             | DeserializerConfig::NativeJson(_) => {
                 FramingConfig::NewlineDelimited(Default::default())
             }
@@ -350,6 +363,9 @@ impl DeserializerConfig {
             DeserializerConfig::Syslog(_) => FramingConfig::NewlineDelimited(Default::default()),
             DeserializerConfig::Mezmo(config) => config.default_stream_framing(),
             DeserializerConfig::Vrl(_) => FramingConfig::Bytes,
+            DeserializerConfig::Gelf(_) => {
+                FramingConfig::CharacterDelimited(CharacterDelimitedDecoderConfig::new(0))
+            }
         }
     }
 
@@ -370,6 +386,7 @@ impl DeserializerConfig {
             DeserializerConfig::Gelf(config) => config.output_type(),
             DeserializerConfig::Mezmo(config) => config.output_type(),
             DeserializerConfig::Vrl(config) => config.output_type(),
+            DeserializerConfig::Influxdb(config) => config.output_type(),
         }
     }
 
@@ -388,6 +405,7 @@ impl DeserializerConfig {
             DeserializerConfig::Native => NativeDeserializerConfig.schema_definition(log_namespace),
             DeserializerConfig::NativeJson(config) => config.schema_definition(log_namespace),
             DeserializerConfig::Gelf(config) => config.schema_definition(log_namespace),
+            DeserializerConfig::Influxdb(config) => config.schema_definition(log_namespace),
             DeserializerConfig::Mezmo(config) => config.schema_definition(log_namespace),
             DeserializerConfig::Vrl(config) => config.schema_definition(log_namespace),
         }
@@ -421,6 +439,7 @@ impl DeserializerConfig {
                 | DeserializerConfig::NativeJson(_)
                 | DeserializerConfig::Bytes
                 | DeserializerConfig::Gelf(_)
+                | DeserializerConfig::Influxdb(_)
                 | DeserializerConfig::Vrl(_),
                 _,
             ) => "text/plain",
@@ -453,6 +472,8 @@ pub enum Deserializer {
     Boxed(BoxedDeserializer),
     /// Uses a `GelfDeserializer` for deserialization.
     Gelf(GelfDeserializer),
+    /// Uses a `InfluxdbDeserializer` for deserialization.
+    Influxdb(InfluxdbDeserializer),
     /// Uses a `VrlDeserializer` for deserialization.
     Vrl(VrlDeserializer),
 }
@@ -474,7 +495,28 @@ impl format::Deserializer for Deserializer {
             Deserializer::NativeJson(deserializer) => deserializer.parse(bytes, log_namespace),
             Deserializer::Boxed(deserializer) => deserializer.parse(bytes, log_namespace),
             Deserializer::Gelf(deserializer) => deserializer.parse(bytes, log_namespace),
+            Deserializer::Influxdb(deserializer) => deserializer.parse(bytes, log_namespace),
             Deserializer::Vrl(deserializer) => deserializer.parse(bytes, log_namespace),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gelf_stream_default_framing_is_null_delimited() {
+        let deserializer_config = DeserializerConfig::from(GelfDeserializerConfig::default());
+        let framing_config = deserializer_config.default_stream_framing();
+        assert!(matches!(
+            framing_config,
+            FramingConfig::CharacterDelimited(CharacterDelimitedDecoderConfig {
+                character_delimited: CharacterDelimitedDecoderOptions {
+                    delimiter: 0,
+                    max_length: None,
+                }
+            })
+        ));
     }
 }

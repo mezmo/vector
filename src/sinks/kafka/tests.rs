@@ -19,11 +19,7 @@ mod integration_test {
         event::{BatchNotifier, BatchStatus},
     };
 
-    use super::super::{
-        config::{KafkaRole, KafkaSinkConfig},
-        sink::KafkaSink,
-        *,
-    };
+    use super::super::{config::KafkaSinkConfig, sink::KafkaSink, *};
     use crate::{
         config::SinkContext,
         event::{ObjectMap, Value},
@@ -194,8 +190,7 @@ mod integration_test {
             headers_key: None,
             acknowledgements: Default::default(),
         };
-        config.clone().to_rdkafka(KafkaRole::Consumer)?;
-        config.clone().to_rdkafka(KafkaRole::Producer)?;
+        config.clone().to_rdkafka()?;
         self::sink::healthcheck(config.clone()).await?;
         KafkaSink::new(config, SinkContext::new_test())
     }

@@ -13,7 +13,7 @@ use vrl::value::{kind::Collection, Kind};
 use crate::serde::default_framing_message_based;
 use crate::{
     codecs::DecodingConfig,
-    config::{GenerateConfig, Output, Resource, SourceConfig, SourceContext},
+    config::{GenerateConfig, Resource, SourceConfig, SourceContext, SourceOutput},
     sources::util::net::TcpSource,
     tls::MaybeTlsSettings,
 };
@@ -69,14 +69,14 @@ impl SocketConfig {
         }
     }
 
-    fn log_namespace(&self) -> LogNamespace {
+    fn log_namespace(&self, global_log_namespace: LogNamespace) -> LogNamespace {
         match &self.mode {
-            Mode::Tcp(config) => config.log_namespace.unwrap_or(false).into(),
-            Mode::Udp(config) => config.log_namespace.unwrap_or(false).into(),
+            Mode::Tcp(config) => global_log_namespace.merge(config.log_namespace),
+            Mode::Udp(config) => global_log_namespace.merge(config.log_namespace),
             #[cfg(unix)]
-            Mode::UnixDatagram(config) => config.log_namespace.unwrap_or(false).into(),
+            Mode::UnixDatagram(config) => global_log_namespace.merge(config.log_namespace),
             #[cfg(unix)]
-            Mode::UnixStream(config) => config.log_namespace.unwrap_or(false).into(),
+            Mode::UnixStream(config) => global_log_namespace.merge(config.log_namespace),
         }
     }
 }
@@ -201,8 +201,8 @@ impl SourceConfig for SocketConfig {
         }
     }
 
-    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<Output> {
-        let log_namespace = global_log_namespace.merge(Some(self.log_namespace()));
+    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<SourceOutput> {
+        let log_namespace = self.log_namespace(global_log_namespace);
 
         let schema_definition = self
             .decoding()
@@ -211,7 +211,7 @@ impl SourceConfig for SocketConfig {
 
         let schema_definition = match &self.mode {
             Mode::Tcp(config) => {
-                let legacy_host_key = config.host_key().clone().path.map(LegacyKey::InsertIfEmpty);
+                let legacy_host_key = config.host_key().path.map(LegacyKey::InsertIfEmpty);
 
                 let legacy_port_key = config.port_key().clone().path.map(LegacyKey::InsertIfEmpty);
 
@@ -247,7 +247,7 @@ impl SourceConfig for SocketConfig {
                     )
             }
             Mode::Udp(config) => {
-                let legacy_host_key = config.host_key().clone().path.map(LegacyKey::InsertIfEmpty);
+                let legacy_host_key = config.host_key().path.map(LegacyKey::InsertIfEmpty);
 
                 let legacy_port_key = config.port_key().clone().path.map(LegacyKey::InsertIfEmpty);
 
@@ -293,8 +293,10 @@ impl SourceConfig for SocketConfig {
             }
         };
 
-        vec![Output::default(self.decoding().output_type())
-            .with_schema_definition(schema_definition)]
+        vec![SourceOutput::new_maybe_logs(
+            self.decoding().output_type(),
+            schema_definition,
+        )]
     }
 
     fn resources(&self) -> Vec<Resource> {
