@@ -60,7 +60,6 @@ awscli
 awsec
 awslabs
 axum
-Aziz
 azureresourceid
 babim
 badunit
@@ -315,10 +314,8 @@ endler
 enduml
 eni
 enp
-Ensar
 enumdecl
 enumflags
-ENVARS
 envsubst
 EOIG
 EOL'ed
@@ -518,6 +515,7 @@ imds
 IMSD
 incentivizes
 incrementalize
+indexgateway
 indexmap
 indicatif
 indoc
@@ -570,6 +568,7 @@ jtype
 juchiast
 karppila
 kartar
+kebabcase
 kemmer
 kernelmode
 keybase
@@ -621,6 +620,7 @@ lognamespace
 lognamespacing
 logplex
 logproto
+logql
 logqlmodel
 logsense
 logsev
@@ -630,7 +630,6 @@ losslessly
 lpop
 lpush
 Luc
-luciofranco
 lucperkins
 lukesteensen
 macports
@@ -682,7 +681,6 @@ mlua
 mmdb
 Mmm
 moby
-mockwatchlogs
 modulesloaddir
 mooper
 moosh
@@ -730,7 +728,6 @@ nbase
 ndarray
 ndjson
 nearline
-neuronull
 newcerts
 newrelix
 nextest
@@ -782,6 +779,7 @@ nullishness
 numbackends
 oahd
 oap
+OIDC
 OKD
 omfwd
 omitempty
@@ -811,6 +809,7 @@ ouicompat
 outputspatterns
 overaligned
 overalignment
+owen
 owo
 oyaml
 pageheap
@@ -818,6 +817,7 @@ paq
 parallelizable
 pareto
 partitionable
+pascalcase
 passthrough
 pathbuf
 pathgen
@@ -870,6 +870,7 @@ purgecss
 pyld
 Pzb
 qqq
+queryrangebase
 quickcheck
 quix
 quuux
@@ -940,18 +941,18 @@ rxs
 ryangjchandler
 ryu
 sadf
+salvacorts
 samehost
 samenet
 samerole
 sameuser
 sandboxed
 sandboxing
-Saraj
 sccache
 schemaless
 schemars
 schoen
-scl
+screamingsnakecase
 sda
 sdata
 SDID
@@ -976,7 +977,6 @@ shortcode
 shortstat
 should've
 shutsdown
-Sichert
 SIEM
 sighup
 Signsoff
@@ -1040,7 +1040,6 @@ stdduration
 stdlog
 Steensen
 stephenwakely
-strat
 strconv
 streamsink
 strng
@@ -1123,7 +1122,6 @@ Tomola
 tonydanza
 toolbars
 toolchains
-toolset
 toor
 topdir
 topojson
@@ -1161,6 +1159,7 @@ undertagline
 underutilized
 underutilizing
 unevictable
+unflatten
 unioning
 unitdir
 unmark
@@ -1209,7 +1208,6 @@ walkthrough
 waninfo
 wasmtime
 watchexec
-watchlogs
 wayfor
 webgraphviz
 webpki

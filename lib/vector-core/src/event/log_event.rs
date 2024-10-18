@@ -1,3 +1,4 @@
+use crate::event::util::log::all_fields_skip_array_elements;
 use bytes::Bytes;
 use chrono::Utc;
 use std::{
@@ -444,6 +445,13 @@ impl LogEvent {
         self.as_map().map(all_fields)
     }
 
+    /// Similar to [`LogEvent::all_event_fields`], but doesn't traverse individual array elements.
+    pub fn all_event_fields_skip_array_elements(
+        &self,
+    ) -> Option<impl Iterator<Item = (KeyString, &Value)> + Serialize> {
+        self.as_map().map(all_fields_skip_array_elements)
+    }
+
     /// If the metadata root value is a map, build and return an iterator to metadata field and value pairs.
     /// TODO: Ideally this should return target paths to be consistent with other `LogEvent` methods.
     pub fn all_metadata_fields(
@@ -820,7 +828,8 @@ mod test {
     use super::*;
     use crate::test_util::open_fixture;
     use lookup::event_path;
-    use vrl::value;
+    use uuid::Version;
+    use vrl::{btreemap, value};
 
     // The following two tests assert that renaming a key has no effect if the
     // keys are equivalent, whether the key exists in the log or not.
@@ -1154,6 +1163,49 @@ mod test {
         assert_eq!(
             actual,
             vec![("%a.b".into(), 1.into()), ("%c".into(), 2.into())]
+        );
+    }
+
+    #[test]
+    fn skip_array_elements() {
+        let log = LogEvent::from(Value::from(btreemap! {
+            "arr" => [1],
+            "obj" => btreemap! {
+                "arr" => [1,2,3]
+            },
+        }));
+
+        let actual: Vec<(KeyString, Value)> = log
+            .all_event_fields_skip_array_elements()
+            .unwrap()
+            .map(|(s, v)| (s, v.clone()))
+            .collect();
+        assert_eq!(
+            actual,
+            vec![
+                ("arr".into(), [1].into()),
+                ("obj.arr".into(), [1, 2, 3].into())
+            ]
+        );
+    }
+
+    #[test]
+    fn metadata_set_unique_uuid_v7_source_event_id() {
+        // Check if event id is UUID v7
+        let log1 = LogEvent::default();
+        assert_eq!(
+            log1.metadata()
+                .source_event_id()
+                .expect("source_event_id should be auto-generated for new events")
+                .get_version(),
+            Some(Version::SortRand)
+        );
+
+        // Check if event id is unique on creation
+        let log2 = LogEvent::default();
+        assert_ne!(
+            log1.metadata().source_event_id(),
+            log2.metadata().source_event_id()
         );
     }
 }

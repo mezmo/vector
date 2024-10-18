@@ -156,6 +156,7 @@ impl FileConsolidatorAsync {
                 (*box_endpoint).clone(),
                 &box_proxy,
                 &box_tls,
+                &None, // LOG-20807: adding support for setting timeout values
             )
             .await
             {

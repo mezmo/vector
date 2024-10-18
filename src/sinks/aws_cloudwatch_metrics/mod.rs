@@ -180,6 +180,7 @@ impl CloudWatchMetricsSinkConfig {
             self.region.endpoint(),
             proxy,
             &self.tls,
+            &None,
         )
         .await
     }

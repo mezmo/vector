@@ -84,6 +84,8 @@ pub mod redis;
 pub mod socket;
 #[cfg(feature = "sources-splunk_hec")]
 pub mod splunk_hec;
+#[cfg(feature = "sources-static_metrics")]
+pub mod static_metrics;
 #[cfg(feature = "sources-statsd")]
 pub mod statsd;
 #[cfg(feature = "sources-syslog")]

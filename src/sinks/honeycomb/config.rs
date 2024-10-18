@@ -4,6 +4,7 @@ use bytes::Bytes;
 use futures::FutureExt;
 use http::{Request, StatusCode, Uri};
 use mezmo::user_log_error;
+use vector_lib::configurable::configurable_component;
 use vector_lib::sensitive_string::SensitiveString;
 use vrl::value::Kind;
 
@@ -29,8 +30,13 @@ pub(super) const HTTP_HEADER_HONEYCOMB: &str = "X-Honeycomb-Team";
 #[configurable_component(sink("honeycomb", "Deliver log events to Honeycomb."))]
 #[derive(Clone, Debug)]
 pub struct HoneycombConfig {
-    // This endpoint is not user-configurable and only exists for testing purposes
-    #[serde(skip, default = "default_endpoint")]
+    /// Honeycomb's endpoint to send logs to
+    #[serde(default = "default_endpoint")]
+    #[configurable(metadata(
+        docs::examples = "https://api.honeycomb.io",
+        docs::examples = "https://api.eu1.honeycomb.io",
+    ))]
+    #[configurable(validation(format = "uri"))]
     pub(super) endpoint: String,
 
     /// The API key that is used to authenticate against Honeycomb.
@@ -66,7 +72,7 @@ pub struct HoneycombConfig {
 }
 
 fn default_endpoint() -> String {
-    "https://api.honeycomb.io/1/batch".to_string()
+    "https://api.honeycomb.io".to_string()
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -137,7 +143,11 @@ impl SinkConfig for HoneycombConfig {
 
 impl HoneycombConfig {
     fn build_uri(&self) -> crate::Result<Uri> {
-        let uri = format!("{}/{}", self.endpoint, self.dataset);
+        let uri = format!(
+            "{}/1/batch/{}",
+            self.endpoint.trim_end_matches('/'),
+            self.dataset
+        );
         uri.parse::<Uri>().map_err(Into::into)
     }
 }
