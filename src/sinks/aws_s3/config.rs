@@ -330,4 +330,73 @@ mod tests {
     fn generate_config() {
         crate::test_util::test_generate_config::<S3SinkConfig>();
     }
+
+    #[test]
+    fn parse_consolidation_config_using_defaults() {
+        let test_config = r#"
+        {
+            "bucket": "test-bucket",
+            "filename_extension": "json",
+            "region": "us-east-1",
+            "encoding": {
+                "codec": "json"
+            },
+            "file_consolidation_config": {
+                "enabled": true,
+                "process_every_ms": 1000,
+                "requested_size_bytes": 10000
+            }
+        }
+        "#;
+
+        let actual: S3SinkConfig =
+            serde_json::from_str(test_config).expect("configuration should be parsable");
+        let actual = actual.file_consolidation_config;
+        assert!(actual.enabled);
+        assert_eq!(1000, actual.process_every_ms);
+        assert_eq!(10000, actual.requested_size_bytes);
+        assert!(actual.output_format.is_none());
+        assert!(actual.base_path.is_none());
+        assert!(actual.aws_timeout.is_none());
+    }
+
+    #[test]
+    fn parse_consolidation_config_all_fields() {
+        let test_config = r#"
+        {
+            "bucket": "test-bucket",
+            "filename_extension": "json",
+            "region": "us-east-1",
+            "encoding": {
+                "codec": "json"
+            },
+            "file_consolidation_config": {
+                "enabled": true,
+                "process_every_ms": 1000,
+                "requested_size_bytes": 10000,
+                "output_format": "json",
+                "base_path": "test/path",
+                "aws_timeout": {
+                    "connect_timeout_seconds": 123,
+                    "operation_timeout_seconds": 456,
+                    "read_timeout_seconds": 789
+                }
+            }
+        }
+        "#;
+
+        let actual: S3SinkConfig =
+            serde_json::from_str(test_config).expect("configuration should be parsable");
+        let actual = actual.file_consolidation_config;
+        assert!(actual.enabled);
+        assert_eq!(1000, actual.process_every_ms);
+        assert_eq!(10000, actual.requested_size_bytes);
+        assert!(matches!(actual.output_format, Some(ref val) if val == "json"));
+        assert!(matches!(actual.base_path, Some(ref val) if val == "test/path"));
+
+        let actual_aws_timeout = actual.aws_timeout.expect("AWS timeout value");
+        assert!(matches!(actual_aws_timeout.connect_timeout(), Some(ref val) if *val == 123));
+        assert!(matches!(actual_aws_timeout.operation_timeout(), Some(ref val) if *val == 456));
+        assert!(matches!(actual_aws_timeout.read_timeout(), Some(ref val) if *val == 789));
+    }
 }

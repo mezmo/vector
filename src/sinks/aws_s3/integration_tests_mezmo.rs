@@ -176,6 +176,7 @@ async fn s3_file_consolidator_enabled_run() {
             requested_size_bytes: 512000000,
             base_path: None,
             output_format: None,
+            aws_timeout: None,
         },
         bucket.clone(),
     );

@@ -1,12 +1,12 @@
-use crate::aws::AwsAuthentication;
-use crate::config::ProxyConfig;
-use crate::tls::TlsConfig;
 use aws_types::region::Region;
+use tokio::task::JoinHandle;
 use vector_lib::configurable::configurable_component;
 
+use crate::aws::{create_client, AwsAuthentication, AwsTimeout};
+use crate::common::s3::S3ClientBuilder;
+use crate::config::ProxyConfig;
 use crate::sinks::aws_s3::file_consolidation_processor::FileConsolidationProcessor;
-use crate::{aws::create_client, common::s3::S3ClientBuilder};
-use tokio::task::JoinHandle;
+use crate::tls::TlsConfig;
 
 const DEFAULT_BASE_PATH: &str = "";
 const DEFAULT_OUTPUT_FORMAT: &str = "ndjson";
@@ -39,6 +39,10 @@ pub struct FileConsolidationConfig {
 
     /// Indicates the base path to start consolidation
     pub base_path: Option<String>,
+
+    /// S3 timeout parameters
+    #[serde(default)]
+    pub aws_timeout: Option<AwsTimeout>,
 }
 
 impl Default for FileConsolidationConfig {
@@ -49,6 +53,7 @@ impl Default for FileConsolidationConfig {
             requested_size_bytes: 500000000, // 500 MB
             output_format: Some(DEFAULT_BASE_PATH.to_string()),
             base_path: Some(DEFAULT_OUTPUT_FORMAT.to_string()),
+            aws_timeout: None,
         }
     }
 }
@@ -148,6 +153,7 @@ impl FileConsolidatorAsync {
         let box_tls = Box::new(self.tls_options.clone());
         let box_requested_size_bytes =
             Box::new(self.file_consolidation_config.requested_size_bytes);
+        let aws_timeout = self.file_consolidation_config.aws_timeout;
 
         let spawned = tokio::spawn(async move {
             let client = match create_client::<S3ClientBuilder>(
@@ -156,7 +162,7 @@ impl FileConsolidatorAsync {
                 (*box_endpoint).clone(),
                 &box_proxy,
                 &box_tls,
-                &None, // LOG-20807: adding support for setting timeout values
+                &aws_timeout,
             )
             .await
             {
