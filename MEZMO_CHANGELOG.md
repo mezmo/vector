@@ -1,3 +1,10 @@
+# [8.1.0](https://github.com/answerbook/vector/compare/v8.0.0...v8.1.0) (2024-10-21)
+
+
+### Features
+
+* **s3**: support timeout conf in consolidation [72a9898](https://github.com/answerbook/vector/commit/72a98981247f1b7c8d58eb18a75b637ec1c969fd) - Dan Hable [LOG-20807](https://logdna.atlassian.net/browse/LOG-20807)
+
 # [8.0.0](https://github.com/answerbook/vector/compare/v7.0.1...v8.0.0) (2024-10-18)
 
 
