@@ -1,3 +1,10 @@
+## [8.1.1](https://github.com/answerbook/vector/compare/v8.1.0...v8.1.1) (2024-10-22)
+
+
+### Bug Fixes
+
+* **alloc-tracing**: reuse allocation group ids [83c3874](https://github.com/answerbook/vector/commit/83c38749dd18e87e2bc153fb050be14701090157) - Dan Hable [LOG-20743](https://logdna.atlassian.net/browse/LOG-20743)
+
 # [8.1.0](https://github.com/answerbook/vector/compare/v8.0.0...v8.1.0) (2024-10-21)
 
 
