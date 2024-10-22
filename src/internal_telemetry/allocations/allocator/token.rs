@@ -28,7 +28,8 @@ impl AllocationGroupId {
     // Group IDs start at 1. The value 0 is reserved for handling runtime allocation edge cases.
     pub const ROOT: Self = AllocationGroupId::from_raw(1);
 
-    pub(super) const fn from_raw(raw_group_id: u16) -> Self {
+    // mezmo: needs to be public for allocation group reuse
+    pub const fn from_raw(raw_group_id: u16) -> Self {
         unsafe { Self(NonZeroU16::new_unchecked(raw_group_id)) }
     }
 

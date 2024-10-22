@@ -11,6 +11,7 @@ use std::{
 };
 
 use arr_macro::arr;
+use itertools::Itertools;
 use metrics::{counter, gauge};
 use rand_distr::num_traits::ToPrimitive;
 
@@ -183,6 +184,27 @@ pub fn init_allocation_tracing() {
         .unwrap();
 }
 
+// mezmo: helper function to find existing allocation group ids from the
+// GROUP_INFO Vec.
+fn find_group_id(
+    component_id: &str,
+    component_type: &str,
+    component_kind: &str,
+) -> Option<AllocationGroupId> {
+    GROUP_INFO
+        .iter()
+        .find_position(|group_info| {
+            if let Ok(group_info) = group_info.lock() {
+                group_info.component_id == component_id
+                    && group_info.component_kind == component_kind
+                    && group_info.component_type == component_type
+            } else {
+                false
+            }
+        })
+        .map(|info| AllocationGroupId::from_raw(info.0 as u16))
+}
+
 /// Acquires an allocation group ID.
 ///
 /// This creates an allocation group which allows callers to enter/exit the allocation group context, associating all
@@ -195,6 +217,22 @@ pub fn acquire_allocation_group_id(
     component_type: String,
     component_kind: String,
 ) -> AllocationGroupId {
+    // mezmo: we hot reload the configuration over a long-running process, which will eventually lead to
+    // allocation group_id's being exhausted. to avoid this, we try to reuse allocation group ids if the
+    // component key values match GROUP_INFO.
+    if let Some(existing) = find_group_id(&component_id, &component_type, &component_kind) {
+        return existing;
+    }
+
+    // mezmo: new components won't appear in the allocation list, so we need to acquire a mutex lock, check
+    // again in case another process registered it already and proceed to allocate if the second check under
+    // lock misses. doing it this way avoids the mutex cost for components that remain between config reloads.
+    static GROUP_INFO_LOCK: Mutex<()> = Mutex::new(());
+    let _lock = GROUP_INFO_LOCK.lock().expect("group info lock obtained");
+    if let Some(existing) = find_group_id(&component_id, &component_type, &component_kind) {
+        return existing;
+    }
+
     if let Some(group_id) = AllocationGroupId::register() {
         if let Some(group_lock) = GROUP_INFO.get(group_id.as_raw() as usize) {
             let mut writer = group_lock.lock().unwrap();
