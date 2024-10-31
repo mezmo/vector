@@ -1,3 +1,15 @@
+## [8.1.3](https://github.com/answerbook/vector/compare/v8.1.2...v8.1.3) (2024-10-31)
+
+
+### Bug Fixes
+
+* **cluster**: size as event size instead of line size [7e69972](https://github.com/answerbook/vector/commit/7e699721d4313a3ccfea0e2ef7854c9bb64955b4) - dominic-mcallister-logdna [LOG-20872](https://logdna.atlassian.net/browse/LOG-20872)
+
+
+### Miscellaneous
+
+* Merge pull request #626 from answerbook/dominic/LOG-20872 [ea25e2b](https://github.com/answerbook/vector/commit/ea25e2be0b384c34c9a0b7b0f168501eaa75777c) - GitHub [LOG-20872](https://logdna.atlassian.net/browse/LOG-20872)
+
 ## [8.1.2](https://github.com/answerbook/vector/compare/v8.1.1...v8.1.2) (2024-10-28)
 
 
