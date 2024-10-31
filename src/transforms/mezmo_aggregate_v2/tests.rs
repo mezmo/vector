@@ -938,3 +938,130 @@ async fn tumbling_aggregate_behavior() {
             .collect::<Vec<_>>()
     );
 }
+
+// LOG-20860: This test generates a field value, as a string, that would far exceed the bounds of
+// the i64/f64 types that VRL is based upon. Prior to fixes in the vrl repo, this test case would
+// cause an un-trapped panic, crashing vector. If this test passes, it means that we won't crash
+// and have some sane behavior.
+#[tokio::test]
+async fn numeric_exceeds_type_sizes() {
+    // The script and flush_condition values are what pipeline-service generates for the following
+    // aggregate JS script and a % change check:
+    //
+    // function alertAggregation(accum, event, metadata) {
+    //     if(!accum.aggregated_content_length){
+    //         accum.aggregated_content_length = event.content_length
+    //     }
+    //     accum.aggregated_content_length+=accum.content_length
+    //     // This function *must* return the accumulated event
+    //     return accum
+    // }
+    let config = r#"
+        window_duration_ms = 5
+        min_window_size_ms = 5
+        flush_tick_ms = 1
+        event_id_fields = [".message.id"]
+        source = """
+            if !mezmo_is_truthy(.accum.message.aggregated_content_length) {
+                .accum.message.aggregated_content_length = .event.message.content_length
+            }
+            .accum.message.aggregated_content_length = {
+                left = .accum.message.aggregated_content_length;
+                result, err = mezmo_concat_or_add_fallible(left, .accum.message.content_length);
+                if (err == null) {
+                    result
+                } else {
+                    user_log("[E_SCRIPT_INVALID_ARITHMETIC] Property 'aggregated_content_length' can't be used in arithmetic operation '+'", level: "error");
+                    left
+                }
+            }
+            . = .accum
+        """
+        flush_condition = """
+( {
+ if exists(.message.aggregated_content_length) {
+
+    res = true
+
+    curr_field_value = .message.aggregated_content_length;
+    # if is_string(curr_field_value) {
+    #  curr_field_value, _ = strip_whitespace(curr_field_value);
+    # }
+    curr_field_value, err = mezmo_to_float(curr_field_value);
+    if err != null {
+      user_log("[E_COMPARE_COERCION_FAILED] The value of the incoming field '.aggregated_content_length' cannot be converted to a number for a 'percent_change_greater' comparison", level: "error", captured_data: {"field": .message.aggregated_content_length});
+      res = false
+    }
+
+    prev_field_value = %previous.message.aggregated_content_length
+    if prev_field_value == null {
+      # skip triggering the check if there is no prior value
+      res = false
+    }
+    if res {
+      # if is_string(prev_field_value) {
+      #  prev_field_value, _ = strip_whitespace(prev_field_value);
+      # }
+      prev_field_value, err = mezmo_to_float(prev_field_value);
+      if err != null {
+        user_log("[E_COMPARE_COERCION_FAILED] The value of the incoming field '.aggregated_content_length' cannot be converted to a number for a 'percent_change_greater' comparison", level: "error", captured_data: {"field": prev_field_value});
+        res = false
+      }
+    }
+
+    if res {
+      diff, _ = curr_field_value - prev_field_value
+      pcent_diff, _ = (diff / prev_field_value) * 100
+
+      res = pcent_diff > 500
+    }
+
+    res
+
+ } else {
+  user_log("[E_NOT_FOUND] The incoming event did not contain the field '.aggregated_content_length'", level: "warn", captured_data: {"message": .message, "metadata": .metadata, "timestamp": .timestamp});
+  false
+ }
+ } )
+        """
+    "#;
+    let config: MezmoAggregateV2Config = toml::from_str(config).unwrap();
+    let mezmo_ctx = Some(test_mezmo_context());
+    let ctx = TransformContext {
+        mezmo_ctx,
+        ..Default::default()
+    };
+    let mut target = match config.internal_build(&ctx).await {
+        Err(e) => panic!("{e}"),
+        Ok(mut aggregator) => {
+            aggregator.clock = AggregateClock::Counter(AtomicI64::new(1));
+            aggregator
+        }
+    };
+
+    let mut sent_events = 0;
+
+    // We need to run two events, that span a single aggregate window in order to fully exercise the
+    // code. Only when the second event arrives will we fully execute the flush_condition on the current
+    // and previous values.
+    for _ in 0..2 {
+        // We need to exceed the bounds of f64::MAX, which is 1.7976931348623157e308. The way we accomplished
+        // this is prod was string concatenation to produce a large number. Here we send in 17976931348623157
+        // with 300 "0". That is far beyond the f64::MAX value.
+        target.record(log_event(
+            r#"{ "message": { "id": "id-1", "content_length": "17976931348623157" } }"#,
+        ));
+        for _ in 0..30 {
+            target.record(log_event(
+                r#"{ "message": { "id": "id-1", "content_length": "0000000000" } }"#,
+            ));
+        }
+
+        let mut flushed_events = vec![];
+        target.flush_finalized(&mut flushed_events); // this is when flush_condition is executed
+        target.clock.increment_by(6);
+        sent_events += 1;
+    }
+
+    assert_eq!(sent_events, 2);
+}

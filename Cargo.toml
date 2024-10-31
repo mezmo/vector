@@ -152,7 +152,7 @@ toml = { version = "0.8.19", default-features = false, features = ["display", "p
 tonic = { version = "0.11", default-features = false, features = ["transport", "codegen", "prost", "tls", "tls-roots", "gzip"] }
 tonic-build = { version = "0.11", default-features = false, features = ["transport", "prost"] }
 uuid = { version = "1.10.0", features = ["v4", "v7", "serde"] }
-vrl = { version = "0.18.0", git = "ssh://git@github.com/mezmo/vrl.git", tag = "v2.0.0", features = ["arbitrary", "cli", "test", "test_framework"] }
+vrl = { version = "0.18.0", git = "ssh://git@github.com/mezmo/vrl.git", tag = "v2.0.2", features = ["arbitrary", "cli", "test", "test_framework"] }
 # version 0.1.59 is required by the updated VRL crate
 iana-time-zone = { version = "0.1.60" }
 
