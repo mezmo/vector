@@ -25,7 +25,7 @@ use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogClusterStatus};
 use crate::transforms::mezmo_log_clustering::store::save_in_loop;
 use mezmo::MezmoContext;
 use vector_lib::event::LogEvent;
-use vector_lib::usage_metrics::{get_annotations, AnnotationSet};
+use vector_lib::usage_metrics::{get_annotations, log_event_size, AnnotationSet};
 use vrl::value::Value;
 
 mod drain;
@@ -323,11 +323,20 @@ impl MezmoLogClustering {
         };
 
         if status == TransformStatus::Store {
+            // the clustering is occuring on just the specified line,
+            // but we want to store the billing calculated size of the message
+            // so informed decisions can be made against full events using
+            // clustering line sizes
+            let mut message_size: i64 = 0;
+            if let Some(fields) = log.as_map() {
+                message_size = log_event_size(fields) as i64;
+            }
+
             let local_id = group.local_id();
             let mut info = LogGroupInfo {
                 local_id,
                 cluster_id: group.cluster_id(),
-                size: line.as_ref().len() as i64,
+                size: message_size,
                 template: None,
                 annotation_set: None,
                 // The component_key was already validated to be "some" for the Store case
