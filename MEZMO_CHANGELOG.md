@@ -1,3 +1,10 @@
+## [8.1.4](https://github.com/answerbook/vector/compare/v8.1.3...v8.1.4) (2024-10-31)
+
+
+### Bug Fixes
+
+* **vrl**: pick up to_float / mezmo_to_float fix [f3f0402](https://github.com/answerbook/vector/commit/f3f04023ada72b97bc8e83485794e960416ecf4c) - Dan Hable [LOG-20860](https://logdna.atlassian.net/browse/LOG-20860)
+
 ## [8.1.3](https://github.com/answerbook/vector/compare/v8.1.2...v8.1.3) (2024-10-31)
 
 
