@@ -275,7 +275,7 @@ async fn with_initial_state() {
         },
     )]);
     throttle.keys = initial_keys;
-    throttle.persist_state();
+    throttle.persist_state().await;
 
     let throttle = Transform::event_task(throttle);
     let throttle = throttle.into_task();
@@ -324,7 +324,7 @@ async fn with_initial_state() {
     tx.disconnect();
 
     // And still nothing there
-    assert_eq!(Poll::Ready(None), futures::poll!(out_stream.next()));
+    assert_eq!(None, out_stream.next().await);
 }
 
 #[tokio::test]
