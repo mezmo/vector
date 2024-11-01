@@ -193,9 +193,9 @@ impl MezmoAggregateV2Config {
 
         let state_persistence_tick_ms = self.state_persistence_tick_ms;
         let state_persistence_max_jitter_ms = self.state_persistence_max_jitter_ms;
-        let state_persistence: Option<Box<dyn PersistenceConnection>> =
+        let state_persistence: Option<Arc<dyn PersistenceConnection>> =
             match (&self.state_persistence_base_path, ctx.mezmo_ctx.clone()) {
-                (Some(base_path), Some(mezmo_ctx)) => Some(Box::new(
+                (Some(base_path), Some(mezmo_ctx)) => Some(Arc::new(
                     RocksDBPersistenceConnection::new(base_path, &mezmo_ctx)?,
                 )),
                 (_, Some(mezmo_ctx)) => {

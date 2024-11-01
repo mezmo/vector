@@ -8,7 +8,7 @@ pub(crate) use rocksdb::RocksDBPersistenceConnection;
 /// to the persistence layer, e.g. a DB connection, that can then be used for individual operations.
 /// Objects that implement this trait should expect to live for the life of the component that owns
 /// them.
-pub(crate) trait PersistenceConnection: Send + std::fmt::Debug {
+pub(crate) trait PersistenceConnection: Send + Sync + std::fmt::Debug {
     /// An associated function that creates a new [PersistenceConnection] given a connection string
     /// to the specific data store and a [MezmoContext] that restricts data storage to a given named
     /// component. Components without a valid [MezmoContext] are currently not eligible for persistence.

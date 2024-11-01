@@ -715,7 +715,7 @@ async fn with_initial_state() {
     let mut res = vec![];
     let initial_data = target.data.clone();
     target.flush_finalized(&mut res); // no-op, window has not elapsed
-    target.persist_state();
+    target.persist_state().await;
     assert!(res.is_empty());
 
     let mut new_target = new_aggregator(None, limits, state_persistence_base_path).await;
@@ -759,8 +759,7 @@ async fn persist_state_marks_delivered() {
     };
 
     target.record(event);
-    target.persist_state();
-
+    target.persist_state().await;
     assert_eq!(batch_recv.try_recv(), Ok(BatchStatus::Delivered));
 }
 
