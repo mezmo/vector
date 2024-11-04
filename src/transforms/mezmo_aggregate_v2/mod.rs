@@ -487,10 +487,13 @@ impl MezmoAggregateV2 {
 fn load_initial_state(
     state_persistence: &Arc<dyn PersistenceConnection>,
 ) -> HashMap<u64, VecDeque<AggregateWindow>> {
-    match state_persistence.get("state") {
+    match state_persistence.get(STATE_PERSISTENCE_KEY) {
         Ok(state) => match state {
             Some(state) => match serde_json::from_str(&state) {
-                Ok(state) => state,
+                Ok(state) => {
+                    debug!("MezmoAggregateV2: existing state found");
+                    state
+                }
                 Err(err) => {
                     error!(
                         "Failed to deserialize state from persistence: {}, component_id",
@@ -499,7 +502,10 @@ fn load_initial_state(
                     HashMap::new()
                 }
             },
-            None => HashMap::new(),
+            None => {
+                debug!("MezmoAggregateV2: no state found");
+                HashMap::new()
+            }
         },
         Err(err) => {
             error!(
