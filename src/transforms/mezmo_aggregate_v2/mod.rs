@@ -10,6 +10,7 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::select;
 use vector_lib::{
@@ -199,7 +200,7 @@ pub struct MezmoAggregateV2 {
     clock: AggregateClock,
     mezmo_ctx: Option<MezmoContext>,
     aggregator_limits: config::AggregatorLimits,
-    state_persistence: Option<Box<dyn PersistenceConnection>>,
+    state_persistence: Option<Arc<dyn PersistenceConnection>>,
     state_persistence_tick_ms: u64,
     state_persistence_max_jitter_ms: u64,
 }
@@ -214,7 +215,7 @@ impl MezmoAggregateV2 {
         flush_condition: Option<Condition>,
         mezmo_ctx: Option<MezmoContext>,
         aggregator_limits: config::AggregatorLimits,
-        state_persistence: Option<Box<dyn PersistenceConnection>>,
+        state_persistence: Option<Arc<dyn PersistenceConnection>>,
         state_persistence_tick_ms: u64,
         state_persistence_max_jitter_ms: u64,
     ) -> Self {
@@ -440,31 +441,42 @@ impl MezmoAggregateV2 {
 
     /// Saves the current `data` to persistent storage. This is intended to be called from the
     /// polling loop on an interval defined by the `state_persistence_tick_ms` field.
-    fn persist_state(&mut self) {
+    async fn persist_state(&mut self) {
         if let Some(state_persistence) = &self.state_persistence {
-            let value = serde_json::to_string(&self.data);
-            if let Err(err) = value {
-                error!("MezmoAggregateV2: failed to serialize state: {}", err);
-                return;
-            }
+            let data = self.data.clone();
+            let state_persistence = Arc::clone(state_persistence);
 
-            match state_persistence.set(STATE_PERSISTENCE_KEY, &value.unwrap()) {
-                Ok(_) => {
-                    // LOG-19818: Many usages of the aggregate processor span a time boundary that
-                    // causes heartburn with kafka acknowledgements. If we've persisted the data
-                    // locally, then update the status on the finalizers as delivered; the processor
-                    // will now provide the durability.
-                    for windows in self.data.values_mut() {
-                        for window in windows.iter_mut() {
-                            window
-                                .event
-                                .take_finalizers()
-                                .update_status(EventStatus::Delivered);
+            let handle = tokio::task::spawn_blocking(move || {
+                let value = serde_json::to_string(&data)?;
+                state_persistence.set(STATE_PERSISTENCE_KEY, &value)
+            })
+            .await;
+
+            match handle {
+                Ok(result) => match result {
+                    Ok(_) => {
+                        // LOG-19818: Many usages of the aggregate processor span a time boundary that
+                        // causes heartburn with kafka acknowledgements. If we've persisted the data
+                        // locally, then update the status on the finalizers as delivered; the processor
+                        // will now provide the durability.
+                        for windows in self.data.values_mut() {
+                            for window in windows.iter_mut() {
+                                window
+                                    .event
+                                    .take_finalizers()
+                                    .update_status(EventStatus::Delivered);
+                            }
                         }
+                        debug!("MezmoAggregateV2: state persisted");
                     }
-                    debug!("MezmoAggregateV2: state persisted")
-                }
-                Err(err) => error!("MezmoAggregateV2: failed to persist state: {}", err),
+                    Err(err) => {
+                        error!("MezmoAggregateV2: failed to persist state: {}", err);
+                    }
+                },
+                Err(err) => error!(
+                    "MezmoAggregateV2: failed to execute persistence task: {}",
+                    err
+                ),
             }
         }
     }
@@ -472,9 +484,8 @@ impl MezmoAggregateV2 {
 
 // Handles loading initial state from persistent storage, returning an appropriate
 // default value if the state is not found or cannot be deserialized.
-#[allow(clippy::borrowed_box)]
 fn load_initial_state(
-    state_persistence: &Box<dyn PersistenceConnection>,
+    state_persistence: &Arc<dyn PersistenceConnection>,
 ) -> HashMap<u64, VecDeque<AggregateWindow>> {
     match state_persistence.get("state") {
         Ok(state) => match state {
@@ -530,7 +541,7 @@ impl TaskTransform<Event> for MezmoAggregateV2 {
                     _ = state_persistence_interval.tick() => {
                         let jitter = rand::thread_rng().gen_range(0..=self.state_persistence_max_jitter_ms);
                         tokio::time::sleep(Duration::from_millis(jitter)).await;
-                        self.persist_state();
+                        self.persist_state().await;
                     },
                     maybe_event = input_events.next() => {
                         match maybe_event {
@@ -553,7 +564,7 @@ impl TaskTransform<Event> for MezmoAggregateV2 {
                 }
 
                 if done {
-                    self.persist_state()
+                    self.persist_state().await;
                 }
             }
         })

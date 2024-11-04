@@ -16,6 +16,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use std::time::Duration;
 use std::{num::NonZeroU32, pin::Pin};
 use vrl::value::Value;
@@ -27,7 +28,7 @@ mod tests;
 // The key for the state persistence db.
 const STATE_PERSISTENCE_KEY: &str = "state";
 
-pub trait Clock: Clone {
+pub trait Clock: Clone + Sync {
     fn now(&self) -> i64;
 }
 
@@ -45,7 +46,7 @@ impl Clock for ThrottleClock {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ThrottleBucket {
     window_ms: u64,
     threshold: NonZeroU32,
@@ -112,7 +113,7 @@ pub struct Throttle<C: Clock> {
     key_field: Option<Template>,
     exclude: Option<Condition>,
     clock: C,
-    state_persistence: Option<Box<dyn PersistenceConnection>>,
+    state_persistence: Option<Arc<dyn PersistenceConnection>>,
     state_persistence_tick_ms: u64,
     state_persistence_max_jitter_ms: u64,
     max_keys_allowed: usize,
@@ -141,9 +142,9 @@ where
         let mezmo_ctx = context.mezmo_ctx.clone();
         let state_persistence_tick_ms = config.state_persistence_tick_ms;
         let state_persistence_max_jitter_ms = config.state_persistence_max_jitter_ms;
-        let state_persistence: Option<Box<dyn PersistenceConnection>> =
+        let state_persistence: Option<Arc<dyn PersistenceConnection>> =
             match (&config.state_persistence_base_path, &mezmo_ctx) {
-                (Some(base_path), Some(mezmo_ctx)) => Some(Box::new(
+                (Some(base_path), Some(mezmo_ctx)) => Some(Arc::new(
                     RocksDBPersistenceConnection::new(base_path, mezmo_ctx)?,
                 )),
                 (_, Some(mezmo_ctx)) => {
@@ -178,17 +179,27 @@ where
 
     /// Saves the current `data` to persistent storage. This is intended to be called from the
     /// polling loop on an interval defined by the `state_persistence_tick_ms` field.
-    fn persist_state(&self) {
+    async fn persist_state(&self) {
         if let Some(state_persistence) = &self.state_persistence {
-            let value = serde_json::to_string(&self.keys);
-            if let Err(err) = value {
-                error!("MezmoThrottle: failed to serialize state: {}", err);
-                return;
-            }
+            let data = self.keys.clone();
+            let state_persistence = Arc::clone(state_persistence);
 
-            match state_persistence.set(STATE_PERSISTENCE_KEY, &value.unwrap()) {
-                Ok(_) => debug!("MezmoThrottle: state persisted"),
-                Err(err) => error!("MezmoThrottle: failed to persist state: {}", err),
+            let handle = tokio::task::spawn_blocking(move || {
+                let value = serde_json::to_string(&data)?;
+                state_persistence.set(STATE_PERSISTENCE_KEY, &value)
+            })
+            .await;
+
+            match handle {
+                Ok(result) => match result {
+                    Ok(_) => {
+                        debug!("MezmoThrottle: state persisted");
+                    }
+                    Err(err) => {
+                        error!("MezmoThrottle: failed to persist state: {}", err);
+                    }
+                },
+                Err(err) => error!("MezmoThrottle: failed to execute persistence task: {}", err),
             }
         }
     }
@@ -226,7 +237,7 @@ where
 // default value if the state is not found or cannot be deserialized.
 #[allow(clippy::borrowed_box)]
 fn load_initial_state(
-    state_persistence: &Box<dyn PersistenceConnection>,
+    state_persistence: &Arc<dyn PersistenceConnection>,
 ) -> HashMap<String, ThrottleBucket> {
     match state_persistence.get(STATE_PERSISTENCE_KEY) {
         Ok(state) => match state {
@@ -272,10 +283,10 @@ where
                     _ = state_persistence_interval.tick() => {
                         let jitter = rand::thread_rng().gen_range(0..=self.state_persistence_max_jitter_ms);
                         tokio::time::sleep(Duration::from_millis(jitter)).await;
-                        self.persist_state();
+                        self.persist_state().await;
                         false
-                  },
-                  maybe_event = input_rx.next() => {
+                    },
+                    maybe_event = input_rx.next() => {
                         match maybe_event {
                             None => true,
                             Some(event) => {
@@ -307,7 +318,7 @@ where
                 self.keys.retain(|_, bucket| bucket.still_active(self.clock.now()));
 
                 if done {
-                    self.persist_state();
+                    self.persist_state().await;
                     break;
                 }
             }
