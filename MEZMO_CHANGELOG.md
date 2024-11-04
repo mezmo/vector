@@ -1,3 +1,16 @@
+## [8.1.5](https://github.com/answerbook/vector/compare/v8.1.4...v8.1.5) (2024-11-04)
+
+
+### Bug Fixes
+
+* **aggregate-v2**: move rocksdb persistence to blocking thread [81768d7](https://github.com/answerbook/vector/commit/81768d72dd96b54556dfb65436993dfdf3a6d6d8) - Mike Del Tito [LOG-20906](https://logdna.atlassian.net/browse/LOG-20906)
+* **throttle**: move rocksdb persistence to blocking thread [828c465](https://github.com/answerbook/vector/commit/828c4650a06c4e514f6a44221dba13d32a910039) - Mike Del Tito [LOG-20906](https://logdna.atlassian.net/browse/LOG-20906)
+
+
+### Miscellaneous
+
+* Merge pull request #627 from answerbook/mdeltito/LOG-20906 [eb48c99](https://github.com/answerbook/vector/commit/eb48c99f86477c67f55d8f2c3f03a9902303f485) - GitHub [LOG-20906](https://logdna.atlassian.net/browse/LOG-20906)
+
 ## [8.1.4](https://github.com/answerbook/vector/compare/v8.1.3...v8.1.4) (2024-10-31)
 
 
