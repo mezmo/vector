@@ -1,6 +1,8 @@
 use chrono::Utc;
 use fakedata::mezmo::access_log::json_access_log_line;
 use fakedata::mezmo::error_log::apache_error_log_line;
+use fakedata::mezmo::infrastructure::infra_log_line;
+use fakedata::mezmo::kubernetes::kubernetes_log_line;
 use fakedata::mezmo::metrics;
 use fakedata::mezmo::{
     access_log::{apache_common_log_line, nginx_access_log_line},
@@ -172,6 +174,10 @@ pub enum MezmoOutputFormat {
         #[serde(default = "default_max_user_provided_lines")]
         max_user_provided_lines: usize,
     },
+    /// Infrastructure logs
+    Infrastructure,
+    /// Kubernetes logs
+    Kubernetes,
 }
 
 struct State {
@@ -261,6 +267,15 @@ impl MezmoOutputFormat {
                 let line = lines[idx].clone();
                 state.user_provided_idx = (idx + 1) % (lines.len()); // zero-based index, infinite loop
                 line
+            }
+            Self::Infrastructure => {
+                let log = infra_log_line();
+                serde_json::to_string(&log)
+                    .expect("infrastructure log event should be json encodable")
+            }
+            Self::Kubernetes => {
+                let log = kubernetes_log_line();
+                serde_json::to_string(&log).expect("kubernetes log event should be json encodable")
             }
         }
     }
@@ -786,6 +801,34 @@ mod tests {
             assert_eq!(line.to_string(), message);
         }
 
+        assert_eq!(poll!(rx.next()), Poll::Ready(None));
+    }
+
+    #[tokio::test]
+    async fn infrastructure_format_generates_output() {
+        let mut rx = runit(
+            r#"format = "infrastructure"
+            count = 5"#,
+        )
+        .await;
+
+        for _ in 0..5 {
+            assert!(poll!(rx.next()).is_ready());
+        }
+        assert_eq!(poll!(rx.next()), Poll::Ready(None));
+    }
+
+    #[tokio::test]
+    async fn kubernetes_format_generates_output() {
+        let mut rx = runit(
+            r#"format = "kubernetes"
+            count = 5"#,
+        )
+        .await;
+
+        for _ in 0..5 {
+            assert!(poll!(rx.next()).is_ready());
+        }
         assert_eq!(poll!(rx.next()), Poll::Ready(None));
     }
 }
