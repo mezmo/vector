@@ -1,3 +1,10 @@
+# [8.2.0](https://github.com/answerbook/vector/compare/v8.1.5...v8.2.0) (2024-11-05)
+
+
+### Features
+
+* **demo-logs**: Add infrastructure and kubernetes logs (#628) [f495e3d](https://github.com/answerbook/vector/commit/f495e3d68ec14c11bb3aef393540f90cff64a75c) - GitHub [LOG-20855](https://logdna.atlassian.net/browse/LOG-20855)
+
 ## [8.1.5](https://github.com/answerbook/vector/compare/v8.1.4...v8.1.5) (2024-11-04)
 
 
