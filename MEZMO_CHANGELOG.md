@@ -1,3 +1,15 @@
+# [8.3.0](https://github.com/answerbook/vector/compare/v8.2.0...v8.3.0) (2024-11-05)
+
+
+### Features
+
+* **persistence**: expose per-db metrics for rocksdb [b818e74](https://github.com/answerbook/vector/commit/b818e74c9f4310b73613a9abbc089832e1800ff2) - Mike Del Tito [LOG-20916](https://logdna.atlassian.net/browse/LOG-20916)
+
+
+### Miscellaneous
+
+* Merge pull request #629 from answerbook/mdeltito/LOG-20916 [c1c43a7](https://github.com/answerbook/vector/commit/c1c43a7fe5868cbb89f5940d8583a3ea493b5f8a) - GitHub [LOG-20916](https://logdna.atlassian.net/browse/LOG-20916)
+
 # [8.2.0](https://github.com/answerbook/vector/compare/v8.1.5...v8.2.0) (2024-11-05)
 
 
