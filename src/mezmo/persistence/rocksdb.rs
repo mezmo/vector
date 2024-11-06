@@ -94,11 +94,72 @@ pub(crate) struct RocksDBPersistenceConnection {
     mezmo_ctx: MezmoContext,
 }
 
+impl RocksDBPersistenceConnection {
+    /// Emits metrics for RocksDB Tickers and Histograms into the internal_metrics event stream
+    fn report_metrics(&self) {
+        emit!(MezmoPersistenceRocksDBTicker {
+            ticker: Ticker::BytesRead,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::DbGet,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::BytesPerRead,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::DecompressionTimesNanos,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBTicker {
+            ticker: Ticker::BytesWritten,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::BytesPerWrite,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::TableSyncMicros,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::WriteStall,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::CompressionTimesNanos,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+    }
+}
+
 /// Implementation of [PersistenceConnection] that uses RocksDB as its underlying data store.
 /// Each account has its own RocksDB database derived from the provided [MezmoContext], and keys
 /// are namespaced with the [MezmoContext] component_id. The account DB instance is shared across
 /// threads/components.
 impl PersistenceConnection for RocksDBPersistenceConnection {
+    /// Creates a new [RocksDBPersistenceConnection] instance, either by creating a new RocksDB
+    /// database connection or reusing an existing connection.
     fn new(base_path: &str, mezmo_ctx: &MezmoContext) -> Result<Self, Error> {
         let account_id = match mezmo_ctx.account_id() {
             Some(account_id) => account_id,
@@ -170,6 +231,7 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
         })
     }
 
+    /// Gets the value for a given key from the database.
     fn get(&self, key: &str) -> Result<Option<String>, Error> {
         let value = self
             .connection
@@ -177,29 +239,7 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
             .get(namespaced_key(&self.mezmo_ctx, key))
             .context(RocksDBSnafu)?;
 
-        emit!(MezmoPersistenceRocksDBTicker {
-            ticker: Ticker::BytesRead,
-            connection: &self.connection,
-            mezmo_ctx: &self.mezmo_ctx,
-        });
-
-        emit!(MezmoPersistenceRocksDBHistogram {
-            histogram: Histogram::DbGet,
-            connection: &self.connection,
-            mezmo_ctx: &self.mezmo_ctx,
-        });
-
-        emit!(MezmoPersistenceRocksDBHistogram {
-            histogram: Histogram::BytesPerRead,
-            connection: &self.connection,
-            mezmo_ctx: &self.mezmo_ctx,
-        });
-
-        emit!(MezmoPersistenceRocksDBHistogram {
-            histogram: Histogram::DecompressionTimesNanos,
-            connection: &self.connection,
-            mezmo_ctx: &self.mezmo_ctx,
-        });
+        self.report_metrics();
 
         match value {
             Some(bytes) => String::from_utf8(bytes)
@@ -209,41 +249,14 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
         }
     }
 
+    /// Sets the value for a given key from the database.
     fn set(&self, key: &str, value: &str) -> Result<(), Error> {
         self.connection
             .db
             .put(namespaced_key(&self.mezmo_ctx, key), value)
             .context(RocksDBSnafu)?;
 
-        emit!(MezmoPersistenceRocksDBTicker {
-            ticker: Ticker::BytesWritten,
-            connection: &self.connection,
-            mezmo_ctx: &self.mezmo_ctx,
-        });
-
-        emit!(MezmoPersistenceRocksDBHistogram {
-            histogram: Histogram::BytesPerWrite,
-            connection: &self.connection,
-            mezmo_ctx: &self.mezmo_ctx,
-        });
-
-        emit!(MezmoPersistenceRocksDBHistogram {
-            histogram: Histogram::TableSyncMicros,
-            connection: &self.connection,
-            mezmo_ctx: &self.mezmo_ctx,
-        });
-
-        emit!(MezmoPersistenceRocksDBHistogram {
-            histogram: Histogram::WriteStall,
-            connection: &self.connection,
-            mezmo_ctx: &self.mezmo_ctx,
-        });
-
-        emit!(MezmoPersistenceRocksDBHistogram {
-            histogram: Histogram::CompressionTimesNanos,
-            connection: &self.connection,
-            mezmo_ctx: &self.mezmo_ctx,
-        });
+        self.report_metrics();
 
         Ok(())
     }
