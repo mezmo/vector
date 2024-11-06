@@ -37,7 +37,14 @@ const ROCKSDB_TTL_SECS: u64 = 90_000; // 25 hours
 static ROCKSDB_CONNECTION_REGISTRY: Lazy<RocksDBConnectionRegistry> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-type RocksDBConnectionRegistry = Arc<Mutex<HashMap<String, Arc<DB>>>>;
+type RocksDB = DB;
+type RocksDBConnectionRegistry = Arc<Mutex<HashMap<String, Arc<RocksDBConnection>>>>;
+
+#[derive(Debug)]
+pub struct RocksDBConnection {
+    pub db: RocksDB,
+    pub db_opts: RocksDBOptions,
+}
 
 #[derive(Debug, Snafu)]
 enum RocksDBPersistenceError {
@@ -82,10 +89,9 @@ impl std::fmt::Debug for RocksDBOptions {
 }
 
 #[derive(Debug)]
-pub struct RocksDBPersistenceConnection {
-    db: Arc<DB>,
-    pub db_opts: RocksDBOptions,
-    pub mezmo_ctx: MezmoContext,
+pub(crate) struct RocksDBPersistenceConnection {
+    connection: Arc<RocksDBConnection>,
+    mezmo_ctx: MezmoContext,
 }
 
 /// Implementation of [PersistenceConnection] that uses RocksDB as its underlying data store.
@@ -117,23 +123,11 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
         let mut path = PathBuf::from(base_path);
         path.push(format!("{account_id}.{pod_name}.db"));
 
-        let cache = Cache::new_lru_cache(ROCKSDB_BLOCK_CACHE_SIZE);
-        let mut block_options = BlockBasedOptions::default();
-        block_options.set_block_cache(&cache);
-
-        let mut db_opts = RocksDBOptions::default();
-        db_opts.create_if_missing(true);
-        db_opts.set_compaction_style(DBCompactionStyle::Universal);
-        db_opts.optimize_universal_style_compaction(ROCKSDB_BLOCK_CACHE_SIZE);
-        db_opts.set_block_based_table_factory(&block_options);
-        db_opts.enable_statistics();
-        db_opts.set_statistics_level(StatsLevel::All);
-
         let mut registry = ROCKSDB_CONNECTION_REGISTRY
             .lock()
             .expect("Could not acquire lock on RocksDB persistence registry");
-        let db = match registry.get(path.to_string_lossy().as_ref()) {
-            Some(db) => Arc::clone(db),
+        let conn = match registry.get(path.to_string_lossy().as_ref()) {
+            Some(conn) => Arc::clone(conn),
             None => {
                 match path.try_exists() {
                     Ok(true) => {
@@ -151,47 +145,60 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
                     }
                 }
 
-                let db = Arc::new(DB::open_with_ttl(
-                    &db_opts,
-                    &path,
-                    Duration::from_secs(ROCKSDB_TTL_SECS),
-                )?);
-                registry.insert(path.to_string_lossy().to_string(), Arc::clone(&db));
-                db
+                let cache = Cache::new_lru_cache(ROCKSDB_BLOCK_CACHE_SIZE);
+                let mut block_options = BlockBasedOptions::default();
+                block_options.set_block_cache(&cache);
+
+                let mut db_opts = RocksDBOptions::default();
+                db_opts.create_if_missing(true);
+                db_opts.set_compaction_style(DBCompactionStyle::Universal);
+                db_opts.optimize_universal_style_compaction(ROCKSDB_BLOCK_CACHE_SIZE);
+                db_opts.set_block_based_table_factory(&block_options);
+                db_opts.enable_statistics();
+                db_opts.set_statistics_level(StatsLevel::All);
+
+                let db = DB::open_with_ttl(&db_opts, &path, Duration::from_secs(ROCKSDB_TTL_SECS))?;
+                let conn = Arc::new(RocksDBConnection { db, db_opts });
+                registry.insert(path.to_string_lossy().to_string(), Arc::clone(&conn));
+                conn
             }
         };
 
         Ok(Self {
-            db,
-            db_opts,
+            connection: Arc::clone(&conn),
             mezmo_ctx: mezmo_ctx.clone(),
         })
     }
 
     fn get(&self, key: &str) -> Result<Option<String>, Error> {
         let value = self
+            .connection
             .db
             .get(namespaced_key(&self.mezmo_ctx, key))
             .context(RocksDBSnafu)?;
 
         emit!(MezmoPersistenceRocksDBTicker {
             ticker: Ticker::BytesRead,
-            connection: self,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
         });
 
         emit!(MezmoPersistenceRocksDBHistogram {
             histogram: Histogram::DbGet,
-            connection: self,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
         });
 
         emit!(MezmoPersistenceRocksDBHistogram {
             histogram: Histogram::BytesPerRead,
-            connection: self,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
         });
 
         emit!(MezmoPersistenceRocksDBHistogram {
             histogram: Histogram::DecompressionTimesNanos,
-            connection: self,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
         });
 
         match value {
@@ -203,33 +210,39 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
     }
 
     fn set(&self, key: &str, value: &str) -> Result<(), Error> {
-        self.db
+        self.connection
+            .db
             .put(namespaced_key(&self.mezmo_ctx, key), value)
             .context(RocksDBSnafu)?;
 
         emit!(MezmoPersistenceRocksDBTicker {
             ticker: Ticker::BytesWritten,
-            connection: self,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
         });
 
         emit!(MezmoPersistenceRocksDBHistogram {
             histogram: Histogram::BytesPerWrite,
-            connection: self,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
         });
 
         emit!(MezmoPersistenceRocksDBHistogram {
             histogram: Histogram::TableSyncMicros,
-            connection: self,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
         });
 
         emit!(MezmoPersistenceRocksDBHistogram {
             histogram: Histogram::WriteStall,
-            connection: self,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
         });
 
         emit!(MezmoPersistenceRocksDBHistogram {
             histogram: Histogram::CompressionTimesNanos,
-            connection: self,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
         });
 
         Ok(())

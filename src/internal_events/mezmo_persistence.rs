@@ -1,12 +1,14 @@
-use crate::mezmo::persistence::RocksDBPersistenceConnection;
+use crate::mezmo::persistence::RocksDBConnection;
 use metrics::{counter, gauge};
+use mezmo::MezmoContext;
 use rocksdb::statistics::{Histogram, Ticker};
 use vector_lib::internal_event::InternalEvent;
 
 #[derive(Debug)]
 pub struct MezmoPersistenceRocksDBTicker<'a> {
     pub ticker: Ticker,
-    pub connection: &'a RocksDBPersistenceConnection,
+    pub connection: &'a RocksDBConnection,
+    pub mezmo_ctx: &'a MezmoContext,
 }
 
 /// Emit metrics for RocksDB Tickers
@@ -14,7 +16,7 @@ impl InternalEvent for MezmoPersistenceRocksDBTicker<'_> {
     fn emit(self) {
         counter!(
             self.ticker.to_string().replace('.', "_"),
-            "account_id" => self.connection.mezmo_ctx.account_id()
+            "account_id" => self.mezmo_ctx.account_id()
                 .map(|uuid|  uuid.to_string())
                 .unwrap_or("unknown".to_string())
         )
@@ -24,7 +26,8 @@ impl InternalEvent for MezmoPersistenceRocksDBTicker<'_> {
 
 pub struct MezmoPersistenceRocksDBHistogram<'a> {
     pub histogram: Histogram,
-    pub connection: &'a RocksDBPersistenceConnection,
+    pub connection: &'a RocksDBConnection,
+    pub mezmo_ctx: &'a MezmoContext,
 }
 
 /// Emit metrics for RocksDB Histograms
@@ -34,7 +37,6 @@ pub struct MezmoPersistenceRocksDBHistogram<'a> {
 impl InternalEvent for MezmoPersistenceRocksDBHistogram<'_> {
     fn emit(self) {
         let account_id = self
-            .connection
             .mezmo_ctx
             .account_id()
             .map(|uuid| uuid.to_string())
