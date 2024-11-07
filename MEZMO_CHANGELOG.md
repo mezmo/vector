@@ -1,3 +1,16 @@
+## [8.3.1](https://github.com/answerbook/vector/compare/v8.3.0...v8.3.1) (2024-11-07)
+
+
+### Bug Fixes
+
+* **persistence**: ensure read metrics are captured [84db62b](https://github.com/answerbook/vector/commit/84db62be4ff7e9d4a7946a01f5886fdf128248a7) - Mike Del Tito [LOG-20916](https://logdna.atlassian.net/browse/LOG-20916)
+* **persistence**: reuse rocksdb options instance [7da32f3](https://github.com/answerbook/vector/commit/7da32f3b6f9651440e52aef5390d576886e16a8b) - Mike Del Tito [LOG-20916](https://logdna.atlassian.net/browse/LOG-20916)
+
+
+### Miscellaneous
+
+* Merge pull request #630 from answerbook/mdeltito/LOG-20916-fix [66dd1c4](https://github.com/answerbook/vector/commit/66dd1c4bb3c9b2ae864207816b3093cd84487ec8) - GitHub [LOG-20916](https://logdna.atlassian.net/browse/LOG-20916)
+
 # [8.3.0](https://github.com/answerbook/vector/compare/v8.2.0...v8.3.0) (2024-11-05)
 
 
