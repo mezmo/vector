@@ -2,6 +2,7 @@ mod rocksdb;
 use crate::Error;
 use mezmo::MezmoContext;
 
+pub(crate) use rocksdb::RocksDBConnection;
 pub(crate) use rocksdb::RocksDBPersistenceConnection;
 
 /// The [PersistenceConnection] trait defines the specifics on how to create the state that connects
