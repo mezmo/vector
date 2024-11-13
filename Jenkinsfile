@@ -105,63 +105,47 @@ pipeline {
             sh './release-tool test'
           }
         }
+
+        stage('Checks'){
+          steps {
+            sh """
+              make check-scripts ENVIRONMENT=true
+              make check-fmt ENVIRONMENT=true
+              make check-clippy ENVIRONMENT=true
+            """
+          }
+        }
+
         stage('Unit test'){
-          // Important: do one step serially since it'll be the one to prepare the testing container
-          // and install the rust toolchain in it. Volume mounts are created here, too.
           steps {
             sh """
               make test ENVIRONMENT=true
             """
           }
         }
-        stage('Checks') {
-          // All `make ENVIRONMENT=true` steps should now use the existing container
-          parallel {
-            stage('check-clippy'){
-              steps {
-                sh """
-                  make check-clippy ENVIRONMENT=true
-                  make check-scripts ENVIRONMENT=true
-                """
-              }
+
+        stage('image test') {
+          when {
+            allOf{
+              changeRequest() // Only do this during PRs because it can take 30 minutes
+              changeset "distribution/docker/mezmo/Dockerfile"
             }
-            stage('check-fmt'){
-              steps {
-                sh """
-                  make check ENVIRONMENT=true
-                  make check-fmt ENVIRONMENT=true
-                """
-              }
-            }
-            stage('check-deny'){
-              steps {
-                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                  sh """
-                    make check-deny ENVIRONMENT=true
-                  """
-                }
-              }
-            }
-            stage('image test') {
-              when {
-                changeRequest() // Only do this during PRs because it can take 30 minutes
-              }
-              steps {
-                script {
-                  def semver = npm.semver()
-                  def pkg_version = "${semver.version}+${BRANCH_BUILD}"
-                  buildx.build(
-                    project: PROJECT_NAME
-                  , push: false
-                  , tags: [BRANCH_BUILD]
-                  , dockerfile: "distribution/docker/mezmo/Dockerfile"
-                  , args: [RELEASE_VERSION: pkg_version]
-                  )
-                }
-              }
+          }
+          steps {
+            script {
+              def semver = npm.semver()
+              def pkg_version = "${semver.version}+${BRANCH_BUILD}"
+              buildx.build(
+                project: PROJECT_NAME
+              , push: false
+              , tags: [BRANCH_BUILD]
+              , dockerfile: "distribution/docker/mezmo/Dockerfile"
+              , args: [RELEASE_VERSION: pkg_version]
+              )
             }
           }
         }
+
         stage('Feature build and publish') {
           when {
             expression {
