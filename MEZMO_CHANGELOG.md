@@ -1,3 +1,26 @@
+# [8.4.0](https://github.com/answerbook/vector/compare/v8.3.1...v8.4.0) (2024-11-14)
+
+
+### Bug Fixes
+
+* **deployment**: template database uri [c53e3d3](https://github.com/answerbook/vector/commit/c53e3d3f2d51b46e8dcc9a124a1d4657502cecc2) - Martin Hansen [INFRA-7294](https://logdna.atlassian.net/browse/INFRA-7294)
+
+
+### Continuous Integration
+
+* Simplifying Jenkinsfile and adding conditional for Dockerfile test [56a698f](https://github.com/answerbook/vector/commit/56a698f39e0b5d62d2d5bcc6040c0d821952b844) - Dan Hable [REL-1757](https://logdna.atlassian.net/browse/REL-1757)
+
+
+### Features
+
+* **deployment**: template database uri [4a86d60](https://github.com/answerbook/vector/commit/4a86d60a39f5bbd6eb514e7d40dd31d75b7af3f9) - Martin Hansen [INFRA-7294](https://logdna.atlassian.net/browse/INFRA-7294) [LOG-20937](https://logdna.atlassian.net/browse/LOG-20937)
+
+
+### Miscellaneous
+
+* Merge pull request #633 from answerbook/spr/master/9a5d99be [66c28e3](https://github.com/answerbook/vector/commit/66c28e391937e023fa4a8654b33020af07344fe3) - GitHub
+* Merge pull request #631 from answerbook/spr/master/1a94512e [2a8ff6e](https://github.com/answerbook/vector/commit/2a8ff6eae3196125349bc512989191d615563e0b) - GitHub
+
 ## [8.3.1](https://github.com/answerbook/vector/compare/v8.3.0...v8.3.1) (2024-11-07)
 
 
