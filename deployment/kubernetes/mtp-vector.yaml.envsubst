@@ -16,80 +16,97 @@ metadata:
 spec:
   env:
 
-    - name: vector-partitions
-      optional: true
-      default: |
-        [{
-          "partition-id": "gen0",
-          "requests-cpu": 16,
-          "requests-memory": "32Gi",
-          "requests-storage": "10Gi",
-          "storage-class": "gp3-us-east-1a",
-          "limits-memory": "72Gi",
-          "aggregation-cardinality-limit": "20000"
-        }]
-      valueFrom:
-        configMapKeyRef:
-          namespace: pipeline
-          name: vector-partitions
-          key: vector-partitions
-          type: json
+  - name: vector-partitions
+    optional: true
+    default: |
+      [{
+        "partition-id": "gen0",
+        "requests-cpu": 16,
+        "requests-memory": "32Gi",
+        "requests-storage": "10Gi",
+        "storage-class": "gp3-us-east-1a",
+        "limits-memory": "72Gi",
+        "aggregation-cardinality-limit": "20000"
+      }]
+    valueFrom:
+      configMapKeyRef:
+        namespace: pipeline
+        name: vector-partitions
+        key: vector-partitions
+        type: json
 
-    - name: mezmo_reshape_message
-      optional: true
-      default: '0'
-      valueFrom:
-        configMapKeyRef:
-          name: pipeline-env-config
-          namespace: pipeline
-          key: reshape-message-in-vector
+  - name: mezmo_reshape_message
+    optional: true
+    default: '0'
+    valueFrom:
+      configMapKeyRef:
+        name: pipeline-env-config
+        namespace: pipeline
+        key: reshape-message-in-vector
 
-    - name: config_reload_max_sec
-      optional: true
-      default: '150'
-      valueFrom:
-        configMapKeyRef:
-          name: vector
-          namespace: pipeline
-          key: config-reload-max-sec
+  - name: config_reload_max_sec
+    optional: true
+    default: '150'
+    valueFrom:
+      configMapKeyRef:
+        name: vector
+        namespace: pipeline
+        key: config-reload-max-sec
 
-    - name: config_reduce_byte_threshold_per_state
-      optional: true
-      valueFrom:
-        configMapKeyRef:
-          name: vector
-          namespace: pipeline
-          key: config-reduce-byte-threshold-per-state
+  - name: config_reduce_byte_threshold_per_state
+    optional: true
+    valueFrom:
+      configMapKeyRef:
+        name: vector
+        namespace: pipeline
+        key: config-reduce-byte-threshold-per-state
 
-    - name: config_reduce_byte_threshold_all_states
-      optional: true
-      valueFrom:
-        configMapKeyRef:
-          name: vector
-          namespace: pipeline
-          key: config-reduce-byte-threshold-all-states
+  - name: config_reduce_byte_threshold_all_states
+    optional: true
+    valueFrom:
+      configMapKeyRef:
+        name: vector
+        namespace: pipeline
+        key: config-reduce-byte-threshold-all-states
 
-    - name: mezmo_event_trace_enabled
-      optional: true
-      default: '0'
-      valueFrom:
-        configMapKeyRef:
-            name: vector
-            namespace: pipeline
-            key: event-trace-enable
+  - name: mezmo_event_trace_enabled
+    optional: true
+    default: '0'
+    valueFrom:
+      configMapKeyRef:
+        name: vector
+        namespace: pipeline
+        key: event-trace-enable
 
-    - name: db_connection_pool_size
-      optional: true
-      default: '4'
-      valueFrom:
-        configMapKeyRef:
-            name: vector
-            namespace: pipeline
-            key: db-connection-pool-size
+  - name: db_connection_pool_size
+    optional: true
+    default: '4'
+    valueFrom:
+      configMapKeyRef:
+        name: vector
+        namespace: pipeline
+        key: db-connection-pool-size
+
+  - name: mezmo_metrics_db_secret
+    optional: true
+    default: 'pipeline-pguser-metrics'
+    valueFrom:
+      configMapKeyRef:
+        name: vector
+        namespace: pipeline
+        key: metrics-db-secret
+
+  - name: mezmo_pipeline_db_secret
+    optional: true
+    default: 'pipeline-pguser-pipeline'
+    valueFrom:
+      configMapKeyRef:
+        name: vector
+        namespace: pipeline
+        key: pipeline-db-secret
 
   strTemplates:
-  - |
-
+  - | # yaml
     apiVersion: v1
     kind: List
     items:
@@ -187,7 +204,7 @@ spec:
                 - name: MEZMO_METRICS_DB_URL
                   valueFrom:
                     secretKeyRef:
-                      name: pipeline-pguser-metrics
+                      name: {{mezmo_metrics_db_secret}}
                       key: uri
 
                 - name: USAGE_METRICS_PROFILE_ENABLED
@@ -207,7 +224,7 @@ spec:
                 - name: MEZMO_PIPELINE_DB_URL
                   valueFrom:
                     secretKeyRef:
-                      name: pipeline-pguser-pipeline
+                      name: {{mezmo_pipeline_db_secret}}
                       key: uri
 
                 - name: POD_NAME # This is what vector uses as the pod name
