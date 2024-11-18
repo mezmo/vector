@@ -160,7 +160,18 @@ impl RocksDBPersistenceConnection {
 impl PersistenceConnection for RocksDBPersistenceConnection {
     /// Creates a new [RocksDBPersistenceConnection] instance, either by creating a new RocksDB
     /// database connection or reusing an existing connection.
+    /// New connections use the default TTL for Mezmo
     fn new(base_path: &str, mezmo_ctx: &MezmoContext) -> Result<Self, Error> {
+        Self::new_with_ttl(base_path, mezmo_ctx, ROCKSDB_TTL_SECS)
+    }
+
+    /// Creates a new [RocksDBPersistenceConnection] instance, either by creating a new RocksDB
+    /// database connection or reusing an existing connection with the specified record TTL
+    fn new_with_ttl(
+        base_path: &str,
+        mezmo_ctx: &MezmoContext,
+        ttl_secs: u64,
+    ) -> Result<Self, Error> {
         let account_id = match mezmo_ctx.account_id() {
             Some(account_id) => account_id,
             None => {
@@ -218,7 +229,7 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
                 db_opts.enable_statistics();
                 db_opts.set_statistics_level(StatsLevel::All);
 
-                let db = DB::open_with_ttl(&db_opts, &path, Duration::from_secs(ROCKSDB_TTL_SECS))?;
+                let db = DB::open_with_ttl(&db_opts, &path, Duration::from_secs(ttl_secs))?;
                 let conn = Arc::new(RocksDBConnection { db, db_opts });
                 registry.insert(path.to_string_lossy().to_string(), Arc::clone(&conn));
                 conn
