@@ -1,3 +1,10 @@
+## [8.5.1](https://github.com/answerbook/vector/compare/v8.5.0...v8.5.1) (2024-11-19)
+
+
+### Bug Fixes
+
+* **infra logs**: Remove $ characters from component names (#634) [ad2b971](https://github.com/answerbook/vector/commit/ad2b971c2c7ef32d450e12dfb6ed43382cb12ecd) - GitHub [LOG-20991](https://logdna.atlassian.net/browse/LOG-20991)
+
 # [8.5.0](https://github.com/answerbook/vector/compare/v8.4.0...v8.5.0) (2024-11-19)
 
 
