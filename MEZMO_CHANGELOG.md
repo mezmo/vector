@@ -1,3 +1,15 @@
+# [8.5.0](https://github.com/answerbook/vector/compare/v8.4.0...v8.5.0) (2024-11-19)
+
+
+### Features
+
+* **tracing**: implement head based sampling transform [022f4b1](https://github.com/answerbook/vector/commit/022f4b1dc76e24290d1771ed56889c907546d4f7) - dominic-mcallister-logdna [LOG-20949](https://logdna.atlassian.net/browse/LOG-20949)
+
+
+### Miscellaneous
+
+* Merge pull request #635 from answerbook/dominic/LOG-20949 [19269f3](https://github.com/answerbook/vector/commit/19269f39acf293b4cc1f035077d1852e8a1fe0e6) - GitHub [LOG-20949](https://logdna.atlassian.net/browse/LOG-20949)
+
 # [8.4.0](https://github.com/answerbook/vector/compare/v8.3.1...v8.4.0) (2024-11-14)
 
 
