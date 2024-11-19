@@ -22,20 +22,20 @@ const APPS: [(&str, f32); 3] = [
 ];
 
 const HDFS_COMPONENTS: [(&str, f32); 3] = [
-    ("dfs.DataNode$PacketResponder", 10.0),
+    ("dfs.DataNodePacketResponder", 10.0),
     ("dfs.FSNamesystem", 6.0),
-    ("dfs.DataNode$DataXceiver", 0.5),
+    ("dfs.DataNodeDataXceiver", 0.5),
 ];
 const HDFS_INFO_MESSAGES: [(&str, f32); 10] = [
     ("PacketResponder 0 for block blk_-6952295868487656571 terminating", 1.0),
-    ("BLOCK* NameSystem.addStoredBlock: blockMap updated: 10.251.73.220:50010 is added to blk_7128370237687728475 size 67108864", 8.0),
+    ("BLOCK NameSystem.addStoredBlock: blockMap updated: 10.251.73.220:50010 is added to blk_7128370237687728475 size 67108864", 8.0),
     ("Receiving block blk_5792489080791696128 src: /10.251.30.6:33145 dest: /10.251.30.6:50010", 5.0),
     ("Received block blk_3587508140051953248 of size 67108864 from /10.251.42.84", 1.0),
-    ("BLOCK* NameSystem.allocateBlock: /user/root/rand/_temporary/_task_200811092030_0001_m_000590_0/part-00590. blk_-1727475099218615100", 3.0),
+    ("BLOCK NameSystem.allocateBlock: /user/root/rand/_temporary/_task_200811092030_0001_m_000590_0/part-00590. blk_-1727475099218615100", 3.0),
     ("10.251.194.213:50010 Served block blk_-7724713468912166542 to /10.251.203.80", 0.5),
     ("Verification succeeded for blk_-1547954353065580372", 1.0),
     ("Received block blk_-4411589101766563890 src: /10.250.14.38:37362 dest: /10.250.14.38:50010 of size 67108864", 1.0),
-    ("BLOCK* ask 10.250.18.114:50010 to delete  blk_-5140072410813878235", 0.5),
+    ("BLOCK ask 10.250.18.114:50010 to delete  blk_-5140072410813878235", 0.5),
     ("Deleting block blk_1781953582842324563 file /mnt/hadoop/dfs/data/current/subdir5/blk_1781953582842324563", 1.0),
 ];
 
