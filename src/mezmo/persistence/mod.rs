@@ -13,7 +13,14 @@ pub(crate) trait PersistenceConnection: Send + Sync + std::fmt::Debug {
     /// An associated function that creates a new [PersistenceConnection] given a connection string
     /// to the specific data store and a [MezmoContext] that restricts data storage to a given named
     /// component. Components without a valid [MezmoContext] are currently not eligible for persistence.
-    fn new(conn_str: &str, ctx: &MezmoContext) -> Result<Self, Error>
+    fn new(base_path: &str, ctx: &MezmoContext) -> Result<Self, Error>
+    where
+        Self: Sized;
+
+    /// An associated function that creates a new [PersistenceConnection] given a connection string
+    /// to the specific data store and a [MezmoContext] that restricts data storage to a given named
+    /// component. Components without a valid [MezmoContext] are currently not eligible for persistence.
+    fn new_with_ttl(base_path: &str, ctx: &MezmoContext, ttl: u64) -> Result<Self, Error>
     where
         Self: Sized;
 
