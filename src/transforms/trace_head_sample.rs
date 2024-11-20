@@ -39,6 +39,9 @@ pub struct TraceHeadSampleConfig {
     /// the minimum ttl for a trace_id key to be cached
     #[serde(default = "default_ttl_secs")]
     ttl_secs: u64,
+
+    /// the base path on disk to maintain keys and data while tracking traces
+    state_persistence_base_path: Option<String>,
 }
 
 fn default_trace_id_field() -> String {
@@ -59,6 +62,7 @@ impl TraceHeadSampleConfig {
             trace_id_field: config.trace_id_field.clone(),
             rate: config.rate,
             ttl_secs: config.ttl_secs,
+            state_persistence_base_path: config.state_persistence_base_path.clone(),
         }
     }
 }
@@ -71,7 +75,12 @@ impl TransformConfig for TraceHeadSampleConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
         // generate a unique path for this component to store its data
         let mezmo_ctx = context.mezmo_ctx.clone().unwrap();
-        let base_path = format!("trace_head_sample_{}", mezmo_ctx.component_id());
+        let sample_path = "trace_head_sample".to_owned();
+        let base_path = if let Some(p) = self.state_persistence_base_path.clone() {
+            format!("{}/{}", p, sample_path)
+        } else {
+            sample_path
+        };
         let persistence =
             RocksDBPersistenceConnection::new_with_ttl(&base_path, &mezmo_ctx, self.ttl_secs)?;
         Ok(Transform::function(TraceHeadSample::new(
@@ -277,6 +286,10 @@ mod test {
             default_config.ttl_secs, DEFAULT_TTL_SECS,
             "default ttl_secs is correct"
         );
+        assert_eq!(
+            default_config.state_persistence_base_path, None,
+            "default state_persistence_base_path is correct"
+        );
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
@@ -286,6 +299,7 @@ mod test {
             trace_id_field: ".context.trace_id".to_owned(),
             rate: 0, // a rate of 0 would never sample and cause division errors
             ttl_secs: MINIMUM_TTL_SECS - 1,
+            state_persistence_base_path: Some("/some-path".to_owned()),
         };
 
         let test_ctx = test_ctx();
@@ -295,6 +309,11 @@ mod test {
         assert_eq!(
             sampler.config.ttl_secs, DEFAULT_TTL_SECS,
             "ttl_secs is corrected"
+        );
+        assert_eq!(
+            sampler.config.state_persistence_base_path,
+            Some("/some-path".to_owned()),
+            "state_persistence_base_path is correct"
         );
     }
 
@@ -338,6 +357,7 @@ mod test {
             trace_id_field: ".prop1".to_owned(),
             rate: 2,
             ttl_secs: 300,
+            state_persistence_base_path: None,
         };
         let test_ctx = test_ctx();
         let connection = test_connection(test_ctx.clone(), config.ttl_secs, None);
@@ -386,6 +406,7 @@ mod test {
             trace_id_field: ".context.trace_id".to_owned(),
             rate: 2,
             ttl_secs: 300,
+            state_persistence_base_path: Some("/data/component-state".to_owned()),
         };
         let test_ctx = test_ctx();
 
@@ -466,6 +487,7 @@ mod test {
             trace_id_field: ".context.trace_id".to_owned(),
             rate: 2,
             ttl_secs: 300,
+            state_persistence_base_path: Some("/data/component-state".to_owned()),
         };
         let test_ctx = test_ctx();
         let connection = test_connection(test_ctx.clone(), config.ttl_secs, None);
@@ -551,6 +573,7 @@ mod test {
             trace_id_field: ".context.trace_id".to_owned(),
             rate: 2,
             ttl_secs: 300,
+            state_persistence_base_path: Some("/data/component-state".to_owned()),
         };
         let test_ctx = test_ctx();
         let base_dir = tempdir().expect("Could not create temp dir").into_path();
