@@ -1,3 +1,15 @@
+## [8.5.2](https://github.com/answerbook/vector/compare/v8.5.1...v8.5.2) (2024-11-20)
+
+
+### Bug Fixes
+
+* **tracing**: add persistence config [6543351](https://github.com/answerbook/vector/commit/65433512f2a02be561b0e57dade6412289a9c1e4) - dominic-mcallister-logdna [LOG-20949](https://logdna.atlassian.net/browse/LOG-20949)
+
+
+### Miscellaneous
+
+* Merge pull request #636 from answerbook/dominic/LOG-20949-directory [362c41c](https://github.com/answerbook/vector/commit/362c41c9ab7f8fd6c03ce03cf73635917e8439ab) - GitHub [LOG-20949](https://logdna.atlassian.net/browse/LOG-20949)
+
 ## [8.5.1](https://github.com/answerbook/vector/compare/v8.5.0...v8.5.1) (2024-11-19)
 
 
