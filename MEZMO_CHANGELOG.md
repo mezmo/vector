@@ -1,3 +1,15 @@
+## [8.5.3](https://github.com/answerbook/vector/compare/v8.5.2...v8.5.3) (2024-11-25)
+
+
+### Chores
+
+* Update secret-key name [28c9ac2](https://github.com/answerbook/vector/commit/28c9ac28e3d4f9016e056eb678c3aa4e40ed38ac) - Eric Lake [INFRA-7303](https://logdna.atlassian.net/browse/INFRA-7303)
+
+
+### Miscellaneous
+
+* Merge pull request #637 from answerbook/secret-key-name [7ad3c84](https://github.com/answerbook/vector/commit/7ad3c8458de2c6dd923f43928f7321d021ec3d9a) - GitHub
+
 ## [8.5.2](https://github.com/answerbook/vector/compare/v8.5.1...v8.5.2) (2024-11-20)
 
 
