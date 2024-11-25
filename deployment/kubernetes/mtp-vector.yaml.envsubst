@@ -96,14 +96,14 @@ spec:
         namespace: pipeline
         key: metrics-db-secret
 
-  - name: mezmo_metrics_db_secret_key
+  - name: mezmo_metrics_db_secret_uri_key
     optional: true
     default: 'uri'
     valueFrom:
       configMapKeyRef:
         name: vector
         namespace: pipeline
-        key: metrics-db-secret-key
+        key: metrics-db-secret-uri-key
 
   - name: mezmo_pipeline_db_secret
     optional: true
@@ -114,14 +114,14 @@ spec:
         namespace: pipeline
         key: pipeline-db-secret
 
-  - name: mezmo_pipeline_db_secret_key
+  - name: mezmo_pipeline_db_secret_uri_key
     optional: true
     default: 'uri'
     valueFrom:
       configMapKeyRef:
         name: vector
         namespace: pipeline
-        key: pipeline-db-secret-key
+        key: pipeline-db-secret-uri-key
 
   strTemplates:
   - | # yaml
@@ -223,7 +223,7 @@ spec:
                   valueFrom:
                     secretKeyRef:
                       name: {{mezmo_metrics_db_secret}}
-                      key: {{mezmo_metrics_db_secret_key}}
+                      key: {{mezmo_metrics_db_secret_uri_key}}
 
                 - name: USAGE_METRICS_PROFILE_ENABLED
                   valueFrom:
@@ -243,7 +243,7 @@ spec:
                   valueFrom:
                     secretKeyRef:
                       name: {{mezmo_pipeline_db_secret}}
-                      key: {{mezmo_pipeline_db_secret_key}}
+                      key: {{mezmo_pipeline_db_secret_uri_key}}
 
                 - name: POD_NAME # This is what vector uses as the pod name
                   valueFrom:
