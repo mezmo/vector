@@ -193,6 +193,7 @@ pub trait ContainerTestRunner: TestRunner {
                 "GITHUB_TOKEN={}",
                 env::var("GITHUB_TOKEN").unwrap_or_default()
             ),
+            "--build-arg",
             &format!("FEATURES={}", features.unwrap_or(&[]).join(",")),
             ".",
         ]);

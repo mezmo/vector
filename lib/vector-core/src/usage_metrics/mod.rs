@@ -33,6 +33,7 @@ const BASE_BTREE_SIZE: usize = 8;
 static INTERNAL_TRANSFORM: ComponentKind = ComponentKind::Transform { internal: true };
 
 mod flusher;
+mod integration_tests;
 
 /// Represents an aggregated view of events per component for billing and profiling.
 #[derive(Debug)]

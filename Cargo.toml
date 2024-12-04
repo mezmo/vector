@@ -1043,6 +1043,7 @@ shutdown-tests = ["api", "sinks-blackhole", "sinks-console", "sinks-prometheus",
 cli-tests = ["sinks-blackhole", "sinks-socket", "sources-demo_logs", "sources-file", "sources-mezmo_demo_logs"]
 test-utils = []
 component-test-utils = []
+pgbouncer-integration-tests = []
 
 # End-to-End testing-related features
 all-e2e-tests = [

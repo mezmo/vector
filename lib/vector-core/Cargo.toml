@@ -109,6 +109,7 @@ default = []
 lua = ["dep:mlua", "dep:tokio-stream", "vrl"]
 vrl = ["dep:enrichment"]
 test = ["vector-common/test", "proptest"]
+pgbouncer-integration-tests = ["vrl"]
 
 [[bench]]
 name = "event"
