@@ -1,3 +1,15 @@
+## [8.5.4](https://github.com/answerbook/vector/compare/v8.5.3...v8.5.4) (2024-12-04)
+
+
+### Miscellaneous
+
+* Merge pull request #638 from answerbook/INFRA-7294/martin [c721737](https://github.com/answerbook/vector/commit/c72173763c8718e7c4deedbebe17b5f8815c9809) - GitHub [INFRA-7294](https://logdna.atlassian.net/browse/INFRA-7294)
+
+
+### Tests
+
+* **usage-metrics**: prepared statements [50fe3be](https://github.com/answerbook/vector/commit/50fe3bec761571b04d6942d50cb03f0c3c020915) - Martin Hansen [INFRA-7327](https://logdna.atlassian.net/browse/INFRA-7327)
+
 ## [8.5.3](https://github.com/answerbook/vector/compare/v8.5.2...v8.5.3) (2024-11-25)
 
 
