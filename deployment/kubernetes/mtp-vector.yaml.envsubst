@@ -281,6 +281,10 @@ spec:
                     port: 8686
                   periodSeconds: 10
                   failureThreshold: 18
+                ports:
+                - containerPort: 9401
+                  name: tcp-prometheus
+                  protocol: TCP
                 resources:
                   requests:
                     memory: "{{{requests-memory}}}"
