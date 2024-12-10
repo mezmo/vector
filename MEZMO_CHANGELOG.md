@@ -1,3 +1,15 @@
+# [8.6.0](https://github.com/answerbook/vector/compare/v8.5.4...v8.6.0) (2024-12-10)
+
+
+### Features
+
+* **metrics**: Expose port for vector internal metrics [95f51c1](https://github.com/answerbook/vector/commit/95f51c1163d946d908393057720a0da857ae679a) - Katerina Koutsonikoli [INFRA-7321](https://logdna.atlassian.net/browse/INFRA-7321)
+
+
+### Miscellaneous
+
+* Merge pull request #639 from answerbook/internal-vector-metrics [f68c557](https://github.com/answerbook/vector/commit/f68c5574e6a9b160cb9b98e9f068e0f83280f4c2) - GitHub
+
 ## [8.5.4](https://github.com/answerbook/vector/compare/v8.5.3...v8.5.4) (2024-12-04)
 
 
