@@ -1,3 +1,10 @@
+# [8.7.0](https://github.com/answerbook/vector/compare/v8.6.0...v8.7.0) (2024-12-11)
+
+
+### Features
+
+* **logging**: raise cpu thread pool message to info [b0f1a47](https://github.com/answerbook/vector/commit/b0f1a471cdfdf35dd9847f173d19abf4a60e12f3) - Dan Hable [LOG-21168](https://logdna.atlassian.net/browse/LOG-21168)
+
 # [8.6.0](https://github.com/answerbook/vector/compare/v8.5.4...v8.6.0) (2024-12-10)
 
 
