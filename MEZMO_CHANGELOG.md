@@ -1,3 +1,11 @@
+## [8.7.1](https://github.com/answerbook/vector/compare/v8.7.0...v8.7.1) (2025-01-07)
+
+
+### Bug Fixes
+
+* **honeycomb sink**: The batch body should be encoded as array (#21878) [0199ab0](https://github.com/answerbook/vector/commit/0199ab0ddce00ea689a6ca67d5f742a96930fa07) - Darin Spivey [LOG-20430](https://logdna.atlassian.net/browse/LOG-20430)
+* **sinks**: Honeycomb sink needs Mezmo reshaping [bbb4844](https://github.com/answerbook/vector/commit/bbb484400375c23f538445e637994e8a2894c169) - Darin Spivey [LOG-20430](https://logdna.atlassian.net/browse/LOG-20430)
+
 # [8.7.0](https://github.com/answerbook/vector/compare/v8.6.0...v8.7.0) (2024-12-11)
 
 
