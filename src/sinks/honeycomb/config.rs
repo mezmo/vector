@@ -102,7 +102,7 @@ impl SinkConfig for HoneycombConfig {
 
         let request_builder = HoneycombRequestBuilder {
             encoder: HoneycombEncoder {
-                transformer: self.encoding.clone(),
+                transformer: Transformer::new_with_mezmo_reshape(self.encoding.clone(), None),
             },
         };
 
