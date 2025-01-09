@@ -1,3 +1,15 @@
+## [8.7.2](https://github.com/answerbook/vector/compare/v8.7.1...v8.7.2) (2025-01-09)
+
+
+### Chores
+
+* **mezmo::config**: improve and add debug/trace logging [c6409df](https://github.com/answerbook/vector/commit/c6409df92bc2359e19a7888e2d490ef9d2cae45b) - Mike Del Tito [LOG-21226](https://logdna.atlassian.net/browse/LOG-21226)
+
+
+### Miscellaneous
+
+* Merge pull request #642 from answerbook/mdeltito/LOG-21226 [a6cdc18](https://github.com/answerbook/vector/commit/a6cdc18206678e3964892fa2bd161f6939697a5c) - GitHub [LOG-21226](https://logdna.atlassian.net/browse/LOG-21226)
+
 ## [8.7.1](https://github.com/answerbook/vector/compare/v8.7.0...v8.7.1) (2025-01-07)
 
 
