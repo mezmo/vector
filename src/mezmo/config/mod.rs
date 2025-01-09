@@ -110,6 +110,7 @@ fn poll_config(
 
             last_run = time::Instant::now();
 
+            debug!("Building incrementally from polling loop");
             match mezmo_config_builder.build_incrementally().await {
                 Ok((Some(config_builder), loaded)) => {
                     emit!(MezmoConfigReloadSignalSend {});
@@ -167,13 +168,15 @@ impl MezmoConfigBuilder {
     /// Tries to build the configuration from scratch.
     /// It errors out (crashing the process) when getting the partition info fails or no config can be fetched.
     async fn build_all(&mut self) -> Result<ConfigBuilder, Vec<String>> {
-        info!("Initial configuration build started");
+        debug!("Initial configuration build started");
+        trace!("Fetching pipelines by partition");
         let (pipelines, common_config) = self
             .service
             .get_pipelines_by_partition()
             .await
             .map_err(|e| vec![e])?;
 
+        trace!("Fetching revisions for {} pipelines", pipelines.len());
         let revisions = self
             .service
             .get_new_revisions(
@@ -185,11 +188,17 @@ impl MezmoConfigBuilder {
             .await
             .map_err(|e| vec![e])?;
 
+        info!(
+            "Building initial configuration for {} pipelines ({} revisions)",
+            pipelines.len(),
+            revisions.len()
+        );
         self.pipelines = Some(pipelines);
         self.common_config = Some(common_config);
         let mut cache = HashMap::new();
 
-        // Don't store in self.cache until it's properly builded
+        // Don't store in self.cache until the initial topology is built, then replace
+        // self.cache with the new one.
         for (pipeline_id, revision) in revisions.into_iter() {
             cache.insert(pipeline_id, revision);
         }
@@ -218,12 +227,14 @@ impl MezmoConfigBuilder {
             }
         };
 
+        warn!("Failed to build full configuration, falling back to incremental build");
+
         // Try to build using just the common config to allow the process to run
         // while the polling loop executes.
         cache = HashMap::new();
         match generate_config(common_config, &cache, None, self.validate_vrl).await {
             Ok(r) => {
-                warn!("Initial configuration was successfully built without any pipeline");
+                info!("Common configuration was successfully built without any pipeline");
                 Ok(r)
             }
             Err(errors) => {
@@ -245,7 +256,8 @@ impl MezmoConfigBuilder {
     async fn build_incrementally(
         &mut self,
     ) -> Result<(Option<ConfigBuilder>, Vec<(PipelineId, RevisionId)>), String> {
-        info!("Incremental config build starting");
+        debug!("Incremental config build starting");
+        trace!("Fetching pipelines by partition");
         let (pipelines, common_config) = self.service.get_pipelines_by_partition().await?;
 
         // Compare pipelines ids, delete pipelines that no longer exist
@@ -258,13 +270,20 @@ impl MezmoConfigBuilder {
         // Incrementally build the configuration
         let pipelines_with_changes = self.get_pipeline_with_config_changes().await?;
 
+        info!(
+            "Incrementally building configuration for {} pipelines pipelines_removed={} common_config_changed={}",
+            pipelines_with_changes.len(),
+            pipelines_removed,
+            common_config_changed
+        );
+
         let common_config = self.common_config.as_ref().unwrap();
         let mut result_builder = None;
         let mut loaded: Vec<(PipelineId, RevisionId)> = Vec::new();
 
         if pipelines_removed || common_config_changed {
-            info!(
-                message = "Updating the configuration based on a diff changes",
+            debug!(
+                message = "Rebuilding existing topology configuration",
                 pipelines_removed, common_config_changed
             );
             match generate_config(common_config, &self.cache, None, self.validate_vrl).await {
@@ -373,6 +392,10 @@ impl MezmoConfigBuilder {
             })
             .collect();
 
+        trace!(
+            "Fetching new revisions ({} existing)",
+            current_revisions.len()
+        );
         self.service.get_new_revisions(current_revisions).await
     }
 
@@ -385,6 +408,7 @@ impl MezmoConfigBuilder {
             .collect();
 
         for pipeline_id in diff.iter() {
+            trace!("Removing pipeline {} from cache", pipeline_id);
             self.cache.remove(pipeline_id);
         }
 
@@ -399,6 +423,20 @@ async fn generate_config(
     updated: Option<(&PipelineId, &Revision)>,
     validate_vrl: bool,
 ) -> BuildResult {
+    match updated {
+        Some((pipeline_id, revision)) => {
+            debug!(
+                "Generating config for {} revisions, with updated revision {}:{}",
+                revisions.len(),
+                pipeline_id,
+                revision.id
+            );
+        }
+        None => {
+            debug!("Generating config for {} revisions", revisions.len());
+        }
+    }
+
     let mut parts = Vec::with_capacity(revisions.len() + 2);
     parts.push(common_config);
     for (id, r) in revisions {
@@ -421,6 +459,8 @@ async fn generate_config(
 
     let config_str = parts.join("\n");
 
+    trace!("Loading assembled config from {} parts", parts.len());
+
     let config_builder = config::load::<_, ConfigBuilder>(
         config_str.as_bytes(),
         crate::config::format::Format::Toml,
@@ -435,13 +475,20 @@ async fn generate_config(
         warnings
     })?;
 
+    trace!("Loaded assembled config");
+
     if !validate_vrl {
+        debug!(message = "Skipping transform VRL validation", validate_vrl);
         return Ok(config_builder);
     }
 
     let start = Instant::now();
     let errors = if let Some((_, r)) = updated {
         // Update only validates the new pipeline's configuration
+        debug!(
+            "Validating transforms for updated pipeline revision {}",
+            r.id
+        );
         let config_builder = config::load::<_, ConfigBuilder>(
             r.config.as_bytes(),
             crate::config::format::Format::Toml,
@@ -449,6 +496,10 @@ async fn generate_config(
         // Warnings would have already been handled above in the full config load...
         validate_vrl_transforms(&config_builder).await
     } else {
+        debug!(
+            "Validating transforms for {} pipeline revisions",
+            revisions.len()
+        );
         validate_vrl_transforms(&config_builder).await
     };
     emit!(MezmoConfigVrlValidation {
@@ -467,6 +518,8 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
         let enrichment_tables = vector_lib::enrichment::tables::TableRegistry::default();
 
         for (key, transform) in config.transforms() {
+            trace!("Validating transform {key}");
+
             let schema_definitions = HashMap::from([(
                 None,
                 HashMap::from([(OutputId::from(key.clone()), Definition::any())]),
@@ -509,13 +562,15 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
                     extra_context: crate::extra_context::ExtraContext::default(),
                 };
                 // Compile the VRL snippet in the transform
+                trace!("Compiling and validating VRL for transform {key}");
                 if let Err(error) = transform.build(&context).await {
                     if let Some(ctx) = &mezmo_ctx {
                         match &ctx.pipeline_id {
                             Some(mezmo::ContextIdentifier::Value { id: _ }) => {
                                 mezmo::user_log_error!(
-                                mezmo_ctx,
-                                "Error loading existing transform component. Please contact support");
+                                    mezmo_ctx,
+                                    "Error loading existing transform component. Please contact support"
+                                );
                                 failures.push(format!(
                                     "Error validating VRL in transform {key}: {error}"
                                 ));
