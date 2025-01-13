@@ -282,7 +282,7 @@ spec:
                   periodSeconds: 10
                   failureThreshold: 18
                 ports:
-                - containerPort: 9401
+                - containerPort: 9599
                   name: tcp-prometheus
                   protocol: TCP
                 resources:
