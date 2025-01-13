@@ -1,3 +1,15 @@
+## [8.7.3](https://github.com/answerbook/vector/compare/v8.7.2...v8.7.3) (2025-01-13)
+
+
+### Bug Fixes
+
+* **metrics**: update the tcp-prometheus port [81f8066](https://github.com/answerbook/vector/commit/81f8066f7a3075f49cab7ece92c9457513de6c72) - Tony Rogers [INFRA-7321](https://logdna.atlassian.net/browse/INFRA-7321)
+
+
+### Miscellaneous
+
+* Merge pull request #643 from answerbook/INFRA-7321 [4f4239e](https://github.com/answerbook/vector/commit/4f4239eaa4991c91853ddedd627e091fd80695bb) - GitHub [INFRA-7321](https://logdna.atlassian.net/browse/INFRA-7321)
+
 ## [8.7.2](https://github.com/answerbook/vector/compare/v8.7.1...v8.7.2) (2025-01-09)
 
 
