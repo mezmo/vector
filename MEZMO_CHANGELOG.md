@@ -1,3 +1,15 @@
+## [8.7.4](https://github.com/answerbook/vector/compare/v8.7.3...v8.7.4) (2025-01-14)
+
+
+### Bug Fixes
+
+* **config::compiler**: add trace logging [0736ee6](https://github.com/answerbook/vector/commit/0736ee60a1b5b759a716345392060fc353a7dd50) - Mike Del Tito [LOG-21226](https://logdna.atlassian.net/browse/LOG-21226)
+
+
+### Miscellaneous
+
+* Merge pull request #644 from answerbook/mdeltito/LOG-21226-more [78a8dc5](https://github.com/answerbook/vector/commit/78a8dc56b719aada0cd018d611e767c51b8a1305) - GitHub [LOG-21226](https://logdna.atlassian.net/browse/LOG-21226)
+
 ## [8.7.3](https://github.com/answerbook/vector/compare/v8.7.2...v8.7.3) (2025-01-13)
 
 
