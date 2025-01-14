@@ -170,10 +170,25 @@ impl Config {
     }
 
     fn propagate_acks_rec(&mut self, sink_inputs: Vec<(ComponentKey, OutputId)>) {
+        trace!(
+            "Propagating acknowledgements from {} inputs",
+            sink_inputs.len()
+        );
         for (sink, input) in sink_inputs {
+            trace!(
+                "Evaluating candidates for acknowledgements from sink {} via input {}",
+                sink,
+                input.component
+            );
             let component = &input.component;
             if let Some(source) = self.sources.get_mut(component) {
                 if source.inner.can_acknowledge() {
+                    trace!(
+                        "Sink {} has source ancestor {} which can acknowledge",
+                        sink,
+                        component,
+                    );
+
                     source.sink_acknowledgements = true;
                 } else {
                     warn!(
@@ -183,11 +198,22 @@ impl Config {
                     );
                 }
             } else if let Some(transform) = self.transforms.get(component) {
-                let inputs = transform
+                trace!(
+                    "Evaluating sink {} transform input {} for ancestor sources to propagate acknowledgements",
+                    sink,
+                    component,
+                );
+                let inputs: Vec<(ComponentKey, OutputId)> = transform
                     .inputs
                     .iter()
                     .map(|input| (sink.clone(), input.clone()))
                     .collect();
+
+                trace!(
+                    "Transform {} has {} inputs, propagating acknowledgements...",
+                    component,
+                    inputs.len(),
+                );
                 self.propagate_acks_rec(inputs);
             }
         }
