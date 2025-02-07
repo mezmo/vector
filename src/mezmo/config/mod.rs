@@ -8,19 +8,16 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tokio::time::{self, Instant};
 use vector_lib::configurable::configurable_component;
+use vector_lib::schema::Definition;
 
 use crate::{
-    config::{
-        self, provider::ProviderConfig, schema::Definition, ConfigBuilder, OutputId,
-        TransformContext,
-    },
+    config::{self, provider::ProviderConfig, ConfigBuilder, TransformContext},
     internal_events::mezmo_config::{
         MezmoConfigBuildFailure, MezmoConfigBuilderCreate, MezmoConfigReloadSignalSend,
         MezmoConfigVrlValidation, MezmoConfigVrlValidationError, MezmoGenerateConfigError,
     },
     providers::BuildResult,
     signal,
-    topology::schema,
 };
 use mezmo::{user_trace::MezmoUserLog, MezmoContext};
 
@@ -514,43 +511,25 @@ async fn generate_config(
 async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), Vec<String>> {
     let mut failures = Vec::new();
     if let Ok(config) = config_builder.clone().build_no_validation() {
-        let mut definition_cache = HashMap::default();
         let enrichment_tables = vector_lib::enrichment::tables::TableRegistry::default();
 
         for (key, transform) in config.transforms() {
             trace!("Validating transform {key}");
 
-            let schema_definitions = HashMap::from([(
-                None,
-                HashMap::from([(OutputId::from(key.clone()), Definition::any())]),
-            )]);
-            let input_definitions = match schema::input_definitions(
-                &transform.inputs,
-                &config,
-                enrichment_tables.clone(),
-                &mut definition_cache,
-            ) {
-                Ok(definitions) => definitions,
-                Err(_) => {
-                    // Skip
-                    continue;
-                }
-            };
-
-            let merged_definition: Definition = input_definitions
-                .iter()
-                .map(|(_output_id, definition)| definition.clone())
-                .reduce(Definition::merge)
-                // We may not have any definitions if all the inputs are from metrics sources.
-                .unwrap_or_else(Definition::any);
+            // IMPORTANT: This is not properly setting up schema or enrichment
+            // tables as part of the validation. These would need to be
+            // added if we want to support those.
+            //
+            // Use the default schema for the legacy namespace for validation. Collecting definitions
+            // from all ancestors is expensive for large graphs, and currently in our model everything is
+            // using the default schema anyway.
+            let schema_definitions = HashMap::new();
+            let merged_definition = Definition::default_legacy_namespace();
 
             let transform = &transform.inner;
             // Handling only remaps currently, but could be extended in the future
             if transform.get_component_name() == "remap" {
                 let mezmo_ctx = MezmoContext::try_from(key.clone().into_id()).ok();
-                // IMPORTANT: This is not properly setting up schema or enrichment
-                // tables as part of the validation. These would need to be
-                // added if we want to support those.
                 let context = TransformContext {
                     key: Some(key.clone()),
                     globals: config.global.clone(),
