@@ -1,3 +1,16 @@
+## [8.7.5](https://github.com/answerbook/vector/compare/v8.7.4...v8.7.5) (2025-02-07)
+
+
+### Bug Fixes
+
+* **mezmo::config**: avoid revalidating all pipelines when one is removed [9aaae9f](https://github.com/answerbook/vector/commit/9aaae9fee34c70a90f2efa277d19664803b169b3) - Mike Del Tito [LOG-21350](https://logdna.atlassian.net/browse/LOG-21350)
+* **mezmo::config**: avoid walking the graph for input definitions [a63908a](https://github.com/answerbook/vector/commit/a63908a38e2e21a82676e2704f7e67cc4df60d68) - Mike Del Tito [LOG-21352](https://logdna.atlassian.net/browse/LOG-21352)
+
+
+### Miscellaneous
+
+* Merge pull request #646 from answerbook/mdeltito/LOG-21352 [f262fcb](https://github.com/answerbook/vector/commit/f262fcb930297956312856ce1b473d076daace81) - GitHub [LOG-21352](https://logdna.atlassian.net/browse/LOG-21352)
+
 ## [8.7.4](https://github.com/answerbook/vector/compare/v8.7.3...v8.7.4) (2025-01-14)
 
 
