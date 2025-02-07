@@ -283,7 +283,12 @@ impl MezmoConfigBuilder {
                 message = "Rebuilding existing topology configuration",
                 pipelines_removed, common_config_changed
             );
-            match generate_config(common_config, &self.cache, None, self.validate_vrl).await {
+
+            // VRL for existing pipelines has already been validated. If we are regenerating config
+            // only due to `pipelines_removed`, we don't need to validate VRL again. Only re-validate if
+            // the `common_config` has changed and we are configured to do so.
+            let validate_vrl = common_config_changed && self.validate_vrl;
+            match generate_config(common_config, &self.cache, None, validate_vrl).await {
                 Ok(builder) => {
                     result_builder = Some(builder);
                 }
@@ -1117,6 +1122,61 @@ mod tests {
             .any(|(pipeline, _)| { pipeline == "pipeline1" })); // Not loaded
         let result = validate_config(config_builder.unwrap()).await;
         assert!(result.is_ok(), "expected the invalid VRL to be excluded");
+    }
+
+    #[tokio::test]
+    async fn build_incrementally_should_handle_invalid_vrl_when_common_config_changes() {
+        let mut service = MockConfigService::new();
+        service.expect_get_pipelines_by_partition().returning(|| {
+            Ok((
+                vec![S!("pipeline1")],
+                S!("data_dir = \"/data/vector-changed\""),
+            ))
+        });
+
+        service
+            .expect_get_new_revisions()
+            .returning(|_| Ok(HashMap::new()));
+
+        let initial_pipelines = HashMap::from([(
+            S!("pipeline1"),
+            Revision {
+                id: S!("revision1"),
+                profiler_transform_ids: None,
+                config: S!(r#"
+                [sources.in]
+                type="stdin"
+
+                # Requires proper format: 'v1:{type}:{kind}:{component_id}:{pipeline_id}:{account_id}'
+                [transforms."v1:remap:transform:component1:pipeline1:account1"]
+                inputs=["in"]
+                type="remap"
+                source="""
+                a = invalid("abc")
+                """
+                "#),
+            },
+        )]);
+
+        let mut b = MezmoConfigBuilder {
+            service: Box::new(service),
+            cache: initial_pipelines,
+            pipelines: Some(vec![S!("pipeline1")]),
+            common_config: Some(S!("data_dir = \"/data/vector\"")),
+            validate_vrl: true,
+        };
+        let (config_builder, loaded) = b
+            .build_incrementally()
+            .await
+            .expect("to build successfully");
+
+        assert!(
+            config_builder.is_none(),
+            "no builder, existing pipeline still invalid"
+        );
+        assert!(!loaded
+            .iter()
+            .any(|(pipeline, _)| { pipeline == "pipeline1" })); // Still not loaded
     }
 
     fn new_test_builder(service: Box<dyn ConfigService>) -> MezmoConfigBuilder {
