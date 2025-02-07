@@ -8,19 +8,16 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tokio::time::{self, Instant};
 use vector_lib::configurable::configurable_component;
+use vector_lib::schema::Definition;
 
 use crate::{
-    config::{
-        self, provider::ProviderConfig, schema::Definition, ConfigBuilder, OutputId,
-        TransformContext,
-    },
+    config::{self, provider::ProviderConfig, ConfigBuilder, TransformContext},
     internal_events::mezmo_config::{
         MezmoConfigBuildFailure, MezmoConfigBuilderCreate, MezmoConfigReloadSignalSend,
         MezmoConfigVrlValidation, MezmoConfigVrlValidationError, MezmoGenerateConfigError,
     },
     providers::BuildResult,
     signal,
-    topology::schema,
 };
 use mezmo::{user_trace::MezmoUserLog, MezmoContext};
 
@@ -286,7 +283,12 @@ impl MezmoConfigBuilder {
                 message = "Rebuilding existing topology configuration",
                 pipelines_removed, common_config_changed
             );
-            match generate_config(common_config, &self.cache, None, self.validate_vrl).await {
+
+            // VRL for existing pipelines has already been validated. If we are regenerating config
+            // only due to `pipelines_removed`, we don't need to validate VRL again. Only re-validate if
+            // the `common_config` has changed and we are configured to do so.
+            let validate_vrl = common_config_changed && self.validate_vrl;
+            match generate_config(common_config, &self.cache, None, validate_vrl).await {
                 Ok(builder) => {
                     result_builder = Some(builder);
                 }
@@ -514,43 +516,25 @@ async fn generate_config(
 async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), Vec<String>> {
     let mut failures = Vec::new();
     if let Ok(config) = config_builder.clone().build_no_validation() {
-        let mut definition_cache = HashMap::default();
         let enrichment_tables = vector_lib::enrichment::tables::TableRegistry::default();
 
         for (key, transform) in config.transforms() {
             trace!("Validating transform {key}");
 
-            let schema_definitions = HashMap::from([(
-                None,
-                HashMap::from([(OutputId::from(key.clone()), Definition::any())]),
-            )]);
-            let input_definitions = match schema::input_definitions(
-                &transform.inputs,
-                &config,
-                enrichment_tables.clone(),
-                &mut definition_cache,
-            ) {
-                Ok(definitions) => definitions,
-                Err(_) => {
-                    // Skip
-                    continue;
-                }
-            };
-
-            let merged_definition: Definition = input_definitions
-                .iter()
-                .map(|(_output_id, definition)| definition.clone())
-                .reduce(Definition::merge)
-                // We may not have any definitions if all the inputs are from metrics sources.
-                .unwrap_or_else(Definition::any);
+            // IMPORTANT: This is not properly setting up schema or enrichment
+            // tables as part of the validation. These would need to be
+            // added if we want to support those.
+            //
+            // Use the default schema for the legacy namespace for validation. Collecting definitions
+            // from all ancestors is expensive for large graphs, and currently in our model everything is
+            // using the default schema anyway.
+            let schema_definitions = HashMap::new();
+            let merged_definition = Definition::default_legacy_namespace();
 
             let transform = &transform.inner;
             // Handling only remaps currently, but could be extended in the future
             if transform.get_component_name() == "remap" {
                 let mezmo_ctx = MezmoContext::try_from(key.clone().into_id()).ok();
-                // IMPORTANT: This is not properly setting up schema or enrichment
-                // tables as part of the validation. These would need to be
-                // added if we want to support those.
                 let context = TransformContext {
                     key: Some(key.clone()),
                     globals: config.global.clone(),
@@ -1138,6 +1122,61 @@ mod tests {
             .any(|(pipeline, _)| { pipeline == "pipeline1" })); // Not loaded
         let result = validate_config(config_builder.unwrap()).await;
         assert!(result.is_ok(), "expected the invalid VRL to be excluded");
+    }
+
+    #[tokio::test]
+    async fn build_incrementally_should_handle_invalid_vrl_when_common_config_changes() {
+        let mut service = MockConfigService::new();
+        service.expect_get_pipelines_by_partition().returning(|| {
+            Ok((
+                vec![S!("pipeline1")],
+                S!("data_dir = \"/data/vector-changed\""),
+            ))
+        });
+
+        service
+            .expect_get_new_revisions()
+            .returning(|_| Ok(HashMap::new()));
+
+        let initial_pipelines = HashMap::from([(
+            S!("pipeline1"),
+            Revision {
+                id: S!("revision1"),
+                profiler_transform_ids: None,
+                config: S!(r#"
+                [sources.in]
+                type="stdin"
+
+                # Requires proper format: 'v1:{type}:{kind}:{component_id}:{pipeline_id}:{account_id}'
+                [transforms."v1:remap:transform:component1:pipeline1:account1"]
+                inputs=["in"]
+                type="remap"
+                source="""
+                a = invalid("abc")
+                """
+                "#),
+            },
+        )]);
+
+        let mut b = MezmoConfigBuilder {
+            service: Box::new(service),
+            cache: initial_pipelines,
+            pipelines: Some(vec![S!("pipeline1")]),
+            common_config: Some(S!("data_dir = \"/data/vector\"")),
+            validate_vrl: true,
+        };
+        let (config_builder, loaded) = b
+            .build_incrementally()
+            .await
+            .expect("to build successfully");
+
+        assert!(
+            config_builder.is_none(),
+            "no builder, existing pipeline still invalid"
+        );
+        assert!(!loaded
+            .iter()
+            .any(|(pipeline, _)| { pipeline == "pipeline1" })); // Still not loaded
     }
 
     fn new_test_builder(service: Box<dyn ConfigService>) -> MezmoConfigBuilder {
