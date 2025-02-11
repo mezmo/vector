@@ -34,4 +34,9 @@ pub(crate) trait PersistenceConnection: Send + Sync + std::fmt::Debug {
     /// in the MezmoContext instance supplied as part of the [new] function - i.e. the account_id,
     /// pipeline_id, and component_id. Sharing data across components is not permitted.
     fn set(&self, key: &str, value: &str) -> Result<(), Error>;
+
+    /// Deletes a key within the rocks db. An implied namespace is enforced from the values
+    /// in the MezmoContext instance supplied as part of the [new] function - i.e. the account_id,
+    /// pipeline_id, and component_id. Sharing data across components is not permitted.
+    fn delete(&self, key: &str) -> Result<(), Error>;
 }

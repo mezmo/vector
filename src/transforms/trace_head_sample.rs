@@ -185,7 +185,14 @@ impl TraceHeadSample {
 
 impl FunctionTransform for TraceHeadSample {
     fn transform(&mut self, output: &mut OutputBuffer, event: Event) {
-        let log = event.as_log();
+        // TODO: update when we're ready to handle TraceEvent types with datadog traces
+        let maybe_log = event.maybe_as_log();
+        if maybe_log.is_none() {
+            self.log_warning("Event dropped. Not a log event".to_string());
+            return;
+        }
+
+        let log = maybe_log.unwrap();
         if let Some(message) = log.get(log_schema().message_key_target_path().unwrap()) {
             if !message.is_object() {
                 self.log_warning("Event dropped. Message is not an object".to_string());
@@ -236,8 +243,9 @@ mod test {
     use tempfile::tempdir;
     use uuid::Uuid;
     use vector_lib::btreemap;
-    use vector_lib::event::LogEvent;
+    use vector_lib::event::{LogEvent, TraceEvent};
     use vector_lib::transform::OutputBuffer;
+    use vrl::event_path;
 
     fn test_ctx() -> MezmoContext {
         let account_id = Uuid::new_v4();
@@ -348,6 +356,24 @@ mod test {
 
         assert!(output.is_empty(), "Expected no events: {:?}", output);
         assert_eq!(sampler.count, 0, "No event counted");
+    }
+
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
+    #[test]
+    fn event_is_not_a_log() {
+        let config = TraceHeadSampleConfig::default();
+        let test_ctx = test_ctx();
+        let connection = test_connection(test_ctx.clone(), config.ttl_secs, None);
+        let mut sampler = TraceHeadSample::new(config, test_ctx, connection);
+
+        let mut log = LogEvent::default();
+        log.insert(event_path!("tags", "foo"), "x");
+        let event1 = TraceEvent::from(log);
+
+        let mut output = OutputBuffer::default();
+        sampler.transform(&mut output, event1.into());
+
+        assert!(output.is_empty(), "Expected no events: {:?}", output);
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
