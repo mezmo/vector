@@ -709,7 +709,8 @@ transforms-logs-mezmo = [
   "transforms-mezmo_log_clustering",
   "transforms-mezmo_log_classification",
   "transforms-protobuf_to_log",
-  "transforms-trace_head_sample"
+  "transforms-trace_head_sample",
+  "transforms-trace_tail_sample"
 ]
 transforms-metrics = [
   "transforms-aggregate",
@@ -757,6 +758,7 @@ transforms-route = []
 transforms-sample = ["transforms-impl-sample"]
 transforms-tag_cardinality_limit = ["dep:bloomy", "dep:hashbrown"]
 transforms-trace_head_sample = []
+transforms-trace_tail_sample = []
 transforms-throttle = ["dep:governor"]
 transforms-protobuf_to_metric = []
 transforms-protobuf_to_log = []

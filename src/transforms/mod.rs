@@ -46,6 +46,8 @@ pub mod tag_cardinality_limit;
 pub mod throttle;
 #[cfg(feature = "transforms-trace_head_sample")]
 pub mod trace_head_sample;
+#[cfg(feature = "transforms-trace_tail_sample")]
+pub mod trace_tail_sample;
 
 pub use vector_lib::transform::{
     FunctionTransform, OutputBuffer, SyncTransform, TaskTransform, Transform, TransformOutputs,

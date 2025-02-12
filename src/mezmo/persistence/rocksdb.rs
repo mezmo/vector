@@ -271,6 +271,18 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
 
         Ok(())
     }
+
+    /// Delete the key from the database
+    fn delete(&self, key: &str) -> Result<(), Error> {
+        self.connection
+            .db
+            .delete(namespaced_key(&self.mezmo_ctx, key))
+            .context(RocksDBSnafu)?;
+
+        self.report_metrics();
+
+        Ok(())
+    }
 }
 
 fn namespaced_key(mezmo_ctx: &MezmoContext, key: &str) -> String {
@@ -404,7 +416,7 @@ mod tests {
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
-    fn test_set_get_scalar() {
+    fn test_set_get_delete_scalar() {
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let base_path = tmp_path.to_str().unwrap();
 
@@ -426,10 +438,14 @@ mod tests {
         let bool = db.get("boolean").unwrap();
         assert!(bool.is_some());
         assert_eq!(bool.unwrap(), to_json(&false));
+
+        assert!(db.delete("boolean").is_ok());
+        let obj_actual = db.get("boolean").unwrap();
+        assert!(obj_actual.is_none());
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
-    fn test_set_get_complex() {
+    fn test_set_get_delete_complex() {
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let base_path = tmp_path.to_str().unwrap();
 
@@ -452,6 +468,10 @@ mod tests {
         let obj_actual = db.get("object").unwrap();
         assert!(obj_actual.is_some());
         assert_eq!(obj_actual.unwrap(), obj_expected);
+
+        assert!(db.delete("object").is_ok());
+        let obj_actual = db.get("object").unwrap();
+        assert!(obj_actual.is_none());
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
