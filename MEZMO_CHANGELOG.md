@@ -1,3 +1,15 @@
+# [8.8.0](https://github.com/answerbook/vector/compare/v8.7.5...v8.8.0) (2025-02-12)
+
+
+### Features
+
+* **traces**: tail sampling [29741a0](https://github.com/answerbook/vector/commit/29741a001902f7142fd3b440c190896726478363) - dominic-mcallister-logdna [LOG-21665](https://logdna.atlassian.net/browse/LOG-21665)
+
+
+### Miscellaneous
+
+* Merge pull request #647 from answerbook/dominic/LOG-21165 [dee328a](https://github.com/answerbook/vector/commit/dee328ab7fa126202a154192f6dee94fc796dc9a) - GitHub [LOG-21165](https://logdna.atlassian.net/browse/LOG-21165)
+
 ## [8.7.5](https://github.com/answerbook/vector/compare/v8.7.4...v8.7.5) (2025-02-07)
 
 
