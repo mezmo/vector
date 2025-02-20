@@ -25,5 +25,6 @@ data:
     limits-memory: 10Gi,
     min-replicas: 11,
     max-replicas: 12,
+    vector-threads: 8
   }
   ]

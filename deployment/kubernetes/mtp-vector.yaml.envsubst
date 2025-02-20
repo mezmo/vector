@@ -27,6 +27,7 @@ spec:
         "storage-class": "gp3-us-east-1a",
         "limits-memory": "72Gi",
         "aggregation-cardinality-limit": "20000"
+        "vector-threads": "10"
       }]
     valueFrom:
       configMapKeyRef:
@@ -270,6 +271,11 @@ spec:
 
                 - name: DB_CONNECTION_POOL_SIZE
                   value: "{{{db_connection_pool_size}}}"
+
+                {{#vector-threads}}
+                - name: VECTOR_THREADS
+                  value: "{{{vector-threads}}}"
+                {{/vector-threads}}
 
                 args:
                   - --config-dir
