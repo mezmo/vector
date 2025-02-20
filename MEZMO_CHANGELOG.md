@@ -1,3 +1,15 @@
+## [8.8.1](https://github.com/answerbook/vector/compare/v8.8.0...v8.8.1) (2025-02-20)
+
+
+### Bug Fixes
+
+* **resources**: assign vector_threads from config [9fdd3cd](https://github.com/answerbook/vector/commit/9fdd3cd2a80fa16a144ecd7d07c3b16da8a54b89) - Phil Ciampini [LOG-21403](https://logdna.atlassian.net/browse/LOG-21403)
+
+
+### Miscellaneous
+
+* Merge pull request #648 from answerbook/pciampini/LOG-21403 [2b601b5](https://github.com/answerbook/vector/commit/2b601b52c8a0034c16fda98db0e97fc2d716e0f8) - GitHub [LOG-21403](https://logdna.atlassian.net/browse/LOG-21403)
+
 # [8.8.0](https://github.com/answerbook/vector/compare/v8.7.5...v8.8.0) (2025-02-12)
 
 
