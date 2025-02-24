@@ -1,3 +1,15 @@
+## [8.8.2](https://github.com/answerbook/vector/compare/v8.8.1...v8.8.2) (2025-02-24)
+
+
+### Bug Fixes
+
+* **traces**: maintain timestamp type [45c75fd](https://github.com/answerbook/vector/commit/45c75fdc0346ae6cf703870a1286fe9649b8b6ee) - dominic-mcallister-logdna [LOG-21405](https://logdna.atlassian.net/browse/LOG-21405)
+
+
+### Miscellaneous
+
+* Merge pull request #649 from answerbook/dominic/LOG-21405 [049b73e](https://github.com/answerbook/vector/commit/049b73e85340d9d9ed14bc94205e6b9cc84f02c7) - GitHub [LOG-21405](https://logdna.atlassian.net/browse/LOG-21405)
+
 ## [8.8.1](https://github.com/answerbook/vector/compare/v8.8.0...v8.8.1) (2025-02-20)
 
 
