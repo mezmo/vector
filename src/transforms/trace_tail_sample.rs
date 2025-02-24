@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use vector_lib::config::{log_schema, LogNamespace, OutputId, TransformOutput};
 use vector_lib::configurable::configurable_component;
 
@@ -223,6 +224,7 @@ impl TraceTailSample {
 
     fn get_events(&mut self, trace_id: &str) -> Vec<Event> {
         let key = self.build_key("events", Some(trace_id));
+
         let events: Vec<Event> = match self.persistence.get(&key) {
             Ok(Some(value)) => serde_json::from_str(value.as_str()).unwrap_or_else(|_| {
                 error!(
@@ -362,8 +364,20 @@ impl FunctionTransform for TraceTailSample {
             if flush_events_downstream {
                 output.push(event);
                 let associated_events = self.get_events(trace_id.as_str());
+
+                // since we've serialized/deserialized, the type of the timestamp was lost
+                // and is now a string. Convert this back to a DateTime type
+                let timestamp_key = log_schema().timestamp_key_target_path().unwrap();
                 for ae in associated_events.iter() {
-                    output.push(ae.clone());
+                    let mut cloned_event = ae.clone();
+                    let log = cloned_event.as_mut_log();
+                    if let Some(existing_timestamp) = log.get(timestamp_key) {
+                        let timestamp: DateTime<Utc> =
+                            existing_timestamp.to_string_lossy().parse().unwrap();
+                        log.insert(timestamp_key, Value::Timestamp(timestamp));
+                    }
+
+                    output.push(Event::Log((*log).clone()));
                 }
             }
 
@@ -382,6 +396,7 @@ mod test {
     use crate::event::Event;
     use crate::transforms::trace_tail_sample::TraceTailSampleConfig;
     use assay::assay;
+    use chrono::prelude::*;
     use mezmo::MezmoContext;
     use std::path::PathBuf;
     use tempfile::tempdir;
@@ -995,5 +1010,94 @@ mod test {
         assert_eq!(actual[0], traceid_4a);
         assert_eq!(actual[1], traceid_4c);
         assert_eq!(actual[2], traceid_4b);
+    }
+
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
+    #[test]
+    fn timestamp_is_always_present() {
+        let base_dir = tempdir().expect("Could not create temp dir").into_path();
+
+        let traceid_1a = Event::Log(LogEvent::from(btreemap! {
+            "timestamp" => Utc.with_ymd_and_hms(2022, 2, 19, 3, 10, 37).unwrap(),
+            "message" => btreemap! {
+                "name" => "hello",
+                "context" => btreemap! {
+                    "trace_id" => "2a15bbef-9d17-4294-bad8-dc7f1059c2b9",
+                    "span_id" => "607c42e6-059f-4fe1-a296-763b6bfc53d2"
+                }
+            }
+        }));
+        let traceid_1b = Event::Log(LogEvent::from(btreemap! {
+            "timestamp" => Utc.with_ymd_and_hms(2022, 2, 19, 3, 12, 59).unwrap(),
+            "message" => btreemap! {
+                "name" => "hello2",
+                "context" => btreemap! {
+                    "trace_id" => "2a15bbef-9d17-4294-bad8-dc7f1059c2b9",
+                    "span_id" => "9e68fce0-7a17-43b7-b098-87dde0cfb1d7",
+                    "parent_span_id" => "607c42e6-059f-4fe1-a296-763b6bfc53d2"
+                }
+            }
+        }));
+        let traceid_1c = Event::Log(LogEvent::from(btreemap! {
+            "timestamp" => Utc.with_ymd_and_hms(2022, 2, 19, 3, 13, 2).unwrap(),
+            "message" => btreemap! {
+                "name" => "hello3",
+                "context" => btreemap! {
+                    "trace_id" => "2a15bbef-9d17-4294-bad8-dc7f1059c2b9",
+                    "span_id" => "bea3666e-55c1-4b9e-844a-6fe6ab53a1bf",
+                    "parent_span_id" => "9e68fce0-7a17-43b7-b098-87dde0cfb1d7"
+                }
+            }
+        }));
+
+        let condition_config: TailSampleConditional = toml::from_str(
+            r#"
+            rate = 2
+            condition = "exists(.message.name)"
+            output_name = "hello"
+        "#,
+        )
+        .unwrap();
+
+        let config = TraceTailSampleConfig {
+            trace_id_field: ".context.trace_id".to_owned(),
+            parent_span_id_field: ".context.parent_span_id".to_owned(),
+            conditionals: vec![condition_config.clone()],
+            ttl_secs: 300,
+            state_persistence_base_path: Some("/data/component-state".to_owned()),
+        };
+        let test_ctx = get_test_ctx();
+        let connection = test_connection(test_ctx.clone(), config.ttl_secs, Some(base_dir.clone()));
+
+        let conditions = vec![(
+            "hello".to_owned(),
+            condition_config
+                .condition
+                .build(&Default::default(), Some(test_ctx.clone()))
+                .unwrap(),
+        )];
+        let mut sampler = TraceTailSample::new(config, conditions, test_ctx.clone(), connection);
+
+        let mut output = OutputBuffer::default();
+        sampler.transform(&mut output, traceid_1c.clone());
+        sampler.transform(&mut output, traceid_1b.clone());
+        sampler.transform(&mut output, traceid_1a.clone());
+
+        assert_eq!(output.len(), 3, "events caught");
+        let actual = output.into_events().collect::<Vec<_>>();
+        assert_eq!(actual.len(), 3, "actual events caught");
+
+        // validate the timestamp is present on all events, serialized or not
+        // and is an actual timestamp type
+        for e in actual.iter() {
+            let log = e.as_log();
+            assert!(
+                log.get_timestamp().is_some(),
+                "timestamp is present as expected"
+            );
+
+            let ts = log.get_timestamp().unwrap();
+            assert_eq!("timestamp", ts.kind_str(), "is a timestamp type");
+        }
     }
 }
