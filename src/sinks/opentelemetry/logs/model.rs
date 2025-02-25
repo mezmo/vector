@@ -67,8 +67,9 @@ impl TryFrom<Event> for OpentelemetryLogsModel {
 
         let mut record_builder = LogRecord::builder();
 
-        if let Some(message) = log.get_message() {
-            record_builder = record_builder.with_body(OtlpAnyValue::from(message.to_string()));
+        if let Some(Value::Bytes(message)) = log.get_message() {
+            let body = OtlpAnyValue::from(String::from_utf8_lossy(message).into_owned());
+            record_builder = record_builder.with_body(body);
         }
 
         let mut severity_number = None;
@@ -331,7 +332,7 @@ mod test {
 
         assert_eq!(
             record.body.unwrap(),
-            OtlpAnyValue::from("\"opentelemetry test log index 0\"".to_string())
+            OtlpAnyValue::from("opentelemetry test log index 0".to_string())
         );
 
         let trace_context: TraceContext = record.trace_context.unwrap();
