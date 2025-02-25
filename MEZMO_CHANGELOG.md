@@ -1,3 +1,15 @@
+## [8.8.3](https://github.com/answerbook/vector/compare/v8.8.2...v8.8.3) (2025-02-25)
+
+
+### Bug Fixes
+
+* **otel**: get rid double quotes from a log message in the otel sink [7a4d480](https://github.com/answerbook/vector/commit/7a4d4805ada35a40b7bc6b70884c302210c209f7) - Sergey Opria [LOG-21064](https://logdna.atlassian.net/browse/LOG-21064)
+
+
+### Miscellaneous
+
+* Merge pull request #650 from answerbook/sopria/LOG-21064 [c84db91](https://github.com/answerbook/vector/commit/c84db910c7726c5ed7b60eaf507fb37c7904512b) - GitHub [LOG-21064](https://logdna.atlassian.net/browse/LOG-21064)
+
 ## [8.8.2](https://github.com/answerbook/vector/compare/v8.8.1...v8.8.2) (2025-02-24)
 
 
