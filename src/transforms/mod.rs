@@ -20,6 +20,8 @@ pub mod lua;
 pub mod metric_to_log;
 #[cfg(feature = "transforms-mezmo_aggregate")]
 pub mod mezmo_aggregate;
+#[cfg(feature = "transforms-mezmo_aggregate_distributed")]
+pub mod mezmo_aggregate_distributed;
 #[cfg(feature = "transforms-mezmo_aggregate_v2")]
 pub mod mezmo_aggregate_v2;
 #[cfg(feature = "transforms-mezmo_log_classification")]

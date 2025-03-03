@@ -87,6 +87,8 @@ mod lua;
 mod metric_to_log;
 #[cfg(feature = "transforms-mezmo_aggregate")]
 mod mezmo_aggregate;
+#[cfg(feature = "transforms-mezmo_aggregate_distributed")]
+mod mezmo_aggregate_distributed;
 pub mod mezmo_config;
 #[cfg(feature = "transforms-mezmo_log_clustering")]
 pub(crate) mod mezmo_log_clustering;
@@ -240,6 +242,8 @@ pub(crate) use self::lua::*;
 pub(crate) use self::metric_to_log::*;
 #[cfg(feature = "transforms-mezmo_aggregate")]
 pub(crate) use self::mezmo_aggregate::*;
+#[cfg(feature = "transforms-mezmo_aggregate_distributed")]
+pub(crate) use self::mezmo_aggregate_distributed::*;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 pub(crate) use self::mezmo_tag_cardinality_limit::*;
 #[cfg(feature = "sinks-mqtt")]
