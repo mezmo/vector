@@ -90,6 +90,12 @@ mod mezmo_aggregate;
 pub mod mezmo_config;
 #[cfg(feature = "transforms-mezmo_log_clustering")]
 pub(crate) mod mezmo_log_clustering;
+#[cfg(any(
+    feature = "transforms-mezmo_aggregate_v2",
+    feature = "transforms-mezmo_throttle",
+    feature = "transforms-trace_head_sample",
+    feature = "transforms-trace_tail_sample",
+))]
 pub mod mezmo_persistence;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 mod mezmo_tag_cardinality_limit;

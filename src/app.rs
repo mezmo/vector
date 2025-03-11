@@ -24,7 +24,6 @@ use crate::{
         MezmoConfigCompile, MezmoConfigReload, MezmoConfigReloadSignalReceive,
     },
     internal_events::{VectorQuit, VectorStarted, VectorStopped},
-    mezmo,
     signal::{SignalHandler, SignalPair, SignalRx, SignalTo},
     topology::{
         ReloadOutcome, RunningTopology, SharedTopologyController, ShutdownErrorReceiver,
@@ -298,7 +297,7 @@ fn start_remote_task_execution(
                 }
 
                 runtime.spawn(async move {
-                    mezmo::remote_task_execution::start_polling_for_tasks(
+                    crate::mezmo::remote_task_execution::start_polling_for_tasks(
                         api_config,
                         auth_token,
                         get_endpoint_url,
