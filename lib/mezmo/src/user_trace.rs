@@ -106,7 +106,10 @@ pub fn try_send_user_log(log: LogEvent, rate_limit: Option<u64>, id: LogIdentifi
                         }
                     },
                     1 => {
-                        debug!("user log is [{:?}] is being rate limited", state.log);
+                        debug!(
+                            "user log is [{:?}] is being rate limited",
+                            state.log.get_message().unwrap_or(&("".into()))
+                        );
                     }
                     _ => {}
                 }
@@ -116,7 +119,7 @@ pub fn try_send_user_log(log: LogEvent, rate_limit: Option<u64>, id: LogIdentifi
                 if previous_count > 1 {
                     debug!(
                         "user log [{:?}] has been rate limited {} times.",
-                        state.log,
+                        state.log.get_message().unwrap_or(&("".into())),
                         previous_count - 1
                     );
                 }
