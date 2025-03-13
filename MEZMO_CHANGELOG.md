@@ -1,3 +1,15 @@
+# [8.9.0](https://github.com/answerbook/vector/compare/v8.8.3...v8.9.0) (2025-03-13)
+
+
+### Features
+
+* **deployment**: allow per-partition override of sink buffer sizing [4d0d4b0](https://github.com/answerbook/vector/commit/4d0d4b08cbb1e242f01bfcd05a6a3163ed030fd2) - Mike Del Tito [LOG-21489](https://logdna.atlassian.net/browse/LOG-21489)
+
+
+### Miscellaneous
+
+* Merge pull request #651 from answerbook/mdeltito/LOG-21489 [211af80](https://github.com/answerbook/vector/commit/211af80125b051da6b107cae5f7a4e30797fd02c) - GitHub [LOG-21489](https://logdna.atlassian.net/browse/LOG-21489)
+
 ## [8.8.3](https://github.com/answerbook/vector/compare/v8.8.2...v8.8.3) (2025-02-25)
 
 
