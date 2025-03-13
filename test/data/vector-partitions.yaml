@@ -25,6 +25,7 @@ data:
     limits-memory: 10Gi,
     min-replicas: 11,
     max-replicas: 12,
-    vector-threads: 8
+    vector-threads: 8,
+    sink-buffer-max-events: 123456,
   }
   ]

@@ -26,8 +26,9 @@ spec:
         "requests-storage": "10Gi",
         "storage-class": "gp3-us-east-1a",
         "limits-memory": "72Gi",
-        "aggregation-cardinality-limit": "20000"
-        "vector-threads": "10"
+        "aggregation-cardinality-limit": "20000",
+        "vector-threads": "10",
+        "sink-buffer-max-events": "1000",
       }]
     valueFrom:
       configMapKeyRef:
@@ -276,6 +277,11 @@ spec:
                 - name: VECTOR_THREADS
                   value: "{{{vector-threads}}}"
                 {{/vector-threads}}
+
+                {{#sink-buffer-max-events}}
+                - name: MEZMO_MEM_BUFFER_MAX_EVENTS
+                  value: "{{{sink-buffer-max-events}}}"
+                {{/sink-buffer-max-events}}
 
                 args:
                   - --config-dir
