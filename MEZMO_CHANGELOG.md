@@ -1,3 +1,15 @@
+# [8.10.0](https://github.com/answerbook/vector/compare/v8.9.0...v8.10.0) (2025-03-20)
+
+
+### Features
+
+* **pdb**: Add PodDisruptionBudget for each vector StatefulSet [972fd4b](https://github.com/answerbook/vector/commit/972fd4b8cdae8638f2b197fc678f946f23b4ad7c) - Eric Lake [INFRA-7435](https://logdna.atlassian.net/browse/INFRA-7435)
+
+
+### Miscellaneous
+
+* Merge pull request #653 from answerbook/add-pdb [910821e](https://github.com/answerbook/vector/commit/910821e670c1081d1db76adcc5549ab759bc1bad) - GitHub
+
 # [8.9.0](https://github.com/answerbook/vector/compare/v8.8.3...v8.9.0) (2025-03-13)
 
 
