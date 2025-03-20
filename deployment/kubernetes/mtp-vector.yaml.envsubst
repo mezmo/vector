@@ -153,6 +153,18 @@ spec:
             port: 8686
             targetPort: 8686
 
+    - apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: vector-{{partition-id}}
+        namespace: pipeline
+      spec:
+        maxUnavailable: 1
+        selector:
+          matchLabels:
+            app: vector
+            partition: {{partition-id}}
+
     - apiVersion: apps/v1
       kind: StatefulSet
       metadata:
