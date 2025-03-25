@@ -151,6 +151,7 @@ async fn redis_sink_list_rpush() {
     }
 }
 
+#[allow(deprecated)]
 #[tokio::test]
 async fn redis_sink_channel() {
     trace_init();
@@ -215,6 +216,7 @@ async fn redis_sink_channel() {
     }
 }
 
+#[allow(deprecated)]
 #[tokio::test]
 async fn redis_sink_channel_data_volume_tags() {
     trace_init();
