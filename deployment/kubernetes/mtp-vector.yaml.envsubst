@@ -246,6 +246,13 @@ spec:
                       key: usage-metrics-profile-enabled
                       optional: true
 
+                - name: USAGE_METRICS_TRACK_METADATA_SIZE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: pipeline-env-config
+                      key: usage-metrics-track-metadata-size
+                      optional: true
+
                 - name: USAGE_METRICS_PROFILE_FLUSH_INTERVAL_SECS
                   valueFrom:
                     configMapKeyRef:
