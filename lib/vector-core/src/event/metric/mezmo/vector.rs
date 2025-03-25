@@ -12,6 +12,7 @@ use chrono::Utc;
 use lookup::PathPrefix;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::fmt::Display;
 use std::num::NonZeroU32;
 
 #[derive(Debug)]
@@ -22,6 +23,35 @@ pub enum TransformError {
     FieldNull { field: String },
     ParseIntOverflow { field: String },
     NumberTruncation { field: String },
+}
+
+/// Note that the Display implementation must be appropriate as a user-facing error.
+impl Display for TransformError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransformError::FieldNull { field } => {
+                write!(f, "Required field '{field}' is null")
+            }
+            TransformError::FieldNotFound { field } => {
+                write!(f, "Required field '{field}' not found in the log event")
+            }
+            TransformError::FieldInvalidType { field } => {
+                write!(f, "Field '{field}' type is not valid")
+            }
+            TransformError::InvalidMetricType { type_name } => {
+                write!(f, "Metric type '{type_name}' is not supported")
+            }
+            TransformError::ParseIntOverflow { field } => {
+                write!(
+                    f,
+                    "Field '{field}' could not be parsed as an unsigned integer"
+                )
+            }
+            TransformError::NumberTruncation { field } => {
+                write!(f, "Field '{field}' was truncated during parsing")
+            }
+        }
+    }
 }
 
 const OTLP_METADATA_FIELDS: [&str; 5] = [

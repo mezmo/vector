@@ -283,39 +283,10 @@ impl MezmoUserLog for Option<MezmoContext> {
     }
 }
 
+/// Emits a user_log for the given error. Note that the Display implementation must be
+/// appropriate as a user-facing error.
 pub fn handle_transform_error(ctx: &Option<MezmoContext>, err: TransformError) {
-    match err {
-        TransformError::FieldNull { field } => {
-            user_log_error!(ctx, format!("Required field '{}' is null", field));
-        }
-        TransformError::FieldNotFound { field } => {
-            user_log_error!(
-                ctx,
-                format!("Required field '{}' not found in the log event", field)
-            );
-        }
-        TransformError::FieldInvalidType { field } => {
-            user_log_error!(ctx, format!("Field '{}' type is not valid", field));
-        }
-        TransformError::InvalidMetricType { type_name } => {
-            user_log_error!(ctx, format!("Metric type '{}' is not supported", type_name));
-        }
-        TransformError::ParseIntOverflow { field } => {
-            user_log_error!(
-                ctx,
-                format!(
-                    "Field '{}' could not be parsed as an unsigned integer",
-                    field
-                )
-            );
-        }
-        TransformError::NumberTruncation { field } => {
-            user_log_error!(
-                ctx,
-                format!("Field '{}' was truncated during parsing", field)
-            );
-        }
-    };
+    user_log_error!(ctx, err.to_string());
 }
 
 pub fn handle_deserializer_error(ctx: &Option<MezmoContext>, err: Box<dyn StdError>) {
