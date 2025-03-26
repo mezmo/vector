@@ -1,3 +1,15 @@
+# [8.11.0](https://github.com/answerbook/vector/compare/v8.10.0...v8.11.0) (2025-03-26)
+
+
+### Features
+
+* **usage_metrics**: make metadata tracking optional [85bb906](https://github.com/answerbook/vector/commit/85bb9063090002885e26b50618963cdf959667fe) - Mike Del Tito [LOG-21560](https://logdna.atlassian.net/browse/LOG-21560)
+
+
+### Miscellaneous
+
+* Merge pull request #655 from answerbook/mdeltito/LOG-21560 [c52e7d9](https://github.com/answerbook/vector/commit/c52e7d98e97cb708b7aced7416242dc96112b201) - GitHub [LOG-21560](https://logdna.atlassian.net/browse/LOG-21560)
+
 # [8.10.0](https://github.com/answerbook/vector/compare/v8.9.0...v8.10.0) (2025-03-20)
 
 
