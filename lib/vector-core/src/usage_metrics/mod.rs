@@ -449,7 +449,7 @@ fn get_size_and_profile(array: &EventArray) -> UsageProfileValue {
             let mut usage_by_annotation = AnnotationMap::new();
             for log_event in a {
                 if let Some(fields) = log_event.as_map() {
-                    let size = log_event_size(fields);
+                    let size = log_event_size(fields, include_metadata_in_size());
                     total_size += size;
 
                     if let Some(annotation_set) = get_annotations(fields) {
@@ -517,6 +517,20 @@ fn is_profile_enabled() -> bool {
     })
 }
 
+/// Determines whether we track size from `.metadata` or not.
+/// TRUE by default.
+pub fn include_metadata_in_size() -> bool {
+    // Inaccessible outside of the function but it isn't dropped at the end of the function
+    static SHOULD_TRACK_METADATA: OnceLock<bool> = OnceLock::new();
+
+    *SHOULD_TRACK_METADATA.get_or_init(|| {
+        env::var("USAGE_METRICS_TRACK_METADATA_SIZE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(true)
+    })
+}
+
 pub fn get_annotations(fields: &BTreeMap<KeyString, Value>) -> Option<AnnotationSet> {
     let annotations_field = fields.get(log_schema().annotations_key())?.as_object()?;
 
@@ -571,13 +585,18 @@ pub fn value_size(v: &Value) -> usize {
 
 /// Estimate the byte size of all fields within an event, accounting for
 /// both the value of ".message" and ".metadata" top-level fields.
-pub fn log_event_size(event_map: &BTreeMap<KeyString, Value>) -> usize {
-    event_map
+pub fn log_event_size(event_map: &BTreeMap<KeyString, Value>, include_metadata: bool) -> usize {
+    let mut size = event_map
         .get::<KeyString>(&log_schema().message_key().unwrap().to_string().into())
-        .map_or(0, value_size)
-        + event_map
+        .map_or(0, value_size);
+
+    if include_metadata {
+        size += event_map
             .get::<KeyString>(&log_schema().user_metadata_key().into())
-            .map_or(0, value_size)
+            .map_or(0, value_size);
+    }
+
+    size
 }
 
 /// Estimate the value of the metric based on the type
@@ -963,6 +982,22 @@ mod tests {
             !value.is_tracked_for_billing(),
             "Kafka source should NOT be tracked"
         );
+    }
+
+    #[test]
+    fn log_event_size_test() {
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
+        event_map.insert(
+            log_schema().message_key().unwrap().to_string().into(),
+            "foo".into(),
+        );
+        event_map.insert(
+            log_schema().user_metadata_key().to_string().into(),
+            "foo".into(),
+        );
+
+        assert_eq!(log_event_size(&event_map, true), 6);
+        assert_eq!(log_event_size(&event_map, false), 3);
     }
 
     #[assay(env = [("USAGE_METRICS_PROFILE_ENABLED", "true")])]

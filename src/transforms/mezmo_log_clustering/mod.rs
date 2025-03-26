@@ -25,7 +25,9 @@ use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogClusterStatus};
 use crate::transforms::mezmo_log_clustering::store::save_in_loop;
 use mezmo::MezmoContext;
 use vector_lib::event::LogEvent;
-use vector_lib::usage_metrics::{get_annotations, log_event_size, AnnotationSet};
+use vector_lib::usage_metrics::{
+    get_annotations, include_metadata_in_size, log_event_size, AnnotationSet,
+};
 use vrl::value::Value;
 
 mod drain;
@@ -329,7 +331,7 @@ impl MezmoLogClustering {
             // clustering line sizes
             let mut message_size: i64 = 0;
             if let Some(fields) = log.as_map() {
-                message_size = log_event_size(fields) as i64;
+                message_size = log_event_size(fields, include_metadata_in_size()) as i64;
             }
 
             let local_id = group.local_id();

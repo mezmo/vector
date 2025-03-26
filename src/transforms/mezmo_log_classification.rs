@@ -10,7 +10,7 @@ use futures::StreamExt;
 use vector_lib::{
     config::{log_schema, TransformOutput},
     configurable::configurable_component,
-    usage_metrics::log_event_size,
+    usage_metrics::{include_metadata_in_size, log_event_size},
 };
 
 use vrl::value::{KeyString, Value};
@@ -289,7 +289,7 @@ impl LogClassification {
 
         let mut message_size: i64 = 0;
         if let Some(fields) = log.as_map() {
-            message_size = log_event_size(fields) as i64;
+            message_size = log_event_size(fields, include_metadata_in_size()) as i64;
             if message_size.is_negative() {
                 warn!("total_bytes for message exceeded i64 limit, using i64::MAX instead");
                 message_size = i64::MAX;
@@ -404,7 +404,7 @@ mod tests {
         annotations.insert("classification".into(), Value::Object(btreemap!(
             "event_count" => Value::Integer(1),
             "event_types" => Value::Object(matches.into_iter().map(|m| (m, Value::Integer(1))).collect()),
-            "total_bytes" => Value::Integer(log_event_size(event_fields) as i64),
+            "total_bytes" => Value::Integer(log_event_size(event_fields, include_metadata_in_size()) as i64),
         )));
         Value::Object(annotations)
     }
