@@ -8,6 +8,7 @@ use async_stream::stream;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
 use mezmo::{user_trace::handle_transform_error, MezmoContext};
+use once_cell::sync::Lazy;
 use redis::AsyncCommands;
 use redis::{aio::ConnectionManager, RedisError, RedisResult, Script};
 use serde::{Deserialize, Serialize};
@@ -37,6 +38,9 @@ use config::MezmoAggregateDistributedConfig;
 #[cfg(test)]
 pub(crate) mod integration_tests;
 
+static SUM_SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(include_str!("redis/sum.lua")));
+static FLUSH_SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(include_str!("redis/flush.lua")));
+
 /// Configuration for a strategy
 #[configurable_component]
 #[configurable(metadata(docs::enum_tag_description = "The aggregation strategy."))]
@@ -57,6 +61,15 @@ impl Display for Strategy {
         match self {
             Strategy::Sum => write!(f, "sum"),
             Strategy::Avg => write!(f, "avg"),
+        }
+    }
+}
+
+impl Strategy {
+    pub fn script(&self) -> &'static Script {
+        match self {
+            Strategy::Sum => &SUM_SCRIPT,
+            Strategy::Avg => &SUM_SCRIPT,
         }
     }
 }
@@ -207,7 +220,9 @@ impl MezmoAggregateDistributed {
                     }
                 };
 
-                Script::new(include_str!("redis/sum.lua"))
+                self.config
+                    .strategy
+                    .script()
                     .key(active_windows_key)
                     .key(event_window_key)
                     .arg(window_start_ts)
@@ -285,8 +300,7 @@ impl MezmoAggregateDistributed {
             .message_key_target_path()
             .expect("message key to always be defined");
 
-        let flush = Script::new(include_str!("redis/flush.lua"));
-        let mut invocation = flush.prepare_invoke();
+        let mut invocation = FLUSH_SCRIPT.prepare_invoke();
         invocation.key(active_windows_key);
         for key in expired_window_keys {
             invocation.key(key);
