@@ -15,7 +15,8 @@ data:
     limits-memory: 4Gi,
     min-replicas: 5,
     max-replicas: 6,
-  }, {
+  },
+  {
     partition-id: "test1",
     requests-cpu: 7,
     requests-memory: 8Gi,
@@ -26,6 +27,12 @@ data:
     min-replicas: 11,
     max-replicas: 12,
     vector-threads: 8,
+    aggregation-cardinality-limit: 10000,
     sink-buffer-max-events: 123456,
-  }
-  ]
+    state-connection-string: "redis://127.0.0.1:6379/0",
+    state-connection-retry-factor-ms: 150,
+    state-connection-retry-count: 10,
+    state-connection-retry-max-delay-ms: 7500,
+    state-connection-timeout-ms: 2500,
+    state-connection-response-timeout-ms: 2500,
+  }]

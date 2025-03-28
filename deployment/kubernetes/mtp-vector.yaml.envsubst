@@ -18,6 +18,8 @@ spec:
 
   - name: vector-partitions
     optional: true
+    # These defaults are unused in practice, but serve as documentation
+    # of what options are available per-vector-partition.
     default: |
       [{
         "partition-id": "gen0",
@@ -29,6 +31,12 @@ spec:
         "aggregation-cardinality-limit": "20000",
         "vector-threads": "10",
         "sink-buffer-max-events": "1000",
+        "state-connection-string": "redis://127.0.0.1:6379/0",
+        "state-connection-retry-factor-ms": "150",
+        "state-connection-retry-count": "10",
+        "state-connection-retry-max-delay-ms": "7500",
+        "state-connection-timeout-ms": "2500",
+        "state-connection-response-timeout-ms": "2500",
       }]
     valueFrom:
       configMapKeyRef:
@@ -283,8 +291,26 @@ spec:
                 - name: REDUCE_BYTE_THRESHOLD_ALL_STATES
                   value: "{{{config_reduce_byte_threshold_all_states}}}"
 
-                - name: AGGREGATION_CARDINALITY_LIMIT
+                - name: MEZMO_AGGREGATION_CARDINALITY_LIMIT
                   value: "{{{aggregation-cardinality-limit}}}"
+
+                - name: MEZMO_STATE_CONNECTION_STRING
+                  value: "{{{state-connection-string}}}"
+
+                - name: MEZMO_STATE_CONNECTION_RETRY_FACTOR_MS
+                  value: "{{{state-connection-retry-factor-ms}}}"
+
+                - name: MEZMO_STATE_CONNECTION_RETRY_COUNT
+                  value: "{{{state-connection-retry-count}}}"
+
+                - name: MEZMO_STATE_CONNECTION_RETRY_MAX_DELAY_MS
+                  value: "{{{state-connection-retry-max-delay-ms}}}"
+
+                - name: MEZMO_STATE_CONNECTION_TIMEOUT_MS
+                  value: "{{{state-connection-timeout-ms}}}"
+
+                - name: MEZMO_STATE_CONNECTION_RESPONSE_TIMEOUT_MS
+                  value: "{{{state-connection-response-timeout-ms}}}"
 
                 - name: MEZMO_EVENT_TRACE_ENABLED
                   value: "{{{mezmo_event_trace_enabled}}}"
