@@ -35,6 +35,8 @@ pub mod mezmo_log_to_metric;
 pub mod mezmo_tag_cardinality_limit;
 #[cfg(feature = "transforms-mezmo_throttle")]
 pub mod mezmo_throttle;
+#[cfg(feature = "transforms-mezmo_throttle_distributed")]
+pub mod mezmo_throttle_distributed;
 #[cfg(feature = "transforms-protobuf_to_log")]
 pub mod protobuf_to_log;
 #[cfg(feature = "transforms-protobuf_to_metric")]

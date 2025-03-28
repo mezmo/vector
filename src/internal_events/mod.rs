@@ -101,6 +101,8 @@ pub(crate) mod mezmo_log_clustering;
 pub mod mezmo_persistence;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 mod mezmo_tag_cardinality_limit;
+#[cfg(feature = "transforms-mezmo_throttle_distributed")]
+mod mezmo_throttle_distributed;
 #[cfg(feature = "sources-mongodb_metrics")]
 mod mongodb_metrics;
 #[cfg(feature = "sinks-mqtt")]
@@ -246,6 +248,8 @@ pub(crate) use self::mezmo_aggregate::*;
 pub(crate) use self::mezmo_aggregate_distributed::*;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 pub(crate) use self::mezmo_tag_cardinality_limit::*;
+#[cfg(feature = "transforms-mezmo_throttle_distributed")]
+pub(crate) use self::mezmo_throttle_distributed::*;
 #[cfg(feature = "sinks-mqtt")]
 pub(crate) use self::mqtt::*;
 #[cfg(feature = "sources-nginx_metrics")]
