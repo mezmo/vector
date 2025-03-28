@@ -96,6 +96,7 @@ mod tests {
     use serde_json;
     use serial_test::serial;
     use std::collections::{BTreeMap, BTreeSet};
+    use std::num::NonZeroU32;
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio::time::sleep;
@@ -147,21 +148,29 @@ mod tests {
         name: &str,
         type_name: &str,
         value: impl Into<Value> + std::fmt::Debug,
+        kind: &str,
         namespace: Option<&str>,
+        interval_ms: Option<u32>,
     ) -> LogEvent {
         // Simple events have the following shape, inside .message
         // {
         //     "name": "my_metric_name",
         //     "tags": {},
         //     "kind": "absolute",
-        //     "value": { "type": "counter", "value": 36 }
+        //     "value": { "type": "counter", "value": 36 },
+        //     "time": { "interval_ms": 2000 }
         //   }
         let mut message_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         let mut value_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         value_map.insert("type".into(), type_name.into());
         value_map.insert("value".into(), value.into());
         message_map.insert("name".into(), name.into());
-        message_map.insert("kind".into(), "absolute".into());
+        message_map.insert("kind".into(), kind.into());
+        if let Some(interval_ms) = interval_ms {
+            let mut time_map: BTreeMap<KeyString, Value> = BTreeMap::new();
+            time_map.insert("interval_ms".into(), interval_ms.into());
+            message_map.insert("time".into(), Value::from(time_map));
+        }
         if let Some(namespace) = namespace {
             message_map.insert("namespace".into(), namespace.into());
         }
@@ -216,7 +225,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn counter_test() {
-        let event = create_metric_event("go_goroutines", "counter", 1.2, None);
+        let event = create_metric_event("go_goroutines", "counter", 1.2, "incremental", None, None);
         let metadata = event.metadata().clone();
         let metric = do_transform(event.into()).await.unwrap();
 
@@ -224,11 +233,39 @@ mod tests {
             metric.into_metric(),
             Metric::new_with_metadata(
                 "go_goroutines",
-                MetricKind::Absolute,
+                MetricKind::Incremental,
                 MetricValue::Counter { value: 1.2 },
                 metadata,
             )
             .with_timestamp(Some(ts()))
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn rate_counter_test() {
+        let event = create_metric_event(
+            "go_goroutines",
+            "counter",
+            1.2,
+            "incremental",
+            None,
+            Some(1500),
+        );
+        let metadata = event.metadata().clone();
+        let metric = do_transform(event.into()).await.unwrap();
+        let new_metric = metric.into_metric();
+
+        assert_eq!(
+            new_metric,
+            Metric::new_with_metadata(
+                "go_goroutines",
+                MetricKind::Incremental,
+                MetricValue::Counter { value: 1.2 },
+                metadata,
+            )
+            .with_timestamp(Some(ts()))
+            .with_interval_ms(NonZeroU32::new(1500))
         );
     }
 
@@ -239,7 +276,9 @@ mod tests {
             "go_memstats_alloc_bytes",
             "gauge",
             8.3,
+            "absolute",
             Some("my_namespace"),
+            None,
         );
         let metadata = event.metadata().clone();
         let metric = do_transform(event.into()).await.unwrap();
@@ -256,6 +295,35 @@ mod tests {
             .with_timestamp(Some(ts()))
         );
     }
+
+    #[tokio::test]
+    #[serial]
+    async fn gauge_with_interval_test() {
+        let event = create_metric_event(
+            "go_memstats_alloc_bytes",
+            "gauge",
+            8.3,
+            "absolute",
+            Some("my_namespace"),
+            Some(2500),
+        );
+        let metadata = event.metadata().clone();
+        let metric = do_transform(event.into()).await.unwrap();
+
+        assert_eq!(
+            metric.into_metric(),
+            Metric::new_with_metadata(
+                "go_memstats_alloc_bytes",
+                MetricKind::Absolute,
+                MetricValue::Gauge { value: 8.3 },
+                metadata,
+            )
+            .with_interval_ms(NonZeroU32::new(2500))
+            .with_namespace(Some("my_namespace"))
+            .with_timestamp(Some(ts()))
+        );
+    }
+
     #[tokio::test]
     #[serial]
     async fn summary_test() {
@@ -288,7 +356,14 @@ mod tests {
         }"#,
         )
         .unwrap();
-        let event = create_metric_event("go_gc_duration_seconds", "summary", map, None);
+        let event = create_metric_event(
+            "go_gc_duration_seconds",
+            "summary",
+            map,
+            "absolute",
+            None,
+            None,
+        );
         let metadata = event.metadata().clone();
         let metric = do_transform(event.into()).await.unwrap();
         assert_eq!(
@@ -333,7 +408,7 @@ mod tests {
     async fn set_test() {
         let map: BTreeMap<KeyString, Value> =
             serde_json::from_str(r#"{"values": ["a", "b"]}"#).unwrap();
-        let event = create_metric_event("active_admin_users", "set", map, None);
+        let event = create_metric_event("active_admin_users", "set", map, "absolute", None, None);
         let metadata = event.metadata().clone();
         let metric = do_transform(event.into()).await.unwrap();
 
@@ -364,7 +439,14 @@ mod tests {
         }"#,
         )
         .unwrap();
-        let event = create_metric_event("response_times", "distribution", map, None);
+        let event = create_metric_event(
+            "response_times",
+            "distribution",
+            map,
+            "absolute",
+            None,
+            None,
+        );
         let metadata = event.metadata().clone();
         let metric = do_transform(event.into()).await.unwrap();
 
@@ -424,7 +506,7 @@ mod tests {
         }"#,
         )
         .unwrap();
-        let event = create_metric_event("response_times", "histogram", map, None);
+        let event = create_metric_event("response_times", "histogram", map, "absolute", None, None);
         let metadata = event.metadata().clone();
         let metric = do_transform(event.into()).await.unwrap();
 
@@ -478,7 +560,14 @@ mod tests {
     #[serial]
     async fn invalid_type_test() {
         let log_stream = UserLogSubscription::subscribe().into_stream();
-        let event = create_metric_event("response_times", "NON_EXISTING_TYPE", 123, None);
+        let event = create_metric_event(
+            "response_times",
+            "NON_EXISTING_TYPE",
+            123,
+            "absolute",
+            None,
+            None,
+        );
         assert_eq!(do_transform(event.into()).await, None);
         assert_error_message(
             log_stream,
@@ -493,7 +582,7 @@ mod tests {
         let log_stream = UserLogSubscription::subscribe().into_stream();
         let map: BTreeMap<KeyString, Value> =
             serde_json::from_str(r#"{"buckets": [], "count": null, "sum": 3}"#).unwrap();
-        let event = create_metric_event("response_times", "histogram", map, None);
+        let event = create_metric_event("response_times", "histogram", map, "absolute", None, None);
         assert_eq!(do_transform(event.into()).await, None);
         assert_error_message(log_stream, "Required field 'count' is null").await;
     }

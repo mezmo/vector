@@ -1,9 +1,3 @@
-use lookup::PathPrefix;
-use std::borrow::Cow;
-use std::collections::BTreeMap;
-
-use chrono::Utc;
-
 use crate::{
     config::log_schema,
     event::{
@@ -14,6 +8,11 @@ use crate::{
         KeyString, LogEvent, StatisticKind, Value,
     },
 };
+use chrono::Utc;
+use lookup::PathPrefix;
+use std::borrow::Cow;
+use std::collections::BTreeMap;
+use std::num::NonZeroU32;
 
 #[derive(Debug)]
 pub enum TransformError {
@@ -286,24 +285,20 @@ fn get_property<'a>(
 ///
 /// Will return `Err` if any field transformations fail
 pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
-    let timestamp = match log_schema().timestamp_key() {
-        Some(path) => log
-            .get((lookup::PathPrefix::Event, path))
-            .and_then(Value::as_timestamp)
-            .copied()
-            .or_else(|| Some(Utc::now())),
-        None => Some(Utc::now()),
-    };
+    let timestamp = log_schema()
+        .timestamp_key()
+        .and_then(|path| {
+            log.get((lookup::PathPrefix::Event, path))
+                .and_then(Value::as_timestamp)
+                .copied()
+        })
+        .or_else(|| Some(Utc::now()));
 
     let metadata = log.metadata().clone();
-
-    let mut user_metadata = &BTreeMap::new();
-    if let Some(Value::Object(metadata)) =
-        log.get((PathPrefix::Event, log_schema().user_metadata_key()))
-    {
-        user_metadata = metadata;
-    }
-    let user_metadata = user_metadata;
+    let user_metadata = match log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
+        Some(Value::Object(metadata)) => metadata,
+        _ => &BTreeMap::new(),
+    };
 
     let root = log
         .get(log_schema().message_key_target_path().unwrap())
@@ -323,30 +318,24 @@ pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
             })?;
     let namespace = root
         .get("namespace")
-        .and_then(|v| v.as_str().map(|b| b.to_string()));
+        .and_then(Value::as_str)
+        .map(String::from);
 
-    let tags = if let Some(tags) = root.get("tags") {
-        let tags = tags
-            .as_object()
-            .ok_or_else(|| TransformError::FieldInvalidType {
-                field: "tags".into(),
-            })?;
-        let mut map = MetricTags::default();
-        for (k, v) in tags.iter() {
-            map.insert(
-                k.to_string(),
-                v.as_str().map(|v| v.to_string()).ok_or_else(|| {
-                    TransformError::FieldInvalidType {
-                        field: "tags".into(),
-                    }
-                })?,
-            );
-        }
-
-        Some(map)
-    } else {
-        None
-    };
+    let tags = root
+        .get("tags")
+        .and_then(Value::as_object)
+        .map(|tags| {
+            tags.iter()
+                .map(|(k, v)| {
+                    v.as_str()
+                        .map(|v| (k.to_string(), v.to_string()))
+                        .ok_or_else(|| TransformError::FieldInvalidType {
+                            field: "tags".into(),
+                        })
+                })
+                .collect::<Result<MetricTags, _>>()
+        })
+        .transpose()?;
 
     let kind: MetricKind = get_property(root, "kind")?
         .clone()
@@ -359,6 +348,14 @@ pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
             field: "value".into(),
         }
     })?;
+
+    let interval_ms = root
+        .get("time")
+        .and_then(|time| time.as_object())
+        .and_then(|time_object| time_object.get("interval_ms"))
+        .and_then(Value::as_integer)
+        .and_then(|interval_ms| u32::try_from(interval_ms).ok())
+        .and_then(NonZeroU32::new);
 
     // this is trying to be tolerant of some sloppy metrics exporters, some of
     // which will emit a numeric value without a type. We're setting a type
@@ -388,7 +385,7 @@ pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
         MetricData {
             time: MetricTime {
                 timestamp,
-                interval_ms: None,
+                interval_ms,
             },
             kind,
             value,
@@ -470,7 +467,29 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
         values.insert("tags".into(), from_tags(tags));
     }
 
-    let mut value = match metric.value() {
+    let mut value = build_metric_value(metric);
+
+    value.extend(metric.arbitrary_value().value().clone());
+
+    value.remove(log_schema().user_metadata_key());
+
+    values.insert("value".into(), value.into());
+
+    if let Some(interval_ms) = metric.interval_ms() {
+        values.insert(
+            "time".into(),
+            BTreeMap::from([("interval_ms".into(), interval_ms.get().into())]).into(),
+        );
+    }
+
+    LogEvent::from_map(
+        BTreeMap::from([("message".into(), Value::Object(values))]),
+        Default::default(),
+    )
+}
+
+fn build_metric_value(metric: &Metric) -> BTreeMap<KeyString, Value> {
+    match metric.value() {
         MetricValue::Counter { value } => BTreeMap::from([
             ("type".into(), "counter".into()),
             ("value".into(), from_f64_or_zero(*value)),
@@ -490,7 +509,6 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
                 .into(),
             ),
         ]),
-
         MetricValue::Distribution { samples, statistic } => BTreeMap::from([
             ("type".into(), "distribution".into()),
             (
@@ -542,18 +560,7 @@ pub fn from_metric(metric: &Metric) -> LogEvent {
             ),
         ]),
         _ => panic!("unsupported metric value type"),
-    };
-
-    value.extend(metric.arbitrary_value().value().clone());
-
-    value.remove(log_schema().user_metadata_key());
-
-    values.insert("value".into(), value.into());
-
-    LogEvent::from_map(
-        BTreeMap::from([("message".into(), Value::Object(values))]),
-        Default::default(),
-    )
+    }
 }
 
 #[cfg(test)]
@@ -593,6 +600,40 @@ mod tests {
         let actual = from_metric(&to_metric(&expected).unwrap());
 
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn rate_log_event() {
+        let expected: LogEvent = serde_json::from_str::<BTreeMap<KeyString, Value>>(
+            r#"{
+                "message": {
+                "name": "count",
+                "kind": "incremental",
+                "namespace": "ns",
+                "tags": {"k1": "v1"},
+                "value": {
+                    "type": "counter",
+                    "value": 123.0,
+                    "name": "test_name",
+                    "description": "description",
+                    "attributes": {
+                        "attribute": "value"
+                    }
+                },
+                "time": {
+                    "interval_ms": 1000
+                }
+            }
+        }"#,
+        )
+        .unwrap()
+        .into();
+
+        let metric = to_metric(&expected).unwrap();
+        let actual = from_metric(&metric);
+
+        assert_eq!(expected, actual);
+        assert_eq!(1000, metric.interval_ms().unwrap().get());
     }
 
     #[test]
