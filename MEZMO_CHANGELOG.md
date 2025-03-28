@@ -1,3 +1,10 @@
+# [8.12.0](https://github.com/answerbook/vector/compare/v8.11.0...v8.12.0) (2025-03-28)
+
+
+### Features
+
+* Set interval_ms in to_metric function (#652) [7e29f3f](https://github.com/answerbook/vector/commit/7e29f3ffcc2fd7934058c6822ad7b1ecd1299ca4) - GitHub [LOG-21507](https://logdna.atlassian.net/browse/LOG-21507) [LOG-21506](https://logdna.atlassian.net/browse/LOG-21506)
+
 # [8.11.0](https://github.com/answerbook/vector/compare/v8.10.0...v8.11.0) (2025-03-26)
 
 
