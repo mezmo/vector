@@ -1,3 +1,36 @@
+# [8.13.0](https://github.com/answerbook/vector/compare/v8.12.1...v8.13.0) (2025-04-01)
+
+
+### Bug Fixes
+
+* **user_log**: improve debug output for user_log [211b284](https://github.com/answerbook/vector/commit/211b2848226fb1ddc89a108a57e8a0695be6da26) - Mike Del Tito [LOG-21473](https://logdna.atlassian.net/browse/LOG-21473)
+
+
+### Chores
+
+* allow deprecated methods in upstream redis source [ce21d5d](https://github.com/answerbook/vector/commit/ce21d5de98663c8d481b8729a8e67a42aead3e5a) - Mike Del Tito [LOG-21473](https://logdna.atlassian.net/browse/LOG-21473)
+* **crate**: allow cleaner feature reduction [6469c59](https://github.com/answerbook/vector/commit/6469c596c194e394188307ae62efa41d29fb42fc) - Mike Del Tito [LOG-21473](https://logdna.atlassian.net/browse/LOG-21473)
+
+
+### Code Refactoring
+
+* **user_trace**: support usage of TransformError outside of logs [3fa8830](https://github.com/answerbook/vector/commit/3fa88302ea355e89f10e4a67682e5bb037e94e94) - Mike Del Tito [LOG-21473](https://logdna.atlassian.net/browse/LOG-21473)
+
+
+### Features
+
+* **aggregate_distributed**: add initial implementation [551e5e7](https://github.com/answerbook/vector/commit/551e5e77488842d4a9e9b98d301c9b79716a1d48) - Mike Del Tito [LOG-21473](https://logdna.atlassian.net/browse/LOG-21473)
+
+
+### Miscellaneous
+
+* Merge pull request #654 from answerbook/mdeltito/LOG-21473 [aa93e30](https://github.com/answerbook/vector/commit/aa93e30534ea57c7760634c76eb922682b63ff66) - GitHub [LOG-21473](https://logdna.atlassian.net/browse/LOG-21473)
+
+
+### Performance Improvements
+
+* **aggregate_distributed**: lazily instantiate scripts [204baf9](https://github.com/answerbook/vector/commit/204baf96c43ca6161c05129826fbd599ad1e1c66) - Mike Del Tito [LOG-21473](https://logdna.atlassian.net/browse/LOG-21473)
+
 ## [8.12.1](https://github.com/answerbook/vector/compare/v8.12.0...v8.12.1) (2025-04-01)
 
 
