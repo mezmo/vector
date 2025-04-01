@@ -451,6 +451,7 @@ mod integration_test {
         );
     }
 
+    #[allow(deprecated)]
     #[tokio::test]
     async fn redis_source_channel_consume_event() {
         let key = format!("test-channel-{}", random_string(10));

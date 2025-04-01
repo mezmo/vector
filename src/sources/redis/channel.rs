@@ -18,6 +18,7 @@ enum BuildError {
 }
 
 impl InputHandler {
+    #[allow(deprecated)]
     pub(super) async fn subscribe(
         mut self,
         connection_info: ConnectionInfo,

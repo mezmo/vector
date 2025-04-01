@@ -63,6 +63,7 @@ pub struct MezmoLoggingService<S> {
 }
 
 impl<S> MezmoLoggingService<S> {
+    #[allow(dead_code)]
     pub(crate) const fn new(inner: S, ctx: Option<MezmoContext>) -> Self {
         Self { inner, ctx }
     }
