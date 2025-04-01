@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 pub mod dedupe;
+pub mod mezmo_common;
 pub mod reduce;
 pub mod sample;
 

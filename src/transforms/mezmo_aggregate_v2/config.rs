@@ -5,6 +5,7 @@ use crate::config::{
     TransformOutput,
 };
 use crate::mezmo::persistence::RocksDBPersistenceConnection;
+use crate::mezmo_env_config;
 use crate::schema::Definition;
 use crate::transforms::remap::RemapConfig;
 use crate::transforms::Transform;
@@ -124,11 +125,7 @@ const fn default_flush_tick_ms() -> u64 {
 }
 
 fn default_mem_cardinality_limit() -> u32 {
-    let fallback_value = 20_000;
-    match std::env::var("AGGREGATION_CARDINALITY_LIMIT") {
-        Ok(val) => val.parse::<u32>().unwrap_or(fallback_value), // Fallback if parsing fails
-        Err(_) => fallback_value, // Fallback if the env var is not set
-    }
+    mezmo_env_config!("MEZMO_AGGREGATION_CARDINALITY_LIMIT", 20_000)
 }
 
 const fn default_mem_window_limit() -> u32 {

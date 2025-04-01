@@ -11,21 +11,23 @@ use vector_lib::{config::clone_input_definitions, configurable::component::Gener
 use crate::config::{
     DataType, Input, LogNamespace, OutputId, TransformConfig, TransformContext, TransformOutput,
 };
+use crate::mezmo_env_config;
 use crate::schema::Definition;
-use crate::transforms::Transform;
+use crate::transforms::{
+    mezmo_common::state::{
+        default_connection_response_timeout_ms, default_connection_retry_count,
+        default_connection_retry_factor_ms, default_connection_retry_max_delay_ms,
+        default_connection_string, default_connection_timeout_ms,
+    },
+    Transform,
+};
 
 use super::{MezmoAggregateDistributed, RedisCreateFailedSnafu, Strategy};
 
-const DEFAULT_CONNECTION_STRING: &str = "redis://127.0.0.1:6379/0";
 const DEFAULT_FLUSH_TICK_MS: u64 = 1000;
 const DEFAULT_WINDOW_DURATION_MS: u32 = 10_000;
 const DEFAULT_KEY_EXPIRY_GRACE_PERIOD_MS: u32 = 12 * 60 * 60 * 1000; // 12 hours
 const DEFAULT_WINDOW_CARDINALITY_LIMIT: u32 = 20_000;
-const DEFAULT_CONNECTION_RETRY_FACTOR: u64 = 150;
-const DEFAULT_CONNECTION_RETRY_COUNT: usize = 10;
-const DEFAULT_CONNECTION_RETRY_MAX_DELAY_MS: u64 = 5_000;
-const DEFAULT_CONNECTION_TIMEOUT_MS: u64 = 15_000;
-const DEFAULT_CONNECTION_RESPONSE_TIMEOUT_MS: u64 = 7_500;
 
 /// Configuration for the `mezmo_aggregate_distributed` transform.
 #[configurable_component(transform("mezmo_aggregate_distributed", "Mezmo Aggregate V3"))]
@@ -64,9 +66,17 @@ pub struct MezmoAggregateDistributedConfig {
     #[serde(default = "default_key_expiry_grace_period_ms")]
     pub key_expiry_grace_period_ms: u32,
 
+    /// Connection-level properties and retry configuration.
+    ///
+    /// Note that the retry configuration options are used for both the connection
+    /// itself via [`redis::ConnectionManager`], as well as within the transform via the
+    /// vendored `tokio-retry` crate [`vector::sinks::util::retries`].
+    /// TODO(LOG-21580): Consider using `backon` directly instead of `tokio-retry`
+    /// for greater flexibility and consistency with `redis-rs`.
+
     /// A multiplicative factor that will be applied to the retry delay.
-    #[serde(default = "default_connection_retry_factor")]
-    pub connection_retry_factor: u64,
+    #[serde(default = "default_connection_retry_factor_ms")]
+    pub connection_retry_factor_ms: u64,
 
     /// The number of retry attempts, with an exponentially increasing delay
     #[serde(default = "default_connection_retry_count")]
@@ -98,51 +108,10 @@ const fn default_key_expiry_grace_period_ms() -> u32 {
 }
 
 fn default_window_cardinality_limit() -> u32 {
-    std::env::var("AGGREGATION_CARDINALITY_LIMIT")
-        .map(|s| s.parse().unwrap_or(DEFAULT_WINDOW_CARDINALITY_LIMIT))
-        .unwrap_or(DEFAULT_WINDOW_CARDINALITY_LIMIT)
-}
-
-fn default_connection_string() -> String {
-    match std::env::var_os("MEZMO_AGGREGATE_DISTRIBUTED_CONNECTION_STRING") {
-        Some(s) => s.into_string(),
-        None => Ok(DEFAULT_CONNECTION_STRING.to_string()),
-    }
-    .unwrap_or_else(|_| DEFAULT_CONNECTION_STRING.to_string())
-}
-
-fn default_connection_retry_factor() -> u64 {
-    std::env::var("MEZMO_AGGREGATE_DISTRIBUTED_CONNECTION_RETRY_FACTOR")
-        .map(|s| s.parse().unwrap_or(DEFAULT_CONNECTION_RETRY_FACTOR))
-        .unwrap_or(DEFAULT_CONNECTION_RETRY_FACTOR)
-}
-
-fn default_connection_retry_count() -> usize {
-    std::env::var("MEZMO_AGGREGATE_DISTRIBUTED_CONNECTION_RETRY_COUNT")
-        .map(|s| s.parse().unwrap_or(DEFAULT_CONNECTION_RETRY_COUNT))
-        .unwrap_or(DEFAULT_CONNECTION_RETRY_COUNT)
-}
-
-fn default_connection_retry_max_delay_ms() -> u64 {
-    std::env::var("MEZMO_AGGREGATE_DISTRIBUTED_CONNECTION_RETRY_MAX_DELAY")
-        .map(|s| s.parse().unwrap_or(DEFAULT_CONNECTION_RETRY_MAX_DELAY_MS))
-        .unwrap_or(DEFAULT_CONNECTION_RETRY_MAX_DELAY_MS)
-}
-
-fn default_connection_timeout_ms() -> Duration {
-    let ms = std::env::var("MEZMO_AGGREGATE_DISTRIBUTED_CONNECTION_TIMEOUT_MS")
-        .map(|s| s.parse().unwrap_or(DEFAULT_CONNECTION_TIMEOUT_MS))
-        .unwrap_or(DEFAULT_CONNECTION_TIMEOUT_MS);
-
-    Duration::from_millis(ms)
-}
-
-fn default_connection_response_timeout_ms() -> Duration {
-    let ms = std::env::var("MEZMO_AGGREGATE_DISTRIBUTED_CONNECTION_RESPONSE_TIMEOUT_MS")
-        .map(|s| s.parse().unwrap_or(DEFAULT_CONNECTION_RESPONSE_TIMEOUT_MS))
-        .unwrap_or(DEFAULT_CONNECTION_RESPONSE_TIMEOUT_MS);
-
-    Duration::from_millis(ms)
+    mezmo_env_config!(
+        "MEZMO_AGGREGATION_CARDINALITY_LIMIT",
+        DEFAULT_WINDOW_CARDINALITY_LIMIT
+    )
 }
 
 impl GenerateConfig for MezmoAggregateDistributedConfig {
@@ -154,7 +123,7 @@ impl GenerateConfig for MezmoAggregateDistributedConfig {
             window_cardinality_limit: default_window_cardinality_limit(),
             flush_tick_ms: default_flush_tick_ms(),
             key_expiry_grace_period_ms: default_key_expiry_grace_period_ms(),
-            connection_retry_factor: default_connection_retry_factor(),
+            connection_retry_factor_ms: default_connection_retry_factor_ms(),
             connection_retry_count: default_connection_retry_count(),
             connection_retry_max_delay_ms: default_connection_retry_max_delay_ms(),
             connection_timeout_ms: default_connection_timeout_ms(),
@@ -186,7 +155,7 @@ impl MezmoAggregateDistributedConfig {
         let client = redis::Client::open(self.connection_string.clone())?;
 
         let config = ConnectionManagerConfig::new()
-            .set_factor(self.connection_retry_factor)
+            .set_factor(self.connection_retry_factor_ms)
             .set_number_of_retries(self.connection_retry_count)
             .set_max_delay(self.connection_retry_max_delay_ms)
             .set_connection_timeout(self.connection_timeout_ms)

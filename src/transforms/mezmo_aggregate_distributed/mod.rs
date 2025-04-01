@@ -244,7 +244,7 @@ impl MezmoAggregateDistributed {
     /// destroyed/recreated.
     async fn record_with_retry(&mut self, event: &Metric) -> Result<(), AggregateError> {
         let mut backoff = ExponentialBackoff::from_millis(2)
-            .factor(self.config.connection_retry_factor)
+            .factor(self.config.connection_retry_factor_ms)
             .max_delay(Duration::from_millis(
                 self.config.connection_retry_max_delay_ms,
             ));
