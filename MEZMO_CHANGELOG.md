@@ -1,3 +1,20 @@
+# [8.14.0](https://github.com/answerbook/vector/compare/v8.13.0...v8.14.0) (2025-04-01)
+
+
+### Code Refactoring
+
+* **state**: centralize env vars and defaults [9f02fbb](https://github.com/answerbook/vector/commit/9f02fbbb5a74ea44e8cb4fc803d50f79a0147671) - Mike Del Tito [LOG-21571](https://logdna.atlassian.net/browse/LOG-21571)
+
+
+### Features
+
+* Increase infra demo log data size to 3kb (#658) [6e80192](https://github.com/answerbook/vector/commit/6e80192592f55d541a2d39c10b9b52f4d2602825) - GitHub [LOG-21557](https://logdna.atlassian.net/browse/LOG-21557)
+
+
+### Miscellaneous
+
+* Merge pull request #656 from answerbook/mdeltito/LOG-21571 [5450b05](https://github.com/answerbook/vector/commit/5450b05ba09a236068d9cedf5451bd20f6962110) - GitHub [LOG-21571](https://logdna.atlassian.net/browse/LOG-21571)
+
 # [8.13.0](https://github.com/answerbook/vector/compare/v8.12.1...v8.13.0) (2025-04-01)
 
 
