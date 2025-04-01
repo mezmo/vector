@@ -1,3 +1,15 @@
+## [8.12.1](https://github.com/answerbook/vector/compare/v8.12.0...v8.12.1) (2025-04-01)
+
+
+### Bug Fixes
+
+* **state-variables**: load active for partition [8c3fa0e](https://github.com/answerbook/vector/commit/8c3fa0ef1584fdf3e5e20342e1a63dc8ff400b9b) - dominic-mcallister-logdna [LOG-21143](https://logdna.atlassian.net/browse/LOG-21143)
+
+
+### Miscellaneous
+
+* Merge pull request #657 from answerbook/dominic/LOG-21143 [ba4bdb7](https://github.com/answerbook/vector/commit/ba4bdb797186bae5fab5e44d32d8c6494db2e812) - GitHub [LOG-21143](https://logdna.atlassian.net/browse/LOG-21143)
+
 # [8.12.0](https://github.com/answerbook/vector/compare/v8.11.0...v8.12.0) (2025-03-28)
 
 
