@@ -10,8 +10,18 @@ use vector_lib::enrichment::{Case, Condition, IndexHandle, Table};
 use vector_lib::mezmo;
 use vrl::value::{KeyString, Value};
 
-const QUERY_ALL_STATE_VARIABLES: &str =
-    "SELECT account_id::text, pipeline_id::text, state::text FROM pipeline_state_variables";
+const QUERY_ACTIVE_STATE_VARIABLES: &str = "SELECT pipeline_state_variables.account_id::text,
+            pipeline_state_variables.pipeline_id::text,
+            pipeline_state_variables.state::text
+     FROM pipeline_state_variables
+     JOIN pipelines ON pipeline_state_variables.pipeline_id = pipelines.id
+     JOIN accounts ON accounts.id = pipelines.account_id
+     WHERE pipelines.partition_id = $1
+       AND pipelines.deleted = false
+       AND pipelines.processing_status = 'enabled'
+       AND pipelines.loaded_revision_id IS NOT NULL
+       AND accounts.deleted = false
+       AND accounts.processing_status = 'enabled'";
 
 const MAX_CACHE_ENTRIES: u64 = 100_000;
 const POLL_DELAY: Duration = Duration::from_secs(5);
@@ -44,6 +54,7 @@ fn get_cache_key(account_id: &str, pipeline_id: &str) -> String {
 
 async fn fetch_states_from_db(
     cache: &Arc<Cache<String, String>>,
+    partition_id: &str,
 ) -> Result<usize, StateVariablesDBError> {
     let Ok(conn_str) = mezmo::postgres::get_connection_string("pipeline") else {
         error!(message = "Can't connect to postgres DB. URL not found.",);
@@ -51,7 +62,9 @@ async fn fetch_states_from_db(
     };
     match mezmo::postgres::db_connection(&conn_str).await {
         Ok(client) => {
-            let result = client.query(QUERY_ALL_STATE_VARIABLES, &[]).await;
+            let result = client
+                .query(QUERY_ACTIVE_STATE_VARIABLES, &[&partition_id])
+                .await;
             match result {
                 Ok(rows) => {
                     for row in rows.iter() {
@@ -100,19 +113,24 @@ pub struct StateVariables {
 impl StateVariables {
     /// Impl for the state variables enrichment table
     pub async fn new() -> Result<Self, StateVariablesDBError> {
+        let partition_name =
+            std::env::var("PARTITION_NAME").expect("PARTITION_NAME env var not set");
+        debug!("State variables enrichment table: partition_name: {partition_name}");
+
         let cache = Arc::new(Cache::new(MAX_CACHE_ENTRIES));
-        let row_count = fetch_states_from_db(&cache).await?;
+        let row_count = fetch_states_from_db(&cache, partition_name.as_str()).await?;
         if row_count == 0 {
-            warn!("Warning: The state variables DB table appears to be empty");
+            warn!("Warning: No state variables loaded for partition '{partition_name}'");
         }
 
         let spawn_cache = Arc::clone(&cache);
+        let spawn_partition_name = Arc::new(partition_name);
 
         let state_poller = tokio::task::spawn(async move {
             loop {
-                match fetch_states_from_db(&spawn_cache).await {
+                match fetch_states_from_db(&spawn_cache, spawn_partition_name.as_str()).await {
                     Ok(0) => {
-                        warn!("Warning: The state variables DB table appears to be empty")
+                        warn!("Warning: No state variables loaded for partition '{spawn_partition_name}'");
                     }
                     Ok(row_len) => debug!("Loaded {row_len} entries"),
                     Err(err) => error!("Error polling state variables DB table: {err:?}"),
