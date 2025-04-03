@@ -1,3 +1,20 @@
+# [8.15.0](https://github.com/answerbook/vector/compare/v8.14.0...v8.15.0) (2025-04-03)
+
+
+### Bug Fixes
+
+* **test**: use correct env var in integration tests [60caa33](https://github.com/answerbook/vector/commit/60caa33e5caf9533e8fae98d00e157362ad2afe5) - Mike Del Tito [LOG-21564](https://logdna.atlassian.net/browse/LOG-21564)
+
+
+### Features
+
+* **throttle_distributed**: add mezmo_throttle_distributed transform [71cf141](https://github.com/answerbook/vector/commit/71cf141dbfd369528c2c989009277a87af140d42) - Mike Del Tito [LOG-21473](https://logdna.atlassian.net/browse/LOG-21473) [LOG-21564](https://logdna.atlassian.net/browse/LOG-21564)
+
+
+### Miscellaneous
+
+* Merge pull request #659 from answerbook/mdeltito/LOG-21564 [b1f486d](https://github.com/answerbook/vector/commit/b1f486dbf49e095f367a810f9189530b4610b0e7) - GitHub [LOG-21564](https://logdna.atlassian.net/browse/LOG-21564)
+
 # [8.14.0](https://github.com/answerbook/vector/compare/v8.13.0...v8.14.0) (2025-04-01)
 
 
