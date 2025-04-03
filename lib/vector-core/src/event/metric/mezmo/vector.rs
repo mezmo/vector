@@ -23,6 +23,7 @@ pub enum TransformError {
     FieldNull { field: String },
     ParseIntOverflow { field: String },
     NumberTruncation { field: String },
+    CardinalityLimitExceeded { limit: u32 },
 }
 
 /// Note that the Display implementation must be appropriate as a user-facing error.
@@ -49,6 +50,9 @@ impl Display for TransformError {
             }
             TransformError::NumberTruncation { field } => {
                 write!(f, "Field '{field}' was truncated during parsing")
+            }
+            TransformError::CardinalityLimitExceeded { limit } => {
+                write!(f, "Cardinality limit of {limit} exceeded")
             }
         }
     }

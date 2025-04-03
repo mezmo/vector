@@ -4,7 +4,7 @@ features:
 test_filter: "::mezmo_aggregate_distributed::"
 
 env:
-  MEZMO_AGGREGATE_DISTRIBUTED_CONNECTION_STRING: redis://dragonfly:6379/0
+  MEZMO_STATE_CONNECTION_STRING: redis://dragonfly:6379/0
 
 matrix:
   version: [latest]

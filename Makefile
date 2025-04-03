@@ -415,6 +415,10 @@ test-integration: test-integration-nginx test-integration-opentelemetry test-int
 test-integration: test-integration-redis test-integration-splunk test-integration-dnstap test-integration-datadog-agent test-integration-datadog-logs test-integration-e2e-datadog-logs
 test-integration: test-integration-datadog-traces test-integration-shutdown
 
+.PHONY: mezmo-test-integration
+mezmo-test-integration: ## Runs integration tests for mezmo
+mezmo-test-integration: test-integration-mezmo-aggregate-distributed test-integration-mezmo-throttle-distributed
+
 test-integration-%-cleanup:
 	cargo vdev --verbose integration stop $*
 
