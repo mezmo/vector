@@ -202,7 +202,7 @@ impl MezmoAggregateDistributed {
                     // TODO: consider other metric types for sum/avg?
                     _ => {
                         let err = TransformError::InvalidMetricType {
-                            type_name: event.value().to_string(),
+                            type_name: event.value().as_name().to_string(),
                         };
 
                         emit!(MezmoAggregateDistributedRecordFailed {
@@ -210,12 +210,7 @@ impl MezmoAggregateDistributed {
                             err: err.to_string()
                         });
 
-                        handle_transform_error(
-                            &Some(self.mezmo_ctx.clone()),
-                            TransformError::InvalidMetricType {
-                                type_name: event.value().to_string(),
-                            },
-                        );
+                        handle_transform_error(&Some(self.mezmo_ctx.clone()), err);
                         return Ok(());
                     }
                 };
