@@ -1,3 +1,17 @@
+## [8.15.1](https://github.com/answerbook/vector/compare/v8.15.0...v8.15.1) (2025-04-14)
+
+
+### Bug Fixes
+
+* **aggregate_distributed**: use value type in error messages [b629698](https://github.com/answerbook/vector/commit/b629698ecdad998e8da69d1925b4b9c8d0db481f) - Mike Del Tito [LOG-21653](https://logdna.atlassian.net/browse/LOG-21653)
+* **deps**: bump libz-sys [a23ca5e](https://github.com/answerbook/vector/commit/a23ca5eb05222741682428ca4561f4235c6b5a07) - Kristof Mattei [LOG-21637](https://logdna.atlassian.net/browse/LOG-21637)
+
+
+### Miscellaneous
+
+* Merge pull request #661 from answerbook/mdeltito/LOG-21653 [609729c](https://github.com/answerbook/vector/commit/609729c1c637941adfedf6c1c725d10d0eb402b6) - GitHub [LOG-21653](https://logdna.atlassian.net/browse/LOG-21653)
+* Merge pull request #660 from answerbook/kristof/LOG-21637 [da768ba](https://github.com/answerbook/vector/commit/da768bafb5f3a084a536c5801919d1596f4c082b) - GitHub [LOG-21637](https://logdna.atlassian.net/browse/LOG-21637)
+
 # [8.15.0](https://github.com/answerbook/vector/compare/v8.14.0...v8.15.0) (2025-04-03)
 
 
