@@ -32,12 +32,16 @@ spec:
         "vector-threads": "10",
         "allocation-tracing-enabled": false,
         "sink-buffer-max-events": "1000",
-        "state-connection-string": "redis://127.0.0.1:6379/0",
-        "state-connection-retry-factor-ms": "150",
-        "state-connection-retry-count": "10",
-        "state-connection-retry-max-delay-ms": "7500",
-        "state-connection-timeout-ms": "2500",
-        "state-connection-response-timeout-ms": "2500",
+        "state-db-enabled": false,
+        "state-db-requests-cpu": 2,
+        "state-db-requests-memory": "4Gi",
+        "state-db-limits-cpu": 4,
+        "state-db-limits-memory": "8Gi",
+        "state-connection-retry-factor-ms": 150,
+        "state-connection-retry-count": 10,
+        "state-connection-retry-max-delay-ms": 7500,
+        "state-connection-timeout-ms": 2500,
+        "state-connection-response-timeout-ms": 2500,
       }]
     valueFrom:
       configMapKeyRef:
@@ -133,6 +137,42 @@ spec:
         name: vector
         namespace: pipeline
         key: pipeline-db-secret-uri-key
+
+  - name: state-db-requests-cpu-default
+    optional: true
+    default: 2
+    valueFrom:
+      configMapKeyRef:
+        name: resources
+        namespace: default
+        key: vector-state-db_requests-cpu-default
+
+  - name: state-db-requests-memory-default
+    optional: true
+    default: "4Gi"
+    valueFrom:
+      configMapKeyRef:
+        name: resources
+        namespace: default
+        key: vector-state-db_requests-memory-default
+
+  - name: state-db-limits-cpu-default
+    optional: true
+    default: 4
+    valueFrom:
+      configMapKeyRef:
+        name: resources
+        namespace: default
+        key: vector-state-db_limits-cpu-default
+
+  - name: state-db-limits-memory-default
+    optional: true
+    default: "8Gi"
+    valueFrom:
+      configMapKeyRef:
+        name: resources
+        namespace: default
+        key: vector-state-db_limits-memory-default
 
   strTemplates:
   - | # yaml
@@ -282,7 +322,7 @@ spec:
                   value: "{{{aggregation-cardinality-limit}}}"
 
                 - name: MEZMO_STATE_CONNECTION_STRING
-                  value: "{{{state-connection-string}}}"
+                  value: "redis://vector-state-{{partition-id}}:6379/0"
 
                 - name: MEZMO_STATE_CONNECTION_RETRY_FACTOR_MS
                   value: "{{{state-connection-retry-factor-ms}}}"
@@ -408,4 +448,67 @@ spec:
             resources:
               requests:
                 storage: "{{{requests-storage}}}"
+
+    {{#state-db-enabled}}
+    - apiVersion: dragonflydb.io/v1alpha1
+      kind: Dragonfly
+      metadata:
+        name: state-kv-{{{partition-id}}}
+        namespace: pipeline
+        labels:
+          app: dragonfly
+          partition: {{{partition-id}}}
+      spec:
+        annotations:
+          prometheus.io/path: /metrics
+          prometheus.io/port: "9999"
+          prometheus.io/scrape: "true"
+        replicas: 2
+        resources:
+          requests:
+            {{#state-db-requests-cpu}}
+            cpu: {{{state-db-requests-cpu}}}
+            {{/state-db-requests-cpu}}
+            {{^state-db-requests-cpu}}
+            cpu: {{{state-db-requests-cpu-default}}}
+            {{/state-db-requests-cpu}}
+
+            {{#state-db-requests-memory}}
+            memory: {{{state-db-requests-memory}}}
+            {{/state-db-requests-memory}}
+            {{^state-db-requests-memory}}
+            memory: {{{state-db-requests-memory-default}}}
+            {{/state-db-requests-memory}}
+          limits:
+            {{#state-db-limits-cpu}}
+            cpu: {{{state-db-limits-cpu}}}
+            {{/state-db-limits-cpu}}
+            {{^state-db-limits-cpu}}
+            cpu: {{{state-db-limits-cpu-default}}}
+            {{/state-db-limits-cpu}}
+
+            {{#state-db-limits-memory}}
+            memory: {{{state-db-limits-memory}}}
+            {{/state-db-limits-memory}}
+            {{^state-db-limits-memory}}
+            memory: {{{state-db-limits-memory-default}}}
+            {{/state-db-limits-memory}}
+
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: workload-pipeline
+                  operator: In
+                  values:
+                  - enabled
+        tolerations:
+          - effect: NoSchedule
+            key: workload-pipeline
+            operator: Equal
+            value: enabled
+
+    {{/state-db-enabled}}
+
     {{/vector-partitions}}
