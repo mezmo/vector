@@ -1,3 +1,10 @@
+# [8.16.0](https://github.com/answerbook/vector/compare/v8.15.1...v8.16.0) (2025-04-16)
+
+
+### Features
+
+* **log clustering**: analysis_id from logs [41568bf](https://github.com/answerbook/vector/commit/41568bfd966dcbf0f75f474744c44a64f33ac7df) - Matt March [LOG-21626](https://logdna.atlassian.net/browse/LOG-21626)
+
 ## [8.15.1](https://github.com/answerbook/vector/compare/v8.15.0...v8.15.1) (2025-04-14)
 
 
