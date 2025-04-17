@@ -1,3 +1,15 @@
+## [8.16.1](https://github.com/answerbook/vector/compare/v8.16.0...v8.16.1) (2025-04-17)
+
+
+### Chores
+
+* **deployment**: move `allocation-tracing` to partition config [d6ca5a6](https://github.com/answerbook/vector/commit/d6ca5a67fcfc210859c55f634407a21f3fde9a9c) - Mike Del Tito [LOG-21675](https://logdna.atlassian.net/browse/LOG-21675)
+
+
+### Miscellaneous
+
+* Merge pull request #664 from answerbook/mdeltito/LOG-21675 [93283d9](https://github.com/answerbook/vector/commit/93283d97f75d8cefa4a3e05cde2ba3d43c49fc4a) - GitHub [LOG-21675](https://logdna.atlassian.net/browse/LOG-21675)
+
 # [8.16.0](https://github.com/answerbook/vector/compare/v8.15.1...v8.16.0) (2025-04-16)
 
 
