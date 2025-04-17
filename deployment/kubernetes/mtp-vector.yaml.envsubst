@@ -30,6 +30,7 @@ spec:
         "limits-memory": "72Gi",
         "aggregation-cardinality-limit": "20000",
         "vector-threads": "10",
+        "allocation-tracing-enabled": false,
         "sink-buffer-max-events": "1000",
         "state-connection-string": "redis://127.0.0.1:6379/0",
         "state-connection-retry-factor-ms": "150",
@@ -221,20 +222,6 @@ spec:
                       key: malloc-conf
                       optional: true
 
-                - name: ALLOCATION_TRACING
-                  valueFrom:
-                    configMapKeyRef:
-                      name: vector
-                      key: allocation-tracing
-                      optional: true
-
-                - name: ALLOCATION_TRACING_REPORTING_INTERVAL_MS
-                  valueFrom:
-                    configMapKeyRef:
-                      name: vector
-                      key: allocation-tracing-reporting-interval-ms
-                      optional: true
-
                 - name: PIPELINE_SERVICE_CONTROL_TOKEN
                   valueFrom:
                     secretKeyRef:
@@ -317,6 +304,11 @@ spec:
 
                 - name: DB_CONNECTION_POOL_SIZE
                   value: "{{{db_connection_pool_size}}}"
+
+                {{#allocation-tracing-enabled}}
+                - name: ALLOCATION_TRACING
+                  value: "true"
+                {{/allocation-tracing-enabled}}
 
                 {{#vector-threads}}
                 - name: VECTOR_THREADS

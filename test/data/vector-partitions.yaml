@@ -15,6 +15,7 @@ data:
     limits-memory: 4Gi,
     min-replicas: 5,
     max-replicas: 6,
+    allocation-tracing-enabled: true
   },
   {
     partition-id: "test1",
