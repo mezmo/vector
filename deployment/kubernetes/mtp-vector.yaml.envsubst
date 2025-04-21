@@ -453,7 +453,7 @@ spec:
     - apiVersion: dragonflydb.io/v1alpha1
       kind: Dragonfly
       metadata:
-        name: state-kv-{{{partition-id}}}
+        name: vector-state-{{{partition-id}}}
         namespace: pipeline
         labels:
           app: dragonfly
