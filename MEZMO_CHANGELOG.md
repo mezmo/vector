@@ -1,3 +1,20 @@
+## [8.16.2](https://github.com/answerbook/vector/compare/v8.16.1...v8.16.2) (2025-04-21)
+
+
+### Bug Fixes
+
+* reduce noise from unset mezmo env vars [43528e5](https://github.com/answerbook/vector/commit/43528e50d9409c8d31308de9d98ced18cb86e37c) - Mike Del Tito [LOG-21689](https://logdna.atlassian.net/browse/LOG-21689)
+
+
+### Chores
+
+* **deployment**: add partition-level dragonfly instance [8eacb56](https://github.com/answerbook/vector/commit/8eacb562892773f41d8a7a799c6c8d1ccb26cf06) - Mike Del Tito [LOG-21474](https://logdna.atlassian.net/browse/LOG-21474)
+
+
+### Miscellaneous
+
+* Merge pull request #662 from answerbook/mdeltito/LOG-21474 [6d77993](https://github.com/answerbook/vector/commit/6d77993f14e877e6044a93892092119241dd83ee) - GitHub [LOG-21474](https://logdna.atlassian.net/browse/LOG-21474)
+
 ## [8.16.1](https://github.com/answerbook/vector/compare/v8.16.0...v8.16.1) (2025-04-17)
 
 
