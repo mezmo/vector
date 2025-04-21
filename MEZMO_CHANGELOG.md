@@ -1,3 +1,15 @@
+## [8.16.3](https://github.com/answerbook/vector/compare/v8.16.2...v8.16.3) (2025-04-21)
+
+
+### Bug Fixes
+
+* **deploy**: update pod name for state db [60efd4e](https://github.com/answerbook/vector/commit/60efd4e01a42bf253b102ee0124ddf37e8fa3869) - Mike Del Tito [LOG-21474](https://logdna.atlassian.net/browse/LOG-21474)
+
+
+### Miscellaneous
+
+* Merge pull request #665 from answerbook/mdeltito/LOG-21474-fix [59746d3](https://github.com/answerbook/vector/commit/59746d32012050fa0566f09e14fb04b964c09d7b) - GitHub [LOG-21474](https://logdna.atlassian.net/browse/LOG-21474)
+
 ## [8.16.2](https://github.com/answerbook/vector/compare/v8.16.1...v8.16.2) (2025-04-21)
 
 
