@@ -15,6 +15,13 @@ pub mod user_trace;
 macro_rules! mezmo_env_config {
     ($key:expr, $default:expr) => {
         match std::env::var($key) {
+            Ok(ref value) if value.is_empty() => {
+                debug!(
+                    "{} was empty, using default value of {}",
+                    $key, $default
+                );
+                $default
+            },
             Ok(value) => match value.parse() {
                 Ok(value) => value,
                 Err(err) => {
@@ -25,8 +32,8 @@ macro_rules! mezmo_env_config {
                     );
                     $default
                 }
-          },
-          Err(err) => {
+            },
+            Err(err) => {
                 debug!(
                     error = %err,
                     "{} was not set, using default value of {}",
