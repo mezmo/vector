@@ -243,3 +243,80 @@ async fn test_mezmo_aggregate_distributed_multiple() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn test_mezmo_aggregate_distributed_with_cardinality_exceeded() {
+    let config = make_config(
+        r#"
+        window_duration_ms = 2000
+        window_cardinality_limit = 2
+        flush_tick_ms = 1000
+        strategy = "sum"
+    "#,
+    );
+
+    let event_1 = make_metric(
+        "counter_a",
+        metric::MetricKind::Incremental,
+        metric::MetricValue::Counter { value: 1.0 },
+    );
+    let event_2 = make_metric(
+        "counter_b",
+        metric::MetricKind::Incremental,
+        metric::MetricValue::Counter { value: 2.0 },
+    );
+    let event_3 = make_metric(
+        "counter_c",
+        metric::MetricKind::Incremental,
+        metric::MetricValue::Counter { value: 3.0 },
+    );
+
+    assert_transform_compliance(async {
+        let component_id = make_component_id();
+        let (topology, tx, mut out) = make_instance(config.clone(), &component_id).await;
+
+        tx.send(event_1).await.unwrap();
+        tx.send(event_2).await.unwrap();
+        tx.send(event_3).await.unwrap();
+
+        // nothing ready yet, awaiting the flush tick...
+        assert_eq!(Poll::Pending, futures::poll!(out.next()));
+
+        let mut outputs = vec![];
+        while outputs.len() < 2 {
+            if let Some(event) = out.next().await {
+                outputs.push(event);
+            } else {
+                panic!("Unexpectedly received None in output stream");
+            }
+        }
+
+        // back to pending, event_3 is never recorded, no more output events
+        // will be produced.
+        assert_eq!(Poll::Pending, futures::poll!(out.next()));
+
+        assert_eq!(
+            outputs[0]
+                .as_log()
+                .get(".message.value")
+                .unwrap()
+                .as_float()
+                .unwrap(),
+            1.0
+        );
+        assert_eq!(
+            outputs[1]
+                .as_log()
+                .get(".message.value")
+                .unwrap()
+                .as_float()
+                .unwrap(),
+            2.0
+        );
+
+        drop(tx);
+        topology.stop().await;
+        assert_eq!(out.next().await, None);
+    })
+    .await;
+}
