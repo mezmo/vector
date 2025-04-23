@@ -1,3 +1,15 @@
+# [8.17.0](https://github.com/answerbook/vector/compare/v8.16.3...v8.17.0) (2025-04-23)
+
+
+### Features
+
+* **aggregate_distributed**: add cardinality limit [5e8c24b](https://github.com/answerbook/vector/commit/5e8c24bcef085f9e1596fde6e1afc171bf220512) - Mike Del Tito [LOG-21565](https://logdna.atlassian.net/browse/LOG-21565)
+
+
+### Miscellaneous
+
+* Merge pull request #666 from answerbook/mdeltito/LOG-21565 [db7e648](https://github.com/answerbook/vector/commit/db7e648e969ddaeeec3ba02baf31cb9ec634eaa3) - GitHub [LOG-21565](https://logdna.atlassian.net/browse/LOG-21565)
+
 ## [8.16.3](https://github.com/answerbook/vector/compare/v8.16.2...v8.16.3) (2025-04-21)
 
 
