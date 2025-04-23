@@ -140,16 +140,19 @@ impl MezmoAggregateDistributed {
         let kind = event.kind();
         let name = event.name();
         let namespace = event.namespace();
+        let value_type = event.value().as_name();
         let tags = event.tags();
 
         kind.hash(&mut hasher);
         name.hash(&mut hasher);
         namespace.hash(&mut hasher);
+        value_type.hash(&mut hasher);
         tags.hash(&mut hasher);
 
         fields.insert("kind".to_string().into(), kind.into());
         fields.insert("name".to_string().into(), name.into());
         fields.insert("namespace".to_string().into(), namespace.into());
+        fields.insert("value_type".to_string().into(), value_type.into());
 
         if let Some(tags) = tags {
             let tags: BTreeMap<KeyString, Value> =
@@ -313,6 +316,9 @@ impl MezmoAggregateDistributed {
         let message_path = log_schema()
             .message_key_target_path()
             .expect("message key to always be defined");
+        let timestamp_path = log_schema()
+            .timestamp_key_target_path()
+            .expect("timestamp key to always be defined");
 
         let mut invocation = FLUSH_SCRIPT.prepare_invoke();
         invocation.key(active_windows_key);
@@ -337,25 +343,30 @@ impl MezmoAggregateDistributed {
                         .try_into()
                         .expect("deserialized `fields` is a valid serde_json::Value::Object");
 
-                    log.insert("value_type", self.config.strategy.to_string());
+                    let value_type = log.remove("value_type");
+                    log.insert("strategy", self.config.strategy.to_string());
                     log.insert("window_start", flushed_window.window_start_ts);
                     log.insert("window_end", flushed_window.window_end_ts);
 
                     match self.config.strategy {
                         Strategy::Sum => {
                             log.insert("count", flushed_window.count);
-                            log.insert("value", flushed_window.value);
+                            log.insert("value", value_from_type(value_type, flushed_window.value));
                         }
                         Strategy::Avg => {
                             log.insert("count", flushed_window.count);
                             log.insert(
                                 "value",
-                                flushed_window.value / (flushed_window.count as f64),
+                                value_from_type(
+                                    value_type,
+                                    flushed_window.value / (flushed_window.count as f64),
+                                ),
                             );
                         }
                     }
 
                     log.rename_key(".", message_path);
+                    log.insert(timestamp_path, flushed_window.window_end_ts);
                     output.push(Event::Log(log));
                 }
 
@@ -368,6 +379,13 @@ impl MezmoAggregateDistributed {
             }
         }
     }
+}
+
+fn value_from_type(value_type: Option<Value>, value: f64) -> Value {
+    Value::Object(btreemap! {
+        KeyString::from("type") => value_type.unwrap_or(Value::Null),
+        KeyString::from("value") => Value::from(value),
+    })
 }
 
 impl TaskTransform<Event> for MezmoAggregateDistributed {

@@ -89,15 +89,18 @@ async fn test_mezmo_aggregate_distributed_sum() {
         // back to pending
         assert_eq!(Poll::Pending, futures::poll!(out.next()));
 
+        let log = result.unwrap().as_log().to_owned();
         assert_eq!(
-            result
-                .unwrap()
-                .as_log()
-                .get(".message.value")
-                .unwrap()
-                .as_float()
-                .unwrap(),
-            99.0
+            log.get(".timestamp").unwrap().to_owned(),
+            log.get(".message.window_end").unwrap().to_owned(),
+        );
+
+        assert_eq!(
+            log.get(".message.value").unwrap().to_owned(),
+            Value::Object(btreemap! {
+                KeyString::from("type") => Value::from("counter"),
+                KeyString::from("value") => Value::from(99.0),
+            }),
         );
 
         drop(tx);
@@ -120,17 +123,17 @@ async fn test_mezmo_aggregate_distributed_avg() {
     let event_1 = make_metric(
         "counter_a",
         metric::MetricKind::Incremental,
-        metric::MetricValue::Counter { value: 1.0 },
+        metric::MetricValue::Gauge { value: 1.0 },
     );
     let event_2 = make_metric(
         "counter_a",
         metric::MetricKind::Incremental,
-        metric::MetricValue::Counter { value: 2.0 },
+        metric::MetricValue::Gauge { value: 2.0 },
     );
     let event_3 = make_metric(
         "counter_a",
         metric::MetricKind::Incremental,
-        metric::MetricValue::Counter { value: 3.0 },
+        metric::MetricValue::Gauge { value: 3.0 },
     );
 
     assert_transform_compliance(async {
@@ -168,9 +171,11 @@ async fn test_mezmo_aggregate_distributed_avg() {
                 .as_log()
                 .get(".message.value")
                 .unwrap()
-                .as_float()
-                .unwrap(),
-            2.0
+                .to_owned(),
+            Value::Object(btreemap! {
+                KeyString::from("type") => Value::from("gauge"),
+                KeyString::from("value") => Value::from(2.0),
+            }),
         );
 
         drop(tx);
@@ -193,17 +198,17 @@ async fn test_mezmo_aggregate_distributed_multiple() {
     let event_1 = make_metric(
         "counter_a",
         metric::MetricKind::Incremental,
-        metric::MetricValue::Counter { value: 1.0 },
+        metric::MetricValue::Gauge { value: 1.0 },
     );
     let event_2 = make_metric(
         "counter_a",
         metric::MetricKind::Incremental,
-        metric::MetricValue::Counter { value: 1.0 },
+        metric::MetricValue::Gauge { value: 1.0 },
     );
     let event_3 = make_metric(
         "counter_a",
         metric::MetricKind::Incremental,
-        metric::MetricValue::Counter { value: 1.0 },
+        metric::MetricValue::Gauge { value: 1.0 },
     );
 
     assert_transform_compliance(async {
@@ -223,15 +228,18 @@ async fn test_mezmo_aggregate_distributed_multiple() {
         };
 
         assert!(result.is_some(), "expected result from one instance");
+
         assert_eq!(
             result
                 .unwrap()
                 .as_log()
                 .get(".message.value")
                 .unwrap()
-                .as_float()
-                .unwrap(),
-            6.0
+                .to_owned(),
+            Value::Object(btreemap! {
+                KeyString::from("type") => Value::from("gauge"),
+                KeyString::from("value") => Value::from(6.0),
+            }),
         );
 
         drop(tx_1);
@@ -300,18 +308,22 @@ async fn test_mezmo_aggregate_distributed_with_cardinality_exceeded() {
                 .as_log()
                 .get(".message.value")
                 .unwrap()
-                .as_float()
-                .unwrap(),
-            1.0
+                .to_owned(),
+            Value::Object(btreemap! {
+                KeyString::from("type") => Value::from("counter"),
+                KeyString::from("value") => Value::from(1.0),
+            }),
         );
         assert_eq!(
             outputs[1]
                 .as_log()
                 .get(".message.value")
                 .unwrap()
-                .as_float()
-                .unwrap(),
-            2.0
+                .to_owned(),
+            Value::Object(btreemap! {
+                KeyString::from("type") => Value::from("counter"),
+                KeyString::from("value") => Value::from(2.0),
+            }),
         );
 
         drop(tx);
