@@ -9,10 +9,8 @@ use chrono::Utc;
 use futures::{Stream, StreamExt};
 use mezmo::{user_trace::handle_transform_error, MezmoContext};
 use once_cell::sync::Lazy;
-use redis::AsyncCommands;
-use redis::{aio::ConnectionManager, RedisError, RedisResult, Script};
+use redis::{aio::ConnectionManager, AsyncCommands, ErrorKind, RedisError, RedisResult, Script};
 use serde::{Deserialize, Serialize};
-use snafu::futures::TryFutureExt;
 use snafu::Snafu;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
@@ -78,9 +76,6 @@ impl Strategy {
 pub(super) enum AggregateError {
     #[snafu(display("Creating Redis client failed: {}", source))]
     RedisCreateFailed { source: RedisError },
-
-    #[snafu(display("Error recording event value: {}", source))]
-    RecordFailed { source: RedisError },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -185,7 +180,7 @@ impl MezmoAggregateDistributed {
     }
 
     /// Evaluates and records the value from the event against the datastore.
-    async fn record(&mut self, event: &Metric) -> Result<(), AggregateError> {
+    async fn record(&mut self, event: &Metric) -> Result<(), RedisError> {
         let (hash, fields) = self.get_event_fields(event);
         let event_ts = self.get_event_timestamp(event);
         let window_start_ts = self.align_window_timestamp(event_ts);
@@ -222,11 +217,11 @@ impl MezmoAggregateDistributed {
                     .key(event_window_key)
                     .arg(window_start_ts)
                     .arg(self.config.window_duration_ms)
+                    .arg(self.config.window_cardinality_limit)
                     .arg(self.config.key_expiry_grace_period_ms)
                     .arg(encode_json(&fields))
                     .arg(value)
                     .invoke_async(&mut conn)
-                    .context(RecordFailedSnafu)
                     .await?;
             }
         }
@@ -237,7 +232,7 @@ impl MezmoAggregateDistributed {
     /// Records the value from the event against the datastore with retry logic.
     /// This handlees the case where a [[ConnectionManager]] client instance is being
     /// destroyed/recreated.
-    async fn record_with_retry(&mut self, event: &Metric) -> Result<(), AggregateError> {
+    async fn record_with_retry(&mut self, event: &Metric) {
         let mut backoff = ExponentialBackoff::from_millis(2)
             .factor(self.config.connection_retry_factor_ms)
             .max_delay(Duration::from_millis(
@@ -247,11 +242,35 @@ impl MezmoAggregateDistributed {
         let mut attempt = 0;
         loop {
             match self.record(event).await {
-                Ok(_) => return Ok(()),
+                Ok(_) => {
+                    emit!(MezmoAggregateDistributedEventRecorded);
+                    return;
+                }
+                Err(err) if matches!(err.kind(), ErrorKind::ResponseError) => {
+                    // Cardinality errors returned from the script are not retriable.
+                    // Emit both internal logs and a user-facing log.
+                    // Events that exceed the cardinality limit are dropped.
+                    emit!(MezmoAggregateDistributedRecordFailed {
+                        drop_reason: "Cardinality limit exceeded",
+                        err: err.to_string()
+                    });
+                    handle_transform_error(
+                        &Some(self.mezmo_ctx.clone()),
+                        TransformError::CardinalityLimitExceeded {
+                            limit: self.config.window_cardinality_limit.into(),
+                        },
+                    );
+                    return;
+                }
                 Err(err) => {
                     attempt += 1;
                     if attempt >= self.config.connection_retry_count {
-                        return Err(err);
+                        emit!(MezmoAggregateDistributedRecordFailed {
+                            drop_reason: "Unable to send value to datastore",
+                            err: err.to_string()
+                        });
+
+                        return;
                     }
 
                     let delay = backoff.next().unwrap();
@@ -384,17 +403,7 @@ impl TaskTransform<Event> for MezmoAggregateDistributed {
 
                             // The ConnectionManager interface handles reconnecting, retries, exp backoff, etc
                             // in the event of a connection-level failure.
-                            match self.record_with_retry(&metric).await {
-                                Ok(_) => {
-                                    emit!(MezmoAggregateDistributedEventRecorded);
-                                }
-                                Err(err) => {
-                                    emit!(MezmoAggregateDistributedRecordFailed {
-                                        drop_reason: "Unable to send value to datastore",
-                                        err: err.to_string()
-                                    });
-                                }
-                            }
+                            self.record_with_retry(&metric).await;
                         } else {
                             // shutting down...
                             self.flush_finalized(&mut output).await;
