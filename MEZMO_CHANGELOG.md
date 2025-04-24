@@ -1,3 +1,20 @@
+# [8.18.0](https://github.com/answerbook/vector/compare/v8.17.1...v8.18.0) (2025-04-24)
+
+
+### Bug Fixes
+
+* **test**: ignore event order in output assertions [d74fa10](https://github.com/answerbook/vector/commit/d74fa1033b9ab36aef524122176ccfab9e1c4b17) - Mike Del Tito [LOG-21599](https://logdna.atlassian.net/browse/LOG-21599)
+
+
+### Features
+
+* **aggregate_distributed**: implement min + max strategies [789170f](https://github.com/answerbook/vector/commit/789170f99a50ba521c1a9da3638b6cc3d83d13f7) - Mike Del Tito [LOG-21599](https://logdna.atlassian.net/browse/LOG-21599)
+
+
+### Miscellaneous
+
+* Merge pull request #668 from answerbook/mdeltito/LOG-21599 [029134e](https://github.com/answerbook/vector/commit/029134e71016018f9f749bc9c08dcea25cd85c4f) - GitHub [LOG-21599](https://logdna.atlassian.net/browse/LOG-21599)
+
 ## [8.17.1](https://github.com/answerbook/vector/compare/v8.17.0...v8.17.1) (2025-04-24)
 
 
