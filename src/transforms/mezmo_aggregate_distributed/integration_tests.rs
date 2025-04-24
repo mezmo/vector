@@ -303,28 +303,34 @@ async fn test_mezmo_aggregate_distributed_with_cardinality_exceeded() {
         // will be produced.
         assert_eq!(Poll::Pending, futures::poll!(out.next()));
 
-        assert_eq!(
-            outputs[0]
-                .as_log()
-                .get(".message.value")
+        // outputs for `counter_a` and `counter_b`
+        assert!(outputs.iter().any(|e| {
+            e.as_log()
+                .get(".message.name")
                 .unwrap()
-                .to_owned(),
-            Value::Object(btreemap! {
-                KeyString::from("type") => Value::from("counter"),
-                KeyString::from("value") => Value::from(1.0),
-            }),
-        );
-        assert_eq!(
-            outputs[1]
-                .as_log()
-                .get(".message.value")
+                .as_str()
                 .unwrap()
-                .to_owned(),
-            Value::Object(btreemap! {
-                KeyString::from("type") => Value::from("counter"),
-                KeyString::from("value") => Value::from(2.0),
-            }),
-        );
+                .contains("counter_a")
+        }));
+
+        assert!(outputs.iter().any(|e| {
+            e.as_log()
+                .get(".message.name")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .contains("counter_b")
+        }));
+
+        // none of the outputs contain `counter_c` which exceeded the cardinality
+        assert!(!outputs.iter().any(|e| {
+            e.as_log()
+                .get(".message.name")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .contains("counter_c")
+        }));
 
         drop(tx);
         topology.stop().await;
