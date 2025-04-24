@@ -1,3 +1,15 @@
+## [8.17.1](https://github.com/answerbook/vector/compare/v8.17.0...v8.17.1) (2025-04-24)
+
+
+### Bug Fixes
+
+* **aggregate_distributed**: restructure output event value [4739475](https://github.com/answerbook/vector/commit/4739475d2dd430130d96af4e612d9c25b8526ed0) - Mike Del Tito [LOG-21688](https://logdna.atlassian.net/browse/LOG-21688)
+
+
+### Miscellaneous
+
+* Merge pull request #667 from answerbook/mdeltito/LOG-21688 [e8a1fed](https://github.com/answerbook/vector/commit/e8a1fedb7747bdbfe22da4c16ce58c78d8b14046) - GitHub [LOG-21688](https://logdna.atlassian.net/browse/LOG-21688)
+
 # [8.17.0](https://github.com/answerbook/vector/compare/v8.16.3...v8.17.0) (2025-04-23)
 
 
