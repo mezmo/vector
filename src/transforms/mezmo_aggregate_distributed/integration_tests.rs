@@ -15,7 +15,9 @@ use crate::{
 use tokio_stream::wrappers::ReceiverStream;
 
 fn make_metric(name: &str, kind: metric::MetricKind, value: metric::MetricValue) -> Event {
-    Event::Log(metric::mezmo::from_metric(&Metric::new(name, kind, value)))
+    Event::Log(metric::mezmo::from_metric(
+        &Metric::new(name, kind, value).with_namespace(Some("test-namespace".to_owned())),
+    ))
 }
 
 fn make_config(toml: &str) -> config::MezmoAggregateDistributedConfig {
@@ -26,7 +28,7 @@ fn make_config(toml: &str) -> config::MezmoAggregateDistributedConfig {
 
 fn make_component_id() -> String {
     let uuid = uuid::Uuid::new_v4();
-    format!("v1:aggregate:transform:{uuid}:{uuid}:{uuid}")
+    format!("v1:aggregate-metrics:transform:{uuid}:{uuid}:{uuid}")
 }
 
 async fn make_instance(
@@ -90,13 +92,25 @@ async fn test_mezmo_aggregate_distributed_sum() {
         assert_eq!(Poll::Pending, futures::poll!(out.next()));
 
         let log = result.unwrap().as_log().to_owned();
+        assert!(log.get(".message.window_end").is_some());
+        assert!(log.get(".message.window_start").is_some());
         assert_eq!(
-            log.get(".timestamp").unwrap().to_owned(),
-            log.get(".message.window_end").unwrap().to_owned(),
+            *log.get(".timestamp").unwrap(),
+            *log.get(".message.window_end").unwrap(),
         );
 
+        assert_eq!(*log.get(".message.count").unwrap(), Value::from(3));
         assert_eq!(
-            log.get(".message.value").unwrap().to_owned(),
+            *log.get(".message.kind").unwrap(),
+            Value::from("incremental")
+        );
+        assert_eq!(
+            *log.get(".message.namespace").unwrap(),
+            Value::from("test-namespace")
+        );
+        assert_eq!(*log.get(".message.strategy").unwrap(), Value::from("sum"));
+        assert_eq!(
+            *log.get(".message.value").unwrap(),
             Value::Object(btreemap! {
                 KeyString::from("type") => Value::from("counter"),
                 KeyString::from("value") => Value::from(99.0),
@@ -165,16 +179,160 @@ async fn test_mezmo_aggregate_distributed_avg() {
         // back to pending
         assert_eq!(Poll::Pending, futures::poll!(out.next()));
 
+        let log = result.unwrap().as_log().to_owned();
+
+        assert_eq!(*log.get(".message.strategy").unwrap(), Value::from("avg"));
         assert_eq!(
-            result
-                .unwrap()
-                .as_log()
-                .get(".message.value")
-                .unwrap()
-                .to_owned(),
+            *log.get(".message.value").unwrap(),
             Value::Object(btreemap! {
                 KeyString::from("type") => Value::from("gauge"),
                 KeyString::from("value") => Value::from(2.0),
+            }),
+        );
+
+        drop(tx);
+        topology.stop().await;
+        assert_eq!(out.next().await, None);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn test_mezmo_aggregate_distributed_min() {
+    let config = make_config(
+        r#"
+        window_duration_ms = 1000
+        flush_tick_ms = 1000
+        strategy = "min"
+    "#,
+    );
+
+    let event_1 = make_metric(
+        "counter_a",
+        metric::MetricKind::Incremental,
+        metric::MetricValue::Counter { value: 1.0 },
+    );
+    let event_2 = make_metric(
+        "counter_a",
+        metric::MetricKind::Incremental,
+        metric::MetricValue::Counter { value: 20.0 },
+    );
+    let event_3 = make_metric(
+        "counter_a",
+        metric::MetricKind::Incremental,
+        metric::MetricValue::Counter { value: 300.0 },
+    );
+
+    assert_transform_compliance(async {
+        let (tx, rx) = mpsc::channel(10);
+        let (topology, out) = create_topology_with_name(
+            ReceiverStream::new(rx),
+            config,
+            make_component_id().as_str(),
+        )
+        .await;
+        let mut out = ReceiverStream::new(out);
+
+        tx.send(event_1).await.unwrap();
+        tx.send(event_2).await.unwrap();
+        tx.send(event_3).await.unwrap();
+
+        // nothing ready yet, awaiting the flush tick...
+        assert_eq!(Poll::Pending, futures::poll!(out.next()));
+
+        let mut result: Option<Event> = None;
+        while result.is_none() {
+            if let Some(event) = out.next().await {
+                result = Some(event);
+            } else {
+                panic!("Unexpectedly received None in output stream");
+            }
+        }
+
+        // back to pending
+        assert_eq!(Poll::Pending, futures::poll!(out.next()));
+
+        let log = result.unwrap().as_log().to_owned();
+
+        assert_eq!(*log.get(".message.strategy").unwrap(), Value::from("min"));
+        assert_eq!(
+            *log.get(".message.value").unwrap(),
+            Value::Object(btreemap! {
+                KeyString::from("type") => Value::from("counter"),
+                KeyString::from("value") => Value::from(1.0),
+            }),
+        );
+
+        drop(tx);
+        topology.stop().await;
+        assert_eq!(out.next().await, None);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn test_mezmo_aggregate_distributed_max() {
+    let config = make_config(
+        r#"
+        window_duration_ms = 1000
+        flush_tick_ms = 1000
+        strategy = "max"
+    "#,
+    );
+
+    let event_1 = make_metric(
+        "counter_a",
+        metric::MetricKind::Absolute,
+        metric::MetricValue::Counter { value: 1.0 },
+    );
+    let event_2 = make_metric(
+        "counter_a",
+        metric::MetricKind::Absolute,
+        metric::MetricValue::Counter { value: 20.0 },
+    );
+    let event_3 = make_metric(
+        "counter_a",
+        metric::MetricKind::Absolute,
+        metric::MetricValue::Counter { value: 300.0 },
+    );
+
+    assert_transform_compliance(async {
+        let (tx, rx) = mpsc::channel(10);
+        let (topology, out) = create_topology_with_name(
+            ReceiverStream::new(rx),
+            config,
+            make_component_id().as_str(),
+        )
+        .await;
+        let mut out = ReceiverStream::new(out);
+
+        tx.send(event_1).await.unwrap();
+        tx.send(event_2).await.unwrap();
+        tx.send(event_3).await.unwrap();
+
+        // nothing ready yet, awaiting the flush tick...
+        assert_eq!(Poll::Pending, futures::poll!(out.next()));
+
+        let mut result: Option<Event> = None;
+        while result.is_none() {
+            if let Some(event) = out.next().await {
+                result = Some(event);
+            } else {
+                panic!("Unexpectedly received None in output stream");
+            }
+        }
+
+        // back to pending
+        assert_eq!(Poll::Pending, futures::poll!(out.next()));
+
+        let log = result.unwrap().as_log().to_owned();
+
+        assert_eq!(*log.get(".message.strategy").unwrap(), Value::from("max"));
+        assert_eq!(
+            *log.get(".message.value").unwrap(),
+            Value::Object(btreemap! {
+                KeyString::from("type") => Value::from("counter"),
+                KeyString::from("value") => Value::from(300.0),
             }),
         );
 
@@ -229,13 +387,9 @@ async fn test_mezmo_aggregate_distributed_multiple() {
 
         assert!(result.is_some(), "expected result from one instance");
 
+        let log = result.unwrap().as_log().to_owned();
         assert_eq!(
-            result
-                .unwrap()
-                .as_log()
-                .get(".message.value")
-                .unwrap()
-                .to_owned(),
+            *log.get(".message.value").unwrap(),
             Value::Object(btreemap! {
                 KeyString::from("type") => Value::from("gauge"),
                 KeyString::from("value") => Value::from(6.0),
@@ -303,28 +457,34 @@ async fn test_mezmo_aggregate_distributed_with_cardinality_exceeded() {
         // will be produced.
         assert_eq!(Poll::Pending, futures::poll!(out.next()));
 
-        assert_eq!(
-            outputs[0]
-                .as_log()
-                .get(".message.value")
+        // outputs for `counter_a` and `counter_b`
+        assert!(outputs.iter().any(|e| {
+            e.as_log()
+                .get(".message.name")
                 .unwrap()
-                .to_owned(),
-            Value::Object(btreemap! {
-                KeyString::from("type") => Value::from("counter"),
-                KeyString::from("value") => Value::from(1.0),
-            }),
-        );
-        assert_eq!(
-            outputs[1]
-                .as_log()
-                .get(".message.value")
+                .as_str()
                 .unwrap()
-                .to_owned(),
-            Value::Object(btreemap! {
-                KeyString::from("type") => Value::from("counter"),
-                KeyString::from("value") => Value::from(2.0),
-            }),
-        );
+                .contains("counter_a")
+        }));
+
+        assert!(outputs.iter().any(|e| {
+            e.as_log()
+                .get(".message.name")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .contains("counter_b")
+        }));
+
+        // none of the outputs contain `counter_c` which exceeded the cardinality
+        assert!(!outputs.iter().any(|e| {
+            e.as_log()
+                .get(".message.name")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .contains("counter_c")
+        }));
 
         drop(tx);
         topology.stop().await;
