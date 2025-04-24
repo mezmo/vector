@@ -36,7 +36,7 @@ use config::MezmoAggregateDistributedConfig;
 #[cfg(test)]
 pub(crate) mod integration_tests;
 
-static SUM_SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(include_str!("redis/sum.lua")));
+static RECORD_SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(include_str!("redis/record.lua")));
 static FLUSH_SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(include_str!("redis/flush.lua")));
 
 /// Configuration for a strategy
@@ -52,6 +52,12 @@ pub(super) enum Strategy {
 
     /// Average numeric values
     Avg,
+
+    /// Minimum observed value over the window
+    Min,
+
+    /// Maximum observed value over the window
+    Max,
 }
 
 impl Display for Strategy {
@@ -59,15 +65,8 @@ impl Display for Strategy {
         match self {
             Strategy::Sum => write!(f, "sum"),
             Strategy::Avg => write!(f, "avg"),
-        }
-    }
-}
-
-impl Strategy {
-    pub fn script(&self) -> &'static Script {
-        match self {
-            Strategy::Sum => &SUM_SCRIPT,
-            Strategy::Avg => &SUM_SCRIPT,
+            Strategy::Min => write!(f, "min"),
+            Strategy::Max => write!(f, "max"),
         }
     }
 }
@@ -84,6 +83,7 @@ pub struct FlushedWindow {
     #[serde(deserialize_with = "deserialize_json_string")]
     fields: serde_json::Value,
     value: f64,
+    strategy: Strategy,
     window_end_ts: u64,
     window_start_ts: u64,
 }
@@ -94,6 +94,49 @@ where
 {
     let s: String = Deserialize::deserialize(deserializer)?;
     serde_json::from_str(&s).map_err(serde::de::Error::custom)
+}
+
+impl FlushedWindow {
+    /// Converts a FlushedWindow into a Log Event
+    fn into_event(self) -> Event {
+        let message_path = log_schema()
+            .message_key_target_path()
+            .expect("message key to always be defined");
+        let timestamp_path = log_schema()
+            .timestamp_key_target_path()
+            .expect("timestamp key to always be defined");
+        let mut log: LogEvent = self
+            .fields
+            .clone()
+            .try_into()
+            .expect("deserialized `fields` is a valid serde_json::Value::Object");
+
+        let value_type = log.remove("value_type");
+        log.insert("value", self.value_for_type(value_type));
+        log.insert("strategy", self.strategy.to_string());
+        log.insert("window_start", self.window_start_ts);
+        log.insert("window_end", self.window_end_ts);
+        log.insert("count", self.count);
+
+        log.rename_key(".", message_path);
+        log.insert(timestamp_path, self.window_end_ts);
+
+        Event::Log(log)
+    }
+
+    /// Creates the appropriate value representation within a LogEvent, for this
+    /// window, based on the provided `value_type`.
+    fn value_for_type(&self, value_type: Option<Value>) -> Value {
+        let value = match self.strategy {
+            Strategy::Sum | Strategy::Min | Strategy::Max => self.value,
+            Strategy::Avg => self.value / (self.count as f64),
+        };
+
+        Value::Object(btreemap! {
+            KeyString::from("type") => value_type.unwrap_or(Value::Null),
+            KeyString::from("value") => Value::from(value),
+        })
+    }
 }
 
 pub struct MezmoAggregateDistributed {
@@ -192,42 +235,37 @@ impl MezmoAggregateDistributed {
 
         let mut conn = self.conn.clone();
 
-        match self.config.strategy {
-            Strategy::Sum | Strategy::Avg => {
-                let value: f64 = match event.value() {
-                    MetricValue::Counter { value } => *value,
-                    MetricValue::Gauge { value } => *value,
-                    // TODO: consider other metric types for sum/avg?
-                    _ => {
-                        let err = TransformError::InvalidMetricType {
-                            type_name: event.value().as_name().to_string(),
-                        };
-
-                        emit!(MezmoAggregateDistributedRecordFailed {
-                            drop_reason: "Unsupported metric event",
-                            err: err.to_string()
-                        });
-
-                        handle_transform_error(&Some(self.mezmo_ctx.clone()), err);
-                        return Ok(());
-                    }
+        let value: f64 = match event.value() {
+            MetricValue::Counter { value } => *value,
+            MetricValue::Gauge { value } => *value,
+            // TODO: consider other metric types for sum/avg?
+            _ => {
+                let err = TransformError::InvalidMetricType {
+                    type_name: event.value().as_name().to_string(),
                 };
 
-                self.config
-                    .strategy
-                    .script()
-                    .key(active_windows_key)
-                    .key(event_window_key)
-                    .arg(window_start_ts)
-                    .arg(self.config.window_duration_ms)
-                    .arg(self.config.window_cardinality_limit)
-                    .arg(self.config.key_expiry_grace_period_ms)
-                    .arg(encode_json(&fields))
-                    .arg(value)
-                    .invoke_async(&mut conn)
-                    .await?;
+                emit!(MezmoAggregateDistributedRecordFailed {
+                    drop_reason: "Unsupported metric event",
+                    err: err.to_string()
+                });
+
+                handle_transform_error(&Some(self.mezmo_ctx.clone()), err);
+                return Ok(());
             }
-        }
+        };
+
+        RECORD_SCRIPT
+            .key(active_windows_key)
+            .key(event_window_key)
+            .arg(window_start_ts)
+            .arg(self.config.window_duration_ms)
+            .arg(self.config.window_cardinality_limit)
+            .arg(self.config.key_expiry_grace_period_ms)
+            .arg(self.config.strategy.to_string())
+            .arg(encode_json(&fields))
+            .arg(value)
+            .invoke_async(&mut conn)
+            .await?;
 
         Ok(())
     }
@@ -313,13 +351,6 @@ impl MezmoAggregateDistributed {
             }
         };
 
-        let message_path = log_schema()
-            .message_key_target_path()
-            .expect("message key to always be defined");
-        let timestamp_path = log_schema()
-            .timestamp_key_target_path()
-            .expect("timestamp key to always be defined");
-
         let mut invocation = FLUSH_SCRIPT.prepare_invoke();
         invocation.key(active_windows_key);
         for key in expired_window_keys {
@@ -338,36 +369,7 @@ impl MezmoAggregateDistributed {
                     .expect("usize didn't fit in u64, are we on 32-bit?");
 
                 for flushed_window in flushed {
-                    let mut log: LogEvent = flushed_window
-                        .fields
-                        .try_into()
-                        .expect("deserialized `fields` is a valid serde_json::Value::Object");
-
-                    let value_type = log.remove("value_type");
-                    log.insert("strategy", self.config.strategy.to_string());
-                    log.insert("window_start", flushed_window.window_start_ts);
-                    log.insert("window_end", flushed_window.window_end_ts);
-
-                    match self.config.strategy {
-                        Strategy::Sum => {
-                            log.insert("count", flushed_window.count);
-                            log.insert("value", value_from_type(value_type, flushed_window.value));
-                        }
-                        Strategy::Avg => {
-                            log.insert("count", flushed_window.count);
-                            log.insert(
-                                "value",
-                                value_from_type(
-                                    value_type,
-                                    flushed_window.value / (flushed_window.count as f64),
-                                ),
-                            );
-                        }
-                    }
-
-                    log.rename_key(".", message_path);
-                    log.insert(timestamp_path, flushed_window.window_end_ts);
-                    output.push(Event::Log(log));
+                    output.push(flushed_window.into_event());
                 }
 
                 emit!(MezmoAggregateDistributedFlushed { event_count });
@@ -379,13 +381,6 @@ impl MezmoAggregateDistributed {
             }
         }
     }
-}
-
-fn value_from_type(value_type: Option<Value>, value: f64) -> Value {
-    Value::Object(btreemap! {
-        KeyString::from("type") => value_type.unwrap_or(Value::Null),
-        KeyString::from("value") => Value::from(value),
-    })
 }
 
 impl TaskTransform<Event> for MezmoAggregateDistributed {

@@ -5,8 +5,9 @@
 -- ARGV[2]: window duration (milliseconds)
 -- ARGV[3]: window cardinality limit
 -- ARGV[4]: expiry grace period (milliseconds)
--- ARGV[5]: JSON string containing unique fields from the aggregated events
--- ARGV[6]: value to aggregate
+-- ARGV[5]: strategy (sum, avg, min, max)
+-- ARGV[6]: JSON string containing unique fields from the aggregated events
+-- ARGV[7]: value to aggregate
 
 local active_windows_key = KEYS[1]
 local event_window_key = KEYS[2]
@@ -15,8 +16,9 @@ local window_start_ts = tonumber(ARGV[1])
 local window_duration_ms = tonumber(ARGV[2])
 local window_cardinality_limit = tonumber(ARGV[3])
 local expiry_grace_period_ms = tonumber(ARGV[4])
-local event_json = ARGV[5]
-local value = tonumber(ARGV[6])
+local strategy = ARGV[5]
+local event_json = ARGV[6]
+local value = tonumber(ARGV[7])
 
 local window_end_ts = window_start_ts + window_duration_ms
 
@@ -35,6 +37,7 @@ if exists == 0 then
 
   -- initialize the target window
   redis.call("HSET", event_window_key,
+    "strategy", strategy,
     "value", value,
     "count", 1,
     "fields", event_json,
@@ -52,8 +55,17 @@ if exists == 0 then
   -- time a new window is added
   redis.call("EXPIRE", active_windows_key, expire_secs, "GT")
 else
-  -- update the target window
-  redis.call("HINCRBYFLOAT", event_window_key, "value", value)
+  -- update the target window based on the selected strategy
+  if strategy == "min" then
+    local new_value = math.min(value, tonumber(redis.call("HGET", event_window_key, "value")))
+    redis.call("HSET", event_window_key, "value", new_value)
+  elseif strategy == "max" then
+    local new_value = math.max(value, tonumber(redis.call("HGET", event_window_key, "value")))
+    redis.call("HSET", event_window_key, "value", new_value)
+  else -- avg or sum
+    redis.call("HINCRBYFLOAT", event_window_key, "value", value)
+  end
+
   redis.call("HINCRBY", event_window_key, "count", 1)
 end
 
