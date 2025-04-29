@@ -42,6 +42,8 @@ spec:
         "state-connection-retry-max-delay-ms": 7500,
         "state-connection-timeout-ms": 2500,
         "state-connection-response-timeout-ms": 2500,
+        "max-rocksdb-log-file-size": 10485760,
+        "max-rocksdb-log-file-num": 5
       }]
     valueFrom:
       configMapKeyRef:
@@ -338,6 +340,12 @@ spec:
 
                 - name: MEZMO_STATE_CONNECTION_RESPONSE_TIMEOUT_MS
                   value: "{{{state-connection-response-timeout-ms}}}"
+
+                - name: MAX_ROCKSDB_LOG_FILE_SIZE
+                  value: "{{{max-rocksdb-log-file-size}}}"
+
+                - name: MAX_ROCKSDB_LOG_FILE_NUM
+                  value: "{{{max-rocksdb-log-file-num}}}"
 
                 - name: MEZMO_EVENT_TRACE_ENABLED
                   value: "{{{mezmo_event_trace_enabled}}}"

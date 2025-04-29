@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::mezmo_env_config;
 use crate::{
     internal_events::mezmo_persistence::{
         MezmoPersistenceRocksDBHistogram, MezmoPersistenceRocksDBTicker,
@@ -19,6 +20,12 @@ use mezmo::MezmoContext;
 use super::PersistenceConnection;
 
 const POD_NAME_ENV_VAR: &str = "POD_NAME";
+
+const MAX_LOG_FILE_SIZE_ENV_VAR: &str = "MAX_ROCKSDB_LOG_FILE_SIZE";
+const MAX_LOG_FILE_SIZE_DEFAULT: usize = 1024 * 1024 * 10; // 10 MB max
+
+const MAX_LOG_FILE_NUM_ENV_VAR: &str = "MAX_ROCKSDB_LOG_FILE_NUM";
+const MAX_LOG_FILE_NUM_DEFAULT: usize = 5; // 5 logs max
 
 // Minimum allowed blockcache size is 512KB (default 32MB)
 // https://github.com/facebook/rocksdb/wiki/Block-Cache
@@ -192,6 +199,11 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
             }
         };
 
+        let max_log_file_size: usize =
+            mezmo_env_config!(MAX_LOG_FILE_SIZE_ENV_VAR, MAX_LOG_FILE_SIZE_DEFAULT);
+        let max_log_file_num: usize =
+            mezmo_env_config!(MAX_LOG_FILE_NUM_ENV_VAR, MAX_LOG_FILE_NUM_DEFAULT);
+
         let mut path = PathBuf::from(base_path);
         path.push(format!("{account_id}.{pod_name}.db"));
 
@@ -228,6 +240,9 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
                 db_opts.set_block_based_table_factory(&block_options);
                 db_opts.enable_statistics();
                 db_opts.set_statistics_level(StatsLevel::All);
+                db_opts.set_log_file_time_to_roll(60 * 60 * 24); // 1 day
+                db_opts.set_keep_log_file_num(max_log_file_num);
+                db_opts.set_max_log_file_size(max_log_file_size);
 
                 let db = DB::open_with_ttl(&db_opts, &path, Duration::from_secs(ttl_secs))?;
                 let conn = Arc::new(RocksDBConnection { db, db_opts });
