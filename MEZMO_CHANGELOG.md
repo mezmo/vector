@@ -1,3 +1,15 @@
+## [8.18.1](https://github.com/answerbook/vector/compare/v8.18.0...v8.18.1) (2025-04-29)
+
+
+### Bug Fixes
+
+* **rocksdb**: set limits on log files [c4f7add](https://github.com/answerbook/vector/commit/c4f7add0df9c4d3c2a2b5c3d44ccc148cc28b673) - dominic-mcallister-logdna [LOG-21391](https://logdna.atlassian.net/browse/LOG-21391)
+
+
+### Miscellaneous
+
+* Merge pull request #669 from answerbook/dominic/LOG-21391 [bb889a6](https://github.com/answerbook/vector/commit/bb889a62d422d13bfd3729c56fda658b0fa5fcb3) - GitHub [LOG-21391](https://logdna.atlassian.net/browse/LOG-21391)
+
 # [8.18.0](https://github.com/answerbook/vector/compare/v8.17.1...v8.18.0) (2025-04-24)
 
 
