@@ -1,3 +1,15 @@
+## [8.18.2](https://github.com/answerbook/vector/compare/v8.18.1...v8.18.2) (2025-04-30)
+
+
+### Bug Fixes
+
+* **aggregate_distributed**: batch and optimize flush calls [b878d9e](https://github.com/answerbook/vector/commit/b878d9ed791110134dc09903a953434fc1ed0f5d) - Mike Del Tito [LOG-21717](https://logdna.atlassian.net/browse/LOG-21717)
+
+
+### Miscellaneous
+
+* Merge pull request #670 from answerbook/mdeltito/LOG-21717 [6173fc9](https://github.com/answerbook/vector/commit/6173fc9ae3ca8b02e8f95ebf141424f5bd6a7429) - GitHub [LOG-21717](https://logdna.atlassian.net/browse/LOG-21717)
+
 ## [8.18.1](https://github.com/answerbook/vector/compare/v8.18.0...v8.18.1) (2025-04-29)
 
 
