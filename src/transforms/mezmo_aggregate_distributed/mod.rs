@@ -339,7 +339,7 @@ impl MezmoAggregateDistributed {
         let expired_window_keys = match result {
             Ok(keys) => {
                 if keys.is_empty() {
-                    return;
+                    return; // nothing to flush
                 }
                 keys
             }
@@ -351,33 +351,35 @@ impl MezmoAggregateDistributed {
             }
         };
 
-        let mut invocation = FLUSH_SCRIPT.prepare_invoke();
-        invocation.key(active_windows_key);
-        for key in expired_window_keys {
-            invocation.key(key);
-        }
-
-        let result: RedisResult<String> = invocation.invoke_async(&mut conn).await;
-        match result {
-            Ok(resp) => {
-                let flushed: Vec<FlushedWindow> =
-                    serde_json::from_str(&resp).expect("script response is valid JSON");
-
-                let event_count = flushed
-                    .len()
-                    .try_into()
-                    .expect("usize didn't fit in u64, are we on 32-bit?");
-
-                for flushed_window in flushed {
-                    output.push(flushed_window.into_event());
-                }
-
-                emit!(MezmoAggregateDistributedFlushed { event_count });
+        for flush_batch in expired_window_keys.chunks(self.config.flush_batch_size) {
+            let mut invocation = FLUSH_SCRIPT.prepare_invoke();
+            invocation.key(&active_windows_key);
+            for key in flush_batch {
+                invocation.key(key);
             }
-            Err(error) => {
-                emit!(MezmoAggregateDistributedFlushFailed {
-                    err: error.to_string()
-                });
+
+            let result: RedisResult<String> = invocation.invoke_async(&mut conn).await;
+            match result {
+                Ok(resp) => {
+                    let flushed: Vec<FlushedWindow> =
+                        serde_json::from_str(&resp).expect("script response is valid JSON");
+
+                    let event_count = flushed
+                        .len()
+                        .try_into()
+                        .expect("usize didn't fit in u64, are we on 32-bit?");
+
+                    for flushed_window in flushed {
+                        output.push(flushed_window.into_event());
+                    }
+
+                    emit!(MezmoAggregateDistributedFlushed { event_count });
+                }
+                Err(error) => {
+                    emit!(MezmoAggregateDistributedFlushFailed {
+                        err: error.to_string()
+                    });
+                }
             }
         }
     }

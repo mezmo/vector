@@ -24,7 +24,6 @@ use crate::transforms::{
 
 use super::{MezmoAggregateDistributed, RedisCreateFailedSnafu, Strategy};
 
-const DEFAULT_FLUSH_TICK_MS: u64 = 1000;
 const DEFAULT_WINDOW_DURATION_MS: u32 = 10_000;
 const DEFAULT_KEY_EXPIRY_GRACE_PERIOD_MS: u32 = 12 * 60 * 60 * 1000; // 12 hours
 const DEFAULT_WINDOW_CARDINALITY_LIMIT: u32 = 20_000;
@@ -56,6 +55,10 @@ pub struct MezmoAggregateDistributedConfig {
     /// a flush condition.
     #[serde(default = "default_flush_tick_ms")]
     pub flush_tick_ms: u64,
+
+    /// The number of expired windows that will be flushed at once.
+    #[serde(default = "default_flush_batch_size")]
+    pub flush_batch_size: usize,
 
     /// Controls the max age of a key before it is expired automatically to prevent
     /// memory bloat. In practice keys are explicitly removed when the data is flushed,
@@ -99,10 +102,6 @@ const fn default_window_duration_ms() -> u32 {
     DEFAULT_WINDOW_DURATION_MS
 }
 
-const fn default_flush_tick_ms() -> u64 {
-    DEFAULT_FLUSH_TICK_MS
-}
-
 const fn default_key_expiry_grace_period_ms() -> u32 {
     DEFAULT_KEY_EXPIRY_GRACE_PERIOD_MS
 }
@@ -114,6 +113,14 @@ fn default_window_cardinality_limit() -> u32 {
     )
 }
 
+fn default_flush_tick_ms() -> u64 {
+    mezmo_env_config!("MEZMO_AGGREGATION_FLUSH_TICK_MS", 5000)
+}
+
+fn default_flush_batch_size() -> usize {
+    mezmo_env_config!("MEZMO_AGGREGATION_FLUSH_BATCH_SIZE", 500)
+}
+
 impl GenerateConfig for MezmoAggregateDistributedConfig {
     fn generate_config() -> toml::value::Value {
         toml::value::Value::try_from(Self {
@@ -122,6 +129,7 @@ impl GenerateConfig for MezmoAggregateDistributedConfig {
             window_duration_ms: default_window_duration_ms(),
             window_cardinality_limit: default_window_cardinality_limit(),
             flush_tick_ms: default_flush_tick_ms(),
+            flush_batch_size: default_flush_batch_size(),
             key_expiry_grace_period_ms: default_key_expiry_grace_period_ms(),
             connection_retry_factor_ms: default_connection_retry_factor_ms(),
             connection_retry_count: default_connection_retry_count(),
