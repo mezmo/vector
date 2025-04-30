@@ -12,14 +12,13 @@
 -- zrange call for expired buckets.
 -- KEYS[2..N]: keys for expired windows to flush
 local active_windows_key = KEYS[1]
-local expired_window_keys = {unpack(KEYS, 2)}
 
 local numeric_fields = { value = true, count = true, window_start_ts = true, window_end_ts = true }
 local results = {}
 
 -- flush all expired buckets
-for i = 1, #expired_window_keys do
-  local bucket_key = expired_window_keys[i]
+for i = 2, #KEYS do
+  local bucket_key = KEYS[i]
   local hash_data = redis.call("HGETALL", bucket_key)
 
   if #hash_data > 0 then

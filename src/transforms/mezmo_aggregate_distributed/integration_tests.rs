@@ -128,10 +128,10 @@ async fn test_mezmo_aggregate_distributed_sum() {
 async fn test_mezmo_aggregate_distributed_avg() {
     let config = make_config(
         r#"
-        window_duration_ms = 1000
-        flush_tick_ms = 1000
-        strategy = "avg"
-    "#,
+            window_duration_ms = 1000
+            flush_tick_ms = 1000
+            strategy = "avg"
+        "#,
     );
 
     let event_1 = make_metric(
@@ -201,10 +201,10 @@ async fn test_mezmo_aggregate_distributed_avg() {
 async fn test_mezmo_aggregate_distributed_min() {
     let config = make_config(
         r#"
-        window_duration_ms = 1000
-        flush_tick_ms = 1000
-        strategy = "min"
-    "#,
+            window_duration_ms = 1000
+            flush_tick_ms = 1000
+            strategy = "min"
+        "#,
     );
 
     let event_1 = make_metric(
@@ -274,10 +274,10 @@ async fn test_mezmo_aggregate_distributed_min() {
 async fn test_mezmo_aggregate_distributed_max() {
     let config = make_config(
         r#"
-        window_duration_ms = 1000
-        flush_tick_ms = 1000
-        strategy = "max"
-    "#,
+            window_duration_ms = 1000
+            flush_tick_ms = 1000
+            strategy = "max"
+        "#,
     );
 
     let event_1 = make_metric(
@@ -344,13 +344,13 @@ async fn test_mezmo_aggregate_distributed_max() {
 }
 
 #[tokio::test]
-async fn test_mezmo_aggregate_distributed_multiple() {
+async fn test_mezmo_aggregate_distributed_multiple_instances() {
     let config = make_config(
         r#"
-        window_duration_ms = 2000
-        flush_tick_ms = 1000
-        strategy = "sum"
-    "#,
+            window_duration_ms = 2000
+            flush_tick_ms = 1000
+            strategy = "sum"
+        "#,
     );
 
     let event_1 = make_metric(
@@ -410,11 +410,12 @@ async fn test_mezmo_aggregate_distributed_multiple() {
 async fn test_mezmo_aggregate_distributed_with_cardinality_exceeded() {
     let config = make_config(
         r#"
-        window_duration_ms = 2000
-        window_cardinality_limit = 2
-        flush_tick_ms = 1000
-        strategy = "sum"
-    "#,
+            window_duration_ms = 2000
+            window_cardinality_limit = 2
+            flush_tick_ms = 1000
+            flush_batch_size = 2
+            strategy = "sum"
+        "#,
     );
 
     let event_1 = make_metric(
