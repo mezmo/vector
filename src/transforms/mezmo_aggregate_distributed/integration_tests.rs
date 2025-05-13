@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 use std::task::Poll;
 
+use chrono::DateTime;
 use tokio::sync::mpsc;
 
 use super::*;
@@ -48,6 +49,7 @@ async fn test_mezmo_aggregate_distributed_sum() {
         r#"
         window_duration_ms = 2000
         flush_tick_ms = 1000
+        flush_grace_period_ms = 1000
         strategy = "sum"
     "#,
     );
@@ -130,6 +132,7 @@ async fn test_mezmo_aggregate_distributed_avg() {
         r#"
             window_duration_ms = 1000
             flush_tick_ms = 1000
+            flush_grace_period_ms = 1000
             strategy = "avg"
         "#,
     );
@@ -203,6 +206,7 @@ async fn test_mezmo_aggregate_distributed_min() {
         r#"
             window_duration_ms = 1000
             flush_tick_ms = 1000
+            flush_grace_period_ms = 1000
             strategy = "min"
         "#,
     );
@@ -276,6 +280,7 @@ async fn test_mezmo_aggregate_distributed_max() {
         r#"
             window_duration_ms = 1000
             flush_tick_ms = 1000
+            flush_grace_period_ms = 1000
             strategy = "max"
         "#,
     );
@@ -349,6 +354,7 @@ async fn test_mezmo_aggregate_distributed_multiple_instances() {
         r#"
             window_duration_ms = 2000
             flush_tick_ms = 1000
+            flush_grace_period_ms = 1000
             strategy = "sum"
         "#,
     );
@@ -413,6 +419,7 @@ async fn test_mezmo_aggregate_distributed_with_cardinality_exceeded() {
             window_duration_ms = 2000
             window_cardinality_limit = 2
             flush_tick_ms = 1000
+            flush_grace_period_ms = 1000
             flush_batch_size = 2
             strategy = "sum"
         "#,
@@ -486,6 +493,114 @@ async fn test_mezmo_aggregate_distributed_with_cardinality_exceeded() {
                 .unwrap()
                 .contains("counter_c")
         }));
+
+        drop(tx);
+        topology.stop().await;
+        assert_eq!(out.next().await, None);
+    })
+    .await;
+}
+
+/// Tests that the initial window flush timestamp and flush grace period is respected.
+/// Events are sent with old timestamps (vs wall-clock) over a duration that spans the
+/// `window_duration_ms`. All values are aggregated into the same window, and only a single
+/// output event is generated.
+#[tokio::test]
+async fn test_mezmo_aggregate_distributed_delayed() {
+    let config = make_config(
+        r#"
+            window_duration_ms = 1000
+            flush_tick_ms = 1000
+            flush_grace_period_ms = 3000
+            strategy = "sum"
+        "#,
+    );
+
+    let old_timestamp = Value::Timestamp(
+        DateTime::parse_from_rfc3339("2025-01-01T00:00:01.000+05:00")
+            .unwrap()
+            .into(),
+    );
+
+    let mut event_1 = make_metric(
+        "counter_a",
+        metric::MetricKind::Absolute,
+        metric::MetricValue::Counter { value: 10.0 },
+    );
+    event_1
+        .as_mut_log()
+        .insert(".timestamp", old_timestamp.clone());
+
+    let mut event_2 = make_metric(
+        "counter_a",
+        metric::MetricKind::Absolute,
+        metric::MetricValue::Counter { value: 10.0 },
+    );
+    event_2
+        .as_mut_log()
+        .insert(".timestamp", old_timestamp.clone());
+
+    let mut event_3 = make_metric(
+        "counter_a",
+        metric::MetricKind::Absolute,
+        metric::MetricValue::Counter { value: 10.0 },
+    );
+    event_3
+        .as_mut_log()
+        .insert(".timestamp", old_timestamp.clone());
+
+    assert_transform_compliance(async {
+        let (tx, rx) = mpsc::channel(10);
+        let (topology, out) = create_topology_with_name(
+            ReceiverStream::new(rx),
+            config,
+            make_component_id().as_str(),
+        )
+        .await;
+        let mut out = ReceiverStream::new(out);
+
+        // With the window duration of 1s and a grace period of 3s, send all events over
+        // a period of 3s. The output event should not be flushed until 3s + 1s = 4s.
+        tx.send(event_1).await.unwrap();
+        sleep(Duration::from_millis(1000)).await;
+        tx.send(event_2).await.unwrap();
+        sleep(Duration::from_millis(1000)).await;
+        tx.send(event_3).await.unwrap();
+        sleep(Duration::from_millis(1000)).await;
+
+        assert_eq!(Poll::Pending, futures::poll!(out.next()));
+
+        let mut result: Option<Event> = None;
+        while result.is_none() {
+            if let Some(event) = out.next().await {
+                result = Some(event);
+            } else {
+                panic!("Unexpectedly received None in output stream");
+            }
+        }
+
+        assert_eq!(Poll::Pending, futures::poll!(out.next()));
+
+        let log = result.unwrap().as_log().to_owned();
+
+        assert_eq!(*log.get(".message.strategy").unwrap(), Value::from("sum"));
+        assert_eq!(
+            *log.get(".message.value").unwrap(),
+            Value::Object(btreemap! {
+                KeyString::from("type") => Value::from("counter"),
+                KeyString::from("value") => Value::from(30.0),
+            }),
+        );
+
+        // Ensure start/end timestamps reflect the observed timestamp for the window
+        assert_eq!(
+            *log.get(".message.window_start").unwrap(),
+            Value::Integer(1735671601000)
+        );
+        assert_eq!(
+            *log.get(".message.window_end").unwrap(),
+            Value::Integer(1735671602000)
+        );
 
         drop(tx);
         topology.stop().await;
