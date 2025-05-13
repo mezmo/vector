@@ -1,3 +1,15 @@
+## [8.18.3](https://github.com/answerbook/vector/compare/v8.18.2...v8.18.3) (2025-05-13)
+
+
+### Bug Fixes
+
+* **aggregate_distributed**: adjust flush timing for delays [62e04d8](https://github.com/answerbook/vector/commit/62e04d87fa76b98ca0631154174d6ee63c644eb3) - Mike Del Tito [LOG-21771](https://logdna.atlassian.net/browse/LOG-21771)
+
+
+### Miscellaneous
+
+* Merge pull request #672 from answerbook/mdeltito/LOG-21771 [a5692a3](https://github.com/answerbook/vector/commit/a5692a3c5f95ac3834b0c3182a16f910f3b30914) - GitHub [LOG-21771](https://logdna.atlassian.net/browse/LOG-21771)
+
 ## [8.18.2](https://github.com/answerbook/vector/compare/v8.18.1...v8.18.2) (2025-04-30)
 
 
