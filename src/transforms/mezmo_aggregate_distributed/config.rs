@@ -60,6 +60,13 @@ pub struct MezmoAggregateDistributedConfig {
     #[serde(default = "default_flush_batch_size")]
     pub flush_batch_size: usize,
 
+    /// Set a grace period in milliseconds before expired windows are considered "finalized".
+    /// This provides some buffer of time to account for delays in ingestion and/or processing
+    /// of events with respect to the wall-clock. Windows will not be considered finalized
+    /// until at least this amount of time has elapsed.
+    #[serde(default = "default_flush_grace_period_ms")]
+    pub flush_grace_period_ms: u32,
+
     /// Controls the max age of a key before it is expired automatically to prevent
     /// memory bloat. In practice keys are explicitly removed when the data is flushed,
     /// however this does not account for scenarios where the component is removed from
@@ -121,6 +128,10 @@ fn default_flush_batch_size() -> usize {
     mezmo_env_config!("MEZMO_AGGREGATION_FLUSH_BATCH_SIZE", 500)
 }
 
+fn default_flush_grace_period_ms() -> u32 {
+    mezmo_env_config!("MEZMO_AGGREGATION_FLUSH_GRACE_PERIOD_MS", 30_000)
+}
+
 impl GenerateConfig for MezmoAggregateDistributedConfig {
     fn generate_config() -> toml::value::Value {
         toml::value::Value::try_from(Self {
@@ -129,6 +140,7 @@ impl GenerateConfig for MezmoAggregateDistributedConfig {
             window_duration_ms: default_window_duration_ms(),
             window_cardinality_limit: default_window_cardinality_limit(),
             flush_tick_ms: default_flush_tick_ms(),
+            flush_grace_period_ms: default_flush_grace_period_ms(),
             flush_batch_size: default_flush_batch_size(),
             key_expiry_grace_period_ms: default_key_expiry_grace_period_ms(),
             connection_retry_factor_ms: default_connection_retry_factor_ms(),

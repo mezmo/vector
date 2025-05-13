@@ -213,6 +213,19 @@ impl MezmoAggregateDistributed {
         timestamp - (timestamp % i64::from(self.config.window_duration_ms))
     }
 
+    /// Derives a timestamp to control the flush of output events based on configuration.
+    /// This ensures the window kept "open" for at least the `window_duration_ms`, regardless
+    /// of the timing of when the event was recevied by this component within the window.
+    /// An additional `flush_grace_period_ms` is added to account for processing delays on
+    /// either the client or processing side.
+    fn get_flush_timestamp(&self, window_start_ts: i64) -> i64 {
+        let window_duration_ms = i64::from(self.config.window_duration_ms);
+        let from_start_ts = window_start_ts + window_duration_ms;
+        let from_now_ts = Utc::now().timestamp_millis() + window_duration_ms;
+
+        std::cmp::max(from_start_ts, from_now_ts) + i64::from(self.config.flush_grace_period_ms)
+    }
+
     /// Extract the timestamp from the event based on the user configuration.
     ///
     /// Defaults to the current timestamp if the field/value is not present.
@@ -230,6 +243,7 @@ impl MezmoAggregateDistributed {
         let (hash, fields) = self.get_event_fields(event);
         let event_ts = self.get_event_timestamp(event);
         let window_start_ts = self.align_window_timestamp(event_ts);
+        let window_flush_ts = self.get_flush_timestamp(window_start_ts);
         let active_windows_key = self.get_active_windows_key();
         let event_window_key = self.get_event_window_key(hash, window_start_ts);
 
@@ -258,6 +272,7 @@ impl MezmoAggregateDistributed {
             .key(active_windows_key)
             .key(event_window_key)
             .arg(window_start_ts)
+            .arg(window_flush_ts)
             .arg(self.config.window_duration_ms)
             .arg(self.config.window_cardinality_limit)
             .arg(self.config.key_expiry_grace_period_ms)
@@ -333,7 +348,7 @@ impl MezmoAggregateDistributed {
         let mut conn = self.conn.clone();
 
         let result: RedisResult<Vec<String>> = conn
-            .zrangebyscore(&active_windows_key, "0", Utc::now().timestamp_millis())
+            .zrangebyscore(&active_windows_key, 0, Utc::now().timestamp_millis())
             .await;
 
         let expired_window_keys = match result {
