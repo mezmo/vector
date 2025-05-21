@@ -13,6 +13,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::select;
+use tokio::time::MissedTickBehavior;
 use vector_lib::{
     event::{Event, LogEvent, VrlTarget},
     transform::TaskTransform,
@@ -525,6 +526,21 @@ impl TaskTransform<Event> for MezmoAggregateV2 {
         Box::pin(stream! {
             let mut flush_interval = tokio::time::interval(Duration::from_millis(self.flush_tick_ms));
             let mut state_persistence_interval = tokio::time::interval(Duration::from_millis(self.state_persistence_tick_ms));
+
+            // Doc: https://docs.rs/tokio/1.40.0/tokio/time/enum.MissedTickBehavior.html
+            //
+            // LOG-21714: By default Interval uses MissedTickBehavior::Burst
+            // which ticks as fast as possible until caught up.
+            // The flush interval is 5ms by default and it cause both intervals
+            // flush and persistence state got stuck while intensive data ingestion.
+            // We assume that this behavior is caused by some missed ticks overflow
+            // inside of tokio, and we see a proof of it in the tokio-console.
+            // Setting MissedTickBehavior::Skip for both interval solves the issue
+            // by telling tokio we don't need to track missed ticks so the intervals
+            // will skips missed ticks and tick on the next multiple.
+            flush_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            state_persistence_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
             let mut output:Vec<Event> = Vec::new();
             let mut done = false;
 
