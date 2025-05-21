@@ -67,6 +67,10 @@ pub struct MezmoAggregateDistributedConfig {
     #[serde(default = "default_flush_grace_period_ms")]
     pub flush_grace_period_ms: u32,
 
+    /// Force a flush of all active windows on shutdown.
+    #[serde(default)]
+    pub flush_all_on_shutdown: bool,
+
     /// Controls the max age of a key before it is expired automatically to prevent
     /// memory bloat. In practice keys are explicitly removed when the data is flushed,
     /// however this does not account for scenarios where the component is removed from
@@ -142,6 +146,7 @@ impl GenerateConfig for MezmoAggregateDistributedConfig {
             flush_tick_ms: default_flush_tick_ms(),
             flush_grace_period_ms: default_flush_grace_period_ms(),
             flush_batch_size: default_flush_batch_size(),
+            flush_all_on_shutdown: false,
             key_expiry_grace_period_ms: default_key_expiry_grace_period_ms(),
             connection_retry_factor_ms: default_connection_retry_factor_ms(),
             connection_retry_count: default_connection_retry_count(),

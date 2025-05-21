@@ -9,7 +9,9 @@ use chrono::Utc;
 use futures::{Stream, StreamExt};
 use mezmo::{user_trace::handle_transform_error, MezmoContext};
 use once_cell::sync::Lazy;
-use redis::{aio::ConnectionManager, AsyncCommands, ErrorKind, RedisError, RedisResult, Script};
+use redis::{
+    aio::ConnectionManager, AsyncCommands, ErrorKind, RedisError, RedisResult, Script, ToRedisArgs,
+};
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 use std::collections::hash_map::DefaultHasher;
@@ -78,7 +80,7 @@ pub(super) enum AggregateError {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct FlushedWindow {
+struct FlushedWindow {
     count: u32,
     #[serde(deserialize_with = "deserialize_json_string")]
     fields: serde_json::Value,
@@ -94,6 +96,23 @@ where
 {
     let s: String = Deserialize::deserialize(deserializer)?;
     serde_json::from_str(&s).map_err(serde::de::Error::custom)
+}
+
+enum FlushUntil {
+    Now,
+    End,
+}
+
+impl ToRedisArgs for FlushUntil {
+    fn write_redis_args<W>(&self, out: &mut W)
+    where
+        W: ?Sized + redis::RedisWrite,
+    {
+        match self {
+            FlushUntil::Now => Utc::now().timestamp_millis().write_redis_args(out),
+            FlushUntil::End => "+inf".write_redis_args(out),
+        }
+    }
 }
 
 impl FlushedWindow {
@@ -343,13 +362,12 @@ impl MezmoAggregateDistributed {
 
     /// Flush the aggregated data from the datastore and clears the
     /// window state.
-    async fn flush_finalized(&self, output: &mut Vec<Event>) {
+    async fn flush_finalized(&self, output: &mut Vec<Event>, until: FlushUntil) {
         let active_windows_key = self.get_active_windows_key();
         let mut conn = self.conn.clone();
 
-        let result: RedisResult<Vec<String>> = conn
-            .zrangebyscore(&active_windows_key, 0, Utc::now().timestamp_millis())
-            .await;
+        let result: RedisResult<Vec<String>> =
+            conn.zrangebyscore(&active_windows_key, 0, until).await;
 
         let expired_window_keys = match result {
             Ok(keys) => {
@@ -406,14 +424,18 @@ impl TaskTransform<Event> for MezmoAggregateDistributed {
         mut input_events: Pin<Box<dyn Stream<Item = Event> + Send>>,
     ) -> Pin<Box<dyn Stream<Item = Event> + Send>> {
         Box::pin(stream! {
-            let mut flush_interval = tokio::time::interval(Duration::from_millis(self.config.flush_tick_ms));
+            let interval_duration = Duration::from_millis(self.config.flush_tick_ms);
+            let interval_start = tokio::time::Instant::now() + interval_duration;
+            let mut flush_interval = tokio::time::interval_at(interval_start, interval_duration);
+
             let mut output:Vec<Event> = Vec::new();
             let mut done = false;
 
             while !done {
                 select! {
                     _ = flush_interval.tick() => {
-                        self.flush_finalized(&mut output).await;
+                        debug!(flush_tick_ms = &self.config.flush_tick_ms, "Flushing from interval");
+                        self.flush_finalized(&mut output, FlushUntil::Now).await;
                     },
                     maybe_event = input_events.next() => {
                         if let Some(event) = maybe_event {
@@ -436,8 +458,11 @@ impl TaskTransform<Event> for MezmoAggregateDistributed {
                             self.record_with_retry(&metric).await;
                         } else {
                             // shutting down...
-                            self.flush_finalized(&mut output).await;
                             done = true;
+                            if self.config.flush_all_on_shutdown {
+                                debug!("Flushing on shutdown");
+                                self.flush_finalized(&mut output, FlushUntil::End).await;
+                            }
                         }
                     }
                 }
@@ -446,6 +471,7 @@ impl TaskTransform<Event> for MezmoAggregateDistributed {
                     yield event;
                 }
             }
+
         })
     }
 }

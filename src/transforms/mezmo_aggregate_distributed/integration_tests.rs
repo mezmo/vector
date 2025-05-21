@@ -2,6 +2,7 @@
 use std::task::Poll;
 
 use chrono::DateTime;
+use futures::FutureExt;
 use tokio::sync::mpsc;
 
 use super::*;
@@ -604,6 +605,82 @@ async fn test_mezmo_aggregate_distributed_delayed() {
 
         drop(tx);
         topology.stop().await;
+        assert_eq!(out.next().await, None);
+    })
+    .await;
+}
+
+// Tests a forced flush of all windows on shutdown of the component, even when not
+// "finalized" per the `window_end_ts` + flush_grace_period_ms`.
+#[tokio::test]
+async fn test_mezmo_aggregate_distributed_forced_flush_all_on_shutdown() {
+    let config = make_config(
+        r#"
+            window_duration_ms = 1000
+            # don't flush during this test
+            flush_tick_ms = 9999999
+            # set a long grace period to simulate a far-future finalization of the window
+            flush_grace_period_ms = 9999999
+            flush_all_on_shutdown = true
+            strategy = "sum"
+        "#,
+    );
+
+    let event_1 = make_metric(
+        "counter_a",
+        metric::MetricKind::Absolute,
+        metric::MetricValue::Counter { value: 10.0 },
+    );
+    let event_2 = make_metric(
+        "counter_b",
+        metric::MetricKind::Absolute,
+        metric::MetricValue::Counter { value: 10.0 },
+    );
+
+    assert_transform_compliance(async {
+        let (tx, rx) = mpsc::channel(10);
+        let (topology, out_rx) = create_topology_with_name(
+            ReceiverStream::new(rx),
+            config,
+            make_component_id().as_str(),
+        )
+        .await;
+
+        let mut out = ReceiverStream::new(out_rx);
+        assert_eq!(Poll::Pending, futures::poll!(out.next()));
+
+        tx.send(event_1).await.unwrap();
+        tx.send(event_2).await.unwrap();
+        drop(tx);
+
+        let mut out = Box::pin(out);
+        let mut stop_fut = topology.stop().fuse();
+        let mut flushed = vec![];
+
+        loop {
+            select! {
+                _ = &mut stop_fut => break,
+                maybe_event = out.next().fuse() => {
+                    match maybe_event {
+                        Some(event) => flushed.push(event), // event yielded from shutdown call
+                        None => break, // shutdown
+                    }
+                }
+            }
+        }
+
+        assert_eq!(flushed.len(), 2, "Expected two output events on shutdown");
+
+        let log = flushed[0].as_log().to_owned();
+        assert_eq!(*log.get(".message.strategy").unwrap(), Value::from("sum"));
+        assert_eq!(
+            *log.get(".message.value").unwrap(),
+            Value::Object(btreemap! {
+                KeyString::from("type") => Value::from("counter"),
+                KeyString::from("value") => Value::from(10.0),
+            }),
+        );
+
         assert_eq!(out.next().await, None);
     })
     .await;
