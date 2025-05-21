@@ -2,6 +2,7 @@
 
 use snafu::Snafu;
 use std::convert::Infallible;
+use std::fmt::Display;
 use std::str::FromStr;
 use uuid::Uuid;
 use vrl::value::Value;
@@ -19,6 +20,15 @@ pub enum ContextIdentifier {
     },
     /// Defines shared components within a pipeline deployment
     Shared,
+}
+
+impl Display for ContextIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ContextIdentifier::Value { id } => write!(f, "{}", id),
+            ContextIdentifier::Shared => write!(f, "shared"),
+        }
+    }
 }
 
 impl FromStr for ContextIdentifier {

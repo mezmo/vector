@@ -179,18 +179,42 @@ impl MezmoAggregateDistributed {
 
     /// Key for the zset of active windows.
     fn get_active_windows_key(&self) -> String {
-        format!(
-            "aggregate:{}:{{{}}}",
-            self.config.strategy, self.mezmo_ctx.component_id
-        )
+        let key = format!(
+            "{{{}}}:{{{}}}:{{{}}}:aggregate:{}",
+            self.mezmo_ctx.account_id,
+            self.mezmo_ctx
+                .pipeline_id
+                .as_ref()
+                .map_or("none".to_string(), |p| p.to_string()),
+            self.mezmo_ctx.component_id,
+            self.config.strategy,
+        );
+
+        match self.config.key_prefix {
+            Some(ref prefix) => format!("{}:{}", prefix, key),
+            None => key,
+        }
     }
 
     /// Key for this event window hash
     fn get_event_window_key(&self, hash: u64, timestamp: i64) -> String {
-        format!(
-            "aggregate:{}:{{{}}}:{}:{}",
-            self.config.strategy, self.mezmo_ctx.component_id, hash, timestamp
-        )
+        let key = format!(
+            "{{{}}}:{{{}}}:{{{}}}:aggregate:{}:{}:{}",
+            self.mezmo_ctx.account_id,
+            self.mezmo_ctx
+                .pipeline_id
+                .as_ref()
+                .map_or("none".to_string(), |p| p.to_string()),
+            self.mezmo_ctx.component_id,
+            self.config.strategy,
+            hash,
+            timestamp,
+        );
+
+        match self.config.key_prefix {
+            Some(ref prefix) => format!("{}:{}", prefix, key),
+            None => key,
+        }
     }
 
     /// Generates a hashed code based on the root metric event fields. The fields
@@ -424,10 +448,7 @@ impl TaskTransform<Event> for MezmoAggregateDistributed {
         mut input_events: Pin<Box<dyn Stream<Item = Event> + Send>>,
     ) -> Pin<Box<dyn Stream<Item = Event> + Send>> {
         Box::pin(stream! {
-            let interval_duration = Duration::from_millis(self.config.flush_tick_ms);
-            let interval_start = tokio::time::Instant::now() + interval_duration;
-            let mut flush_interval = tokio::time::interval_at(interval_start, interval_duration);
-
+            let mut flush_interval = tokio::time::interval(Duration::from_millis(self.config.flush_tick_ms));
             let mut output:Vec<Event> = Vec::new();
             let mut done = false;
 
@@ -471,7 +492,6 @@ impl TaskTransform<Event> for MezmoAggregateDistributed {
                     yield event;
                 }
             }
-
         })
     }
 }

@@ -67,12 +67,39 @@ impl MezmoThrottleDistributed {
 
     /// Key for the zset of active windows.
     fn get_active_windows_key(&self) -> String {
-        format!("throttle:{{{}}}", self.mezmo_ctx.component_id)
+        let key = format!(
+            "{{{}}}:{{{}}}:{{{}}}:throttle",
+            self.mezmo_ctx.account_id,
+            self.mezmo_ctx
+                .pipeline_id
+                .as_ref()
+                .map_or("none".to_string(), |p| p.to_string()),
+            self.mezmo_ctx.component_id,
+        );
+
+        match self.config.key_prefix {
+            Some(ref prefix) => format!("{}:{}", prefix, key),
+            None => key,
+        }
     }
 
     /// Key for this event window hash
     fn get_event_window_key(&self, hash: u64) -> String {
-        format!("throttle:{{{}}}:{}", self.mezmo_ctx.component_id, hash)
+        let key = format!(
+            "{{{}}}:{{{}}}:{{{}}}:throttle:{}",
+            self.mezmo_ctx.account_id,
+            self.mezmo_ctx
+                .pipeline_id
+                .as_ref()
+                .map_or("none".to_string(), |p| p.to_string()),
+            self.mezmo_ctx.component_id,
+            hash,
+        );
+
+        match self.config.key_prefix {
+            Some(ref prefix) => format!("{}:{}", prefix, key),
+            None => key,
+        }
     }
 
     /// Renders a template provided by `key_field` and returns the hash of the resulting value.

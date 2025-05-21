@@ -52,6 +52,7 @@ async fn test_mezmo_aggregate_distributed_sum() {
         flush_tick_ms = 1000
         flush_grace_period_ms = 1000
         strategy = "sum"
+        key_prefix = "test-prefix"
     "#,
     );
 

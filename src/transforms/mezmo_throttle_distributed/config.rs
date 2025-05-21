@@ -51,6 +51,11 @@ pub struct MezmoThrottleDistributedConfig {
     #[serde(default = "default_window_duration_ms")]
     pub(super) window_duration_ms: NonZeroU32,
 
+    /// A prefix for all keys written by this component. This is useful for executing the same
+    /// component against the same datastore, but with different purposes (e.g. "live" data
+    /// vs "simulated" data), without affecting each other.
+    pub key_prefix: Option<String>,
+
     /// The value to group events into separate buckets to be rate limited independently.
     ///
     /// If left unspecified, or if the event doesn't have `key_field`, then the event is not rate
@@ -105,6 +110,7 @@ impl GenerateConfig for MezmoThrottleDistributedConfig {
         toml::value::Value::try_from(Self {
             connection_string: default_connection_string(),
             threshold: NonZeroU32::new(1).unwrap(),
+            key_prefix: None,
             key_field: None,
             exclude: None,
             window_duration_ms: default_window_duration_ms(),

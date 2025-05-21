@@ -71,6 +71,11 @@ pub struct MezmoAggregateDistributedConfig {
     #[serde(default)]
     pub flush_all_on_shutdown: bool,
 
+    /// A prefix for all keys written by this component. This is useful for executing the same
+    /// component against the same datastore, but with different purposes (e.g. "live" data
+    /// vs "simulated" data), without clobbering the aggregate values.
+    pub key_prefix: Option<String>,
+
     /// Controls the max age of a key before it is expired automatically to prevent
     /// memory bloat. In practice keys are explicitly removed when the data is flushed,
     /// however this does not account for scenarios where the component is removed from
@@ -147,6 +152,7 @@ impl GenerateConfig for MezmoAggregateDistributedConfig {
             flush_grace_period_ms: default_flush_grace_period_ms(),
             flush_batch_size: default_flush_batch_size(),
             flush_all_on_shutdown: false,
+            key_prefix: None,
             key_expiry_grace_period_ms: default_key_expiry_grace_period_ms(),
             connection_retry_factor_ms: default_connection_retry_factor_ms(),
             connection_retry_count: default_connection_retry_count(),
