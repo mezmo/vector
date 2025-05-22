@@ -1,3 +1,16 @@
+# [8.19.0](https://github.com/answerbook/vector/compare/v8.18.3...v8.19.0) (2025-05-22)
+
+
+### Features
+
+* **aggregate_distributed**: add option to flush all on shutdown [cc93e55](https://github.com/answerbook/vector/commit/cc93e552df76341531153842bc76a8394da85849) - Mike Del Tito [LOG-21665](https://logdna.atlassian.net/browse/LOG-21665)
+* **distributed**: add optional key_prefix [b0d3410](https://github.com/answerbook/vector/commit/b0d3410f3408b0a80a1eeb3badf3cb072fbd9aa8) - Mike Del Tito [LOG-21665](https://logdna.atlassian.net/browse/LOG-21665)
+
+
+### Miscellaneous
+
+* Merge pull request #674 from answerbook/mdeltito/LOG-21665 [3fc2875](https://github.com/answerbook/vector/commit/3fc2875b9e693c5465566d8b24ad39f0ab9dd052) - GitHub [LOG-21665](https://logdna.atlassian.net/browse/LOG-21665)
+
 ## [8.18.3](https://github.com/answerbook/vector/compare/v8.18.2...v8.18.3) (2025-05-13)
 
 
