@@ -1,3 +1,15 @@
+## [8.19.1](https://github.com/answerbook/vector/compare/v8.19.0...v8.19.1) (2025-05-27)
+
+
+### Bug Fixes
+
+* **aggregation**: aggregation v2 processor stuck while intensive ingest [69468fd](https://github.com/answerbook/vector/commit/69468fdedc9766eb28a3089e4e9f605c024852fa) - Sergey Opria [LOG-21714](https://logdna.atlassian.net/browse/LOG-21714)
+
+
+### Miscellaneous
+
+* Merge pull request #673 from answerbook/sopria/LOG-21714 [6e6f5e1](https://github.com/answerbook/vector/commit/6e6f5e1027d16c1e644267577f337ea9fa98d93d) - GitHub [LOG-21714](https://logdna.atlassian.net/browse/LOG-21714)
+
 # [8.19.0](https://github.com/answerbook/vector/compare/v8.18.3...v8.19.0) (2025-05-22)
 
 
