@@ -1,3 +1,15 @@
+## [8.19.2](https://github.com/answerbook/vector/compare/v8.19.1...v8.19.2) (2025-05-28)
+
+
+### Chores
+
+* **state**: wire up snapshots to s3 [c47d2ba](https://github.com/answerbook/vector/commit/c47d2bac6acffdf687c443a92523afe2788e168d) - Mike Del Tito [LOG-21849](https://logdna.atlassian.net/browse/LOG-21849)
+
+
+### Miscellaneous
+
+* Merge pull request #675 from answerbook/mdeltito/LOG-21849 [aa69aa9](https://github.com/answerbook/vector/commit/aa69aa93901c7551087dca97ee50407f4204e04f) - GitHub [LOG-21849](https://logdna.atlassian.net/browse/LOG-21849)
+
 ## [8.19.1](https://github.com/answerbook/vector/compare/v8.19.0...v8.19.1) (2025-05-27)
 
 
