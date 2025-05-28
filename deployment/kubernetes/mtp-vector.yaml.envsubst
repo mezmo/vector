@@ -61,6 +61,14 @@ spec:
         namespace: pipeline
         key: reshape-message-in-vector
 
+  - name: cluster-name
+    optional: false
+    valueFrom:
+      configMapKeyRef:
+        name: control
+        namespace: default
+        key: cluster-name
+
   - name: config_reload_max_sec
     optional: true
     default: '150'
@@ -175,6 +183,15 @@ spec:
         name: resources
         namespace: default
         key: vector-state-db_limits-memory-default
+
+  - name: state-db-snapshot-cron
+    optional: true
+    default: "*/10 * * * *"
+    valueFrom:
+      configMapKeyRef:
+        name: cron
+        namespace: default
+        key: vector-state-db-snapshot
 
   strTemplates:
   - | # yaml
@@ -472,6 +489,20 @@ spec:
           prometheus.io/port: "9999"
           prometheus.io/scrape: "true"
         replicas: 2
+        snapshot:
+          cron: "{{{state-db-snapshot-cron}}}"
+          dir: "s3://dragonfly-{{{cluster-name}}}/vector-state-{{{partition-id}}}"
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: dragonfly
+              key: awsaccesskey
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: dragonfly
+              key: awssecretkey
         resources:
           requests:
             {{#state-db-requests-cpu}}

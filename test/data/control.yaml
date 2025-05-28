@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: control
+  namespace: default
+data:
+  cluster-name: "a2.us-east-1.ci.logdna"
