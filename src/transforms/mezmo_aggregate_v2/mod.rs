@@ -1,6 +1,6 @@
 use crate::{conditions::Condition, mezmo::persistence::PersistenceConnection};
 use async_stream::stream;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use futures::{Stream, StreamExt};
 use mezmo::{user_log_error, user_trace::MezmoUserLog, MezmoContext};
 use rand::Rng;
@@ -13,7 +13,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::select;
-use tokio::time::MissedTickBehavior;
 use vector_lib::{
     event::{Event, LogEvent, VrlTarget},
     transform::TaskTransform,
@@ -518,28 +517,18 @@ fn load_initial_state(
     }
 }
 
+fn get_new_deadline(timestamp_ms: u64) -> DateTime<Utc> {
+    Utc::now() + Duration::from_millis(timestamp_ms)
+}
+
 impl TaskTransform<Event> for MezmoAggregateV2 {
     fn transform(
         mut self: Box<Self>,
         mut input_events: Pin<Box<dyn Stream<Item = Event> + Send>>,
     ) -> Pin<Box<dyn Stream<Item = Event> + Send>> {
         Box::pin(stream! {
-            let mut flush_interval = tokio::time::interval(Duration::from_millis(self.flush_tick_ms));
+            let mut flush_deadline = get_new_deadline(self.flush_tick_ms);
             let mut state_persistence_interval = tokio::time::interval(Duration::from_millis(self.state_persistence_tick_ms));
-
-            // Doc: https://docs.rs/tokio/1.40.0/tokio/time/enum.MissedTickBehavior.html
-            //
-            // LOG-21714: By default Interval uses MissedTickBehavior::Burst
-            // which ticks as fast as possible until caught up.
-            // The flush interval is 5ms by default and it cause both intervals
-            // flush and persistence state got stuck while intensive data ingestion.
-            // We assume that this behavior is caused by some missed ticks overflow
-            // inside of tokio, and we see a proof of it in the tokio-console.
-            // Setting MissedTickBehavior::Skip for both interval solves the issue
-            // by telling tokio we don't need to track missed ticks so the intervals
-            // will skips missed ticks and tick on the next multiple.
-            flush_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-            state_persistence_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
             let mut output:Vec<Event> = Vec::new();
             let mut done = false;
@@ -557,9 +546,6 @@ impl TaskTransform<Event> for MezmoAggregateV2 {
 
             while !done {
                 select! {
-                    _ = flush_interval.tick() => {
-                        self.flush_finalized(&mut output);
-                    },
                     _ = state_persistence_interval.tick() => {
                         let jitter = rand::thread_rng().gen_range(0..=self.state_persistence_max_jitter_ms);
                         tokio::time::sleep(Duration::from_millis(jitter)).await;
@@ -577,10 +563,27 @@ impl TaskTransform<Event> for MezmoAggregateV2 {
                                 }
                                 done = true;
                             },
-                            Some(event) => self.record(event),
+                            Some(event) => {
+                                self.record(event)
+                            },
                         }
                     }
                 }
+
+                // LOG-21714: Aggregation flushing was rewrited from using interval to use
+                // a simple mechanism to check a timestamp pointer on each iteration cause
+                // we experienced a situation when aggregation is stuck at some point under
+                // a massive ingest of data. The investigation found that
+                // tokio.time.interval get stuck and stop ticking which cause to owerflow
+                // aggregation and a CPU usage spick while a pipeline stop ingesting data
+                // and kafka starts growing a lag.
+                // We have tried to use set_missed_tick_behavior(MissedTickBehavior::Skip)
+                // but it didn't work out.
+                if Utc::now() >= flush_deadline {
+                    self.flush_finalized(&mut output);
+                    flush_deadline = get_new_deadline(self.flush_tick_ms);
+                }
+
                 for event in output.drain(..) {
                     yield event;
                 }
