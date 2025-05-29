@@ -121,7 +121,7 @@ const fn default_window_duration_ms() -> u32 {
 }
 
 const fn default_flush_tick_ms() -> u64 {
-    5
+    1000
 }
 
 fn default_mem_cardinality_limit() -> u32 {
