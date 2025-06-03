@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::mezmo::user_trace::MezmoLoggingService;
 use crate::sinks::util::retries::RetryLogic;
 use crate::sinks::util::ServiceBuilderExt;
@@ -132,26 +134,30 @@ impl TryFrom<&OpentelemetrySinkConfig> for OpentelemetryEndpoint {
             path_chars.next_back();
             path = path_chars.as_str();
         }
-        let query = uri.query().unwrap_or("");
+
+        let query: Cow<str> = match uri.query() {
+            Some(q) => Cow::Owned(format!("?{}", q)),
+            None => Cow::Borrowed(""),
+        };
 
         let logs_uri = Uri::builder()
             .scheme(scheme)
             .authority(authority)
-            .path_and_query(path.to_owned() + "/v1/logs?" + query)
+            .path_and_query(path.to_owned() + "/v1/logs" + &query)
             .build()
             .map_err(OpentelemetrySinkEndpointError::from)?;
 
         let metrics_uri = Uri::builder()
             .scheme(scheme)
             .authority(authority)
-            .path_and_query(path.to_owned() + "/v1/metrics?" + query)
+            .path_and_query(path.to_owned() + "/v1/metrics" + &query)
             .build()
             .map_err(OpentelemetrySinkEndpointError::from)?;
 
         let traces_uri = Uri::builder()
             .scheme(scheme)
             .authority(authority)
-            .path_and_query(path.to_owned() + "/v1/traces?" + query)
+            .path_and_query(path.to_owned() + "/v1/traces" + &query)
             .build()
             .map_err(OpentelemetrySinkEndpointError::from)?;
 
