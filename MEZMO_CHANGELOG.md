@@ -1,3 +1,15 @@
+## [8.19.4](https://github.com/answerbook/vector/compare/v8.19.3...v8.19.4) (2025-06-03)
+
+
+### Bug Fixes
+
+* **otel-sink**: do not append ? to collector url [24916a8](https://github.com/answerbook/vector/commit/24916a814b921b7156af4537f3a5e69172f9d758) - Mike Del Tito [LOG-21876](https://logdna.atlassian.net/browse/LOG-21876)
+
+
+### Miscellaneous
+
+* Merge pull request #677 from answerbook/mdeltito/LOG-21876 [4e8c333](https://github.com/answerbook/vector/commit/4e8c333e1d77b5640d2ac53f83ce9d579ddb7eb6) - GitHub [LOG-21876](https://logdna.atlassian.net/browse/LOG-21876)
+
 ## [8.19.3](https://github.com/answerbook/vector/compare/v8.19.2...v8.19.3) (2025-05-29)
 
 
