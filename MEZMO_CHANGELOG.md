@@ -1,3 +1,15 @@
+## [8.19.5](https://github.com/answerbook/vector/compare/v8.19.4...v8.19.5) (2025-06-03)
+
+
+### Chores
+
+* **mtp**: update default resource requests/limits for state db [d15916f](https://github.com/answerbook/vector/commit/d15916fa5f62ba8d93e83e2691743fbce09f65b0) - Mike Del Tito [LOG-21879](https://logdna.atlassian.net/browse/LOG-21879)
+
+
+### Miscellaneous
+
+* Merge pull request #678 from answerbook/mdeltito/update-default-resources [d993925](https://github.com/answerbook/vector/commit/d993925f9ea6102e3b0c8d81598792f471e35734) - GitHub
+
 ## [8.19.4](https://github.com/answerbook/vector/compare/v8.19.3...v8.19.4) (2025-06-03)
 
 
