@@ -31,7 +31,7 @@ data:
     aggregation-cardinality-limit: 10000,
     sink-buffer-max-events: 123456,
     state-db-enabled: true,
-    state-db-limits-memory: "10Gi",
+    state-db-limits-memory: "3Gi",
     state-connection-retry-factor-ms: 150,
     state-connection-retry-count: 10,
     state-connection-retry-max-delay-ms: 7500,
