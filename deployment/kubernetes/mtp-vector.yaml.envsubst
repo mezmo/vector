@@ -33,10 +33,10 @@ spec:
         "allocation-tracing-enabled": false,
         "sink-buffer-max-events": "1000",
         "state-db-enabled": false,
-        "state-db-requests-cpu": 2,
-        "state-db-requests-memory": "4Gi",
+        "state-db-requests-cpu": 1,
+        "state-db-requests-memory": "512Mi",
         "state-db-limits-cpu": 4,
-        "state-db-limits-memory": "8Gi",
+        "state-db-limits-memory": "2Gi",
         "state-connection-retry-factor-ms": 150,
         "state-connection-retry-count": 10,
         "state-connection-retry-max-delay-ms": 7500,
@@ -150,7 +150,7 @@ spec:
 
   - name: state-db-requests-cpu-default
     optional: true
-    default: 2
+    default: 1
     valueFrom:
       configMapKeyRef:
         name: resources
@@ -159,7 +159,7 @@ spec:
 
   - name: state-db-requests-memory-default
     optional: true
-    default: "4Gi"
+    default: "512Mi"
     valueFrom:
       configMapKeyRef:
         name: resources
@@ -177,7 +177,7 @@ spec:
 
   - name: state-db-limits-memory-default
     optional: true
-    default: "8Gi"
+    default: "2Gi"
     valueFrom:
       configMapKeyRef:
         name: resources

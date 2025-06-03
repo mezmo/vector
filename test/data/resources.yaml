@@ -4,5 +4,5 @@ metadata:
   name: resources
   namespace: default
 data:
-  vector-state-db_requests-memory-default: 5Gi
-  vector-state-db_limits-cpu-default: 10
+  vector-state-db_requests-memory-default: 1Gi
+  vector-state-db_limits-cpu-default: 5
