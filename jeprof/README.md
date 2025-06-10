@@ -2,7 +2,15 @@
 
 ### Enable profiling
 
-First profiling needs to be enabled on the k8s Vector cluster. To do that
+First, `jemallocator` needs to be built with the `profiling` feature flag. It's likely that
+our upstream merge process removed the flag, or we have done so ourselves for good hygiene.
+Edit `Cargo.toml` to look something like this:
+
+```toml
+tikv-jemallocator = { version = "0.5.4", default-features = false, features = ["profiling", "unprefixed_malloc_on_supported_platforms"], optional = true }
+```
+
+Next, profiling needs to be enabled on the k8s Vector cluster. To do that
 you'll edit the `vector` configmap by adding a `malloc-conf` entry:
 
 

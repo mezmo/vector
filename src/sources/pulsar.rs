@@ -2,11 +2,12 @@
 //! Accepts log events streamed from [`Apache Pulsar`][pulsar].
 //!
 //! [pulsar]: https://pulsar.apache.org/
+use bytes::Bytes;
 use chrono::TimeZone;
 use futures_util::StreamExt;
 use pulsar::{
     authentication::oauth2::{OAuth2Authentication, OAuth2Params},
-    consumer::Message,
+    consumer::{InitialPosition, Message},
     message::proto::MessageIdData,
     Authentication, Consumer, Pulsar, SubType, TokioExecutor,
 };
@@ -30,12 +31,14 @@ use vector_lib::{
     shutdown::ShutdownSignal,
     EstimatedJsonEncodedSizeOf,
 };
+use vrl::value::ObjectMap;
 use vrl::{owned_value_path, path, value::Kind};
 
 use crate::{
     codecs::{Decoder, DecodingConfig},
     config::{SourceConfig, SourceContext},
     event::BatchNotifier,
+    event::Value,
     internal_events::{
         PulsarErrorEvent, PulsarErrorEventData, PulsarErrorEventType, StreamClosedError,
     },
@@ -82,6 +85,22 @@ pub struct PulsarSourceConfig {
     #[configurable(derived)]
     dead_letter_queue_policy: Option<DeadLetterQueuePolicy>,
 
+    /// The subscription type to use.
+    #[configurable(derived)]
+    #[configurable(metadata(docs::examples = "Exclusive"))]
+    #[configurable(metadata(docs::examples = "Shared"))]
+    #[configurable(metadata(docs::examples = "Failover"))]
+    #[configurable(metadata(docs::examples = "KeyShared"))]
+    #[serde(default)]
+    subscription_type: SubscriptionType,
+
+    /// The read position that the consumer should start from.
+    #[configurable(derived)]
+    #[configurable(metadata(docs::examples = "Earliest"))]
+    #[configurable(metadata(docs::examples = "Latest"))]
+    #[serde(default)]
+    consumer_position: ConsumerPosition,
+
     #[configurable(derived)]
     #[serde(default = "default_framing_message_based")]
     #[derivative(Default(value = "default_framing_message_based()"))]
@@ -100,6 +119,52 @@ pub struct PulsarSourceConfig {
     #[configurable(metadata(docs::hidden))]
     #[serde(default)]
     log_namespace: Option<bool>,
+}
+
+/// Specify the subscription type for the consumer
+#[configurable_component]
+#[derive(Clone, Copy, Debug, Default)]
+pub enum SubscriptionType {
+    /// Exclusive subscription type.
+    Exclusive,
+    /// Shared subscription type.
+    #[default]
+    Shared,
+    /// Failover subscription type.
+    Failover,
+    /// Key_Shared subscription type.
+    KeyShared,
+}
+
+impl From<SubscriptionType> for SubType {
+    fn from(val: SubscriptionType) -> SubType {
+        match val {
+            SubscriptionType::Exclusive => SubType::Exclusive,
+            SubscriptionType::Shared => SubType::Shared,
+            SubscriptionType::Failover => SubType::Failover,
+            SubscriptionType::KeyShared => SubType::KeyShared,
+        }
+    }
+}
+
+/// Spcify the position from which the consumer should start reading.
+#[configurable_component]
+#[derive(Clone, Copy, Debug, Default)]
+pub enum ConsumerPosition {
+    /// Read from the beginning
+    Earliest,
+    /// Read from the last-known message
+    #[default]
+    Latest,
+}
+
+impl From<ConsumerPosition> for InitialPosition {
+    fn from(val: ConsumerPosition) -> InitialPosition {
+        match val {
+            ConsumerPosition::Earliest => InitialPosition::Earliest,
+            ConsumerPosition::Latest => InitialPosition::Latest,
+        }
+    }
 }
 
 /// Authentication configuration.
@@ -269,9 +334,10 @@ impl PulsarSourceConfig {
         let mut consumer_builder = pulsar
             .consumer()
             .with_topics(&self.topics)
-            .with_subscription_type(SubType::Shared)
+            .with_subscription_type(self.subscription_type.into())
             .with_options(pulsar::consumer::ConsumerOptions {
                 priority_level: self.priority_level,
+                initial_position: self.consumer_position.into(),
                 ..Default::default()
             });
 
@@ -359,6 +425,14 @@ async fn parse_message(
     let topic = msg.topic.clone();
     let producer_name = msg.payload.metadata.producer_name.clone();
 
+    let mut headers_map = ObjectMap::new();
+    for kv in &msg.metadata().properties {
+        headers_map.insert(
+            kv.key.to_owned().into(),
+            Value::from(Bytes::from(kv.value.to_owned())),
+        );
+    }
+
     let mut stream = FramedRead::new(msg.payload.data.as_ref(), decoder.clone());
     let stream = async_stream::stream! {
         while let Some(next) = stream.next().await {
@@ -402,6 +476,8 @@ async fn parse_message(
                                 path!("producer_name"),
                                 producer_name.clone(),
                             );
+
+                            log.insert("headers", headers_map.clone());
                         }
                         event
                     });
@@ -523,6 +599,8 @@ mod integration_tests {
     use crate::config::log_schema;
     use crate::test_util::components::{assert_source_compliance, SOURCE_TAGS};
     use crate::test_util::{collect_n, random_string, trace_init};
+    use pulsar::producer;
+    use std::collections::HashMap;
 
     fn pulsar_address() -> String {
         std::env::var("PULSAR_ADDRESS").unwrap_or_else(|_| "pulsar://127.0.0.1:6650".into())
@@ -561,6 +639,8 @@ mod integration_tests {
             batch_size: None,
             auth: None,
             dead_letter_queue_policy: None,
+            subscription_type: SubscriptionType::default().into(),
+            consumer_position: ConsumerPosition::default().into(),
             framing: FramingConfig::Bytes,
             decoding: DeserializerConfig::Bytes,
             acknowledgements: acknowledgements.into(),
@@ -584,6 +664,10 @@ mod integration_tests {
         let mut producer = pulsar.producer().with_topic(topic).build().await.unwrap();
 
         let msg = "test message";
+        let mut headers = HashMap::new();
+        headers.insert("my_header1".to_string(), "somevalue".to_string());
+        headers.insert("my_header2".to_string(), "anothervalue".to_string());
+        let properties = headers.clone();
 
         let events = assert_source_compliance(&SOURCE_TAGS, async move {
             let (tx, rx) = SourceSender::new_test();
@@ -595,7 +679,13 @@ mod integration_tests {
                 acknowledgements,
                 log_namespace,
             ));
-            producer.send_non_blocking(msg).await.unwrap();
+
+            let message = producer::Message {
+                payload: msg.into(),
+                properties,
+                ..Default::default()
+            };
+            producer.send_non_blocking(message).await.unwrap();
 
             collect_n(rx, 1).await
         })
@@ -605,5 +695,13 @@ mod integration_tests {
             events[0].as_log()[log_schema().message_key().unwrap().to_string()],
             msg.into()
         );
+
+        let mut expected_headers = ObjectMap::new();
+        for (key, value) in headers {
+            let key_str: &str = key.as_str();
+            let value_str: &str = value.as_str();
+            expected_headers.insert(key_str.into(), Value::from(value_str));
+        }
+        assert_eq!(events[0].as_log()["headers"], Value::from(expected_headers));
     }
 }
