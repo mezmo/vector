@@ -1,3 +1,15 @@
+## [8.19.6](https://github.com/answerbook/vector/compare/v8.19.5...v8.19.6) (2025-06-11)
+
+
+### Chores
+
+* **aggregate,throttle**: emit global metrics [333f61d](https://github.com/answerbook/vector/commit/333f61da8f6fcee27da4212cba6a86010ce1b6d7) - Mike Del Tito [LOG-21909](https://logdna.atlassian.net/browse/LOG-21909)
+
+
+### Miscellaneous
+
+* Merge pull request #679 from answerbook/mdeltito/LOG-21909 [399b5ce](https://github.com/answerbook/vector/commit/399b5cec932204806449368845a7f5ede0d71f5b) - GitHub [LOG-21909](https://logdna.atlassian.net/browse/LOG-21909)
+
 ## [8.19.5](https://github.com/answerbook/vector/compare/v8.19.4...v8.19.5) (2025-06-03)
 
 
