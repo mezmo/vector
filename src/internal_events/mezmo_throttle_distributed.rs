@@ -7,6 +7,7 @@ pub(crate) struct MezmoThrottleDistributedEventThrottled;
 impl InternalEvent for MezmoThrottleDistributedEventThrottled {
     fn emit(self) {
         counter!("mezmo_throttle_events_throttled_total").increment(1);
+        counter!("mezmo_throttle_events_throttled_total", "component_id" => "global").increment(1);
         emit!(ComponentEventsDropped::<INTENTIONAL> {
             count: 1,
             reason: "Event throttled.",
@@ -20,6 +21,7 @@ pub struct MezmoThrottleDistributedEventChecked;
 impl InternalEvent for MezmoThrottleDistributedEventChecked {
     fn emit(self) {
         counter!("mezmo_throttle_events_checked_total").increment(1);
+        counter!("mezmo_throttle_events_checked_total", "component_id" => "global").increment(1);
     }
 }
 
@@ -36,6 +38,7 @@ impl InternalEvent for MezmoThrottleDistributedCheckFailed {
             "Unable to check rate-limit for event",
         );
         counter!("mezmo_throttle_check_failed_total").increment(1);
+        counter!("mezmo_throttle_check_failed_total", "component_id" => "global").increment(1);
     }
 }
 
@@ -53,5 +56,6 @@ impl InternalEvent for MezmoThrottleDistributedCheckRetried {
             "Retrying rate-limit check for event..."
         );
         counter!("mezmo_throttle_check_retried_total").increment(1);
+        counter!("mezmo_throttle_check_retried_total", "component_id" => "global").increment(1);
     }
 }
