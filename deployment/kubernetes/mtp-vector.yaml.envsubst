@@ -193,6 +193,13 @@ spec:
         namespace: default
         key: vector-state-db-snapshot
 
+  - name: dragonfly-image
+    valueFrom:
+      configMapKeyRef:
+        name: dragonfly
+        namespace: dragonfly
+        key: image
+
   strTemplates:
   - | # yaml
     apiVersion: v1
@@ -489,6 +496,7 @@ spec:
           prometheus.io/port: "9999"
           prometheus.io/scrape: "true"
         replicas: 2
+        image: {{{dragonfly-image}}}
         snapshot:
           cron: "{{{state-db-snapshot-cron}}}"
           dir: "s3://dragonfly-{{{cluster-name}}}/vector-state-{{{partition-id}}}"
