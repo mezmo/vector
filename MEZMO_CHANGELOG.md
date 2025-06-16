@@ -1,3 +1,15 @@
+## [8.19.7](https://github.com/answerbook/vector/compare/v8.19.6...v8.19.7) (2025-06-16)
+
+
+### Chores
+
+* **deployment**: use dragonfly configmap for image [c0979c2](https://github.com/answerbook/vector/commit/c0979c20c8bf151a64b70ed5292492e547cfa487) - Mike Del Tito [LOG-21944](https://logdna.atlassian.net/browse/LOG-21944)
+
+
+### Miscellaneous
+
+* Merge pull request #680 from answerbook/mdeltito/LOG-21944 [b0ca071](https://github.com/answerbook/vector/commit/b0ca07127b238eed7efce7d0726ad81b541bb307) - GitHub [LOG-21944](https://logdna.atlassian.net/browse/LOG-21944)
+
 ## [8.19.6](https://github.com/answerbook/vector/compare/v8.19.5...v8.19.6) (2025-06-11)
 
 
