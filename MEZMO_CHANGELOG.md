@@ -1,3 +1,15 @@
+## [8.19.8](https://github.com/answerbook/vector/compare/v8.19.7...v8.19.8) (2025-07-01)
+
+
+### Chores
+
+* move all of the statedb logic to the dragonfly repo [ad51f5d](https://github.com/answerbook/vector/commit/ad51f5d9ff16b44f78bd991f8cddf05254043a61) - Eric Lake [INFRA-7554](https://logdna.atlassian.net/browse/INFRA-7554)
+
+
+### Miscellaneous
+
+* Merge pull request #682 from answerbook/move-statedb [fff55cc](https://github.com/answerbook/vector/commit/fff55cc58edfe097a53c86dd6c5e7062f993ec69) - GitHub
+
 ## [8.19.7](https://github.com/answerbook/vector/compare/v8.19.6...v8.19.7) (2025-06-16)
 
 
