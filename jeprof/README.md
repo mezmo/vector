@@ -7,8 +7,11 @@ our upstream merge process removed the flag, or we have done so ourselves for go
 Edit `Cargo.toml` to look something like this:
 
 ```toml
-tikv-jemallocator = { version = "0.5.4", default-features = false, features = ["profiling", "unprefixed_malloc_on_supported_platforms"], optional = true }
+tikv-jemallocator = { version = "0.5.4", default-features = false, features = ["profiling"], optional = true }
 ```
+
+**Note:** As of 2025, the use of `unprefixed_malloc_on_supported_platforms` feature appears to
+NOT work, so it should be removed when doing profiling.
 
 Next, profiling needs to be enabled on the k8s Vector cluster. To do that
 you'll edit the `vector` configmap by adding a `malloc-conf` entry:
