@@ -1,3 +1,15 @@
+# [8.20.0](https://github.com/answerbook/vector/compare/v8.19.8...v8.20.0) (2025-07-02)
+
+
+### Bug Fixes
+
+* **jemalloc**: Fix scripts and update README.md [adf6e65](https://github.com/answerbook/vector/commit/adf6e65d3e456cb565a85a970e1f865ba51296b8) - Darin Spivey [LOG-21961](https://logdna.atlassian.net/browse/LOG-21961)
+
+
+### Features
+
+* **pulsar**: Expose Pulsar as a valid source [badfb84](https://github.com/answerbook/vector/commit/badfb84e1601b6a70b014d779f55ad3d5d563d7f) - Darin Spivey [LOG-21961](https://logdna.atlassian.net/browse/LOG-21961)
+
 ## [8.19.8](https://github.com/answerbook/vector/compare/v8.19.7...v8.19.8) (2025-07-01)
 
 
