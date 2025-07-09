@@ -161,3 +161,24 @@ macro_rules! user_log_error {
         $crate::user_log!("error", $user_log, $message, None, None, None);
     }};
 }
+
+#[macro_export]
+macro_rules! set_pipeline_state_variable {
+    ($mezmo_ctx:expr, $vrl_position:expr, $name:expr, $value:expr) => {
+        {
+            use $crate::callsite::{Callsite, CallsiteIdentity};
+            use $crate::pipeline_state_variable_change_action::PipelineStateVariableChangeActionLog;
+
+            static CALLSITE: &'static Callsite = $crate::callsite!("set_pipeline_state_variable");
+
+            $mezmo_ctx.clone().set_pipeline_state_variable(
+                $name,
+                $value,
+                CallsiteIdentity {
+                    site: CALLSITE,
+                    vrl_position: $vrl_position,
+                },
+            );
+        }
+    };
+}
