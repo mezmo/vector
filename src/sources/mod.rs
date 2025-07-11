@@ -60,8 +60,6 @@ pub mod logstash;
 pub mod mezmo_demo_logs;
 #[cfg(feature = "sources-mezmo_user_logs")]
 pub mod mezmo_user_logs;
-#[cfg(feature = "sources-mezmo_pipeline_state_variable_change")]
-pub mod mezmo_pipeline_state_variable_change;
 #[cfg(feature = "sources-mongodb_metrics")]
 pub mod mongodb_metrics;
 #[cfg(feature = "sources-nats")]
