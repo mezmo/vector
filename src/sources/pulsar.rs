@@ -42,6 +42,7 @@ use crate::{
     internal_events::{
         PulsarErrorEvent, PulsarErrorEventData, PulsarErrorEventType, StreamClosedError,
     },
+    serde::default_false,
     serde::{bool_or_struct, default_decoding, default_framing_message_based},
     SourceSender,
 };
@@ -119,6 +120,15 @@ pub struct PulsarSourceConfig {
     #[configurable(metadata(docs::hidden))]
     #[serde(default)]
     log_namespace: Option<bool>,
+
+    /// If event batch delivery fails (from a bad sink?), Pulsar messages can be nacked, causing redelivery from the broker.
+    /// When `false`, failed event delivery relies on the sink's retry mechanism, but messages will not be resent from the broker
+    /// if retries are exhausted. However, the consumer can still restart from `Earliest` to get all missed messages.
+    /// When `true`, failed delivery nacks the original Pulsar message, and it will constantly be re-consumed by this source.
+    /// Such events will travel through downstream components, which may skew aggregations and other stateful processing.
+    #[configurable(derived)]
+    #[serde(default = "default_false")]
+    broker_redelivery_enabled: bool,
 }
 
 /// Specify the subscription type for the consumer
@@ -264,6 +274,7 @@ impl SourceConfig for PulsarSourceConfig {
             cx.out,
             acknowledgements,
             log_namespace,
+            self.broker_redelivery_enabled,
         )))
     }
 
@@ -372,6 +383,7 @@ async fn pulsar_source(
     mut out: SourceSender,
     acknowledgements: bool,
     log_namespace: LogNamespace,
+    broker_redelivery_enabled: bool,
 ) -> Result<(), ()> {
     let (finalizer, mut ack_stream) =
         OrderedFinalizer::<FinalizerEntry>::maybe_new(acknowledgements, Some(shutdown.clone()));
@@ -385,7 +397,7 @@ async fn pulsar_source(
             _ = &mut shutdown => break,
             entry = ack_stream.next() => {
                 if let Some((status, entry)) = entry {
-                    handle_ack(&mut consumer, status, entry, &pulsar_error_events).await;
+                    handle_ack(&mut consumer, status, entry, &pulsar_error_events, broker_redelivery_enabled).await;
                 }
             },
             Some(maybe_message) = consumer.next() => {
@@ -555,6 +567,7 @@ async fn handle_ack(
     status: BatchStatus,
     entry: FinalizerEntry,
     pulsar_error_events: &Registered<PulsarErrorEvent>,
+    broker_redelivery_enabled: bool,
 ) {
     match status {
         BatchStatus::Delivered => {
@@ -569,14 +582,22 @@ async fn handle_ack(
             }
         }
         BatchStatus::Errored | BatchStatus::Rejected => {
-            if let Err(error) = consumer
-                .nack_with_id(entry.topic.as_str(), entry.message_id)
-                .await
-            {
-                pulsar_error_events.emit(PulsarErrorEventData {
-                    msg: error.to_string(),
-                    error_type: PulsarErrorEventType::NAck,
-                });
+            if broker_redelivery_enabled {
+                // Nack the message, and the broker will redeliver it.
+                if let Err(error) = consumer
+                    .nack_with_id(entry.topic.as_str(), entry.message_id)
+                    .await
+                {
+                    pulsar_error_events.emit(PulsarErrorEventData {
+                        msg: error.to_string(),
+                        error_type: PulsarErrorEventType::NAck,
+                    });
+                }
+            } else {
+                // The message will remain in the backlog, but not be redelivered.
+                debug!({
+                    topic = entry.topic,
+                }, "Cannot deliver to destination: {:?}", status);
             }
         }
     }
@@ -645,6 +666,7 @@ mod integration_tests {
             decoding: DeserializerConfig::Bytes,
             acknowledgements: acknowledgements.into(),
             log_namespace: None,
+            broker_redelivery_enabled: true,
         };
 
         let pulsar = Pulsar::<TokioExecutor>::builder(&cnf.endpoint, TokioExecutor)
@@ -678,6 +700,7 @@ mod integration_tests {
                 tx,
                 acknowledgements,
                 log_namespace,
+                true,
             ));
 
             let message = producer::Message {
