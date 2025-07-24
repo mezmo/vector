@@ -1,3 +1,10 @@
+# [8.21.0](https://github.com/answerbook/vector/compare/v8.20.0...v8.21.0) (2025-07-24)
+
+
+### Features
+
+* **sources**: Configuration to control Pulsar nacking [6b2c5d6](https://github.com/answerbook/vector/commit/6b2c5d64f1d34995698841ce120c866a9cfd9fbf) - Darin Spivey [LOG-22106](https://logdna.atlassian.net/browse/LOG-22106)
+
 # [8.20.0](https://github.com/answerbook/vector/compare/v8.19.8...v8.20.0) (2025-07-02)
 
 
