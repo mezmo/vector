@@ -130,7 +130,7 @@ impl StateVariables {
             loop {
                 match fetch_states_from_db(&spawn_cache, spawn_partition_name.as_str()).await {
                     Ok(0) => {
-                        warn!("Warning: No state variables loaded for partition '{spawn_partition_name}'");
+                        debug!("Warning: No state variables loaded for partition '{spawn_partition_name}'");
                     }
                     Ok(row_len) => debug!("Loaded {row_len} entries"),
                     Err(err) => error!("Error polling state variables DB table: {err:?}"),

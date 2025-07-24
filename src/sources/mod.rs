@@ -58,6 +58,8 @@ pub mod kubernetes_logs;
 pub mod logstash;
 #[cfg(feature = "sources-mezmo_demo_logs")]
 pub mod mezmo_demo_logs;
+#[cfg(feature = "sources-mezmo_pipeline_state_variable_change")]
+pub mod mezmo_pipeline_state_variable_change;
 #[cfg(feature = "sources-mezmo_user_logs")]
 pub mod mezmo_user_logs;
 #[cfg(feature = "sources-mongodb_metrics")]
