@@ -1,3 +1,15 @@
+# [8.22.0](https://github.com/answerbook/vector/compare/v8.21.0...v8.22.0) (2025-07-24)
+
+
+### Features
+
+* **state-vars**: add vrl to set state variables [ff71215](https://github.com/answerbook/vector/commit/ff71215ee2c2c4ec107248e11e26904fb058e230) - dominic-mcallister-logdna [LOG-21730](https://logdna.atlassian.net/browse/LOG-21730)
+
+
+### Miscellaneous
+
+* Merge pull request #683 from answerbook/dominic/LOG-21730 [595a4d3](https://github.com/answerbook/vector/commit/595a4d3ade6fac05e22578a5077f928380f7a1f0) - GitHub [LOG-21730](https://logdna.atlassian.net/browse/LOG-21730)
+
 # [8.21.0](https://github.com/answerbook/vector/compare/v8.20.0...v8.21.0) (2025-07-24)
 
 
