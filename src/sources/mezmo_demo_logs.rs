@@ -195,7 +195,7 @@ impl State {
         }
     }
 
-    #[cfg(any(test, feature = "test"))]
+    #[cfg(test)]
     fn new_with(financial_evt_state: OnceCell<EventGenerator>) -> State {
         State {
             financial_evt_state,

@@ -455,7 +455,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(ignored_upstream_flaky), ignore)]
+    #[cfg_attr(not(ignored_upstream_flakey), ignore)]
     async fn generates_cgroups_metrics() {
         let config: HostMetricsConfig = toml::from_str(r#"collectors = ["cgroups"]"#).unwrap();
         let mut buffer = MetricsBuffer::new(None);
