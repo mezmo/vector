@@ -8,7 +8,6 @@ use async_stream::stream;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
 use mezmo::{user_trace::handle_transform_error, MezmoContext};
-use once_cell::sync::Lazy;
 use redis::{
     aio::ConnectionManager, AsyncCommands, ErrorKind, RedisError, RedisResult, Script, ToRedisArgs,
 };
@@ -19,6 +18,7 @@ use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use std::pin::Pin;
+use std::sync::LazyLock;
 use std::time::Duration;
 use tokio::{select, time::sleep};
 use vector_lib::config::log_schema;
@@ -38,8 +38,10 @@ use config::MezmoAggregateDistributedConfig;
 #[cfg(test)]
 pub(crate) mod integration_tests;
 
-static RECORD_SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(include_str!("redis/record.lua")));
-static FLUSH_SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(include_str!("redis/flush.lua")));
+static RECORD_SCRIPT: LazyLock<Script> =
+    LazyLock::new(|| Script::new(include_str!("redis/record.lua")));
+static FLUSH_SCRIPT: LazyLock<Script> =
+    LazyLock::new(|| Script::new(include_str!("redis/flush.lua")));
 
 /// Configuration for a strategy
 #[configurable_component]

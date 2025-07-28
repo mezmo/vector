@@ -1,7 +1,7 @@
-use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::LazyLock;
 
 use opentelemetry_rs::opentelemetry::metrics::{
     AggregationTemporality, AnyValue, AnyValueOneOfvalue, Exemplar, ExemplarOneOfvalue,
@@ -32,7 +32,7 @@ use crate::decoding::format::mezmo::open_telemetry::{
 };
 
 const METRIC_TIMESTAMP_KEY: &str = "message.value.time_unix";
-static UNIT_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
+static UNIT_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     vec![
         // Time
         ("d", "days"),
@@ -68,7 +68,7 @@ static UNIT_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     .into_iter()
     .collect()
 });
-static PER_UNIT_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
+static PER_UNIT_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     vec![
         ("s", "second"),
         ("m", "minute"),

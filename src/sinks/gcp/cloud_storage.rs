@@ -27,7 +27,8 @@ use crate::{
     sinks::{
         gcs_common::{
             config::{
-                build_healthcheck, GcsPredefinedAcl, GcsRetryLogic, GcsStorageClass, BASE_URL,
+                build_healthcheck, default_endpoint, GcsPredefinedAcl, GcsRetryLogic,
+                GcsStorageClass,
             },
             service::{GcsRequest, GcsRequestSettings, GcsService},
             sink::GcsSink,
@@ -156,6 +157,12 @@ pub struct GcsSinkConfig {
     #[serde(default)]
     batch: BatchConfig<BulkSizeBasedDefaultBatchSettings>,
 
+    /// API endpoint for Google Cloud Storage
+    #[configurable(metadata(docs::examples = "http://localhost:9000"))]
+    #[configurable(validation(format = "uri"))]
+    #[serde(default = "default_endpoint")]
+    endpoint: String,
+
     #[configurable(derived)]
     #[serde(default)]
     request: TowerRequestConfig<GcsTowerRequestConfigDefaults>,
@@ -197,6 +204,7 @@ fn default_config(encoding: EncodingConfigWithFraming) -> GcsSinkConfig {
         encoding,
         compression: Compression::gzip_default(),
         batch: Default::default(),
+        endpoint: Default::default(),
         request: Default::default(),
         auth: Default::default(),
         tls: Default::default(),
@@ -230,7 +238,7 @@ impl SinkConfig for GcsSinkConfig {
         }
         let auth = auth.ok();
 
-        let base_url = format!("{}{}/", BASE_URL, self.bucket);
+        let base_url = format!("{}{}/", self.endpoint, self.bucket);
         let tls = TlsSettings::from_options(&self.tls)?;
         let client = HttpClient::new(tls, cx.proxy())?;
         let healthcheck = build_healthcheck(

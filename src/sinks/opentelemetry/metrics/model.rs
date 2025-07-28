@@ -1,7 +1,7 @@
-use once_cell::sync::Lazy;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use crate::sinks::opentelemetry::{
     config::OpentelemetryMetricConfig,
@@ -29,7 +29,7 @@ use vector_lib::{
     },
 };
 
-static WORD_TO_UCUM: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
+static WORD_TO_UCUM: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     vec![
         // Time
         ("days", "d"),
@@ -72,10 +72,10 @@ static WORD_TO_UCUM: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     .collect()
 });
 
-static WORD_TO_UCUM_INVERT: Lazy<HashMap<&'static str, &'static str>> =
-    Lazy::new(|| WORD_TO_UCUM.iter().map(|(_, v)| (*v, *v)).collect());
+static WORD_TO_UCUM_INVERT: LazyLock<HashMap<&'static str, &'static str>> =
+    LazyLock::new(|| WORD_TO_UCUM.iter().map(|(_, v)| (*v, *v)).collect());
 
-static PER_WORD_TO_UCUM: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
+static PER_WORD_TO_UCUM: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     vec![
         ("second", "s"),
         ("minute", "m"),
@@ -89,8 +89,8 @@ static PER_WORD_TO_UCUM: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     .collect()
 });
 
-static PER_WORD_TO_UCUM_INVERT: Lazy<HashMap<&'static str, &'static str>> =
-    Lazy::new(|| PER_WORD_TO_UCUM.iter().map(|(_, v)| (*v, *v)).collect());
+static PER_WORD_TO_UCUM_INVERT: LazyLock<HashMap<&'static str, &'static str>> =
+    LazyLock::new(|| PER_WORD_TO_UCUM.iter().map(|(_, v)| (*v, *v)).collect());
 
 fn get_property<'a>(
     root: &'a BTreeMap<KeyString, Value>,

@@ -1,8 +1,8 @@
 use deadpool_postgres::{Config, Object, Pool, PoolConfig, Runtime};
-use once_cell::sync::Lazy;
 use snafu::Snafu;
 use std::collections::HashMap;
 use std::env;
+use std::sync::LazyLock;
 use tokio::sync::RwLock;
 use tokio_postgres::NoTls;
 use url::Url;
@@ -79,7 +79,8 @@ fn parse_endpoint_url(endpoint_url: &str) -> Result<Config, DbError> {
     Ok(cfg)
 }
 
-static DB_POOLS: Lazy<RwLock<HashMap<String, Pool>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+static DB_POOLS: LazyLock<RwLock<HashMap<String, Pool>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
 async fn get_conn(pool: &Pool) -> Result<Object, DbError> {
     pool.get().await.map_err(|err| DbError::PoolError {

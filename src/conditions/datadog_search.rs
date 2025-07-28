@@ -1,4 +1,5 @@
 use std::{borrow::Cow, str::FromStr};
+use vrl::path::PathParseError;
 
 use bytes::Bytes;
 use vector_lib::configurable::configurable_component;
@@ -61,7 +62,7 @@ impl ConditionalConfig for DatadogSearchConfig {
         _enrichment_tables: &vector_lib::enrichment::TableRegistry,
         _mezmo_ctx: Option<MezmoContext>,
     ) -> crate::Result<Condition> {
-        let matcher = as_log(build_matcher(&self.source, &EventFilter));
+        let matcher = as_log(build_matcher(&self.source, &EventFilter).map_err(|e| e.to_string())?);
 
         Ok(Condition::DatadogSearch(DatadogSearchRunner { matcher }))
     }
@@ -82,8 +83,8 @@ struct EventFilter;
 impl Resolver for EventFilter {}
 
 impl Filter<LogEvent> for EventFilter {
-    fn exists(&self, field: Field) -> Box<dyn Matcher<LogEvent>> {
-        match field {
+    fn exists(&self, field: Field) -> Result<Box<dyn Matcher<LogEvent>>, PathParseError> {
+        Ok(match field {
             Field::Tag(tag) => {
                 let starts_with = format!("{}:", tag);
 
@@ -103,11 +104,15 @@ impl Filter<LogEvent> for EventFilter {
                         .is_some()
                 })
             }
-        }
+        })
     }
 
-    fn equals(&self, field: Field, to_match: &str) -> Box<dyn Matcher<LogEvent>> {
-        match field {
+    fn equals(
+        &self,
+        field: Field,
+        to_match: &str,
+    ) -> Result<Box<dyn Matcher<LogEvent>>, PathParseError> {
+        Ok(match field {
             // Default fields are compared by word boundary.
             Field::Default(field) => {
                 let re = word_regex(to_match);
@@ -140,11 +145,15 @@ impl Filter<LogEvent> for EventFilter {
 
                 string_or_numeric_match(field, move |value| value == to_match)
             }
-        }
+        })
     }
 
-    fn prefix(&self, field: Field, prefix: &str) -> Box<dyn Matcher<LogEvent>> {
-        match field {
+    fn prefix(
+        &self,
+        field: Field,
+        prefix: &str,
+    ) -> Result<Box<dyn Matcher<LogEvent>>, PathParseError> {
+        Ok(match field {
             // Default fields are matched by word boundary.
             Field::Default(field) => {
                 let re = word_regex(&format!("{}*", prefix));
@@ -163,11 +172,15 @@ impl Filter<LogEvent> for EventFilter {
 
                 string_match(field, move |value| value.starts_with(&prefix))
             }
-        }
+        })
     }
 
-    fn wildcard(&self, field: Field, wildcard: &str) -> Box<dyn Matcher<LogEvent>> {
-        match field {
+    fn wildcard(
+        &self,
+        field: Field,
+        wildcard: &str,
+    ) -> Result<Box<dyn Matcher<LogEvent>>, PathParseError> {
+        Ok(match field {
             Field::Default(field) => {
                 let re = word_regex(wildcard);
 
@@ -183,7 +196,7 @@ impl Filter<LogEvent> for EventFilter {
 
                 string_match(field, move |value| re.is_match(&value))
             }
-        }
+        })
     }
 
     fn compare(
@@ -191,10 +204,10 @@ impl Filter<LogEvent> for EventFilter {
         field: Field,
         comparator: Comparison,
         comparison_value: ComparisonValue,
-    ) -> Box<dyn Matcher<LogEvent>> {
+    ) -> Result<Box<dyn Matcher<LogEvent>>, PathParseError> {
         let rhs = Cow::from(comparison_value.to_string());
 
-        match field {
+        Ok(match field {
             // Attributes are compared numerically if the value is numeric, or as strings otherwise.
             Field::Attribute(f) => {
                 Run::boxed(move |log: &LogEvent| {
@@ -288,7 +301,7 @@ impl Filter<LogEvent> for EventFilter {
                     Comparison::Gte => lhs >= rhs,
                 })
             }
-        }
+        })
     }
 }
 
@@ -1177,7 +1190,7 @@ mod test {
 
         for (source, pass, fail) in checks {
             let node: QueryNode = source.parse().unwrap();
-            let matcher = build_matcher(&node, &filter);
+            let matcher = build_matcher(&node, &filter).unwrap();
 
             assert!(matcher.run(&processor(pass)));
             assert!(!matcher.run(&processor(fail)));

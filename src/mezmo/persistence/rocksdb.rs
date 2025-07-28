@@ -1,10 +1,10 @@
-use once_cell::sync::Lazy;
 use rocksdb::statistics::{Histogram, StatsLevel, Ticker};
 use rocksdb::{BlockBasedOptions, Cache, DBCompactionStyle, Options, DB};
 use snafu::{ResultExt, Snafu};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -41,8 +41,8 @@ const ROCKSDB_TTL_SECS: u64 = 90_000; // 25 hours
 // Global registry of RocksDB connections.
 // Connections/databases are partitioned by account. Each component for a given account
 // will operate on a reference to the same DB connection.
-static ROCKSDB_CONNECTION_REGISTRY: Lazy<RocksDBConnectionRegistry> =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+static ROCKSDB_CONNECTION_REGISTRY: LazyLock<RocksDBConnectionRegistry> =
+    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 type RocksDB = DB;
 type RocksDBConnectionRegistry = Arc<Mutex<HashMap<String, Arc<RocksDBConnection>>>>;

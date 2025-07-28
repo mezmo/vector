@@ -38,7 +38,7 @@ jobs:
     env:
       CARGO_INCREMENTAL: 0
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           # check-version needs tags
           fetch-depth: 0 # fetch everything
@@ -143,4 +143,3 @@ jobs:
           else
             exit 0
           fi
-

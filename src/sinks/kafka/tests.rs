@@ -153,7 +153,7 @@ mod integration_test {
 
     // rdkafka zstd feature is not enabled
     // https://github.com/answerbook/vector/blob/bda2442c3481ee8693f703f6ef1bcc7a029d791a/Cargo.toml#L283-L287
-    #[cfg(feature = "kafka-rdkafka-zstd")]
+    #[cfg_attr(not(ignored_upstream_flakey), ignore)]
     #[tokio::test]
     async fn kafka_happy_path_zstd() {
         crate::test_util::trace_init();
@@ -382,7 +382,7 @@ mod integration_test {
         // read back everything from the beginning
         let mut client_config = rdkafka::ClientConfig::new();
         client_config.set("bootstrap.servers", server.as_str());
-        client_config.set("group.id", &random_string(10));
+        client_config.set("group.id", random_string(10));
         client_config.set("enable.partition.eof", "true");
         kafka_auth.apply(&mut client_config).unwrap();
 

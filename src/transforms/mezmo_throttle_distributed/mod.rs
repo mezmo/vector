@@ -13,11 +13,11 @@ use crate::{
 use async_stream::stream;
 use futures::{Stream, StreamExt};
 use mezmo::{user_trace::handle_transform_error, MezmoContext};
-use once_cell::sync::Lazy;
 use redis::{aio::ConnectionManager, ErrorKind, RedisError, RedisResult, Script};
 use snafu::Snafu;
 use std::num::NonZeroU32;
 use std::pin::Pin;
+use std::sync::LazyLock;
 use std::{
     collections::hash_map::DefaultHasher,
     time::{SystemTime, UNIX_EPOCH},
@@ -35,7 +35,8 @@ use config::MezmoThrottleDistributedConfig;
 #[cfg(test)]
 pub(crate) mod integration_tests;
 
-static CHECK_SCRIPT: Lazy<Script> = Lazy::new(|| Script::new(include_str!("redis/check.lua")));
+static CHECK_SCRIPT: LazyLock<Script> =
+    LazyLock::new(|| Script::new(include_str!("redis/check.lua")));
 
 #[derive(Debug, Snafu)]
 pub(super) enum ThrottleError {

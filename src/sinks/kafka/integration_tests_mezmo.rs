@@ -91,7 +91,7 @@ async fn kafka_mezmo_does_not_reshape_messages() {
     // read back everything from the beginning
     let mut client_config = rdkafka::ClientConfig::new();
     client_config.set("bootstrap.servers", server.as_str());
-    client_config.set("group.id", &random_string(10));
+    client_config.set("group.id", random_string(10));
     client_config.set("enable.partition.eof", "true");
     kafka_auth.apply(&mut client_config).unwrap();
 
@@ -205,7 +205,7 @@ async fn kafka_mezmo_reshapes_messages() {
     // read back everything from the beginning
     let mut client_config = rdkafka::ClientConfig::new();
     client_config.set("bootstrap.servers", server.as_str());
-    client_config.set("group.id", &random_string(10));
+    client_config.set("group.id", random_string(10));
     client_config.set("enable.partition.eof", "true");
     kafka_auth.apply(&mut client_config).unwrap();
 

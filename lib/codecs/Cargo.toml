@@ -21,11 +21,11 @@ influxdb-line-protocol = { version = "2", default-features = false }
 lookup = { package = "vector-lookup", path = "../vector-lookup", default-features = false, features = ["test"] }
 memchr = { version = "2", default-features = false }
 once_cell = { version = "1.19", default-features = false }
-ordered-float = { version = "4.2.2", default-features = false }
+ordered-float = { version = "4.3.0", default-features = false }
 prometheus-remote-write = { version = "1.1.3", tag =  "v1.1.4", git = "https://github.com/mezmo/prometheus-remote-write-rs.git" }
-prost = { version = "0.12.6", default-features = false, features = ["std"] }
-prost-reflect = { workspace = true, features = ["serde"] }
-regex = { version = "1.10.6", default-features = false, features = ["std", "perf"] }
+prost.workspace = true
+prost-reflect.workspace = true
+regex = { version = "1.11.0", default-features = false, features = ["std", "perf"] }
 serde.workspace = true
 serde_json.workspace = true
 smallvec = { version = "1", default-features = false, features = ["union"] }
@@ -49,10 +49,10 @@ futures.workspace = true
 indoc = { version = "2", default-features = false }
 tokio = { version = "1", features = ["test-util"] }
 quick-protobuf = "0.8"
-similar-asserts = "1.5.0"
+similar-asserts = "1.6.0"
 vector-core = { path = "../vector-core", default-features = false, features = ["vrl", "test"] }
 uuid.workspace = true
-rstest = "0.22.0"
+rstest = "0.23.0"
 vrl.workspace = true
 
 [features]
