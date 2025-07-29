@@ -1,3 +1,10 @@
+## [8.23.2](https://github.com/answerbook/vector/compare/v8.23.1...v8.23.2) (2025-07-29)
+
+
+### Bug Fixes
+
+* **sinks**: Rename opentelemetry to mezmo_opentelemetry [57cf915](https://github.com/answerbook/vector/commit/57cf9156b9415deb71072ca932ca78735722877a) - Darin Spivey [LOG-22131](https://logdna.atlassian.net/browse/LOG-22131)
+
 ## [8.23.1](https://github.com/answerbook/vector/compare/v8.23.0...v8.23.1) (2025-07-29)
 
 
