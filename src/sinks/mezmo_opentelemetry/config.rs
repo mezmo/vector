@@ -7,7 +7,7 @@ use crate::{
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     http::HttpClient,
     sinks::{
-        opentelemetry::{Auth, OpentelemetrySinkAuth},
+        mezmo_opentelemetry::{Auth, OpentelemetrySinkAuth},
         util::{http::RequestConfig, BatchConfig, Compression, SinkBatchSettings},
         Healthcheck, VectorSink,
     },
@@ -335,7 +335,9 @@ fn validate_headers(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::sinks::{opentelemetry::config::OpentelemetrySinkConfig, util::test::load_sink};
+    use crate::sinks::{
+        mezmo_opentelemetry::config::OpentelemetrySinkConfig, util::test::load_sink,
+    };
     use indoc::indoc;
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::sinks::opentelemetry::{
+use crate::sinks::mezmo_opentelemetry::{
     models::{
         value_to_system_time, OpentelemetryAttributes, OpentelemetryModelMatch,
         OpentelemetryModelType, OpentelemetryResource, OpentelemetryScope, OpentelemetrySpanId,

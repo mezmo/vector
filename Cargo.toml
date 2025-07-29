@@ -398,7 +398,7 @@ mlua = { version = "0.9.9", default-features = false, features = ["lua54", "send
 # MEZMO: added dependency for s3-sink file consolidation
 gethostname = "0.4.3"
 
-# Opentelemetry Dependencies
+# Mezmo - Custom Opentelemetry sink Impl Dependencies - Ignore upstream changes for anything other than version bumps to these
 opentelemetry = { version = "0.22", features = ["trace", "logs", "metrics", "logs_level_enabled"] }
 opentelemetry_sdk = { version = "0.22", features = ["trace", "logs", "logs_level_enabled", "metrics"] }
 opentelemetry-proto = { version = "0.5", features = ["gen-tonic", "gen-tonic-messages", "hex", "logs", "metrics", "prost", "schemars", "serde", "tonic", "trace", "with-schemars", "with-serde", "zpages"] }
@@ -865,7 +865,7 @@ sinks-logs-mezmo = [
   "sinks-sumo_logic",
   "sinks-vector",
   "sinks-postgresql",
-  "sinks-opentelemetry",
+  "sinks-mezmo_opentelemetry",
 ]
 sinks-metrics = [
   "sinks-appsignal",
@@ -947,7 +947,7 @@ sinks-vector = ["sinks-utils-udp", "dep:tonic", "protobuf-build", "dep:prost"]
 sinks-websocket = ["dep:tokio-tungstenite"]
 sinks-sumo_logic = []
 sinks-webhdfs = ["dep:opendal"]
-sinks-opentelemetry = []
+sinks-mezmo_opentelemetry = []
 
 # Identifies that the build is a nightly build
 nightly = []
@@ -995,7 +995,7 @@ all-integration-tests = [
   "sumo-logic-integration-tests",
   "dnstap-integration-tests",
   "webhdfs-integration-tests",
-  "opentelemetry-sink-integration-tests",
+  "mezmo_opentelemetry-sink-integration-tests",
 ]
 
 amqp-integration-tests = ["sources-amqp", "sinks-amqp"]
@@ -1063,7 +1063,7 @@ pulsar-integration-tests = ["sinks-pulsar", "sources-pulsar"]
 redis-integration-tests = ["sinks-redis", "sources-redis"]
 splunk-integration-tests = ["sinks-splunk_hec"]
 sumo-logic-integration-tests = ["sinks-sumo_logic"]
-opentelemetry-sink-integration-tests = ["sinks-opentelemetry"]
+mezmo_opentelemetry-sink-integration-tests = ["sinks-mezmo_opentelemetry"]
 dnstap-integration-tests = ["sources-dnstap", "dep:bollard"]
 webhdfs-integration-tests = ["sinks-webhdfs"]
 disable-resolv-conf = []

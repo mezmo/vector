@@ -11,7 +11,7 @@ use opentelemetry::{
 use opentelemetry_sdk::export::logs::LogData;
 use std::borrow::Cow;
 
-use crate::sinks::opentelemetry::{
+use crate::sinks::mezmo_opentelemetry::{
     models::{
         value_to_otlp_any_value, value_to_system_time, OpentelemetryModelMatch,
         OpentelemetryModelType, OpentelemetryResource, OpentelemetryScope, OpentelemetrySpanId,

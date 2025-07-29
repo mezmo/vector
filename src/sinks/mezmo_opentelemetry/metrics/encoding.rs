@@ -2,7 +2,7 @@ use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequ
 use prost::Message;
 
 use super::model::OpentelemetryResourceMetrics;
-use crate::sinks::opentelemetry::sink::OpentelemetrySinkError;
+use crate::sinks::mezmo_opentelemetry::sink::OpentelemetrySinkError;
 
 pub fn encode(model: OpentelemetryResourceMetrics) -> Result<Vec<u8>, OpentelemetrySinkError> {
     // Metric model to Protobuf encoding

@@ -1,5 +1,5 @@
 use super::model::OpentelemetryTracesModel;
-use crate::sinks::opentelemetry::sink::OpentelemetrySinkError;
+use crate::sinks::mezmo_opentelemetry::sink::OpentelemetrySinkError;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use prost::Message;
 

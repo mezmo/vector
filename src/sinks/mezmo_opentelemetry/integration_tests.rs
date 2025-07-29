@@ -1,4 +1,4 @@
-#[cfg(feature = "opentelemetry-sink-integration-tests")]
+#[cfg(feature = "mezmo_opentelemetry-sink-integration-tests")]
 #[cfg(test)]
 mod test {
     use chrono::DateTime;
@@ -18,7 +18,7 @@ mod test {
     use crate::{
         config::SinkConfig,
         event::Value,
-        sinks::{opentelemetry::config::OpentelemetrySinkConfig, util::test::load_sink},
+        sinks::{mezmo_opentelemetry::config::OpentelemetrySinkConfig, util::test::load_sink},
         test_util::{
             components::{run_and_assert_sink_compliance, SINK_TAGS},
             generate_events_with_stream, generate_metrics_with_stream,

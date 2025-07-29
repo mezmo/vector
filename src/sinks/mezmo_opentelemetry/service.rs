@@ -5,7 +5,9 @@ use crate::{
     http::HttpClient,
     mezmo::user_trace::UserLoggingResponse,
     sinks::{
-        opentelemetry::{config::OpentelemetryEndpoint, models::OpentelemetryModelType, Auth},
+        mezmo_opentelemetry::{
+            config::OpentelemetryEndpoint, models::OpentelemetryModelType, Auth,
+        },
         util::Compression,
     },
 };

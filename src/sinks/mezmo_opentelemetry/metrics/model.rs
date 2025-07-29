@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use crate::sinks::opentelemetry::{
+use crate::sinks::mezmo_opentelemetry::{
     config::OpentelemetryMetricConfig,
     models::{
         value_to_otlp_value, value_to_system_time, OpentelemetryModelMatch, OpentelemetryModelType,
@@ -881,7 +881,7 @@ impl OpentelemetryDataPointGroup {
 mod test {
     use super::*;
     use crate::event::Value;
-    use crate::sinks::opentelemetry::default_histogram_buckets;
+    use crate::sinks::mezmo_opentelemetry::default_histogram_buckets;
     use chrono::DateTime;
     use std::collections::BTreeMap;
     use std::time::SystemTime;

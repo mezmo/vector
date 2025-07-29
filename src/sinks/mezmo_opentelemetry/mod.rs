@@ -8,7 +8,7 @@ pub(crate) mod logs;
 pub(crate) mod metrics;
 pub(crate) mod traces;
 
-#[cfg(feature = "opentelemetry-sink-integration-tests")]
+#[cfg(feature = "mezmo_opentelemetry-sink-integration-tests")]
 #[cfg(test)]
 pub(crate) mod integration_tests;
 

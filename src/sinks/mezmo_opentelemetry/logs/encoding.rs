@@ -1,4 +1,4 @@
-use crate::sinks::opentelemetry::{
+use crate::sinks::mezmo_opentelemetry::{
     logs::model::OpentelemetryLogsModel, sink::OpentelemetrySinkError,
 };
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
