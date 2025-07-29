@@ -1,3 +1,10 @@
+## [8.23.3](https://github.com/answerbook/vector/compare/v8.23.2...v8.23.3) (2025-07-29)
+
+
+### Chores
+
+* **ci**: Fix feature build image reference [1453fd7](https://github.com/answerbook/vector/commit/1453fd75ed5e92a5fc92514ca9c0a80d8dc9a508) - Jon Moses [LOG-22132](https://logdna.atlassian.net/browse/LOG-22132)
+
 ## [8.23.2](https://github.com/answerbook/vector/compare/v8.23.1...v8.23.2) (2025-07-29)
 
 
