@@ -166,8 +166,9 @@ pipeline {
               )
             }
             sh './release-tool clean'
-            sh './release-tool build'
+            sh "./release-tool build APP_VERSION='" + slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}") + "'"
             sh './release-tool publish'
+            archiveArtifacts artifacts: 'output/'
           }
         }
         stage('Release Commit') {
