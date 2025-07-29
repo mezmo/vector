@@ -1,3 +1,15 @@
+## [8.23.1](https://github.com/answerbook/vector/compare/v8.23.0...v8.23.1) (2025-07-29)
+
+
+### Bug Fixes
+
+* **sinks**: Fix bad merge of GCP cloud storage [1f473ee](https://github.com/answerbook/vector/commit/1f473ee7b094e50e27e7238b91a77dc5a06c1f35) - Darin Spivey [LOG-22130](https://logdna.atlassian.net/browse/LOG-22130) [LOG-22117](https://logdna.atlassian.net/browse/LOG-22117)
+
+
+### Miscellaneous
+
+* Merge pull request #687 from answerbook/darinspivey/LOG-22130 [13709d7](https://github.com/answerbook/vector/commit/13709d7e9f7e5b78494da2a48ab7f6d53830e74c) - GitHub [LOG-22130](https://logdna.atlassian.net/browse/LOG-22130)
+
 # [8.23.0](https://github.com/answerbook/vector/compare/v8.22.0...v8.23.0) (2025-07-28)
 
 
