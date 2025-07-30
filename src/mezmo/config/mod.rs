@@ -467,14 +467,13 @@ async fn generate_config(
         config_str.as_bytes(),
         crate::config::format::Format::Toml,
     )
-    .map_err(|warnings| {
+    .inspect_err(|warnings| {
         if !warnings.is_empty() {
             warn!("{} warnings during config load", warnings.len());
             for warning in warnings.iter() {
                 warn!("Config load warn: {}", warning);
             }
         }
-        warnings
     })?;
 
     trace!("Loaded assembled config");

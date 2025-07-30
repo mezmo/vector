@@ -62,6 +62,11 @@ pub struct HoneycombConfig {
     #[serde(default, skip_serializing_if = "crate::serde::is_default")]
     encoding: Transformer,
 
+    /// The compression algorithm to use.
+    #[configurable(derived)]
+    #[serde(default = "Compression::zstd_default")]
+    compression: Compression,
+
     #[configurable(derived)]
     #[serde(
         default,
@@ -104,6 +109,7 @@ impl SinkConfig for HoneycombConfig {
             encoder: HoneycombEncoder {
                 transformer: Transformer::new_with_mezmo_reshape(self.encoding.clone(), None),
             },
+            compression: self.compression,
         };
 
         let uri = self.build_uri()?;
@@ -111,6 +117,7 @@ impl SinkConfig for HoneycombConfig {
         let honeycomb_service_request_builder = HoneycombSvcRequestBuilder {
             uri: uri.clone(),
             api_key: self.api_key.clone(),
+            compression: self.compression,
         };
 
         let client = HttpClient::new(None, cx.proxy())?;
