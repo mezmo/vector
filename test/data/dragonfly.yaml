@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dragonfly
+  namespace: dragonfly
+data:
+  image: example.org/dragonfly

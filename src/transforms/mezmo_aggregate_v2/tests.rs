@@ -1,13 +1,15 @@
 use crate::config::TransformContext;
-use crate::mezmo::MezmoContext;
+use crate::event::BatchNotifier;
 use crate::transforms::mezmo_aggregate_v2::config::{AggregatorLimits, MezmoAggregateV2Config};
 use crate::transforms::mezmo_aggregate_v2::*;
 use assay::assay;
+use mezmo::MezmoContext;
 use serde_json::json;
 use std::collections::BTreeMap;
 use tempfile::tempdir;
-use vector_lib::event::LogEvent;
+use vector_lib::event::{BatchStatus, LogEvent};
 use vrl::btreemap;
+use vrl::value::KeyString;
 
 const ACCOUNT_ID: &str = "bea71e55-a1ec-4e5f-a5c0-c0e10b1a571c";
 
@@ -96,9 +98,10 @@ const fn aggregator_limits_custom_window_size(min_window_size: u32) -> Aggregato
     AggregatorLimits::new(200, 2000, min_window_size, 5)
 }
 fn log_event(json_event: impl AsRef<str>) -> Event {
-    let log_event: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(json_event.as_ref())
-        .unwrap()
-        .into();
+    let log_event: LogEvent =
+        serde_json::from_str::<BTreeMap<KeyString, Value>>(json_event.as_ref())
+            .unwrap()
+            .into();
     Event::from(log_event)
 }
 
@@ -167,7 +170,7 @@ fn metric_event_key(name: impl Into<String>, tags: Option<BTreeMap<String, Strin
     let mut res_tags = BTreeMap::new();
     if let Some(tags) = tags {
         for (k, v) in tags {
-            res_tags.insert(k, Value::from(v));
+            res_tags.insert(k.into(), Value::from(v));
         }
     }
     let tags = Value::from(res_tags);
@@ -230,7 +233,7 @@ async fn record_single_metric() {
         size_ms: actual_size_ms,
         event: actual_event,
         ..
-    } = val.get(0).unwrap();
+    } = val.front().unwrap();
     assert_eq!(5, actual_size_ms.end - actual_size_ms.start);
     assert_eq!(
         *actual_event,
@@ -360,6 +363,23 @@ async fn record_drops_events_when_cardinality_is_exceeded() {
         actual.is_none(),
         "keys were added after exceeding cardinality limit"
     );
+
+    // LOG-20037: Ensure that events in the aggregation prior to the cardinality limit
+    // are still operated on.
+    target.record(counter("a", None, 2.0));
+    let key = metric_event_key("a", None);
+    let actual = target
+        .data
+        .get(&key)
+        .expect("aggregation window for counter a");
+    let actual = actual.front().expect("an aggregate window exists");
+    let actual = actual
+        .event
+        .as_log()
+        .get(".message.value.value")
+        .expect("a counter value");
+    let actual = actual.as_integer().expect("an integer");
+    assert_eq!(actual, 5);
 }
 
 #[tokio::test]
@@ -564,7 +584,7 @@ async fn flush_using_prev_value() {
     assert_eq!(actual_events.len(), 1);
     assert_eq!(
         *actual_events
-            .get(0)
+            .first()
             .unwrap()
             .as_log()
             .get(".message.value.value")
@@ -586,7 +606,7 @@ async fn flush_using_prev_value() {
     target.flush_finalized(&mut actual_events);
     assert_eq!(actual_events.len(), 1);
     let event = actual_events
-        .get(0)
+        .first()
         .unwrap()
         .as_log()
         .get(".message.value.value")
@@ -695,7 +715,7 @@ async fn with_initial_state() {
     let mut res = vec![];
     let initial_data = target.data.clone();
     target.flush_finalized(&mut res); // no-op, window has not elapsed
-    target.persist_state();
+    target.persist_state().await;
     assert!(res.is_empty());
 
     let mut new_target = new_aggregator(None, limits, state_persistence_base_path).await;
@@ -720,6 +740,27 @@ async fn with_initial_state() {
         ],
         new_res,
     );
+}
+
+#[assay(env = [("POD_NAME", "vector-test0-0")])]
+async fn persist_state_marks_delivered() {
+    let tmp_path = tempdir().expect("Could not create temp dir").into_path();
+    let state_persistence_base_path = tmp_path.to_str();
+    let limits = AggregatorLimits::new(1, 5000, 1, 5);
+
+    let mut target = new_aggregator(None, limits.clone(), state_persistence_base_path).await;
+    let (event, mut batch_recv) = {
+        // The `BatchNotifier` instance is cloned in the call stack for `with_batch_notifier` and
+        // if original isn't dropped, it will prevent the batch status from updating when the finalizers
+        // are dropped.
+        let (notifier, recv) = BatchNotifier::new_with_receiver();
+        let event = counter("a", None, 3.0).with_batch_notifier(&notifier);
+        (event, recv)
+    };
+
+    target.record(event);
+    target.persist_state().await;
+    assert_eq!(batch_recv.try_recv(), Ok(BatchStatus::Delivered));
 }
 
 #[tokio::test]
@@ -895,4 +936,131 @@ async fn tumbling_aggregate_behavior() {
             .map(|w| (w.size_ms.clone(), w.flushed, w.event.clone()))
             .collect::<Vec<_>>()
     );
+}
+
+// LOG-20860: This test generates a field value, as a string, that would far exceed the bounds of
+// the i64/f64 types that VRL is based upon. Prior to fixes in the vrl repo, this test case would
+// cause an un-trapped panic, crashing vector. If this test passes, it means that we won't crash
+// and have some sane behavior.
+#[tokio::test]
+async fn numeric_exceeds_type_sizes() {
+    // The script and flush_condition values are what pipeline-service generates for the following
+    // aggregate JS script and a % change check:
+    //
+    // function alertAggregation(accum, event, metadata) {
+    //     if(!accum.aggregated_content_length){
+    //         accum.aggregated_content_length = event.content_length
+    //     }
+    //     accum.aggregated_content_length+=accum.content_length
+    //     // This function *must* return the accumulated event
+    //     return accum
+    // }
+    let config = r#"
+        window_duration_ms = 5
+        min_window_size_ms = 5
+        flush_tick_ms = 1
+        event_id_fields = [".message.id"]
+        source = """
+            if !mezmo_is_truthy(.accum.message.aggregated_content_length) {
+                .accum.message.aggregated_content_length = .event.message.content_length
+            }
+            .accum.message.aggregated_content_length = {
+                left = .accum.message.aggregated_content_length;
+                result, err = mezmo_concat_or_add_fallible(left, .accum.message.content_length);
+                if (err == null) {
+                    result
+                } else {
+                    user_log("[E_SCRIPT_INVALID_ARITHMETIC] Property 'aggregated_content_length' can't be used in arithmetic operation '+'", level: "error");
+                    left
+                }
+            }
+            . = .accum
+        """
+        flush_condition = """
+( {
+ if exists(.message.aggregated_content_length) {
+
+    res = true
+
+    curr_field_value = .message.aggregated_content_length;
+    # if is_string(curr_field_value) {
+    #  curr_field_value, _ = strip_whitespace(curr_field_value);
+    # }
+    curr_field_value, err = mezmo_to_float(curr_field_value);
+    if err != null {
+      user_log("[E_COMPARE_COERCION_FAILED] The value of the incoming field '.aggregated_content_length' cannot be converted to a number for a 'percent_change_greater' comparison", level: "error", captured_data: {"field": .message.aggregated_content_length});
+      res = false
+    }
+
+    prev_field_value = %previous.message.aggregated_content_length
+    if prev_field_value == null {
+      # skip triggering the check if there is no prior value
+      res = false
+    }
+    if res {
+      # if is_string(prev_field_value) {
+      #  prev_field_value, _ = strip_whitespace(prev_field_value);
+      # }
+      prev_field_value, err = mezmo_to_float(prev_field_value);
+      if err != null {
+        user_log("[E_COMPARE_COERCION_FAILED] The value of the incoming field '.aggregated_content_length' cannot be converted to a number for a 'percent_change_greater' comparison", level: "error", captured_data: {"field": prev_field_value});
+        res = false
+      }
+    }
+
+    if res {
+      diff, _ = curr_field_value - prev_field_value
+      pcent_diff, _ = (diff / prev_field_value) * 100
+
+      res = pcent_diff > 500
+    }
+
+    res
+
+ } else {
+  user_log("[E_NOT_FOUND] The incoming event did not contain the field '.aggregated_content_length'", level: "warn", captured_data: {"message": .message, "metadata": .metadata, "timestamp": .timestamp});
+  false
+ }
+ } )
+        """
+    "#;
+    let config: MezmoAggregateV2Config = toml::from_str(config).unwrap();
+    let mezmo_ctx = Some(test_mezmo_context());
+    let ctx = TransformContext {
+        mezmo_ctx,
+        ..Default::default()
+    };
+    let mut target = match config.internal_build(&ctx).await {
+        Err(e) => panic!("{e}"),
+        Ok(mut aggregator) => {
+            aggregator.clock = AggregateClock::Counter(AtomicI64::new(1));
+            aggregator
+        }
+    };
+
+    let mut sent_events = 0;
+
+    // We need to run two events, that span a single aggregate window in order to fully exercise the
+    // code. Only when the second event arrives will we fully execute the flush_condition on the current
+    // and previous values.
+    for _ in 0..2 {
+        // We need to exceed the bounds of f64::MAX, which is 1.7976931348623157e308. The way we accomplished
+        // this is prod was string concatenation to produce a large number. Here we send in 17976931348623157
+        // with 300 "0". That is far beyond the f64::MAX value.
+        target.record(log_event(
+            r#"{ "message": { "id": "id-1", "content_length": "17976931348623157" } }"#,
+        ));
+        for _ in 0..30 {
+            target.record(log_event(
+                r#"{ "message": { "id": "id-1", "content_length": "0000000000" } }"#,
+            ));
+        }
+
+        let mut flushed_events = vec![];
+        target.flush_finalized(&mut flushed_events); // this is when flush_condition is executed
+        target.clock.increment_by(6);
+        sent_events += 1;
+    }
+
+    assert_eq!(sent_events, 2);
 }

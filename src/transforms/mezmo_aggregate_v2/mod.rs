@@ -1,10 +1,8 @@
-use crate::{
-    conditions::Condition, mezmo::persistence::PersistenceConnection,
-    mezmo::user_trace::MezmoUserLog, mezmo::MezmoContext, user_log_error,
-};
+use crate::{conditions::Condition, mezmo::persistence::PersistenceConnection};
 use async_stream::stream;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use futures::{Stream, StreamExt};
+use mezmo::{user_log_error, user_trace::MezmoUserLog, MezmoContext};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
@@ -12,6 +10,7 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::select;
 use vector_lib::{
@@ -29,6 +28,7 @@ use vrl::{
     value::Value,
 };
 
+use crate::event::{EventStatus, Finalizable};
 #[cfg(test)]
 use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -200,7 +200,7 @@ pub struct MezmoAggregateV2 {
     clock: AggregateClock,
     mezmo_ctx: Option<MezmoContext>,
     aggregator_limits: config::AggregatorLimits,
-    state_persistence: Option<Box<dyn PersistenceConnection>>,
+    state_persistence: Option<Arc<dyn PersistenceConnection>>,
     state_persistence_tick_ms: u64,
     state_persistence_max_jitter_ms: u64,
 }
@@ -215,7 +215,7 @@ impl MezmoAggregateV2 {
         flush_condition: Option<Condition>,
         mezmo_ctx: Option<MezmoContext>,
         aggregator_limits: config::AggregatorLimits,
-        state_persistence: Option<Box<dyn PersistenceConnection>>,
+        state_persistence: Option<Arc<dyn PersistenceConnection>>,
         state_persistence_tick_ms: u64,
         state_persistence_max_jitter_ms: u64,
     ) -> Self {
@@ -300,14 +300,6 @@ impl MezmoAggregateV2 {
     /// events that are ready to be released/flushed will not be further mutated but remain in memory until the flush
     /// method is called, typically on a polling cycle.
     fn record(&mut self, event: Event) {
-        if self.data.len() >= (self.aggregator_limits.mem_cardinality_limit as usize) {
-            user_log_error!(
-                self.mezmo_ctx,
-                Value::from("Aggregate event dropped; cardinality limit exceeded".to_string())
-            );
-            return;
-        }
-
         let event_key = self.get_event_key(&event);
         let event_timestamp = self.get_event_timestamp(&event);
 
@@ -319,6 +311,16 @@ impl MezmoAggregateV2 {
         // new events
         match &mut event_aggregations {
             None => {
+                if self.data.len() >= (self.aggregator_limits.mem_cardinality_limit as usize) {
+                    user_log_error!(
+                        self.mezmo_ctx,
+                        Value::from(
+                            "Aggregate event dropped; cardinality limit exceeded".to_string()
+                        )
+                    );
+                    return;
+                }
+
                 let mut windows = VecDeque::new();
                 windows.push_back(AggregateWindow::new(
                     event.to_owned(),
@@ -439,17 +441,42 @@ impl MezmoAggregateV2 {
 
     /// Saves the current `data` to persistent storage. This is intended to be called from the
     /// polling loop on an interval defined by the `state_persistence_tick_ms` field.
-    fn persist_state(&self) {
+    async fn persist_state(&mut self) {
         if let Some(state_persistence) = &self.state_persistence {
-            let value = serde_json::to_string(&self.data);
-            if let Err(err) = value {
-                error!("MezmoAggregateV2: failed to serialize state: {}", err);
-                return;
-            }
+            let data = self.data.clone();
+            let state_persistence = Arc::clone(state_persistence);
 
-            match state_persistence.set(STATE_PERSISTENCE_KEY, &value.unwrap()) {
-                Ok(_) => debug!("MezmoAggregateV2: state persisted"),
-                Err(err) => error!("MezmoAggregateV2: failed to persist state: {}", err),
+            let handle = tokio::task::spawn_blocking(move || {
+                let value = serde_json::to_string(&data)?;
+                state_persistence.set(STATE_PERSISTENCE_KEY, &value)
+            })
+            .await;
+
+            match handle {
+                Ok(result) => match result {
+                    Ok(_) => {
+                        // LOG-19818: Many usages of the aggregate processor span a time boundary that
+                        // causes heartburn with kafka acknowledgements. If we've persisted the data
+                        // locally, then update the status on the finalizers as delivered; the processor
+                        // will now provide the durability.
+                        for windows in self.data.values_mut() {
+                            for window in windows.iter_mut() {
+                                window
+                                    .event
+                                    .take_finalizers()
+                                    .update_status(EventStatus::Delivered);
+                            }
+                        }
+                        debug!("MezmoAggregateV2: state persisted");
+                    }
+                    Err(err) => {
+                        error!("MezmoAggregateV2: failed to persist state: {}", err);
+                    }
+                },
+                Err(err) => error!(
+                    "MezmoAggregateV2: failed to execute persistence task: {}",
+                    err
+                ),
             }
         }
     }
@@ -457,14 +484,16 @@ impl MezmoAggregateV2 {
 
 // Handles loading initial state from persistent storage, returning an appropriate
 // default value if the state is not found or cannot be deserialized.
-#[allow(clippy::borrowed_box)]
 fn load_initial_state(
-    state_persistence: &Box<dyn PersistenceConnection>,
+    state_persistence: &Arc<dyn PersistenceConnection>,
 ) -> HashMap<u64, VecDeque<AggregateWindow>> {
-    match state_persistence.get("state") {
+    match state_persistence.get(STATE_PERSISTENCE_KEY) {
         Ok(state) => match state {
             Some(state) => match serde_json::from_str(&state) {
-                Ok(state) => state,
+                Ok(state) => {
+                    debug!("MezmoAggregateV2: existing state found");
+                    state
+                }
                 Err(err) => {
                     error!(
                         "Failed to deserialize state from persistence: {}, component_id",
@@ -473,7 +502,10 @@ fn load_initial_state(
                     HashMap::new()
                 }
             },
-            None => HashMap::new(),
+            None => {
+                debug!("MezmoAggregateV2: no state found");
+                HashMap::new()
+            }
         },
         Err(err) => {
             error!(
@@ -485,51 +517,79 @@ fn load_initial_state(
     }
 }
 
+fn get_new_deadline(timestamp_ms: u64) -> DateTime<Utc> {
+    Utc::now() + Duration::from_millis(timestamp_ms)
+}
+
 impl TaskTransform<Event> for MezmoAggregateV2 {
     fn transform(
         mut self: Box<Self>,
         mut input_events: Pin<Box<dyn Stream<Item = Event> + Send>>,
     ) -> Pin<Box<dyn Stream<Item = Event> + Send>> {
         Box::pin(stream! {
-            let mut flush_interval = tokio::time::interval(Duration::from_millis(self.flush_tick_ms));
+            let mut flush_deadline = get_new_deadline(self.flush_tick_ms);
             let mut state_persistence_interval = tokio::time::interval(Duration::from_millis(self.state_persistence_tick_ms));
+
             let mut output:Vec<Event> = Vec::new();
             let mut done = false;
 
-            match &self.state_persistence {
-                Some(_) => debug!("MezmoAggregateV2: state persistence enabled"),
-                None => debug!("MezmoAggregateV2: state persistence not enabled"),
-            }
+            let flush_on_shutdown = match &self.state_persistence {
+                Some(_) => {
+                    debug!("MezmoAggregateV2: state persistence enabled, state will not flush on shutdown");
+                    false
+                },
+                None => {
+                    debug!("MezmoAggregateV2: state persistence not enabled, state will flush on shutdown");
+                    true
+                },
+            };
+
             while !done {
                 select! {
-                    _ = flush_interval.tick() => {
-                        self.flush_finalized(&mut output);
-                    },
                     _ = state_persistence_interval.tick() => {
                         let jitter = rand::thread_rng().gen_range(0..=self.state_persistence_max_jitter_ms);
                         tokio::time::sleep(Duration::from_millis(jitter)).await;
-                        self.persist_state();
+                        self.persist_state().await;
                     },
                     maybe_event = input_events.next() => {
                         match maybe_event {
                             None => {
-                                for (_, windows) in self.data.iter_mut() {
-                                    for datum in windows.drain(0..) {
-                                        output.push(datum.event);
+                                if flush_on_shutdown {
+                                    for (_, windows) in self.data.iter_mut() {
+                                        for datum in windows.drain(0..) {
+                                            output.push(datum.event);
+                                        }
                                     }
                                 }
                                 done = true;
                             },
-                            Some(event) => self.record(event),
+                            Some(event) => {
+                                self.record(event)
+                            },
                         }
                     }
                 }
+
+                // LOG-21714: Aggregation flushing was rewrited from using interval to use
+                // a simple mechanism to check a timestamp pointer on each iteration cause
+                // we experienced a situation when aggregation is stuck at some point under
+                // a massive ingest of data. The investigation found that
+                // tokio.time.interval get stuck and stop ticking which cause to owerflow
+                // aggregation and a CPU usage spick while a pipeline stop ingesting data
+                // and kafka starts growing a lag.
+                // We have tried to use set_missed_tick_behavior(MissedTickBehavior::Skip)
+                // but it didn't work out.
+                if Utc::now() >= flush_deadline {
+                    self.flush_finalized(&mut output);
+                    flush_deadline = get_new_deadline(self.flush_tick_ms);
+                }
+
                 for event in output.drain(..) {
                     yield event;
                 }
 
                 if done {
-                    self.persist_state()
+                    self.persist_state().await;
                 }
             }
         })

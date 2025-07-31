@@ -128,10 +128,7 @@ pub struct SumoLogicSinkConfig {
     pub endpoint: SensitiveString,
 
     #[configurable(derived)]
-    #[serde(
-        default,
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
-    )]
+    #[serde(default, skip_serializing_if = "crate::serde::is_default")]
     pub encoding: Transformer,
 
     #[configurable(derived)]
@@ -146,7 +143,7 @@ pub struct SumoLogicSinkConfig {
     #[serde(
         default,
         deserialize_with = "crate::serde::bool_or_struct",
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
+        skip_serializing_if = "crate::serde::is_default"
     )]
     acknowledgements: AcknowledgementsConfig,
 }
@@ -181,7 +178,7 @@ impl SinkConfig for SumoLogicSinkConfig {
             .limit_max_events(self.batch.max_events.unwrap_or(DEFAULT_MAX_EVENTS))?
             .into_batcher_settings()?;
 
-        let request_limits = self.request.unwrap_with(&Default::default());
+        let request_limits = self.request.into_settings();
         let client = self.build_client(ctx.clone())?;
         let healthcheck = healthcheck(
             client.clone(),

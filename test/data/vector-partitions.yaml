@@ -8,22 +8,33 @@ data:
   vector-partitions: [{
     partition-id: "test0",
     requests-cpu: 1,
-    requests-memory: 2Gi,
-    requests-storage: 11Gi,
+    requests-memory: "2Gi",
+    requests-storage: "11Gi",
     storage-class: "gp3-us-east-1a",
     limits-cpu: 3,
-    limits-memory: 4Gi,
+    limits-memory: "4Gi",
     min-replicas: 5,
     max-replicas: 6,
-  }, {
+    allocation-tracing-enabled: true
+  },
+  {
     partition-id: "test1",
     requests-cpu: 7,
-    requests-memory: 8Gi,
-    requests-storage: 11Gi,
+    requests-memory: "8Gi",
+    requests-storage: "11Gi",
     storage-class: "gp3-us-east-1a",
     limits-cpu: 9,
-    limits-memory: 10Gi,
+    limits-memory: "10Gi",
     min-replicas: 11,
     max-replicas: 12,
-  }
-  ]
+    vector-threads: 8,
+    aggregation-cardinality-limit: 10000,
+    sink-buffer-max-events: 123456,
+    state-db-enabled: true,
+    state-db-limits-memory: "3Gi",
+    state-connection-retry-factor-ms: 150,
+    state-connection-retry-count: 10,
+    state-connection-retry-max-delay-ms: 7500,
+    state-connection-timeout-ms: 2500,
+    state-connection-response-timeout-ms: 2500,
+  }]

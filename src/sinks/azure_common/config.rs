@@ -1,5 +1,11 @@
 use std::sync::Arc;
 
+use crate::mezmo::user_trace::UserLoggingResponse;
+use crate::{
+    config::SinkContext,
+    event::{EventFinalizers, EventStatus, Finalizable},
+    sinks::{util::retries::RetryLogic, Healthcheck},
+};
 use azure_core::{error::HttpError, RetryOptions};
 use azure_identity::{AutoRefreshingTokenCredential, DefaultAzureCredential};
 use azure_storage::{prelude::*, CloudLocation, ConnectionString};
@@ -7,6 +13,7 @@ use azure_storage_blobs::{blob::operations::PutBlockBlobResponse, prelude::*};
 use bytes::Bytes;
 use futures::FutureExt;
 use http::StatusCode;
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 use snafu::Snafu;
 use std::collections::BTreeMap;
 use vector_lib::stream::DriverResponse;
@@ -15,15 +22,6 @@ use vector_lib::{
     request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata},
 };
 use vrl::value::Value;
-
-use crate::mezmo::user_trace::UserLoggingResponse;
-use crate::{
-    config::SinkContext,
-    event::{EventFinalizers, EventStatus, Finalizable},
-    mezmo::user_trace::MezmoUserLog,
-    sinks::{util::retries::RetryLogic, Healthcheck},
-    user_log_error,
-};
 
 #[derive(Debug, Clone)]
 pub struct AzureBlobRequest {

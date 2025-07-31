@@ -2,13 +2,13 @@ mod vector;
 
 use crate::config::log_schema;
 use opentelemetry_rs::opentelemetry::common::AnyValueOneOfvalue as OpenTelemetryMetricAnyValue;
+use opentelemetry_rs::opentelemetry::common::ArrayValue as OpenTelemetryMetricArrayValue;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::ops::Deref;
 
 use crate::event::{
     metric::{MetricKind, TagValue},
-    LogEvent, Value,
+    KeyString, LogEvent, Value,
 };
 
 pub use vector::{from_metric, to_metric, TransformError};
@@ -76,7 +76,7 @@ where
             self.tags
                 .clone()
                 .into_iter()
-                .map(|(k, v)| (k.to_string(), v.to_tag_value().as_option().into()))
+                .map(|(k, v)| (k.to_string().into(), v.to_tag_value().as_option().into()))
                 .collect::<BTreeMap<_, _>>(),
         )
     }
@@ -129,13 +129,40 @@ impl IntoTagValue for OpenTelemetryMetricAnyValue<'_> {
             OpenTelemetryMetricAnyValue::bytes_value(val) => {
                 String::from_utf8_lossy(&val[..]).into()
             }
+            OpenTelemetryMetricAnyValue::array_value(val) => val.to_tag_value(),
 
             // NOTE Tag is supposed to be a scalar type, array and struct cannot be converted
             // We may need to serialize them if exists
-            // OpenTelemetryMetricAnyValue::array_value(val_list) => ...
             // OpenTelemetryMetricAnyValue::kvlist_value(kv_list) => ...
             _ => TagValue::Bare,
         }
+    }
+}
+
+impl IntoTagValue for OpenTelemetryMetricArrayValue<'_> {
+    fn to_tag_value(&self) -> TagValue {
+        self.values
+            .iter()
+            .map(|any_value| match &any_value.value {
+                OpenTelemetryMetricAnyValue::string_value(val) => val.to_string(),
+                OpenTelemetryMetricAnyValue::bool_value(val) => u32::from(*val).to_string(),
+                OpenTelemetryMetricAnyValue::int_value(val) => val.to_string(),
+                OpenTelemetryMetricAnyValue::double_value(val) => val.to_string(),
+                OpenTelemetryMetricAnyValue::bytes_value(val) => {
+                    String::from_utf8_lossy(&val[..]).into()
+                }
+                OpenTelemetryMetricAnyValue::array_value(val) => match val.to_tag_value() {
+                    TagValue::Value(val) => val,
+                    TagValue::Bare => String::new(),
+                },
+                // NOTE Tag is supposed to be a scalar type, array and struct cannot be converted
+                // We may need to serialize them if exists
+                // OpenTelemetryMetricAnyValue::kvlist_value(kv_list) => ...
+                _ => String::new(),
+            })
+            .collect::<Vec<String>>()
+            .join(", ")
+            .into()
     }
 }
 
@@ -148,7 +175,7 @@ where
             self.tags
                 .clone()
                 .into_iter()
-                .map(|(k, v)| (k.to_string(), v.to_tag_value().as_option().into()))
+                .map(|(k, v)| (k.to_string().into(), v.to_tag_value().as_option().into()))
                 .collect::<BTreeMap<_, _>>(),
         )
     }
@@ -158,7 +185,7 @@ pub trait IntoValue {
     fn to_value(&self) -> Value;
 }
 
-impl IntoValue for BTreeMap<String, Value> {
+impl IntoValue for BTreeMap<KeyString, Value> {
     fn to_value(&self) -> Value {
         Value::from(self.clone())
     }
@@ -232,7 +259,6 @@ impl<'a> IntoValue for Cow<'a, [u64]> {
         Value::Array(
             self.clone()
                 .as_ref()
-                .deref()
                 .iter()
                 .map(|val| Value::from(*val))
                 .collect::<Vec<Value>>(),
@@ -245,7 +271,6 @@ impl<'a> IntoValue for Cow<'a, [f64]> {
         Value::Array(
             self.clone()
                 .as_ref()
-                .deref()
                 .iter()
                 .map(|val| from_f64_or_zero(*val))
                 .collect::<Vec<Value>>(),
@@ -270,7 +295,7 @@ where
             self.elements
                 .clone()
                 .into_iter()
-                .map(|(k, v)| (k.to_string(), v.to_value()))
+                .map(|(k, v)| (k.to_string().into(), v.to_value()))
                 .collect::<BTreeMap<_, _>>(),
         )
     }
@@ -366,15 +391,15 @@ where
         let mut value = if let Some(metric_type) = self.value.metric_type() {
             Value::Object(
                 [
-                    ("type".to_string(), Value::from(metric_type)),
-                    ("value".to_string(), value),
+                    ("type".into(), Value::from(metric_type)),
+                    ("value".into(), value),
                 ]
                 .into_iter()
                 .collect::<BTreeMap<_, _>>(),
             )
         } else {
             Value::Object(
-                [("value".to_string(), value)]
+                [("value".into(), value)]
                     .into_iter()
                     .collect::<BTreeMap<_, _>>(),
             )
@@ -388,15 +413,15 @@ where
             }
         }
 
-        let mut values = BTreeMap::<String, Value>::new();
-        values.insert("name".to_owned(), self.name.clone().into());
+        let mut values = BTreeMap::<KeyString, Value>::new();
+        values.insert("name".into(), self.name.clone().into());
         if let Some(namespace) = &self.namespace {
-            values.insert("namespace".to_owned(), namespace.clone().into());
+            values.insert("namespace".into(), namespace.clone().into());
         }
 
         if let Some(kind) = self.kind.kind() {
             values.insert(
-                "kind".to_owned(),
+                "kind".into(),
                 match kind {
                     MetricKind::Absolute => "absolute",
                     MetricKind::Incremental => "incremental",
@@ -406,18 +431,18 @@ where
         };
 
         if let Some(tags) = self.tags {
-            values.insert("tags".to_owned(), tags.tags().to_value());
+            values.insert("tags".into(), tags.tags().to_value());
         }
 
-        values.insert("value".to_owned(), value);
+        values.insert("value".into(), value);
 
-        let mut event = BTreeMap::<String, Value>::new();
+        let mut event = BTreeMap::<KeyString, Value>::new();
 
-        event.insert("message".to_owned(), Value::Object(values));
+        event.insert("message".into(), Value::Object(values));
 
         if let Some(user_metadata) = self.user_metadata {
             event.insert(
-                log_schema().user_metadata_key().to_string(),
+                log_schema().user_metadata_key().to_string().into(),
                 user_metadata.value().to_value(),
             );
         }
@@ -431,7 +456,7 @@ mod tests {
     use std::borrow::Cow;
     use std::collections::BTreeMap;
 
-    use vrl::value::Value;
+    use vrl::value::{KeyString, Value};
 
     use crate::event::LogEvent;
 
@@ -533,7 +558,7 @@ mod tests {
         };
         let log_event = metric.to_log_event();
 
-        let expected: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(
+        let expected: LogEvent = serde_json::from_str::<BTreeMap<KeyString, Value>>(
             r#"{
                 "message": {
                      "name": "test",
@@ -571,7 +596,7 @@ mod tests {
         };
         let log_event = metric.to_log_event();
 
-        let expected: LogEvent = serde_json::from_str::<BTreeMap<String, Value>>(
+        let expected: LogEvent = serde_json::from_str::<BTreeMap<KeyString, Value>>(
             r#"{
                 "message": {
                      "name": "test",

@@ -157,8 +157,7 @@ fn walk_dir_and_convert(
             let new_output_dir = if entry_path.is_dir() {
                 let last_component = entry_path
                     .file_name()
-                    .unwrap_or_else(|| panic!("Failed to get file_name for {entry_path:?}"))
-                    .clone();
+                    .unwrap_or_else(|| panic!("Failed to get file_name for {entry_path:?}"));
                 let new_dir = output_dir.join(last_component);
 
                 if !new_dir.exists() {
@@ -284,7 +283,7 @@ mod tests {
                 let extension = path.extension().unwrap().to_str().unwrap();
                 if extension == Format::Yaml.to_string() {
                     // Note that here we read the converted string directly.
-                    let converted_config = fs::read_to_string(&output_dir.join(&path)).unwrap();
+                    let converted_config = fs::read_to_string(output_dir.join(&path)).unwrap();
                     assert_eq!(converted_config, original_config);
                     count += 1;
                 }

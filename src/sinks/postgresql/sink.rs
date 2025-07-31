@@ -14,11 +14,7 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use deadpool_postgres::{Config, PoolConfig, Runtime};
 use futures::{future, stream::BoxStream, StreamExt};
-use std::string::FromUtf8Error;
-use tokio_postgres::NoTls;
-use url::Url;
 use vector_lib::finalization::Finalizable;
 
 pub struct PostgreSQLSink {
@@ -28,9 +24,6 @@ pub struct PostgreSQLSink {
 
 impl PostgreSQLSink {
     pub(crate) fn new(config: PostgreSQLSinkConfig) -> crate::Result<Self> {
-        let pool_conf = pool_config(&config.connection, config.max_pool_size)?;
-        let connection_pool = pool_conf.create_pool(Some(Runtime::Tokio1), NoTls)?;
-
         let sql = generate_sql(
             &config.schema.table,
             &config.schema.fields,
@@ -38,53 +31,13 @@ impl PostgreSQLSink {
         )?;
         debug!("generated sql from sink config: {sql}");
 
-        let service = PostgreSQLService::new(connection_pool, sql);
+        let service = PostgreSQLService::new(config.connection.clone(), sql);
         let schema_config = config.schema;
         Ok(Self {
             schema_config,
             service,
         })
     }
-}
-
-fn pool_config(connect_url: &str, max_pool_size: usize) -> crate::Result<Config> {
-    let url = Url::parse(connect_url)?;
-    if url.scheme() != "postgresql" && url.scheme() != "postgres" {
-        error!(
-            message = "Invalid scheme for sink connection string",
-            scheme = url.scheme()
-        );
-    }
-
-    let mut conf = Config::new();
-    conf.host = url.host().map(|h| h.to_string());
-    conf.port = url.port();
-    if !url.username().is_empty() {
-        conf.user = Some(url_decode(url.username())?);
-    }
-    if let Some(password) = url.password() {
-        let password = url_decode(password)?;
-        conf.password = Some(password);
-    }
-    if let Some(mut path_seg) = url.path_segments() {
-        if let Some(first) = path_seg.next() {
-            conf.dbname = Some(first.to_owned());
-        }
-    }
-
-    let max_pool_size = if max_pool_size == 0 {
-        warn!(
-            "Configuration attempted to set max_pool_size to 0. Using the default of {}",
-            super::config::default_max_pool_size()
-        );
-        super::config::default_max_pool_size()
-    } else {
-        max_pool_size
-    };
-
-    conf.pool = Some(PoolConfig::new(max_pool_size));
-
-    Ok(conf)
 }
 
 /// Build up the sql insert statement trying to avoid intermediate memory allocations while building
@@ -163,10 +116,6 @@ fn generate_sql(
     Ok(format!(
         "INSERT INTO {table} ({field_list}) VALUES ({param_list}){conflict_chunk}"
     ))
-}
-
-fn url_decode(input: &str) -> Result<String, FromUtf8Error> {
-    urlencoding::decode(input).map(|c| c.to_string())
 }
 
 pub(crate) async fn healthcheck(_config: PostgreSQLSinkConfig) -> crate::Result<()> {

@@ -1,14 +1,12 @@
 use crate::{event::EventStatus, sinks::postgresql::PostgreSQLSinkError};
 use bytes::BytesMut;
 use chrono::{DateTime, Utc};
-use deadpool_postgres::Pool;
 use futures::future::BoxFuture;
 use serde_json::json;
 use serde_json::Value as SerdeValue;
 use std::{
     borrow::Cow,
     error::Error,
-    sync::Arc,
     task::{Context, Poll},
 };
 use tokio_postgres::types::{to_sql_checked, IsNull, ToSql, Type};
@@ -68,16 +66,15 @@ impl DriverResponse for PostgreSQLResponse {
 }
 
 pub struct PostgreSQLService {
-    connection_pool: Arc<Pool>,
+    connection_string: String,
     sql: String,
     bytes_sent_handle: Registered<BytesSent>,
 }
 
 impl PostgreSQLService {
-    pub(crate) fn new(connection_pool: Pool, sql: String) -> Self {
-        let connection_pool = Arc::new(connection_pool);
+    pub(crate) fn new(connection_string: String, sql: String) -> Self {
         Self {
-            connection_pool,
+            connection_string,
             sql,
             bytes_sent_handle: register!(BytesSent::from(Protocol::from("postgresql"))),
         }
@@ -94,13 +91,18 @@ impl Service<PostgreSQLRequest> for PostgreSQLService {
     }
 
     fn call(&mut self, req: PostgreSQLRequest) -> Self::Future {
-        let connection_pool = Arc::clone(&self.connection_pool);
         let sql = self.sql.clone();
+        let connection_string = self.connection_string.clone();
         let bytes_sent_handle = self.bytes_sent_handle.clone();
         Box::pin(async move {
-            let client = match connection_pool.get().await {
+            let client = match vector_lib::mezmo::postgres::db_connection(&connection_string).await
+            {
                 Ok(client) => client,
-                Err(source) => return Err(PostgreSQLSinkError::PoolError { source }),
+                Err(source) => {
+                    return Err(PostgreSQLSinkError::PoolError {
+                        message: source.to_string(),
+                    })
+                }
             };
 
             let prep_stmt = match client.prepare_cached(&sql).await {
@@ -164,8 +166,15 @@ impl ToSql for ValueSqlAdapter<'_> {
                 <bool as ToSql>::to_sql(&raw_value, ty, out)
             }
             "map" => {
-                let raw_value: SerdeValue = json!(value.as_object().expect("object"));
-                <SerdeValue as ToSql>::to_sql(&raw_value, ty, out)
+                let serde_value: SerdeValue = json!(value.as_object().expect("object"));
+                if ty.name() == "jsonb" || ty.name() == "json" {
+                    // Serialize and strip any unicode null chars. They will throw for a JSON(B) column.
+                    let sanitized_string = serde_value.to_string().replace("\\u0000", "");
+                    let sanitized_json: SerdeValue =
+                        serde_json::from_str(sanitized_string.as_str()).unwrap_or(SerdeValue::Null);
+                    return <SerdeValue as ToSql>::to_sql(&sanitized_json, ty, out);
+                }
+                <SerdeValue as ToSql>::to_sql(&serde_value, ty, out)
             }
             _ => {
                 // Treat unhandled cases, map, array and null as null values

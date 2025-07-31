@@ -147,9 +147,9 @@ impl Service<GcsRequest> for GcsService {
         let settings = request.settings;
         let metadata = request.metadata;
 
-        let uri = format!("{}{}", self.base_url, request.key)
-            .parse::<Uri>()
-            .unwrap();
+        let uri = merge_url_and_key(&self.base_url, &request.key);
+
+        let uri = uri.parse::<Uri>().unwrap();
         let protocol = get_http_scheme_from_uri(&uri);
 
         let mut builder = Request::put(uri);
@@ -192,5 +192,37 @@ impl Service<GcsRequest> for GcsService {
                 metadata,
             })
         })
+    }
+}
+
+/// converts // to / between the base url and the key if necessary
+fn merge_url_and_key(base_url: &str, key: &str) -> String {
+    let base_url = base_url.strip_suffix('/').unwrap_or(base_url);
+    let key = key.strip_prefix('/').unwrap_or(key);
+    format!("{base_url}/{key}")
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::sinks::gcs_common::service::merge_url_and_key;
+
+    #[test]
+    fn merge_base_url_and_key() {
+        assert_eq!(
+            "https://baseurl/key",
+            merge_url_and_key("https://baseurl/", "/key")
+        );
+        assert_eq!(
+            "https://baseurl/key",
+            merge_url_and_key("https://baseurl/", "key")
+        );
+        assert_eq!(
+            "https://baseurl/key",
+            merge_url_and_key("https://baseurl", "/key")
+        );
+        assert_eq!(
+            "https://baseurl/key",
+            merge_url_and_key("https://baseurl", "key")
+        );
     }
 }

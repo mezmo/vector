@@ -16,8 +16,8 @@ impl IntoValue for SummaryQuantileValue {
     fn to_value(&self) -> Value {
         Value::Object(
             [
-                ("quantile".to_owned(), from_f64_or_zero(self.quantile)),
-                ("value".to_owned(), from_f64_or_zero(self.value)),
+                ("quantile".into(), from_f64_or_zero(self.quantile)),
+                ("value".into(), from_f64_or_zero(self.value)),
             ]
             .into_iter()
             .collect(),
@@ -65,8 +65,8 @@ impl IntoValue for HistogramBucketValue {
     fn to_value(&self) -> Value {
         Value::Object(
             [
-                ("upper_limit".to_owned(), from_f64_or_zero(self.upper_limit)),
-                ("count".to_owned(), self.count.into()),
+                ("upper_limit".into(), from_f64_or_zero(self.upper_limit)),
+                ("count".into(), self.count.into()),
             ]
             .into_iter()
             .collect(),

@@ -6,7 +6,7 @@ use vector_lib::{
     config::log_schema,
     event::{metric::mezmo::TransformError, LogEvent},
 };
-use vrl::value::Value;
+use vrl::value::{KeyString, Value};
 
 use crate::{
     event::Event,
@@ -14,9 +14,9 @@ use crate::{
         MezmoTagCardinalityLimitRejectingEvent, MezmoTagCardinalityLimitRejectingTag,
         MezmoTagCardinalityValueLimitReached,
     },
-    mezmo::{user_trace::handle_transform_error, MezmoContext},
     transforms::TaskTransform,
 };
+use mezmo::{user_trace::handle_transform_error, MezmoContext};
 
 mod config;
 mod tag_value_set;
@@ -195,7 +195,7 @@ impl TaskTransform<Event> for TagCardinalityLimit {
 
 fn get_tags_mut(
     log: &mut LogEvent,
-) -> Result<Option<&mut BTreeMap<String, Value>>, TransformError> {
+) -> Result<Option<&mut BTreeMap<KeyString, Value>>, TransformError> {
     log.get_mut(log_schema().message_key_target_path().unwrap())
         .map_or(
             Err(TransformError::FieldNotFound {

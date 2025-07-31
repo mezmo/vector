@@ -13,11 +13,11 @@ fn generate_config() {
     crate::test_util::test_generate_config::<TagCardinalityLimitConfig>();
 }
 
-fn make_event(tags: BTreeMap<String, Value>) -> Event {
+fn make_event(tags: BTreeMap<KeyString, Value>) -> Event {
     Event::Log(
         BTreeMap::from([(
-            "message".to_string(),
-            BTreeMap::from([("tags".to_string(), tags.into())]).into(),
+            "message".into(),
+            BTreeMap::from([("tags".into(), tags.into())]).into(),
         )])
         .into(),
     )
@@ -32,7 +32,7 @@ macro_rules! tags {
     ($($key:expr => $value:expr),*) => {
         [
             $( ($key.into(), $value.into()), )*
-        ].into_iter().collect::<BTreeMap<String, Value>>()
+        ].into_iter().collect::<BTreeMap<KeyString, Value>>()
     };
 }
 
@@ -228,7 +228,7 @@ fn drop_event_checks_all_tags2() {
     drop_event_checks_all_tags(|val1, val2| tags!("tag1" => val2, "tag2" => val1));
 }
 
-fn drop_event_checks_all_tags(make_tags: impl Fn(&str, &str) -> BTreeMap<String, Value>) {
+fn drop_event_checks_all_tags(make_tags: impl Fn(&str, &str) -> BTreeMap<KeyString, Value>) {
     let config = make_transform_hashset(2, LimitExceededAction::DropEvent);
     let mut transform = TagCardinalityLimit::new(config, None);
 

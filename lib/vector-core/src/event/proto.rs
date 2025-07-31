@@ -1,10 +1,12 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use chrono::TimeZone;
 use ordered_float::NotNan;
+use uuid::Uuid;
 
-use super::{BTreeMap, MetricTags, WithMetadata};
-use crate::metrics::AgentDDSketch;
+use super::{MetricTags, WithMetadata};
+use crate::{event, metrics::AgentDDSketch};
 
 #[allow(warnings, clippy::all, clippy::pedantic)]
 mod proto_event {
@@ -13,7 +15,7 @@ mod proto_event {
 pub use event_wrapper::Event;
 pub use metric::Value as MetricValue;
 pub use proto_event::*;
-use vrl::value::Value as VrlValue;
+use vrl::value::{ObjectMap, Value as VrlValue};
 
 use super::{array, metric::MetricSketch, EventMetadata};
 
@@ -109,8 +111,8 @@ impl From<Log> for super::LogEvent {
             let fields = log
                 .fields
                 .into_iter()
-                .filter_map(|(k, v)| decode_value(v).map(|value| (k, value)))
-                .collect::<BTreeMap<_, _>>();
+                .filter_map(|(k, v)| decode_value(v).map(|value| (k.into(), value)))
+                .collect::<ObjectMap>();
 
             Self::from_map(fields, metadata)
         }
@@ -134,8 +136,8 @@ impl From<Trace> for super::TraceEvent {
         let fields = trace
             .fields
             .into_iter()
-            .filter_map(|(k, v)| decode_value(v).map(|value| (k, value)))
-            .collect::<BTreeMap<_, _>>();
+            .filter_map(|(k, v)| decode_value(v).map(|value| (k.into(), value)))
+            .collect::<ObjectMap>();
 
         Self::from(super::LogEvent::from_map(fields, metadata))
     }
@@ -302,7 +304,7 @@ impl From<super::LogEvent> for WithMetadata<Log> {
             // using only "fields" to prevent having to use the dummy value
             let fields = fields
                 .into_iter()
-                .map(|(k, v)| (k, encode_value(v)))
+                .map(|(k, v)| (k.into(), encode_value(v)))
                 .collect::<BTreeMap<_, _>>();
 
             (fields, None)
@@ -333,7 +335,7 @@ impl From<super::TraceEvent> for WithMetadata<Trace> {
         let (fields, metadata) = trace.into_parts();
         let fields = fields
             .into_iter()
-            .map(|(k, v)| (k, encode_value(v)))
+            .map(|(k, v)| (k.into(), encode_value(v)))
             .collect::<BTreeMap<_, _>>();
 
         #[allow(deprecated)]
@@ -623,6 +625,7 @@ impl From<EventMetadata> for Metadata {
             source_type,
             upstream_id,
             datadog_origin_metadata,
+            source_event_id,
             ..
         } = value;
 
@@ -639,6 +642,7 @@ impl From<EventMetadata> for Metadata {
             source_type: source_type.map(|s| s.to_string()),
             upstream_id: upstream_id.map(|id| id.as_ref().clone()).map(Into::into),
             secrets,
+            source_event_id: source_event_id.map_or(vec![], std::convert::Into::into),
         }
     }
 }
@@ -671,6 +675,23 @@ impl From<Metadata> for EventMetadata {
             metadata = metadata.with_origin_metadata(origin_metadata.into());
         }
 
+        let maybe_source_event_id = if value.source_event_id.is_empty() {
+            None
+        } else {
+            match Uuid::from_slice(&value.source_event_id) {
+                Ok(id) => Some(id),
+                Err(error) => {
+                    error!(
+                        message = "Failed to parse source_event_id: {}",
+                        %error,
+                        internal_log_rate_limit = true
+                    );
+                    None
+                }
+            }
+        };
+        metadata = metadata.with_source_event_id(maybe_source_event_id);
+
         metadata
     }
 }
@@ -700,9 +721,9 @@ fn decode_value(input: Value) -> Option<super::Value> {
 fn decode_map(fields: BTreeMap<String, Value>) -> Option<super::Value> {
     fields
         .into_iter()
-        .map(|(key, value)| decode_value(value).map(|value| (key, value)))
-        .collect::<Option<BTreeMap<_, _>>>()
-        .map(super::Value::Object)
+        .map(|(key, value)| decode_value(value).map(|value| (key.into(), value)))
+        .collect::<Option<ObjectMap>>()
+        .map(event::Value::Object)
 }
 
 fn decode_array(items: Vec<Value>) -> Option<super::Value> {
@@ -732,11 +753,11 @@ fn encode_value(value: super::Value) -> Value {
     }
 }
 
-fn encode_map(fields: BTreeMap<String, super::Value>) -> ValueMap {
+fn encode_map(fields: ObjectMap) -> ValueMap {
     ValueMap {
         fields: fields
             .into_iter()
-            .map(|(key, value)| (key, encode_value(value)))
+            .map(|(key, value)| (key.into(), encode_value(value)))
             .collect(),
     }
 }

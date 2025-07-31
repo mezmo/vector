@@ -1,5 +1,10 @@
 # use a source that has multi-arch support (amd64+arm64)
 FROM rust:1-slim-bullseye as release-builder
+ARG GITHUB_TOKEN
+ARG BUILD_DATE
+ARG VCS_REF
+ARG BUILD_VERSION
+ARG RELEASE_VERSION
 
 # deps for compiler
 RUN DEPS='gcc g++ make cmake xz-utils locales python libexpat1-dev gettext libz-dev libssl-dev autoconf pkg-config bzip2 protobuf-compiler libsasl2-dev git libclang-dev' \
@@ -13,6 +18,7 @@ RUN DEPS='gcc g++ make cmake xz-utils locales python libexpat1-dev gettext libz-
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc
 
+RUN git config --global url."https://${GITHUB_TOKEN}@github.com".insteadOf ssh://git@github.com
 
 WORKDIR /build
 COPY . .
@@ -20,6 +26,7 @@ COPY . .
 # Output timberio/vector-dev distro (currently Ubuntu)
 RUN cat /etc/os-release
 
+ENV RELEASE_VERSION=${RELEASE_VERSION}
 RUN cargo build --release
 
 RUN ls -lh /build/target/release
@@ -41,10 +48,6 @@ RUN mkdir -p /var/lib/vector
 
 RUN ["gdb", "--version"]
 RUN ["vector", "--version"]
-
-ARG BUILD_DATE
-ARG VCS_REF
-ARG BUILD_VERSION
 
 LABEL org.opencontainers.image.title="answerbook/vector"
 LABEL org.opencontainers.image.description="Mezmo vector fork"

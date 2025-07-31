@@ -12,12 +12,11 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use aws_sdk_s3::{
-    model::{CompletedMultipartUpload, CompletedPart, RequestPayer},
-    types::ByteStream,
+    types::{CompletedMultipartUpload, CompletedPart, RequestPayer},
     Client as S3Client, Error,
 };
 
-use aws_smithy_types::DateTime as AwsDateTime;
+use aws_smithy_types::{byte_stream::ByteStream, DateTime as AwsDateTime};
 
 const TWO_HOURS_IN_SECONDS: u64 = 2 * 60 * 60;
 const MULTIPART_FILE_MIN_MB_I64: i64 = 5 * 1024 * 1024;
@@ -526,13 +525,13 @@ pub async fn get_files_to_consolidate(
         //determine if there is more records to be retrieved in another request
         //the default is 1000 records which we'll stick with until we need to do
         //some tuning
-        if list_result.is_truncated() {
+        if list_result.is_truncated().is_some_and(|r| r) {
             continuation_token = Some(list_result.next_continuation_token().unwrap().to_string());
         } else {
             continuation_token = None;
         }
 
-        for key_object in list_result.contents().unwrap() {
+        for key_object in list_result.contents() {
             let key = key_object.key().unwrap();
 
             let tag_result = client
@@ -546,14 +545,12 @@ pub async fn get_files_to_consolidate(
             let mut mezmo_produced_file = false;
             let mut can_combine = false;
 
-            let tags = tag_result.tag_set().unwrap_or_default();
+            let tags = tag_result.tag_set();
             for tag in tags.iter() {
-                match tag.key().unwrap_or_default() {
+                match tag.key() {
                     "mezmo_pipeline_merged" => mezmo_merged_file = true,
                     "mezmo_pipeline_s3_sink" => mezmo_produced_file = true,
-                    "mezmo_pipeline_s3_type" => {
-                        can_combine = requested_file_type == tag.value().unwrap()
-                    }
+                    "mezmo_pipeline_s3_type" => can_combine = requested_file_type == tag.value(),
                     _ => (),
                 }
             }
@@ -573,7 +570,7 @@ pub async fn get_files_to_consolidate(
             {
                 Ok(head) => {
                     let compressed = head.content_encoding().unwrap_or_default() == "gzip";
-                    let size = head.content_length();
+                    let size = head.content_length().expect("object size missing");
                     let key = key.to_string();
                     let last_modified = key_object.last_modified().unwrap().secs();
 
@@ -657,7 +654,7 @@ async fn download_file_as_bytes(
         }
     }
 
-    if prepend_char.is_some() {
+    if let Some(..) = prepend_char {
         vec.insert(0, prepend_char.unwrap() as u8);
     }
 
@@ -682,7 +679,7 @@ async fn download_file_as_bytes(
 fn determine_download_properties(
     output_format: String,
     consolidated_file_has_data: bool,
-    upload_file_parts: &Vec<ConsolidationFile>,
+    upload_file_parts: &[ConsolidationFile],
 ) -> (bool, bool, Option<char>) {
     let is_standard_json_file: bool = output_format == "json";
 
@@ -731,7 +728,7 @@ async fn download_bytes(client: &S3Client, bucket: String, key: String) -> Resul
         Ok(body) => body.into_bytes(),
         Err(e) => {
             return Err(Error::NotFound(
-                aws_sdk_s3::error::NotFound::builder()
+                aws_sdk_s3::types::error::NotFound::builder()
                     .message(format!("{}", e))
                     .build(),
             ))

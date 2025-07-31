@@ -1,13 +1,11 @@
 use std::collections::BTreeMap;
 use std::time::SystemTime;
 
-use crate::user_log_error;
 use crate::{
     codecs::Transformer,
     config::{AcknowledgementsConfig, GenerateConfig, Input, SinkConfig, SinkContext},
     event::Event,
     http::{Auth, HttpClient},
-    mezmo::user_trace::MezmoUserLog,
     schema,
     sinks::util::{
         http::{HttpEventEncoder, HttpSink, PartitionHttpSink},
@@ -19,6 +17,7 @@ use crate::{
 use bytes::Bytes;
 use futures::{FutureExt, SinkExt};
 use http::{Request, StatusCode, Uri};
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 use serde_json::json;
 use vector_lib::configurable::configurable_component;
 use vector_lib::lookup::PathPrefix;
@@ -153,10 +152,7 @@ pub struct MezmoConfig {
     tags: Option<Vec<Template>>,
 
     #[configurable(derived)]
-    #[serde(
-        default,
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
-    )]
+    #[serde(default, skip_serializing_if = "crate::serde::is_default")]
     pub encoding: Transformer,
 
     /// The default app that is set for events that do not contain a `file` or `app` field.
@@ -181,7 +177,7 @@ pub struct MezmoConfig {
     #[serde(
         default,
         deserialize_with = "crate::serde::bool_or_struct",
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
+        skip_serializing_if = "crate::serde::is_default"
     )]
     acknowledgements: AcknowledgementsConfig,
 }
@@ -244,7 +240,7 @@ impl SinkConfig for MezmoConfig {
             return Err("only one of `line_field` and `line_template` can be provided".into());
         }
 
-        let request_settings = self.request.unwrap_with(&TowerRequestConfig::default());
+        let request_settings = self.request.into_settings();
         let batch_settings = self.batch.into_batch_settings()?;
         let client = HttpClient::new(None, cx.proxy())?;
 
@@ -567,13 +563,14 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, derivative::Derivative)]
+#[derivative(Debug)]
 struct MezmoSink {
+    #[derivative(Debug = "ignore")]
     cx: SinkContext,
     cfg: MezmoConfig,
 }
 
-#[async_trait::async_trait]
 impl HttpSink for MezmoSink {
     type Input = PartitionInnerBuffer<serde_json::Value, PartitionKey>;
     type Output = PartitionInnerBuffer<Vec<BoxedRawValue>, PartitionKey>;

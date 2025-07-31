@@ -1,0 +1,22 @@
+version: '3'
+
+services:
+  postgres:
+    image: docker.io/postgres:${CONFIG_PG_VERSION}
+    environment:
+    - POSTGRES_USER=vector
+    - POSTGRES_PASSWORD=vector
+    ports:
+    - 5432:5432
+  pgbouncer:
+    image: docker.io/bitnami/pgbouncer:${CONFIG_VERSION}
+    ports:
+    - 6432:6432
+    environment:
+    - POSTGRESQL_HOST=postgres
+    - POSTGRESQL_USERNAME=vector
+    - POSTGRESQL_PASSWORD=vector
+    volumes:
+    - ../../../tests/data/pgbouncer/pgbouncer.ini:/bitnami/pgbouncer/conf/pgbouncer.ini:ro
+    depends_on:
+    - postgres

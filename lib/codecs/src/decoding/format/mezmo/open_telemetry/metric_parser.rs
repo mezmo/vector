@@ -1,5 +1,7 @@
 use smallvec::SmallVec;
 use std::borrow::Cow;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::LazyLock;
 
 use opentelemetry_rs::opentelemetry::metrics::{
     AggregationTemporality, AnyValue, AnyValueOneOfvalue, Exemplar, ExemplarOneOfvalue,
@@ -19,19 +21,68 @@ use vector_core::{
             MetricTagsAccessor, MetricToLogEvent, MetricValueAccessor, MetricValuePairs,
             MetricValueSerializable, MezmoMetric,
         },
-        Event, LogEvent, MetricKind, Value,
+        Event, KeyString, LogEvent, MetricKind, Value,
     },
 };
 
 use vector_common::btreemap;
 
 use crate::decoding::format::mezmo::open_telemetry::{
-    nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
+    get_uniq_request_id, nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
 };
 
-const METRIC_TIMESTAMP_KEY: &str = "message.value.time_unix_nano";
+const METRIC_TIMESTAMP_KEY: &str = "message.value.time_unix";
+static UNIT_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
+    vec![
+        // Time
+        ("d", "days"),
+        ("h", "hours"),
+        ("min", "minutes"),
+        ("s", "seconds"),
+        ("ms", "milliseconds"),
+        ("us", "microseconds"),
+        ("ns", "nanoseconds"),
+        // Bytes
+        ("By", "bytes"),
+        ("KiBy", "kibibytes"),
+        ("MiBy", "mebibytes"),
+        ("GiBy", "gibibytes"),
+        ("TiBy", "tibibytes"),
+        ("KBy", "kilobytes"),
+        ("MBy", "megabytes"),
+        ("GBy", "gigabytes"),
+        ("TBy", "terabytes"),
+        // SI
+        ("m", "meters"),
+        ("V", "volts"),
+        ("A", "amperes"),
+        ("J", "joules"),
+        ("W", "watts"),
+        ("g", "grams"),
+        // Misc
+        ("Cel", "celsius"),
+        ("Hz", "hertz"),
+        ("1", ""),
+        ("%", "percent"),
+    ]
+    .into_iter()
+    .collect()
+});
+static PER_UNIT_MAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
+    vec![
+        ("s", "second"),
+        ("m", "minute"),
+        ("h", "hour"),
+        ("d", "day"),
+        ("w", "week"),
+        ("mo", "month"),
+        ("y", "year"),
+    ]
+    .into_iter()
+    .collect()
+});
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct GaugeMetricValue {
     pub value: NumberDataPointOneOfValue,
 }
@@ -63,41 +114,45 @@ impl<'a> MetricValueAccessor<'a> for GaugeMetricValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct GaugeMetricArbitrary<'a> {
+    pub name: Cow<'a, str>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
-    pub start_time_unix_nano: u64,
-    pub time_unix_nano: u64,
+    pub start_time_unix: Value,
+    pub time_unix: Value,
     pub flags: u32,
 }
 
 impl<'a> GaugeMetricArbitrary<'a> {
     fn new(
         gauge_metric: NumberDataPoint<'a>,
+        name: Cow<'a, str>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
     ) -> Self {
         GaugeMetricArbitrary {
+            name,
             description,
             unit,
             exemplars: ExemplarsMetricValue {
                 exemplars: gauge_metric.exemplars,
             },
-            start_time_unix_nano: gauge_metric.start_time_unix_nano,
-            time_unix_nano: gauge_metric.time_unix_nano,
+            start_time_unix: nano_to_timestamp(gauge_metric.start_time_unix_nano),
+            time_unix: nano_to_timestamp(gauge_metric.time_unix_nano),
             flags: gauge_metric.flags,
         }
     }
 }
 
 impl<'a> MetricArbitraryAccessor<'a> for GaugeMetricArbitrary<'_> {
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 6>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 7>;
 
     fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
         MetricValuePairs {
             elements: [
+                (&"name" as &dyn ToString, &self.name as &dyn IntoValue),
                 (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
@@ -108,12 +163,12 @@ impl<'a> MetricArbitraryAccessor<'a> for GaugeMetricArbitrary<'_> {
                     &self.exemplars as &dyn IntoValue,
                 ),
                 (
-                    &"start_time_unix_nano" as &dyn ToString,
-                    &self.start_time_unix_nano as &dyn IntoValue,
+                    &"start_time_unix" as &dyn ToString,
+                    &self.start_time_unix as &dyn IntoValue,
                 ),
                 (
-                    &"time_unix_nano" as &dyn ToString,
-                    &self.time_unix_nano as &dyn IntoValue,
+                    &"time_unix" as &dyn ToString,
+                    &self.time_unix as &dyn IntoValue,
                 ),
                 (&"flags" as &dyn ToString, &self.flags as &dyn IntoValue),
             ]
@@ -122,9 +177,9 @@ impl<'a> MetricArbitraryAccessor<'a> for GaugeMetricArbitrary<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct GaugeMetricMetadata<'a> {
-    pub resource: ResourceMetricValue<'a>,
+    pub resource: &'a ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
     original_type: Cow<'a, str>,
@@ -134,7 +189,7 @@ pub struct GaugeMetricMetadata<'a> {
 impl<'a> GaugeMetricMetadata<'a> {
     fn new(
         gauge_metric: NumberDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
+        resource: &'a ResourceMetricValue<'a>,
         scope: ScopeMetricValue<'a>,
     ) -> Self {
         GaugeMetricMetadata {
@@ -165,7 +220,7 @@ impl<'a> MetricArbitraryAccessor<'a> for GaugeMetricMetadata<'_> {
                 ),
                 (
                     &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
+                    self.resource as &dyn IntoValue,
                 ),
                 (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
                 (
@@ -178,7 +233,7 @@ impl<'a> MetricArbitraryAccessor<'a> for GaugeMetricMetadata<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SumMetricValue {
     pub value: NumberDataPointOneOfValue,
     pub is_monotonic: bool,
@@ -225,13 +280,14 @@ impl<'a> MetricValueAccessor<'a> for SumMetricValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SumMetricArbitrary<'a> {
+    pub name: Cow<'a, str>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
-    pub start_time_unix_nano: u64,
-    pub time_unix_nano: u64,
+    pub start_time_unix: Value,
+    pub time_unix: Value,
     pub flags: u32,
     pub is_monotonic: bool,
     pub aggregation_temporality: i32,
@@ -240,19 +296,21 @@ pub struct SumMetricArbitrary<'a> {
 impl<'a> SumMetricArbitrary<'a> {
     fn new(
         sum_metric: NumberDataPoint<'a>,
+        name: Cow<'a, str>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
         aggregation_temporality: AggregationTemporality,
         is_monotonic: bool,
     ) -> Self {
         SumMetricArbitrary {
+            name,
             description,
             unit,
             exemplars: ExemplarsMetricValue {
                 exemplars: sum_metric.exemplars,
             },
-            start_time_unix_nano: sum_metric.start_time_unix_nano,
-            time_unix_nano: sum_metric.time_unix_nano,
+            start_time_unix: nano_to_timestamp(sum_metric.start_time_unix_nano),
+            time_unix: nano_to_timestamp(sum_metric.time_unix_nano),
             flags: sum_metric.flags,
             is_monotonic,
             aggregation_temporality: aggregation_temporality as i32,
@@ -261,11 +319,12 @@ impl<'a> SumMetricArbitrary<'a> {
 }
 
 impl<'a> MetricArbitraryAccessor<'a> for SumMetricArbitrary<'_> {
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 8>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 9>;
 
     fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
         MetricValuePairs {
             elements: [
+                (&"name" as &dyn ToString, &self.name as &dyn IntoValue),
                 (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
@@ -276,12 +335,12 @@ impl<'a> MetricArbitraryAccessor<'a> for SumMetricArbitrary<'_> {
                     &self.exemplars as &dyn IntoValue,
                 ),
                 (
-                    &"start_time_unix_nano" as &dyn ToString,
-                    &self.start_time_unix_nano as &dyn IntoValue,
+                    &"start_time_unix" as &dyn ToString,
+                    &self.start_time_unix as &dyn IntoValue,
                 ),
                 (
-                    &"time_unix_nano" as &dyn ToString,
-                    &self.time_unix_nano as &dyn IntoValue,
+                    &"time_unix" as &dyn ToString,
+                    &self.time_unix as &dyn IntoValue,
                 ),
                 (&"flags" as &dyn ToString, &self.flags as &dyn IntoValue),
                 (
@@ -298,9 +357,9 @@ impl<'a> MetricArbitraryAccessor<'a> for SumMetricArbitrary<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SumMetricMetadata<'a> {
-    pub resource: ResourceMetricValue<'a>,
+    pub resource: &'a ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
     original_type: Cow<'a, str>,
@@ -310,7 +369,7 @@ pub struct SumMetricMetadata<'a> {
 impl<'a> SumMetricMetadata<'a> {
     fn new(
         sum_metric: NumberDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
+        resource: &'a ResourceMetricValue<'a>,
         scope: ScopeMetricValue<'a>,
     ) -> Self {
         SumMetricMetadata {
@@ -341,7 +400,7 @@ impl<'a> MetricArbitraryAccessor<'a> for SumMetricMetadata<'_> {
                 ),
                 (
                     &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
+                    self.resource as &dyn IntoValue,
                 ),
                 (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
                 (
@@ -354,7 +413,7 @@ impl<'a> MetricArbitraryAccessor<'a> for SumMetricMetadata<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct HistogramMetricValue {
     pub count: u64,
     pub sum: f64,
@@ -409,13 +468,14 @@ impl<'a> MetricValueAccessor<'a> for HistogramMetricValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct HistogramMetricArbitrary<'a> {
+    pub name: Cow<'a, str>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
-    pub start_time_unix_nano: u64,
-    pub time_unix_nano: u64,
+    pub start_time_unix: Value,
+    pub time_unix: Value,
     pub bucket_counts: Cow<'a, [u64]>,
     pub explicit_bounds: Cow<'a, [f64]>,
     pub flags: u32,
@@ -427,18 +487,20 @@ pub struct HistogramMetricArbitrary<'a> {
 impl<'a> HistogramMetricArbitrary<'a> {
     fn new(
         histogram_metric: HistogramDataPoint<'a>,
+        name: Cow<'a, str>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
         aggregation_temporality: AggregationTemporality,
     ) -> Self {
         HistogramMetricArbitrary {
+            name,
             description,
             unit,
             exemplars: ExemplarsMetricValue {
                 exemplars: histogram_metric.exemplars,
             },
-            start_time_unix_nano: histogram_metric.start_time_unix_nano,
-            time_unix_nano: histogram_metric.time_unix_nano,
+            start_time_unix: nano_to_timestamp(histogram_metric.start_time_unix_nano),
+            time_unix: nano_to_timestamp(histogram_metric.time_unix_nano),
             bucket_counts: histogram_metric.bucket_counts,
             explicit_bounds: histogram_metric.explicit_bounds,
             flags: histogram_metric.flags,
@@ -450,11 +512,12 @@ impl<'a> HistogramMetricArbitrary<'a> {
 }
 
 impl<'a> MetricArbitraryAccessor<'a> for HistogramMetricArbitrary<'_> {
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 11>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 12>;
 
     fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
         MetricValuePairs {
             elements: [
+                (&"name" as &dyn ToString, &self.name as &dyn IntoValue),
                 (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
@@ -465,12 +528,12 @@ impl<'a> MetricArbitraryAccessor<'a> for HistogramMetricArbitrary<'_> {
                     &self.exemplars as &dyn IntoValue,
                 ),
                 (
-                    &"start_time_unix_nano" as &dyn ToString,
-                    &self.start_time_unix_nano as &dyn IntoValue,
+                    &"start_time_unix" as &dyn ToString,
+                    &self.start_time_unix as &dyn IntoValue,
                 ),
                 (
-                    &"time_unix_nano" as &dyn ToString,
-                    &self.time_unix_nano as &dyn IntoValue,
+                    &"time_unix" as &dyn ToString,
+                    &self.time_unix as &dyn IntoValue,
                 ),
                 (
                     &"bucket_counts" as &dyn ToString,
@@ -493,9 +556,9 @@ impl<'a> MetricArbitraryAccessor<'a> for HistogramMetricArbitrary<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct HistogramMetricMetadata<'a> {
-    pub resource: ResourceMetricValue<'a>,
+    pub resource: &'a ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
     original_type: Cow<'a, str>,
@@ -505,7 +568,7 @@ pub struct HistogramMetricMetadata<'a> {
 impl<'a> HistogramMetricMetadata<'a> {
     fn new(
         histogram_metric: HistogramDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
+        resource: &'a ResourceMetricValue<'a>,
         scope: ScopeMetricValue<'a>,
     ) -> Self {
         HistogramMetricMetadata {
@@ -536,7 +599,7 @@ impl<'a> MetricArbitraryAccessor<'a> for HistogramMetricMetadata<'_> {
                 ),
                 (
                     &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
+                    self.resource as &dyn IntoValue,
                 ),
                 (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
                 (
@@ -549,7 +612,7 @@ impl<'a> MetricArbitraryAccessor<'a> for HistogramMetricMetadata<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ExponentialHistogramMetricValue<'a> {
     pub exp_histogram_metric: ExponentialHistogramDataPoint<'a>,
 }
@@ -585,13 +648,14 @@ impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricValue<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ExponentialHistogramMetricArbitrary<'a> {
+    pub name: Cow<'a, str>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
     pub exemplars: ExemplarsMetricValue<'a>,
-    pub start_time_unix_nano: u64,
-    pub time_unix_nano: u64,
+    pub start_time_unix: Value,
+    pub time_unix: Value,
     pub count: u64,
     pub sum: f64,
     pub scale: i32,
@@ -608,18 +672,20 @@ pub struct ExponentialHistogramMetricArbitrary<'a> {
 impl<'a> ExponentialHistogramMetricArbitrary<'a> {
     fn new(
         exp_histogram_metric: ExponentialHistogramDataPoint<'a>,
+        name: Cow<'a, str>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
         aggregation_temporality: AggregationTemporality,
     ) -> Self {
         ExponentialHistogramMetricArbitrary {
+            name,
             description,
             unit,
             exemplars: ExemplarsMetricValue {
                 exemplars: exp_histogram_metric.exemplars,
             },
-            start_time_unix_nano: exp_histogram_metric.start_time_unix_nano,
-            time_unix_nano: exp_histogram_metric.time_unix_nano,
+            start_time_unix: nano_to_timestamp(exp_histogram_metric.start_time_unix_nano),
+            time_unix: nano_to_timestamp(exp_histogram_metric.time_unix_nano),
             count: exp_histogram_metric.count,
             sum: exp_histogram_metric.sum,
             scale: exp_histogram_metric.scale,
@@ -636,11 +702,12 @@ impl<'a> ExponentialHistogramMetricArbitrary<'a> {
 }
 
 impl<'a> MetricArbitraryAccessor<'a> for ExponentialHistogramMetricArbitrary<'_> {
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 16>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 17>;
 
     fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
         MetricValuePairs {
             elements: [
+                (&"name" as &dyn ToString, &self.name as &dyn IntoValue),
                 (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
@@ -651,12 +718,12 @@ impl<'a> MetricArbitraryAccessor<'a> for ExponentialHistogramMetricArbitrary<'_>
                     &self.exemplars as &dyn IntoValue,
                 ),
                 (
-                    &"start_time_unix_nano" as &dyn ToString,
-                    &self.start_time_unix_nano as &dyn IntoValue,
+                    &"start_time_unix" as &dyn ToString,
+                    &self.start_time_unix as &dyn IntoValue,
                 ),
                 (
-                    &"time_unix_nano" as &dyn ToString,
-                    &self.time_unix_nano as &dyn IntoValue,
+                    &"time_unix" as &dyn ToString,
+                    &self.time_unix as &dyn IntoValue,
                 ),
                 (&"count" as &dyn ToString, &self.count as &dyn IntoValue),
                 (&"sum" as &dyn ToString, &self.sum as &dyn IntoValue),
@@ -690,9 +757,9 @@ impl<'a> MetricArbitraryAccessor<'a> for ExponentialHistogramMetricArbitrary<'_>
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ExponentialHistogramMetricMetadata<'a> {
-    pub resource: ResourceMetricValue<'a>,
+    pub resource: &'a ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
 }
@@ -700,7 +767,7 @@ pub struct ExponentialHistogramMetricMetadata<'a> {
 impl<'a> ExponentialHistogramMetricMetadata<'a> {
     fn new(
         exp_histogram_metric: ExponentialHistogramDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
+        resource: &'a ResourceMetricValue<'a>,
         scope: ScopeMetricValue<'a>,
     ) -> Self {
         ExponentialHistogramMetricMetadata {
@@ -721,7 +788,7 @@ impl<'a> MetricArbitraryAccessor<'a> for ExponentialHistogramMetricMetadata<'_> 
             elements: [
                 (
                     &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
+                    self.resource as &dyn IntoValue,
                 ),
                 (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
                 (
@@ -734,7 +801,7 @@ impl<'a> MetricArbitraryAccessor<'a> for ExponentialHistogramMetricMetadata<'_> 
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SummaryMetricValue {
     pub count: u64,
     pub sum: f64,
@@ -778,12 +845,13 @@ impl<'a> MetricValueAccessor<'a> for SummaryMetricValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SummaryMetricArbitrary<'a> {
+    pub name: Cow<'a, str>,
     pub description: Cow<'a, str>,
     pub unit: Cow<'a, str>,
-    pub start_time_unix_nano: u64,
-    pub time_unix_nano: u64,
+    pub start_time_unix: Value,
+    pub time_unix: Value,
     pub count: u64,
     pub sum: f64,
     pub quantile_values: QuantileValuesMetricValue,
@@ -793,14 +861,16 @@ pub struct SummaryMetricArbitrary<'a> {
 impl<'a> SummaryMetricArbitrary<'a> {
     fn new(
         summary_metric: SummaryDataPoint<'a>,
+        name: Cow<'a, str>,
         description: Cow<'a, str>,
         unit: Cow<'a, str>,
     ) -> Self {
         SummaryMetricArbitrary {
+            name,
             description,
             unit,
-            start_time_unix_nano: summary_metric.start_time_unix_nano,
-            time_unix_nano: summary_metric.time_unix_nano,
+            start_time_unix: nano_to_timestamp(summary_metric.start_time_unix_nano),
+            time_unix: nano_to_timestamp(summary_metric.time_unix_nano),
             count: summary_metric.count,
             sum: summary_metric.sum,
             quantile_values: QuantileValuesMetricValue(summary_metric.quantile_values),
@@ -810,23 +880,24 @@ impl<'a> SummaryMetricArbitrary<'a> {
 }
 
 impl<'a> MetricArbitraryAccessor<'a> for SummaryMetricArbitrary<'_> {
-    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 8>;
+    type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 9>;
 
     fn value(&'a self) -> MetricValuePairs<Self::ObjIter> {
         MetricValuePairs {
             elements: [
+                (&"name" as &dyn ToString, &self.name as &dyn IntoValue),
                 (
                     &"description" as &dyn ToString,
                     &self.description as &dyn IntoValue,
                 ),
                 (&"unit" as &dyn ToString, &self.unit as &dyn IntoValue),
                 (
-                    &"start_time_unix_nano" as &dyn ToString,
-                    &self.start_time_unix_nano as &dyn IntoValue,
+                    &"start_time_unix" as &dyn ToString,
+                    &self.start_time_unix as &dyn IntoValue,
                 ),
                 (
-                    &"time_unix_nano" as &dyn ToString,
-                    &self.time_unix_nano as &dyn IntoValue,
+                    &"time_unix" as &dyn ToString,
+                    &self.time_unix as &dyn IntoValue,
                 ),
                 (&"count" as &dyn ToString, &self.count as &dyn IntoValue),
                 (&"sum" as &dyn ToString, &self.sum as &dyn IntoValue),
@@ -841,9 +912,9 @@ impl<'a> MetricArbitraryAccessor<'a> for SummaryMetricArbitrary<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct SummaryMetricMetadata<'a> {
-    pub resource: ResourceMetricValue<'a>,
+    pub resource: &'a ResourceMetricValue<'a>,
     pub scope: ScopeMetricValue<'a>,
     pub attributes: OpenTelemetryKeyValue<'a>,
     original_type: Cow<'a, str>,
@@ -853,7 +924,7 @@ pub struct SummaryMetricMetadata<'a> {
 impl<'a> SummaryMetricMetadata<'a> {
     fn new(
         summary_metric: SummaryDataPoint<'a>,
-        resource: ResourceMetricValue<'a>,
+        resource: &'a ResourceMetricValue<'a>,
         scope: ScopeMetricValue<'a>,
     ) -> Self {
         SummaryMetricMetadata {
@@ -884,7 +955,7 @@ impl<'a> MetricArbitraryAccessor<'a> for SummaryMetricMetadata<'_> {
                 ),
                 (
                     &"resource" as &dyn ToString,
-                    &self.resource as &dyn IntoValue,
+                    self.resource as &dyn IntoValue,
                 ),
                 (&"scope" as &dyn ToString, &self.scope as &dyn IntoValue),
                 (
@@ -897,7 +968,7 @@ impl<'a> MetricArbitraryAccessor<'a> for SummaryMetricMetadata<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ScopeMetricValue<'a> {
     pub name: Option<String>,
     pub version: Option<String>,
@@ -950,31 +1021,35 @@ impl IntoValue for ScopeMetricValue<'_> {
             Value::Null
         };
 
-        Value::Object(btreemap! {
-            "name" => name,
-            "version" => version,
-            "attributes" => attributes.to_value(),
-            "dropped_attributes_count" => self.dropped_attributes_count,
-        })
+        let values: BTreeMap<KeyString, _> = btreemap! {
+            KeyString::from("name") => name,
+            KeyString::from("version") => version,
+            KeyString::from("attributes") => attributes.to_value(),
+            KeyString::from("dropped_attributes_count") => self.dropped_attributes_count,
+        };
+        Value::Object(values)
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ResourceMetricValue<'a> {
+    pub uniq_id: &'a Value,
     pub attributes: OpenTelemetryKeyValue<'a>,
     pub dropped_attributes_count: Option<u32>,
 }
 
 impl<'a> ResourceMetricValue<'a> {
-    fn new(opt: Option<Resource<'a>>) -> Self {
+    fn new(opt: Option<Resource<'a>>, uniq_id: &'a Value) -> Self {
         match opt {
             Some(resource) => ResourceMetricValue {
+                uniq_id,
                 attributes: OpenTelemetryKeyValue {
                     attributes: resource.attributes,
                 },
                 dropped_attributes_count: Some(resource.dropped_attributes_count),
             },
             None => ResourceMetricValue {
+                uniq_id,
                 attributes: OpenTelemetryKeyValue {
                     attributes: Vec::new(),
                 },
@@ -987,13 +1062,14 @@ impl<'a> ResourceMetricValue<'a> {
 impl IntoValue for ResourceMetricValue<'_> {
     fn to_value(&self) -> Value {
         Value::Object(btreemap! {
+            "uniq_id" => self.uniq_id.clone(),
             "attributes" => self.attributes.to_value(),
             "dropped_attributes_count" => self.dropped_attributes_count,
         })
     }
 }
 
-#[derive(Debug, Default, PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub struct HistogramBucketValue {
     pub upper_limit: f64,
     pub count: u64,
@@ -1003,8 +1079,8 @@ impl IntoValue for HistogramBucketValue {
     fn to_value(&self) -> Value {
         Value::Object(
             [
-                ("upper_limit".to_owned(), from_f64_or_zero(self.upper_limit)),
-                ("count".to_owned(), self.count.into()),
+                ("upper_limit".into(), from_f64_or_zero(self.upper_limit)),
+                ("count".into(), self.count.into()),
             ]
             .into_iter()
             .collect(),
@@ -1012,7 +1088,7 @@ impl IntoValue for HistogramBucketValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct QuantileValuesMetricValue(Vec<SummaryDataPointValueAtQuantile>);
 
 impl IntoValue for QuantileValuesMetricValue {
@@ -1031,7 +1107,7 @@ impl IntoValue for QuantileValuesMetricValue {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct ExemplarsMetricValue<'a> {
     pub exemplars: Vec<Exemplar<'a>>,
 }
@@ -1055,7 +1131,7 @@ impl IntoValue for ExemplarsMetricValue<'_> {
                     Value::Object(btreemap! {
                         "filtered_attributes" => filtered_attributes.to_value(),
                         "value" => exemplar_value,
-                        "time_unix_nano" => exemplar.time_unix_nano,
+                        "time_unix" => nano_to_timestamp(exemplar.time_unix_nano),
                         "span_id" => faster_hex::hex_string(&exemplar.span_id),
                         "trace_id" => faster_hex::hex_string(&exemplar.trace_id),
                     })
@@ -1065,7 +1141,7 @@ impl IntoValue for ExemplarsMetricValue<'_> {
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct DataPointBucketsMetricValue {
     pub offset: Option<i32>,
     pub bucket_counts: Vec<u64>,
@@ -1088,19 +1164,20 @@ impl DataPointBucketsMetricValue {
 
 impl IntoValue for DataPointBucketsMetricValue {
     fn to_value(&self) -> Value {
-        Value::Object(btreemap! {
-            "offset" => self.offset,
-            "bucket_counts" => Value::Array(
+        let value: BTreeMap<KeyString, _> = btreemap! {
+            KeyString::from("offset") => self.offset,
+            KeyString::from("bucket_counts") => Value::Array(
                 self.bucket_counts
                     .iter()
                     .map(|count| Value::from(*count))
                     .collect(),
             ),
-        })
+        };
+        Value::Object(value)
     }
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct NumberDataPointOneOfValue {
     pub value: NumberDataPointOneOfvalue,
 }
@@ -1126,7 +1203,7 @@ impl<'a> MetricTagsAccessor<'a> for MetricTagsWrapper<'a> {
         fn(&'a KeyValue<'a>) -> Option<(&'a dyn ToString, &'a dyn IntoTagValue)>,
     >;
 
-    fn tags(&'a self) -> MetricTags<'a, Self::Iter> {
+    fn tags(&self) -> MetricTags<'a, Self::Iter> {
         MetricTags {
             tags: self
                 .tags
@@ -1135,14 +1212,166 @@ impl<'a> MetricTagsAccessor<'a> for MetricTagsWrapper<'a> {
                     Some(AnyValue {
                         value: AnyValueOneOfvalue::string_value(val),
                     }) if val.is_empty() => None,
-                    Some(ref any_value) => Some((
+                    Some(AnyValue {
+                        value: AnyValueOneOfvalue::string_value(val),
+                    }) => Some((
                         &key_value.key as &'a dyn ToString,
-                        &any_value.value as &'a dyn IntoTagValue,
+                        val as &'a dyn IntoTagValue,
                     )),
+                    Some(AnyValue {
+                        value: AnyValueOneOfvalue::array_value(array_val),
+                    }) => Some((
+                        &key_value.key as &'a dyn ToString,
+                        array_val as &'a dyn IntoTagValue,
+                    )),
+                    Some(_) => None,
                     None => None,
                 }),
         }
     }
+}
+
+pub fn sanitize_tags<'a>(
+    tags: Vec<KeyValue<'a>>,
+    additional_tags: Vec<KeyValue<'a>>,
+) -> Vec<KeyValue<'a>> {
+    let mut super_tags = tags;
+    super_tags.extend(additional_tags.into_iter());
+
+    super_tags
+        .into_iter()
+        .map(|key_value| {
+            let mut key = key_value.key;
+            if !key.is_empty() {
+                let mut sanitized_key: String = key
+                    .chars()
+                    .flat_map(|c| {
+                        if char::is_alphanumeric(c) {
+                            vec![c]
+                        } else {
+                            vec!['_']
+                        }
+                    })
+                    .collect();
+
+                let first_char = sanitized_key.chars().next().unwrap();
+                if first_char.is_ascii_digit() {
+                    sanitized_key.insert_str(0, "key_");
+                } else if !first_char.is_alphabetic() {
+                    sanitized_key.insert_str(0, "key");
+                }
+
+                key = Cow::from(sanitized_key);
+            }
+
+            KeyValue {
+                key,
+                value: key_value.value,
+            }
+        })
+        .collect::<Vec<KeyValue>>()
+}
+
+pub fn normalize_name<'a>(
+    name: Cow<'a, str>,
+    unit: Cow<'a, str>,
+    m_type: Cow<'a, str>,
+    kind: Cow<'a, str>,
+) -> Cow<'a, str> {
+    // Split metric name in "tokens" (remove all non-alphanumeric)
+    let mut name_tokens = name
+        .split(|i| !char::is_alphanumeric(i))
+        .filter(|&x| !x.is_empty())
+        .map(|c| c.to_string())
+        .collect::<Vec<String>>();
+
+    // Split unit at the '/' if any
+    let unit_tokens: Vec<&str> = unit.splitn(2, '/').collect();
+
+    // Main unit
+    // Append if not blank, doesn't contain '{}', and is not present in metric name already
+    if !unit_tokens.is_empty() {
+        let main_unit_otel = unit_tokens[0].trim();
+
+        if !main_unit_otel.is_empty() && !main_unit_otel.contains(['{', '}']) {
+            let main_unit_prom = clean_up_string(unit_map_get_or_default(main_unit_otel));
+            if !main_unit_prom.is_empty() && !name_tokens.contains(&main_unit_prom) {
+                name_tokens.push(main_unit_prom);
+            }
+        }
+
+        // Per unit
+        // Append if not blank, doesn't contain '{}', and is not present in metric name already
+        if unit_tokens.len() > 1 && !unit_tokens[1].is_empty() {
+            let per_unit_otel = unit_tokens[1].trim();
+            if !per_unit_otel.is_empty() && !per_unit_otel.contains(['{', '}']) {
+                let per_unit_prom = clean_up_string(per_unit_map_get_or_default(per_unit_otel));
+                if !per_unit_prom.is_empty() && !name_tokens.contains(&per_unit_prom) {
+                    name_tokens.push("per".to_string());
+                    name_tokens.push(per_unit_prom);
+                }
+            }
+        }
+    }
+
+    // Append _total for Counters
+    if m_type == "counter" && kind == "incremental" {
+        if let Some(total_i) = name_tokens.iter().position(|i| *i == "total") {
+            name_tokens.remove(total_i);
+        }
+        name_tokens.push("total".to_string());
+    }
+
+    // Append _ratio for metrics with unit "1"
+    // Some Otel receivers improperly use unit "1" for counters of objects
+    // See https://github.com/open-telemetry/opentelemetry-collector-contrib/issues?q=is%3Aissue+some+metric+units+don%27t+follow+otel+semantic+conventions
+    // Until these issues have been fixed, we're appending `_ratio` for gauges ONLY
+    // Theoretically, counters could be ratios as well, but it's absurd (for mathematical reasons)
+    if unit == "1" && m_type == "gauge" {
+        if let Some(ratio_i) = name_tokens.iter().position(|i| *i == "ratio") {
+            name_tokens.remove(ratio_i);
+        }
+        name_tokens.push("ratio".to_string());
+    }
+
+    // Build the string from the tokens, separated with underscores
+    let mut normalized_name = name_tokens.join("_");
+
+    // Metric name cannot start with a digit, so prefix it with "_" in this case
+    if !normalized_name.is_empty() && normalized_name.chars().next().unwrap().is_ascii_digit() {
+        normalized_name = "_".to_owned() + &normalized_name
+    }
+
+    normalized_name.into()
+}
+
+// Clean up specified string so it's Prometheus compliant
+fn clean_up_string(string: &str) -> String {
+    string
+        .split(|i| !char::is_alphanumeric(i))
+        .filter(|&x| !x.is_empty())
+        .collect::<Vec<&str>>()
+        .join("_")
+}
+
+// Retrieve the Prometheus "basic" unit corresponding to the specified "basic" unit
+// Returns the specified unit if not found in unitMap
+fn unit_map_get_or_default(unit: &str) -> &str {
+    if let Some(prom_unit) = UNIT_MAP.get(unit) {
+        return prom_unit;
+    }
+
+    unit
+}
+
+// Retrieve the Prometheus "per" unit corresponding to the specified "per" unit
+// Returns the specified unit if not found in perUnitMap
+fn per_unit_map_get_or_default(per_unit: &str) -> &str {
+    if let Some(prom_per_unit) = PER_UNIT_MAP.get(per_unit) {
+        return prom_per_unit;
+    }
+
+    per_unit
 }
 
 pub fn parse_metrics_request(bytes: &[u8]) -> vector_common::Result<SmallVec<[Event; 1]>> {
@@ -1165,13 +1394,16 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
     });
     let mut out = SmallVec::with_capacity(metric_count);
 
+    let resource_uniq_id: Value = Value::from(faster_hex::hex_string(&get_uniq_request_id()));
+
     for resource_metric in metric_request.resource_metrics {
-        let tags = MetricTagsWrapper {
-            tags: &resource_metric.resource.clone().unwrap().attributes,
-        };
+        let recource =
+            ResourceMetricValue::new(resource_metric.resource.clone(), &resource_uniq_id);
 
         for scope_metric in resource_metric.scope_metrics {
             for metric in scope_metric.metrics {
+                // Create a uniq ID and put it into a arbitrary or metadata
+                // To track group of metrics is in OTLP destination
                 match metric.data {
                     MetricOneOfdata::gauge(gauge) => gauge
                         .data_points
@@ -1181,15 +1413,23 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_arbitrary = GaugeMetricArbitrary::new(
                                 data_point.clone(),
+                                metric.name.clone(),
                                 metric.description.clone(),
                                 metric.unit.clone(),
                             );
 
                             let metric_metadata = GaugeMetricMetadata::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                &recource,
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
+
+                            let tags = MetricTagsWrapper {
+                                tags: &sanitize_tags(
+                                    recource.attributes.attributes.clone(),
+                                    data_point.clone().attributes,
+                                ),
+                            };
 
                             out.push(make_event(
                                 {
@@ -1216,6 +1456,7 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_arbitrary = SumMetricArbitrary::new(
                                 data_point.clone(),
+                                metric.name.clone(),
                                 metric.description.clone(),
                                 metric.unit.clone(),
                                 sum.aggregation_temporality,
@@ -1224,9 +1465,16 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_metadata = SumMetricMetadata::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                &recource,
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
+
+                            let tags = MetricTagsWrapper {
+                                tags: &sanitize_tags(
+                                    recource.attributes.attributes.clone(),
+                                    data_point.clone().attributes,
+                                ),
+                            };
 
                             out.push(make_event(
                                 {
@@ -1252,6 +1500,7 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_arbitrary = HistogramMetricArbitrary::new(
                                 data_point.clone(),
+                                metric.name.clone(),
                                 metric.description.clone(),
                                 metric.unit.clone(),
                                 histogram.aggregation_temporality,
@@ -1259,9 +1508,16 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_metadata = HistogramMetricMetadata::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                &recource,
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
+
+                            let tags = MetricTagsWrapper {
+                                tags: &sanitize_tags(
+                                    recource.attributes.attributes.clone(),
+                                    data_point.clone().attributes,
+                                ),
+                            };
 
                             out.push(make_event(
                                 {
@@ -1288,6 +1544,7 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_arbitrary = ExponentialHistogramMetricArbitrary::new(
                                 data_point.clone(),
+                                metric.name.clone(),
                                 metric.description.clone(),
                                 metric.unit.clone(),
                                 exp_histogram.aggregation_temporality,
@@ -1295,9 +1552,16 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_metadata = ExponentialHistogramMetricMetadata::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                &recource,
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
+
+                            let tags = MetricTagsWrapper {
+                                tags: &sanitize_tags(
+                                    recource.attributes.attributes.clone(),
+                                    data_point.clone().attributes,
+                                ),
+                            };
 
                             let _mezmo_metric = MezmoMetric {
                                 name: metric.name.clone(),
@@ -1323,15 +1587,23 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 
                             let metric_arbitrary = SummaryMetricArbitrary::new(
                                 data_point.clone(),
+                                metric.name.clone(),
                                 metric.description.clone(),
                                 metric.unit.clone(),
                             );
 
                             let metric_metadata = SummaryMetricMetadata::new(
                                 data_point.clone(),
-                                ResourceMetricValue::new(resource_metric.resource.clone()),
+                                &recource,
                                 ScopeMetricValue::new(scope_metric.scope.clone()),
                             );
+
+                            let tags = MetricTagsWrapper {
+                                tags: &sanitize_tags(
+                                    recource.attributes.attributes.clone(),
+                                    data_point.clone().attributes,
+                                ),
+                            };
 
                             out.push(make_event(
                                 {
@@ -1359,11 +1631,40 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 }
 
 fn make_event(mut log_event: LogEvent) -> Event {
+    if let Some(message_key) = log_schema().message_key() {
+        if let Some(message) = log_event.get_mut((lookup::PathPrefix::Event, message_key)) {
+            let metric_name = match message.get("name").unwrap_or(&Value::Null) {
+                Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
+                _ => Cow::from(""),
+            };
+
+            let metric_unit = match message.get("value.unit").unwrap_or(&Value::Null) {
+                Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
+                _ => Cow::from(""),
+            };
+
+            let metric_kind = match message.get("kind").unwrap_or(&Value::Null) {
+                Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
+                _ => Cow::from(""),
+            };
+
+            let metric_type = match message.get("value.type").unwrap_or(&Value::Null) {
+                Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
+                _ => Cow::from(""),
+            };
+
+            let normalized_name =
+                normalize_name(metric_name, metric_unit, metric_type, metric_kind);
+
+            message.insert("name", Value::from(normalized_name));
+        }
+    }
+
     if let Some(timestamp_key) = log_schema().timestamp_key() {
         let metric_timestamp_target = (lookup::PathPrefix::Event, METRIC_TIMESTAMP_KEY);
 
-        let timestamp = if let Some(Value::Integer(time)) = log_event.get(metric_timestamp_target) {
-            nano_to_timestamp(time.to_owned().try_into().unwrap_or(0))
+        let timestamp = if let Some(metric_timestamp) = log_event.get(metric_timestamp_target) {
+            metric_timestamp.clone()
         } else {
             nano_to_timestamp(0)
         };
@@ -1377,9 +1678,8 @@ fn make_event(mut log_event: LogEvent) -> Event {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{NaiveDateTime, TimeZone, Utc};
+    use chrono::DateTime;
     use std::collections::BTreeMap;
-    use std::ops::Deref;
 
     use vector_core::event::metric::{mezmo::to_metric, Bucket, Quantile};
     use vector_core::event::{MetricKind, MetricValue};
@@ -1394,8 +1694,38 @@ mod tests {
     #[allow(clippy::too_many_lines)]
     fn otlp_metrics_deserialize_gauge() {
         use opentelemetry_rs::opentelemetry::metrics::{
-            Exemplar, ExemplarOneOfvalue, Gauge, InstrumentationScope, NumberDataPoint,
+            ArrayValue, Exemplar, ExemplarOneOfvalue, Gauge, InstrumentationScope, NumberDataPoint,
             NumberDataPointOneOfvalue, Resource, ResourceMetrics, ScopeMetrics,
+        };
+
+        let key_value_num_key = KeyValue {
+            key: Cow::from("1foo"),
+            value: Some(AnyValue {
+                value: AnyValueOneOfvalue::array_value(ArrayValue {
+                    values: vec![
+                        AnyValue {
+                            value: AnyValueOneOfvalue::string_value(Cow::from("bar.1")),
+                        },
+                        AnyValue {
+                            value: AnyValueOneOfvalue::string_value(Cow::from("bar.2")),
+                        },
+                    ],
+                }),
+            }),
+        };
+
+        let key_value_dot_key = KeyValue {
+            key: Cow::from("foo.foo"),
+            value: Some(AnyValue {
+                value: AnyValueOneOfvalue::string_value(Cow::from("bar.bar")),
+            }),
+        };
+
+        let key_value_underscore_key = KeyValue {
+            key: Cow::from("_foo"),
+            value: Some(AnyValue {
+                value: AnyValueOneOfvalue::string_value(Cow::from("_bar")),
+            }),
         };
 
         let key_value_str = KeyValue {
@@ -1414,24 +1744,39 @@ mod tests {
         let metrics_data = ExportMetricsServiceRequest {
             resource_metrics: vec![ResourceMetrics {
                 resource: Some(Resource {
-                    attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
+                    attributes: vec![
+                        key_value_str.clone(),
+                        key_value_num_key.clone(),
+                        key_value_dot_key.clone(),
+                        key_value_underscore_key.clone(),
+                        key_value_empty_str.clone(),
+                    ],
                     dropped_attributes_count: 10,
                 }),
                 scope_metrics: vec![ScopeMetrics {
                     scope: Some(InstrumentationScope {
                         name: Cow::from("test_name"),
                         version: Cow::from(""),
-                        attributes: vec![key_value_str.clone(), key_value_empty_str.clone()],
+                        attributes: vec![
+                            key_value_str.clone(),
+                            key_value_num_key.clone(),
+                            key_value_dot_key.clone(),
+                            key_value_underscore_key.clone(),
+                            key_value_empty_str.clone(),
+                        ],
                         dropped_attributes_count: 10,
                     }),
                     metrics: vec![Metric {
-                        name: Cow::from("test_name"),
+                        name: Cow::from("system.filesystem.usage"),
                         description: Cow::from("test_description"),
-                        unit: Cow::from("123.[psi]"),
+                        unit: Cow::from("GiBy/s"),
                         data: MetricOneOfdata::gauge(Gauge {
                             data_points: vec![NumberDataPoint {
                                 attributes: vec![
                                     key_value_str.clone(),
+                                    key_value_num_key.clone(),
+                                    key_value_dot_key.clone(),
+                                    key_value_underscore_key.clone(),
                                     key_value_empty_str.clone(),
                                 ],
                                 start_time_unix_nano: 1_579_134_612_000_000_011,
@@ -1440,6 +1785,9 @@ mod tests {
                                 exemplars: vec![Exemplar {
                                     filtered_attributes: vec![
                                         key_value_str.clone(),
+                                        key_value_num_key.clone(),
+                                        key_value_dot_key.clone(),
+                                        key_value_underscore_key.clone(),
                                         key_value_empty_str.clone(),
                                     ],
                                     time_unix_nano: 1_579_134_612_000_000_011,
@@ -1465,22 +1813,30 @@ mod tests {
                 .into_log()
                 .value()
                 .get("message")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             Value::Object(BTreeMap::from([
                 ("kind".into(), "absolute".into()),
-                ("name".into(), "test_name".into()),
+                (
+                    "name".into(),
+                    "system_filesystem_usage_gibibytes_per_second".into()
+                ),
                 (
                     "tags".into(),
-                    Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
+                    Value::Object(BTreeMap::from([
+                        ("foo".into(), "bar".into()),
+                        ("key_1foo".into(), "bar.1, bar.2".into()),
+                        ("foo_foo".into(), "bar.bar".into()),
+                        ("key_foo".into(), "_bar".into()),
+                    ]))
                 ),
                 (
                     "value".into(),
                     Value::Object(BTreeMap::from([
                         ("type".into(), "gauge".into()),
                         ("value".into(), Value::Integer(10)),
+                        ("name".into(), "system.filesystem.usage".into()),
                         ("description".into(), "test_description".into()),
-                        ("unit".into(), "123.[psi]".into()),
+                        ("unit".into(), "GiBy/s".into()),
                         (
                             "exemplars".into(),
                             Value::Array(Vec::from([Value::Object(BTreeMap::from([
@@ -1488,13 +1844,25 @@ mod tests {
                                     "filtered_attributes".into(),
                                     Value::Object(BTreeMap::from([
                                         ("foo".into(), "bar".into()),
+                                        (
+                                            "1foo".into(),
+                                            Value::Array(Vec::from([
+                                                "bar.1".into(),
+                                                "bar.2".into()
+                                            ]))
+                                        ),
+                                        ("foo.foo".into(), "bar.bar".into()),
+                                        ("_foo".into(), "_bar".into()),
                                         ("empty".into(), Value::Null),
                                     ]))
                                 ),
                                 ("span_id".into(), "74657374".into()),
                                 (
-                                    "time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
+                                    "time_unix".into(),
+                                    Value::from(
+                                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                            .expect("timestamp should be a valid timestamp")
+                                    )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
                                 ("value".into(), Value::Integer(10)),
@@ -1502,26 +1870,34 @@ mod tests {
                         ),
                         ("flags".into(), Value::Integer(1)),
                         (
-                            "start_time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "start_time_unix".into(),
+                            Value::from(
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
+                            )
                         ),
                         (
-                            "time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "time_unix".into(),
+                            Value::from(
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
+                            )
                         ),
                     ]))
                 ),
             ]))
         );
 
+        let log = metrics[0].clone().into_log();
+
+        let metadata = log.value().get("metadata").unwrap();
+
+        let uniq_id = metadata.get("resource.uniq_id");
+
+        assert!(uniq_id.is_some());
+
         assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "gauge".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -1532,10 +1908,17 @@ mod tests {
                             "attributes".into(),
                             Value::Object(BTreeMap::from([
                                 ("foo".into(), "bar".into()),
+                                (
+                                    "1foo".into(),
+                                    Value::Array(Vec::from(["bar.1".into(), "bar.2".into()]))
+                                ),
+                                ("foo.foo".into(), "bar.bar".into()),
+                                ("_foo".into(), "_bar".into()),
                                 ("empty".into(), Value::Null),
                             ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("uniq_id".into(), uniq_id.unwrap().clone()),
                     ]))
                 ),
                 (
@@ -1545,6 +1928,12 @@ mod tests {
                             "attributes".into(),
                             Value::Object(BTreeMap::from([
                                 ("foo".into(), "bar".into()),
+                                (
+                                    "1foo".into(),
+                                    Value::Array(Vec::from(["bar.1".into(), "bar.2".into()]))
+                                ),
+                                ("foo.foo".into(), "bar.bar".into()),
+                                ("_foo".into(), "_bar".into()),
                                 ("empty".into(), Value::Null),
                             ]))
                         ),
@@ -1557,6 +1946,12 @@ mod tests {
                     "attributes".into(),
                     Value::Object(BTreeMap::from([
                         ("foo".into(), "bar".into()),
+                        (
+                            "1foo".into(),
+                            Value::Array(Vec::from(["bar.1".into(), "bar.2".into()]))
+                        ),
+                        ("foo.foo".into(), "bar.bar".into()),
+                        ("_foo".into(), "_bar".into()),
                         ("empty".into(), Value::Null),
                     ]))
                 ),
@@ -1571,7 +1966,7 @@ mod tests {
         assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
         assert_eq!(
             metric.timestamp().unwrap(),
-            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+            (DateTime::from_timestamp(1_579_134_612, 11).unwrap())
         );
     }
 
@@ -1611,9 +2006,9 @@ mod tests {
                         dropped_attributes_count: 10,
                     }),
                     metrics: vec![Metric {
-                        name: Cow::from("test_name"),
+                        name: Cow::from("test.name"),
                         description: Cow::from("test_description"),
-                        unit: Cow::from("123.[psi]"),
+                        unit: Cow::from("GiBy/s"),
                         data: MetricOneOfdata::sum(Sum {
                             data_points: vec![NumberDataPoint {
                                 attributes: vec![
@@ -1654,11 +2049,10 @@ mod tests {
                 .into_log()
                 .value()
                 .get("message")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             Value::Object(BTreeMap::from([
                 ("kind".into(), "incremental".into()),
-                ("name".into(), "test_name".into()),
+                ("name".into(), "test_name_gibibytes_per_second_total".into()),
                 (
                     "tags".into(),
                     Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
@@ -1668,8 +2062,9 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         ("type".into(), "counter".into()),
                         ("value".into(), from_f64_or_zero(10_f64)),
+                        ("name".into(), "test.name".into()),
                         ("description".into(), "test_description".into()),
-                        ("unit".into(), "123.[psi]".into()),
+                        ("unit".into(), "GiBy/s".into()),
                         (
                             "exemplars".into(),
                             Value::Array(Vec::from([Value::Object(BTreeMap::from([
@@ -1682,8 +2077,11 @@ mod tests {
                                 ),
                                 ("span_id".into(), "74657374".into()),
                                 (
-                                    "time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
+                                    "time_unix".into(),
+                                    Value::from(
+                                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                            .expect("timestamp should be a valid timestamp")
+                                    )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
                                 ("value".into(), Value::Integer(10)),
@@ -1691,12 +2089,18 @@ mod tests {
                         ),
                         ("flags".into(), Value::Integer(1)),
                         (
-                            "start_time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "start_time_unix".into(),
+                            Value::from(
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
+                            )
                         ),
                         (
-                            "time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "time_unix".into(),
+                            Value::from(
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
+                            )
                         ),
                         ("aggregation_temporality".into(), Value::Integer(0)),
                         ("is_monotonic".into(), Value::Boolean(true)),
@@ -1705,14 +2109,16 @@ mod tests {
             ]))
         );
 
+        let log = metrics[0].clone().into_log();
+
+        let metadata = log.value().get("metadata").unwrap();
+
+        let uniq_id = metadata.get("resource.uniq_id");
+
+        assert!(uniq_id.is_some());
+
         assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "sum".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -1727,6 +2133,7 @@ mod tests {
                             ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("uniq_id".into(), uniq_id.unwrap().clone()),
                     ]))
                 ),
                 (
@@ -1762,7 +2169,7 @@ mod tests {
         assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
         assert_eq!(
             metric.timestamp().unwrap(),
-            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+            (DateTime::from_timestamp(1_579_134_612, 11).unwrap())
         );
     }
 
@@ -1802,9 +2209,9 @@ mod tests {
                         dropped_attributes_count: 10,
                     }),
                     metrics: vec![Metric {
-                        name: Cow::from("test_name"),
+                        name: Cow::from("test.name"),
                         description: Cow::from("test_description"),
-                        unit: Cow::from("123.[psi]"),
+                        unit: Cow::from("GiBy/s"),
                         data: MetricOneOfdata::sum(Sum {
                             data_points: vec![NumberDataPoint {
                                 attributes: vec![
@@ -1845,11 +2252,10 @@ mod tests {
                 .into_log()
                 .value()
                 .get("message")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             Value::Object(BTreeMap::from([
                 ("kind".into(), "absolute".into()),
-                ("name".into(), "test_name".into()),
+                ("name".into(), "test_name_gibibytes_per_second".into()),
                 (
                     "tags".into(),
                     Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
@@ -1859,8 +2265,9 @@ mod tests {
                     Value::Object(BTreeMap::from([
                         ("type".into(), "gauge".into()),
                         ("value".into(), from_f64_or_zero(10_f64)),
+                        ("name".into(), "test.name".into()),
                         ("description".into(), "test_description".into()),
-                        ("unit".into(), "123.[psi]".into()),
+                        ("unit".into(), "GiBy/s".into()),
                         (
                             "exemplars".into(),
                             Value::Array(Vec::from([Value::Object(BTreeMap::from([
@@ -1873,8 +2280,11 @@ mod tests {
                                 ),
                                 ("span_id".into(), "74657374".into()),
                                 (
-                                    "time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
+                                    "time_unix".into(),
+                                    Value::from(
+                                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                            .expect("timestamp should be a valid timestamp")
+                                    )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
                                 ("value".into(), Value::Integer(10)),
@@ -1882,12 +2292,18 @@ mod tests {
                         ),
                         ("flags".into(), Value::Integer(1)),
                         (
-                            "start_time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "start_time_unix".into(),
+                            Value::from(
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
+                            )
                         ),
                         (
-                            "time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "time_unix".into(),
+                            Value::from(
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
+                            )
                         ),
                         ("aggregation_temporality".into(), Value::Integer(0)),
                         ("is_monotonic".into(), Value::Boolean(false)),
@@ -1896,14 +2312,16 @@ mod tests {
             ]))
         );
 
+        let log = metrics[0].clone().into_log();
+
+        let metadata = log.value().get("metadata").unwrap();
+
+        let uniq_id = metadata.get("resource.uniq_id");
+
+        assert!(uniq_id.is_some());
+
         assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "sum".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -1918,6 +2336,7 @@ mod tests {
                             ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("uniq_id".into(), uniq_id.unwrap().clone()),
                     ]))
                 ),
                 (
@@ -1953,7 +2372,7 @@ mod tests {
         assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
         assert_eq!(
             metric.timestamp().unwrap(),
-            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+            (DateTime::from_timestamp(1_579_134_612, 11).unwrap())
         );
     }
 
@@ -1992,9 +2411,9 @@ mod tests {
                         dropped_attributes_count: 10,
                     }),
                     metrics: vec![Metric {
-                        name: Cow::from("test_name"),
+                        name: Cow::from("test.name"),
                         description: Cow::from("test_description"),
-                        unit: Cow::from("123.[psi]"),
+                        unit: Cow::from("GiBy/s"),
                         data: MetricOneOfdata::histogram(Histogram {
                             data_points: vec![HistogramDataPoint {
                                 attributes: vec![
@@ -2045,11 +2464,10 @@ mod tests {
                 .into_log()
                 .value()
                 .get("message")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             Value::Object(BTreeMap::from([
                 ("kind".into(), "absolute".into()),
-                ("name".into(), "test_name".into()),
+                ("name".into(), "test_name_gibibytes_per_second".into()),
                 (
                     "tags".into(),
                     Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
@@ -2126,8 +2544,9 @@ mod tests {
                                 ),
                             ]))
                         ),
+                        ("name".into(), "test.name".into()),
                         ("description".into(), "test_description".into()),
-                        ("unit".into(), "123.[psi]".into()),
+                        ("unit".into(), "GiBy/s".into()),
                         (
                             "bucket_counts".into(),
                             Value::Array(Vec::from([
@@ -2179,8 +2598,11 @@ mod tests {
                                 ),
                                 ("span_id".into(), "74657374".into()),
                                 (
-                                    "time_unix_nano".into(),
-                                    Value::Integer(1_579_134_612_000_000_011)
+                                    "time_unix".into(),
+                                    Value::from(
+                                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                            .expect("timestamp should be a valid timestamp")
+                                    )
                                 ),
                                 ("trace_id".into(), "74657374".into()),
                                 ("value".into(), from_f64_or_zero(10.5)),
@@ -2188,12 +2610,18 @@ mod tests {
                         ),
                         ("flags".into(), Value::Integer(1)),
                         (
-                            "start_time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "start_time_unix".into(),
+                            Value::from(
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
+                            )
                         ),
                         (
-                            "time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "time_unix".into(),
+                            Value::from(
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
+                            )
                         ),
                         ("max".into(), from_f64_or_zero(9.9)),
                         ("min".into(), from_f64_or_zero(0.1)),
@@ -2203,14 +2631,16 @@ mod tests {
             ]))
         );
 
+        let log = metrics[0].clone().into_log();
+
+        let metadata = log.value().get("metadata").unwrap();
+
+        let uniq_id = metadata.get("resource.uniq_id");
+
+        assert!(uniq_id.is_some());
+
         assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "histogram".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -2225,6 +2655,7 @@ mod tests {
                             ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("uniq_id".into(), uniq_id.unwrap().clone()),
                     ]))
                 ),
                 (
@@ -2324,7 +2755,7 @@ mod tests {
         assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
         assert_eq!(
             metric.timestamp().unwrap(),
-            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+            (DateTime::from_timestamp(1_579_134_612, 11).unwrap())
         );
     }
 
@@ -2365,9 +2796,9 @@ mod tests {
                         dropped_attributes_count: 10,
                     }),
                     metrics: vec![Metric {
-                        name: Cow::from("test_name"),
+                        name: Cow::from("test.name"),
                         description: Cow::from("test_description"),
-                        unit: Cow::from("123.[psi]"),
+                        unit: Cow::from("GiBy/s"),
                         data: MetricOneOfdata::exponential_histogram(ExponentialHistogram {
                             data_points: vec![ExponentialHistogramDataPoint {
                                 attributes: vec![
@@ -2421,147 +2852,6 @@ mod tests {
 
         let metrics = to_events(metrics_data.clone());
         assert!(metrics.is_empty());
-
-        // TODO LOG-19820 Exponential histogram has to be converted to
-        // a native histogram to be able to be handled by any metric sinks.
-        // For now we just skip this exponential histogram metrics.
-        // assert_eq!(
-        //     *metrics[0]
-        //         .clone()
-        //         .into_log()
-        //         .value()
-        //         .get("message")
-        //         .unwrap()
-        //         .deref(),
-        //     Value::Object(BTreeMap::from([
-        //         ("kind".into(), "absolute".into()),
-        //         ("name".into(), "test_name".into()),
-        //         (
-        //             "tags".into(),
-        //             Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
-        //         ),
-        //         (
-        //             "value".into(),
-        //             Value::Object(BTreeMap::from([
-        //                 ("type".into(), "exponential_histogram".into()),
-        //                 ("value".into(), Value::Object(BTreeMap::from([]))),
-        //                 ("description".into(), "test_description".into()),
-        //                 ("unit".into(), "123.[psi]".into()),
-        //                 ("count".into(), Value::Integer(10)),
-        //                 (
-        //                     "exemplars".into(),
-        //                     Value::Array(Vec::from([Value::Object(BTreeMap::from([
-        //                         (
-        //                             "filtered_attributes".into(),
-        //                             Value::Object(BTreeMap::from([
-        //                                 ("foo".into(), "bar".into()),
-        //                                 ("empty".into(), Value::Null),
-        //                             ]))
-        //                         ),
-        //                         ("span_id".into(), "74657374".into()),
-        //                         (
-        //                             "time_unix_nano".into(),
-        //                             Value::Integer(1_579_134_612_000_000_011)
-        //                         ),
-        //                         ("trace_id".into(), "74657374".into()),
-        //                         ("value".into(), Value::Integer(10)),
-        //                     ]))]))
-        //                 ),
-        //                 ("flags".into(), Value::Integer(1)),
-        //                 ("max".into(), from_f64_or_zero(9.9)),
-        //                 ("min".into(), from_f64_or_zero(0.1)),
-        //                 (
-        //                     "positive".into(),
-        //                     Value::Object(BTreeMap::from([
-        //                         (
-        //                             "bucket_counts".into(),
-        //                             Value::Array(Vec::from([
-        //                                 Value::Integer(1_579_134_612_000_000_011),
-        //                                 Value::Integer(9_223_372_036_854_775_807),
-        //                             ]))
-        //                         ),
-        //                         ("offset".into(), Value::Integer(1)),
-        //                     ]))
-        //                 ),
-        //                 (
-        //                     "negative".into(),
-        //                     Value::Object(BTreeMap::from([
-        //                         // TODO This should be Vec<u64> but Value::Integer is i64
-        //                         //  All u64 fields should be converted into Value::Float
-        //                         (
-        //                             "bucket_counts".into(),
-        //                             Value::Array(Vec::from([
-        //                                 Value::Integer(1_579_134_612_000_000_011),
-        //                                 Value::Integer(9_223_372_036_854_775_807),
-        //                             ]))
-        //                         ),
-        //                         ("offset".into(), Value::Integer(1)),
-        //                     ]))
-        //                 ),
-        //                 ("scale".into(), Value::Integer(10)),
-        //                 ("sum".into(), from_f64_or_zero(3.7)),
-        //                 (
-        //                     "start_time_unix_nano".into(),
-        //                     Value::Integer(1_579_134_612_000_000_011)
-        //                 ),
-        //                 (
-        //                     "time_unix_nano".into(),
-        //                     Value::Integer(1_579_134_612_000_000_011)
-        //                 ),
-        //                 ("zero_count".into(), Value::Integer(12)),
-        //                 ("zero_threshold".into(), from_f64_or_zero(3.3)),
-        //                 ("aggregation_temporality".into(), Value::Integer(2)),
-        //             ]))
-        //         ),
-        //     ]))
-        // );
-
-        // assert_eq!(
-        //     *metrics[0]
-        //         .clone()
-        //         .into_log()
-        //         .value()
-        //         .get("metadata")
-        //         .unwrap()
-        //         .deref(),
-        //     Value::Object(BTreeMap::from([
-        //         (
-        //             "resource".into(),
-        //             Value::Object(BTreeMap::from([
-        //                 (
-        //                     "attributes".into(),
-        //                     Value::Object(BTreeMap::from([
-        //                         ("foo".into(), "bar".into()),
-        //                         ("empty".into(), Value::Null),
-        //                     ]))
-        //                 ),
-        //                 ("dropped_attributes_count".into(), Value::Integer(10)),
-        //             ]))
-        //         ),
-        //         (
-        //             "scope".into(),
-        //             Value::Object(BTreeMap::from([
-        //                 (
-        //                     "attributes".into(),
-        //                     Value::Object(BTreeMap::from([
-        //                         ("foo".into(), "bar".into()),
-        //                         ("empty".into(), Value::Null),
-        //                     ]))
-        //                 ),
-        //                 ("dropped_attributes_count".into(), Value::Integer(10)),
-        //                 ("name".into(), "test_name".into()),
-        //                 ("version".into(), "1.2.3".into()),
-        //             ]))
-        //         ),
-        //         (
-        //             "attributes".into(),
-        //             Value::Object(BTreeMap::from([
-        //                 ("foo".into(), "bar".into()),
-        //                 ("empty".into(), Value::Null),
-        //             ]))
-        //         ),
-        //     ]))
-        // );
     }
 
     #[test]
@@ -2599,9 +2889,9 @@ mod tests {
                         dropped_attributes_count: 10,
                     }),
                     metrics: vec![Metric {
-                        name: Cow::from("test_name"),
+                        name: Cow::from("test.name"),
                         description: Cow::from("test_description"),
-                        unit: Cow::from("123.[psi]"),
+                        unit: Cow::from("GiBy/s"),
                         data: MetricOneOfdata::summary(Summary {
                             data_points: vec![SummaryDataPoint {
                                 attributes: vec![
@@ -2634,11 +2924,10 @@ mod tests {
                 .into_log()
                 .value()
                 .get("message")
-                .unwrap()
-                .deref(),
+                .unwrap(),
             Value::Object(BTreeMap::from([
                 ("kind".into(), "absolute".into()),
-                ("name".into(), "test_name".into()),
+                ("name".into(), "test_name_gibibytes_per_second".into()),
                 (
                     "tags".into(),
                     Value::Object(BTreeMap::from([("foo".into(), "bar".into()),]))
@@ -2661,8 +2950,9 @@ mod tests {
                                 ),
                             ]))
                         ),
+                        ("name".into(), "test.name".into()),
                         ("description".into(), "test_description".into()),
-                        ("unit".into(), "123.[psi]".into()),
+                        ("unit".into(), "GiBy/s".into()),
                         ("count".into(), Value::Integer(10)),
                         ("flags".into(), Value::Integer(1)),
                         (
@@ -2674,26 +2964,34 @@ mod tests {
                         ),
                         ("sum".into(), from_f64_or_zero(3.7)),
                         (
-                            "start_time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "start_time_unix".into(),
+                            Value::from(
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
+                            )
                         ),
                         (
-                            "time_unix_nano".into(),
-                            Value::Integer(1_579_134_612_000_000_011)
+                            "time_unix".into(),
+                            Value::from(
+                                DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                                    .expect("timestamp should be a valid timestamp")
+                            )
                         ),
                     ]))
                 ),
             ]))
         );
 
+        let log = metrics[0].clone().into_log();
+
+        let metadata = log.value().get("metadata").unwrap();
+
+        let uniq_id = metadata.get("resource.uniq_id");
+
+        assert!(uniq_id.is_some());
+
         assert_eq!(
-            *metrics[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 ("original_type".into(), "summary".into()),
                 ("data_provider".into(), "otlp".into()),
@@ -2708,6 +3006,7 @@ mod tests {
                             ]))
                         ),
                         ("dropped_attributes_count".into(), Value::Integer(10)),
+                        ("uniq_id".into(), uniq_id.unwrap().clone()),
                     ]))
                 ),
                 (
@@ -2753,7 +3052,7 @@ mod tests {
         assert_eq!(metric.tags().unwrap().get("foo").unwrap(), "bar");
         assert_eq!(
             metric.timestamp().unwrap(),
-            Utc.from_utc_datetime(&NaiveDateTime::from_timestamp_opt(1_579_134_612, 11).unwrap(),)
+            (DateTime::from_timestamp(1_579_134_612, 11).unwrap())
         );
     }
 
@@ -2776,5 +3075,484 @@ mod tests {
 
         assert_eq!(*metric_type, Value::from("counter"));
         assert_eq!(*is_monotonic, Value::from(true));
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_byte() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.filesystem.usage"),
+                Cow::from("By"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "system_filesystem_usage_bytes"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_byte_counter() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.io"),
+                Cow::from("By"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "system_io_bytes_total"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("network_transmitted_bytes_total"),
+                Cow::from("By"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "network_transmitted_bytes_total"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_white_spaces() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.filesystem.usage       "),
+                Cow::from("  By\t"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "system_filesystem_usage_bytes"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_non_standard_unit() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.network.dropped"),
+                Cow::from("{packets}"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "system_network_dropped"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_non_standard_unit_counter() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.network.dropped"),
+                Cow::from("{packets}"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "system_network_dropped_total"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_broken_unit() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.network.dropped"),
+                Cow::from("packets"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "system_network_dropped_packets"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.network.packets.dropped"),
+                Cow::from("packets"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "system_network_packets_dropped"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.network.packets"),
+                Cow::from("packets"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "system_network_packets"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_broken_unit_counter() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.network.dropped"),
+                Cow::from("packets"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "system_network_dropped_packets_total"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.network.packets.dropped"),
+                Cow::from("packets"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "system_network_packets_dropped_total"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.network.packets"),
+                Cow::from("packets"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "system_network_packets_total"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_ratio() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("hw.gpu.memory.utilization"),
+                Cow::from("1"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "hw_gpu_memory_utilization_ratio"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("hw.fan.speed_ratio"),
+                Cow::from("1"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "hw_fan_speed_ratio"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("objects"),
+                Cow::from("1"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "objects_total"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_hertz() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("hw.cpu.speed_limit"),
+                Cow::from("Hz"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "hw_cpu_speed_limit_hertz"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_per() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("broken.metric.speed"),
+                Cow::from("km/h"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "broken_metric_speed_km_per_hour"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("astro.light.speed_limit"),
+                Cow::from("m/s"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "astro_light_speed_limit_meters_per_second"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_percent() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("broken.metric.success_ratio"),
+                Cow::from("%"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "broken_metric_success_ratio_percent"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("broken.metric.success_percent"),
+                Cow::from("%"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "broken_metric_success_percent"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_empty() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("test.metric.no_unit"),
+                Cow::from(""),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "test_metric_no_unit"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("test.metric.spaces"),
+                Cow::from("   \t  "),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "test_metric_spaces"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_unsupported_runes() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("unsupported.metric.temperature"),
+                Cow::from("°F"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "unsupported_metric_temperature_F"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("unsupported.metric.weird"),
+                Cow::from("+=.:,!* & #"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "unsupported_metric_weird"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("unsupported.metric.redundant"),
+                Cow::from("__test $/°C"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "unsupported_metric_redundant_test_per_C"
+        );
+    }
+
+    #[test]
+    fn otlp_metrics_normalize_name_otel_receivers() {
+        assert_eq!(
+            normalize_name(
+                Cow::from("active_directory.ds.replication.network.io"),
+                Cow::from("By"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "active_directory_ds_replication_network_io_bytes_total"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("active_directory.ds.replication.sync.object.pending"),
+                Cow::from("{objects}"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "active_directory_ds_replication_sync_object_pending_total"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("active_directory.ds.replication.object.rate"),
+                Cow::from("{objects}/s"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "active_directory_ds_replication_object_rate_per_second"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("active_directory.ds.name_cache.hit_rate"),
+                Cow::from("%"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "active_directory_ds_name_cache_hit_rate_percent"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("active_directory.ds.ldap.bind.last_successful.time"),
+                Cow::from("ms"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "active_directory_ds_ldap_bind_last_successful_time_milliseconds"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("apache.current_connections"),
+                Cow::from("connections"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "apache_current_connections"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("apache.workers"),
+                Cow::from("connections"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "apache_workers_connections"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("apache.requests"),
+                Cow::from("1"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "apache_requests_total"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("bigip.virtual_server.request.count"),
+                Cow::from("{requests}"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "bigip_virtual_server_request_count_total"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.cpu.utilization"),
+                Cow::from("1"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "system_cpu_utilization_ratio"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.disk.operation_time"),
+                Cow::from("s"),
+                Cow::from("counter"),
+                Cow::from("incremental")
+            ),
+            "system_disk_operation_time_seconds_total"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("system.cpu.load_average.15m"),
+                Cow::from("1"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "system_cpu_load_average_15m_ratio"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("memcached.operation_hit_ratio"),
+                Cow::from("%"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "memcached_operation_hit_ratio_percent"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("mongodbatlas.process.asserts"),
+                Cow::from("{assertions}/s"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "mongodbatlas_process_asserts_per_second"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("mongodbatlas.process.journaling.data_files"),
+                Cow::from("MiBy"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "mongodbatlas_process_journaling_data_files_mebibytes"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("mongodbatlas.process.network.io"),
+                Cow::from("By/s"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "mongodbatlas_process_network_io_bytes_per_second"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("mongodbatlas.process.oplog.rate"),
+                Cow::from("GiBy/h"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "mongodbatlas_process_oplog_rate_gibibytes_per_hour"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("mongodbatlas.process.db.query_targeting.scanned_per_returned"),
+                Cow::from("{scanned}/{returned}"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "mongodbatlas_process_db_query_targeting_scanned_per_returned"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("nginx.requests"),
+                Cow::from("requests"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "nginx_requests"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("nginx.connections_accepted"),
+                Cow::from("connections"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "nginx_connections_accepted"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("nsxt.node.memory.usage"),
+                Cow::from("KBy"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "nsxt_node_memory_usage_kilobytes"
+        );
+        assert_eq!(
+            normalize_name(
+                Cow::from("redis.latest_fork"),
+                Cow::from("us"),
+                Cow::from("gauge"),
+                Cow::from("absolute")
+            ),
+            "redis_latest_fork_microseconds"
+        );
     }
 }

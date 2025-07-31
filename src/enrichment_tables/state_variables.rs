@@ -1,22 +1,27 @@
 use crate::config::EnrichmentTableConfig;
-use deadpool_postgres::{Config, Pool, Runtime};
 use moka::sync::Cache;
 use snafu::Snafu;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
-use std::{
-    collections::{BTreeMap, HashMap},
-    env,
-};
 use tokio::task::JoinHandle;
-use tokio_postgres::NoTls;
-use url::Url;
 use vector_lib::configurable::configurable_component;
 use vector_lib::enrichment::{Case, Condition, IndexHandle, Table};
-use vrl::value::Value;
+use vector_lib::mezmo;
+use vrl::value::{KeyString, Value};
 
-const QUERY_ALL_STATE_VARIABLES: &str =
-    "SELECT account_id::text, pipeline_id::text, state::text FROM pipeline_state_variables";
+const QUERY_ACTIVE_STATE_VARIABLES: &str = "SELECT pipeline_state_variables.account_id::text,
+            pipeline_state_variables.pipeline_id::text,
+            pipeline_state_variables.state::text
+     FROM pipeline_state_variables
+     JOIN pipelines ON pipeline_state_variables.pipeline_id = pipelines.id
+     JOIN accounts ON accounts.id = pipelines.account_id
+     WHERE pipelines.partition_id = $1
+       AND pipelines.deleted = false
+       AND pipelines.processing_status = 'enabled'
+       AND pipelines.loaded_revision_id IS NOT NULL
+       AND accounts.deleted = false
+       AND accounts.processing_status = 'enabled'";
 
 const MAX_CACHE_ENTRIES: u64 = 100_000;
 const POLL_DELAY: Duration = Duration::from_secs(5);
@@ -43,85 +48,23 @@ pub enum StateVariablesDBError {
     },
 }
 
-fn get_db_config() -> Result<Config, StateVariablesDBError> {
-    let db_url = match env::var("MEZMO_PIPELINE_DB_URL").ok() {
-        Some(url) => url,
-        _ => {
-            error!(message = "Can't connect to postgres DB. URL not found.",);
-            return Err(StateVariablesDBError::UrlInvalid);
-        }
-    };
-
-    // The library deadpool postgres does not support urls like tokio_postgres::connect
-    // Implement our own
-    let url = Url::parse(db_url.as_str()).map_err(|_| StateVariablesDBError::UrlInvalid)?;
-    if url.scheme() != "postgresql" && url.scheme() != "postgres" {
-        error!(
-            message = "Invalid scheme for state variables enrichment table",
-            scheme = url.scheme()
-        );
-        return Err(StateVariablesDBError::UrlInvalid);
-    }
-
-    let mut cfg = Config::new();
-    cfg.host = url.host().map(|h| h.to_string());
-    cfg.port = url.port();
-    cfg.user = (!url.username().is_empty()).then(|| {
-        urlencoding::decode(url.username())
-            .expect("UTF-8")
-            .to_string()
-    });
-    cfg.password = url
-        .password()
-        .map(|v| urlencoding::decode(v).expect("UTF-8").to_string());
-    if let Some(mut path_segments) = url.path_segments() {
-        if let Some(first) = path_segments.next() {
-            cfg.dbname = Some(first.into());
-        }
-    }
-
-    Ok(cfg)
-}
-
-async fn connect_db() -> Result<Pool, StateVariablesDBError> {
-    let db_config = get_db_config()?;
-
-    let pool = db_config
-        .create_pool(Some(Runtime::Tokio1), NoTls)
-        .map_err(|err| StateVariablesDBError::ConnectionError {
-            message: format!("Could not create DB pool: {err:?}"),
-        })?;
-
-    let client = pool
-        .get()
-        .await
-        .map_err(|err| StateVariablesDBError::ConnectionError {
-            message: format!("Could not get a DB pool connection: {err:?}"),
-        })?;
-
-    // This does not need to be prepared, but leaving it here in case we improve the design to use bind parameters.
-    // Plus, it helps us verify that the db connection is good.
-    client
-        .prepare_cached(QUERY_ALL_STATE_VARIABLES)
-        .await
-        .map_err(|err| StateVariablesDBError::QueryError {
-            message: format!("Could not prepare database query: {err:?}"),
-        })?;
-
-    Ok(pool)
-}
-
 fn get_cache_key(account_id: &str, pipeline_id: &str) -> String {
     format!("{}:{}", account_id, pipeline_id)
 }
 
 async fn fetch_states_from_db(
     cache: &Arc<Cache<String, String>>,
-    pool: &Arc<Pool>,
+    partition_id: &str,
 ) -> Result<usize, StateVariablesDBError> {
-    match pool.get().await {
+    let Ok(conn_str) = mezmo::postgres::get_connection_string("pipeline") else {
+        error!(message = "Can't connect to postgres DB. URL not found.",);
+        return Err(StateVariablesDBError::UrlInvalid);
+    };
+    match mezmo::postgres::db_connection(&conn_str).await {
         Ok(client) => {
-            let result = client.query(QUERY_ALL_STATE_VARIABLES, &[]).await;
+            let result = client
+                .query(QUERY_ACTIVE_STATE_VARIABLES, &[&partition_id])
+                .await;
             match result {
                 Ok(rows) => {
                     for row in rows.iter() {
@@ -151,7 +94,6 @@ async fn fetch_states_from_db(
 pub struct StateVariablesConfig {}
 impl_generate_config_from_default!(StateVariablesConfig);
 
-#[async_trait::async_trait]
 impl EnrichmentTableConfig for StateVariablesConfig {
     async fn build(
         &self,
@@ -171,22 +113,24 @@ pub struct StateVariables {
 impl StateVariables {
     /// Impl for the state variables enrichment table
     pub async fn new() -> Result<Self, StateVariablesDBError> {
-        let cache = Arc::new(Cache::new(MAX_CACHE_ENTRIES));
-        let pool = Arc::new(connect_db().await?);
+        let partition_name =
+            std::env::var("PARTITION_NAME").expect("PARTITION_NAME env var not set");
+        debug!("State variables enrichment table: partition_name: {partition_name}");
 
-        let row_count = fetch_states_from_db(&cache, &pool).await?;
+        let cache = Arc::new(Cache::new(MAX_CACHE_ENTRIES));
+        let row_count = fetch_states_from_db(&cache, partition_name.as_str()).await?;
         if row_count == 0 {
-            warn!("Warning: The state variables DB table appears to be empty");
+            warn!("Warning: No state variables loaded for partition '{partition_name}'");
         }
 
-        let spawn_pool = Arc::clone(&pool);
         let spawn_cache = Arc::clone(&cache);
+        let spawn_partition_name = Arc::new(partition_name);
 
         let state_poller = tokio::task::spawn(async move {
             loop {
-                match fetch_states_from_db(&spawn_cache, &spawn_pool).await {
-                    Ok(row_len) if row_len == 0 => {
-                        warn!("Warning: The state variables DB table appears to be empty")
+                match fetch_states_from_db(&spawn_cache, spawn_partition_name.as_str()).await {
+                    Ok(0) => {
+                        debug!("Warning: No state variables loaded for partition '{spawn_partition_name}'");
                     }
                     Ok(row_len) => debug!("Loaded {row_len} entries"),
                     Err(err) => error!("Error polling state variables DB table: {err:?}"),
@@ -248,7 +192,7 @@ impl StateVariables {
         &self,
         param_names: &HashMap<String, String>,
         select: Option<&[String]>,
-    ) -> Result<BTreeMap<String, Value>, String> {
+    ) -> Result<BTreeMap<KeyString, Value>, String> {
         let account_id = param_names
             .get("account_id")
             .expect("Condition field `account_id` not found");
@@ -259,36 +203,37 @@ impl StateVariables {
 
         let state = self.cache.get(&key).unwrap_or("{}".to_owned());
 
-        let json: BTreeMap<String, serde_json::Value> = match serde_json::from_str(state.as_str()) {
-            Ok(Some(variables)) => variables,
-            Ok(None) => {
-                return Ok(BTreeMap::new());
-            }
-            Err(err) => {
-                return Err(err.to_string());
-            }
-        };
+        let json: BTreeMap<KeyString, serde_json::Value> =
+            match serde_json::from_str(state.as_str()) {
+                Ok(Some(variables)) => variables,
+                Ok(None) => {
+                    return Ok(BTreeMap::new());
+                }
+                Err(err) => {
+                    return Err(err.to_string());
+                }
+            };
 
         // If the user is specifying `select` fields, then prune the rest. Otherwise, iterate
         // the whole object into the result. Create the return sructure containing Value objects.
 
-        let mut result: BTreeMap<String, Value> = BTreeMap::new();
+        let mut result: BTreeMap<KeyString, Value> = BTreeMap::new();
 
         match select {
             Some(select) if !select.is_empty() => {
                 for field in select.iter() {
-                    match json.get(field) {
+                    match json.get(field.as_str()) {
                         Some(serde_value) => {
-                            result.insert(field.to_string(), Value::from(serde_value))
+                            result.insert(field.clone().into(), Value::from(serde_value))
                         }
-                        _ => result.insert(field.to_string(), Value::Null),
+                        _ => result.insert(field.clone().into(), Value::Null),
                     };
                 }
             }
             _ => {
                 // No select fields - iterate all
                 for (field, serde_value) in json.iter() {
-                    result.insert(field.to_string(), Value::from(serde_value));
+                    result.insert(field.clone().into(), Value::from(serde_value));
                 }
             }
         }
@@ -305,7 +250,7 @@ impl Table for StateVariables {
         conditions: &'a [Condition<'a>],
         select: Option<&'a [String]>,
         _: Option<IndexHandle>,
-    ) -> Result<BTreeMap<String, Value>, String> {
+    ) -> Result<BTreeMap<KeyString, Value>, String> {
         let param_names = self.gather_query_parameters(conditions)?;
         let result = self.lookup(&param_names, select)?;
 
@@ -318,7 +263,7 @@ impl Table for StateVariables {
         _condition: &'a [Condition<'a>],
         _select: Option<&'a [String]>,
         _index: Option<IndexHandle>,
-    ) -> Result<Vec<BTreeMap<String, Value>>, String> {
+    ) -> Result<Vec<BTreeMap<KeyString, Value>>, String> {
         // This can be implemented if/when we look up variables for all pipelines of an account
         Ok(vec![BTreeMap::new()])
     }
@@ -428,7 +373,7 @@ mod tests {
 
         // Begin assertions
         let select = None;
-        let expected: BTreeMap<String, Value> = BTreeMap::from([
+        let expected: BTreeMap<KeyString, Value> = BTreeMap::from([
             ("var_1".into(), "my first value".into()),
             ("var_2".into(), "my second value".into()),
         ]);
@@ -437,7 +382,7 @@ mod tests {
         assert_eq!(Ok(expected), result, "No select fields returns everything");
 
         let select: Option<&[String]> = Some(&[]);
-        let expected: BTreeMap<String, Value> = BTreeMap::from([
+        let expected: BTreeMap<KeyString, Value> = BTreeMap::from([
             ("var_1".into(), "my first value".into()),
             ("var_2".into(), "my second value".into()),
         ]);
@@ -451,7 +396,7 @@ mod tests {
 
         let fields = ["var_2".to_string()];
         let select: Option<&[String]> = Some(&fields);
-        let expected: BTreeMap<String, Value> =
+        let expected: BTreeMap<KeyString, Value> =
             BTreeMap::from([("var_2".into(), "my second value".into())]);
         let result = state_variables.lookup(&param_names, select);
 

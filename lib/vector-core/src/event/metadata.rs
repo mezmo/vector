@@ -2,14 +2,17 @@
 
 use std::{borrow::Cow, collections::BTreeMap, fmt, sync::Arc};
 
+use derivative::Derivative;
+use lookup::OwnedTargetPath;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use vector_common::{byte_size_of::ByteSizeOf, config::ComponentKey, EventDataEq};
 use vrl::{
     compiler::SecretTarget,
-    value::{Kind, Value},
+    value::{KeyString, Kind, Value},
 };
 
-use super::{BatchNotifier, EventFinalizer, EventFinalizers, EventStatus};
+use super::{BatchNotifier, EventFinalizer, EventFinalizers, EventStatus, ObjectMap};
 use crate::{
     config::{LogNamespace, OutputId},
     schema,
@@ -20,7 +23,8 @@ const SPLUNK_HEC_TOKEN: &str = "splunk_hec_token";
 
 /// The top-level metadata structure contained by both `struct Metric`
 /// and `struct LogEvent` types.
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, Derivative)]
+#[derivative(PartialEq)]
 pub struct EventMetadata {
     /// Arbitrary data stored with an event
     #[serde(default = "default_metadata_value")]
@@ -59,23 +63,27 @@ pub struct EventMetadata {
     /// we need to ensure it is still available later on for emitting metrics tagged by the service.
     /// This field could almost be keyed by `&'static str`, but because it needs to be deserializable
     /// we have to use `String`.
-    dropped_fields: BTreeMap<String, Value>,
+    dropped_fields: ObjectMap,
 
     /// Metadata to track the origin of metrics. This is always `None` for log and trace events.
     /// Only a small set of Vector sources and transforms explicitly set this field.
     #[serde(default)]
     pub(crate) datadog_origin_metadata: Option<DatadogMetricOriginMetadata>,
+
+    /// An internal vector id that can be used to identify this event across all components.
+    #[derivative(PartialEq = "ignore")]
+    pub(crate) source_event_id: Option<Uuid>,
 }
 
 /// Metric Origin metadata for submission to Datadog.
 #[derive(Clone, Default, Debug, Deserialize, PartialEq, Serialize)]
 pub struct DatadogMetricOriginMetadata {
-    /// OriginProduct
-    product: Option<u32>,
-    /// OriginCategory
-    category: Option<u32>,
-    /// OriginService
-    service: Option<u32>,
+    /// `OriginProduct`
+    origin_product: Option<u32>,
+    /// `OriginCategory`
+    origin_category: Option<u32>,
+    /// `OriginService`
+    origin_service: Option<u32>,
 }
 
 impl DatadogMetricOriginMetadata {
@@ -87,30 +95,30 @@ impl DatadogMetricOriginMetadata {
     #[must_use]
     pub fn new(product: Option<u32>, category: Option<u32>, service: Option<u32>) -> Self {
         Self {
-            product,
-            category,
-            service,
+            origin_product: product,
+            origin_category: category,
+            origin_service: service,
         }
     }
 
     /// Returns a reference to the `OriginProduct`.
     pub fn product(&self) -> Option<u32> {
-        self.product
+        self.origin_product
     }
 
     /// Returns a reference to the `OriginCategory`.
     pub fn category(&self) -> Option<u32> {
-        self.category
+        self.origin_category
     }
 
     /// Returns a reference to the `OriginService`.
     pub fn service(&self) -> Option<u32> {
-        self.service
+        self.origin_service
     }
 }
 
 fn default_metadata_value() -> Value {
-    Value::Object(BTreeMap::new())
+    Value::Object(ObjectMap::new())
 }
 
 impl EventMetadata {
@@ -200,7 +208,7 @@ impl EventMetadata {
     /// There is currently no way to remove a field from this list, so if a field is dropped
     /// and then the field is re-added with a new value - the dropped value will still be
     /// retrieved.
-    pub fn add_dropped_field(&mut self, meaning: String, value: Value) {
+    pub fn add_dropped_field(&mut self, meaning: KeyString, value: Value) {
         self.dropped_fields.insert(meaning, value);
     }
 
@@ -213,20 +221,26 @@ impl EventMetadata {
     pub fn datadog_origin_metadata(&self) -> Option<&DatadogMetricOriginMetadata> {
         self.datadog_origin_metadata.as_ref()
     }
+
+    /// Returns a reference to the event id.
+    pub fn source_event_id(&self) -> Option<Uuid> {
+        self.source_event_id
+    }
 }
 
 impl Default for EventMetadata {
     fn default() -> Self {
         Self {
-            value: Value::Object(BTreeMap::new()),
+            value: Value::Object(ObjectMap::new()),
             secrets: Secrets::new(),
             finalizers: Default::default(),
             schema_definition: default_schema_definition(),
             source_id: None,
             source_type: None,
             upstream_id: None,
-            dropped_fields: BTreeMap::new(),
+            dropped_fields: ObjectMap::new(),
             datadog_origin_metadata: None,
+            source_event_id: Some(Uuid::now_v7()),
         }
     }
 }
@@ -298,12 +312,30 @@ impl EventMetadata {
         self
     }
 
+    /// Replaces the existing `source_event_id` with the given one.
+    #[must_use]
+    pub fn with_source_event_id(mut self, source_event_id: Option<Uuid>) -> Self {
+        self.source_event_id = source_event_id;
+        self
+    }
+
     /// Merge the other `EventMetadata` into this.
     /// If a Datadog API key is not set in `self`, the one from `other` will be used.
     /// If a Splunk HEC token is not set in `self`, the one from `other` will be used.
     pub fn merge(&mut self, other: Self) {
         self.finalizers.merge(other.finalizers);
         self.secrets.merge(other.secrets);
+
+        // Update `source_event_id` if necessary.
+        match (self.source_event_id, other.source_event_id) {
+            (None, Some(id)) => {
+                self.source_event_id = Some(id);
+            }
+            (Some(uuid1), Some(uuid2)) if uuid2 < uuid1 => {
+                self.source_event_id = Some(uuid2);
+            }
+            _ => {} // Keep the existing value.
+        };
     }
 
     /// Update the finalizer(s) status.
@@ -337,13 +369,33 @@ impl EventMetadata {
     }
 
     /// Get the schema definition.
-    pub fn schema_definition(&self) -> &schema::Definition {
-        self.schema_definition.as_ref()
+    pub fn schema_definition(&self) -> &Arc<schema::Definition> {
+        &self.schema_definition
     }
 
     /// Set the schema definition.
     pub fn set_schema_definition(&mut self, definition: &Arc<schema::Definition>) {
         self.schema_definition = Arc::clone(definition);
+    }
+
+    /// Helper function to add a semantic meaning to the schema definition.
+    ///
+    /// This replaces the common code sequence of:
+    ///
+    /// ```ignore
+    /// let new_schema = log_event
+    ///     .metadata()
+    ///     .schema_definition()
+    ///     .as_ref()
+    ///     .clone()
+    ///     .with_meaning(target_path, meaning);
+    /// log_event
+    ///     .metadata_mut()
+    ///     .set_schema_definition(new_schema);
+    /// ````
+    pub fn add_schema_meaning(&mut self, target_path: OwnedTargetPath, meaning: &str) {
+        let schema = Arc::make_mut(&mut self.schema_definition);
+        schema.add_meaning(target_path, meaning);
     }
 }
 
@@ -416,7 +468,7 @@ impl Secrets {
 
     /// Removes a secret
     pub fn remove(&mut self, key: &str) {
-        self.0.remove(&key.to_owned());
+        self.0.remove(key);
     }
 
     /// Merged both together. If there are collisions, the value from `self` is kept.
@@ -481,5 +533,23 @@ mod test {
         assert_eq!(a.get("key-a").unwrap().as_ref(), "value-a1");
         assert_eq!(a.get("key-b").unwrap().as_ref(), "value-b1");
         assert_eq!(a.get("key-c").unwrap().as_ref(), "value-c2");
+    }
+
+    #[test]
+    fn metadata_source_event_id_merging() {
+        let m1 = EventMetadata::default();
+        let m2 = EventMetadata::default();
+
+        {
+            let mut merged = m1.clone();
+            merged.merge(m2.clone());
+            assert_eq!(merged.source_event_id, m1.source_event_id);
+        }
+
+        {
+            let mut merged = m2.clone();
+            merged.merge(m1.clone());
+            assert_eq!(merged.source_event_id, m1.source_event_id);
+        }
     }
 }

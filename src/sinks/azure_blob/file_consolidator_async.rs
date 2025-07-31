@@ -111,15 +111,26 @@ impl FileConsolidatorAsync {
             Box::new(self.file_consolidation_config.requested_size_bytes);
         let box_output_format = Box::new(self.file_consolidation_config.output_format.clone());
 
-        let spawned = tokio::spawn(async move {
-            let client = crate::sinks::azure_common::config::build_client(
-                Some(box_connection_string.inner().to_string()),
-                None,
-                *box_container_name.clone(),
-                None,
-            )
-            .unwrap();
+        let build_client = crate::sinks::azure_common::config::build_client(
+            Some(box_connection_string.inner().to_string()),
+            None,
+            *box_container_name.clone(),
+            None,
+        );
 
+        // double check that we were able to build the client
+        if let Err(e) = build_client {
+            error!(
+                ?e,
+                message = "container_name={}, base_path={}, Failed to build client for azure-blob file consolidation",
+                bucket = *box_container_name.clone(),
+                base_path = *box_base_path.clone(),
+            );
+            return false;
+        }
+
+        let client = build_client.unwrap();
+        let spawned = tokio::spawn(async move {
             loop {
                 let start_time = tokio::time::Instant::now();
 

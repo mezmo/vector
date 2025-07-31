@@ -16,6 +16,7 @@ use std::{
     task::{ready, Context, Poll},
 };
 
+use chrono::{SubsecRound, Utc};
 use flate2::read::MultiGzDecoder;
 use futures::{stream, task::noop_waker_ref, FutureExt, SinkExt, Stream, StreamExt, TryStreamExt};
 use openssl::ssl::{SslConnector, SslFiletype, SslMethod, SslVerifyMode};
@@ -34,9 +35,12 @@ use tokio_stream::wrappers::TcpListenerStream;
 #[cfg(unix)]
 use tokio_stream::wrappers::UnixListenerStream;
 use tokio_util::codec::{Encoder, FramedRead, FramedWrite, LinesCodec};
-use vector_lib::buffers::topology::channel::LimitedReceiver;
-use vector_lib::config::log_schema;
-use vector_lib::event::{BatchNotifier, Event, EventArray, LogEvent};
+use vector_lib::event::{BatchNotifier, Event, EventArray, LogEvent, MetricTags, MetricValue};
+use vector_lib::{
+    buffers::topology::channel::LimitedReceiver,
+    config::log_schema,
+    event::{Metric, MetricKind},
+};
 #[cfg(test)]
 use zstd::Decoder as ZstdDecoder;
 
@@ -50,7 +54,7 @@ const WAIT_FOR_SECS: u64 = 5; // The default time to wait in `wait_for`
 const WAIT_FOR_MIN_MILLIS: u64 = 5; // The minimum time to pause before retrying
 const WAIT_FOR_MAX_MILLIS: u64 = 500; // The maximum time to pause before retrying
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod components;
 
 #[cfg(test)]
@@ -243,6 +247,13 @@ fn map_batch_stream(
     stream.map(move |log| vec![log.with_batch_notifier_option(&batch)].into())
 }
 
+fn map_metric_batch_stream(
+    stream: impl Stream<Item = Metric>,
+    batch: Option<BatchNotifier>,
+) -> impl Stream<Item = EventArray> {
+    stream.map(move |metric| vec![metric.with_batch_notifier_option(&batch)].into())
+}
+
 pub fn generate_lines_with_stream<Gen: FnMut(usize) -> String>(
     generator: Gen,
     count: usize,
@@ -278,6 +289,47 @@ pub fn generate_events_with_stream<Gen: FnMut(usize) -> Event>(
     (events, stream)
 }
 
+pub fn random_metrics_with_stream(
+    count: usize,
+    batch: Option<BatchNotifier>,
+    tags: Option<MetricTags>,
+) -> (Vec<Event>, impl Stream<Item = EventArray>) {
+    let timestamp = Utc::now().trunc_subsecs(3);
+    let events: Vec<_> = (0..count)
+        .map(|index| {
+            let ts = timestamp + (std::time::Duration::from_secs(2) * index as u32);
+            Event::Metric(
+                Metric::new(
+                    format!("counter_{}", thread_rng().gen::<u32>()),
+                    MetricKind::Incremental,
+                    MetricValue::Counter {
+                        value: index as f64,
+                    },
+                )
+                .with_timestamp(Some(ts))
+                .with_tags(tags.clone()),
+            )
+            // this ensures we get Origin Metadata, with an undefined service but that's ok.
+            .with_source_type("a_source_like_none_other")
+        })
+        .collect();
+
+    let stream = map_event_batch_stream(stream::iter(events.clone()), batch);
+    (events, stream)
+}
+
+pub fn generate_metrics_with_stream<Gen: FnMut(usize) -> Event>(
+    generator: Gen,
+    count: usize,
+    batch: Option<BatchNotifier>,
+) -> (Vec<Event>, impl Stream<Item = EventArray>) {
+    let events = (0..count).map(generator).collect::<Vec<_>>();
+    let stream = map_metric_batch_stream(
+        stream::iter(events.clone()).map(|event| event.into_metric()),
+        batch,
+    );
+    (events, stream)
+}
 pub fn random_events_with_stream(
     len: usize,
     count: usize,
@@ -533,37 +585,6 @@ where
     panic!("Timeout")
 }
 
-#[cfg(test)]
-mod tests {
-    use std::{
-        sync::{Arc, RwLock},
-        time::Duration,
-    };
-
-    use super::retry_until;
-
-    // helper which errors the first 3x, and succeeds on the 4th
-    async fn retry_until_helper(count: Arc<RwLock<i32>>) -> Result<(), ()> {
-        if *count.read().unwrap() < 3 {
-            let mut c = count.write().unwrap();
-            *c += 1;
-            return Err(());
-        }
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn retry_until_before_timeout() {
-        let count = Arc::new(RwLock::new(0));
-        let func = || {
-            let count = Arc::clone(&count);
-            retry_until_helper(count)
-        };
-
-        retry_until(func, Duration::from_millis(10), Duration::from_secs(1)).await;
-    }
-}
-
 pub struct CountReceiver<T> {
     count: Arc<AtomicUsize>,
     trigger: Option<oneshot::Sender<()>>,
@@ -713,7 +734,7 @@ pub async fn start_topology(
     require_healthy: impl Into<Option<bool>>,
 ) -> (RunningTopology, ShutdownErrorReceiver) {
     config.healthchecks.set_require_healthy(require_healthy);
-    RunningTopology::start_init_validated(config, None)
+    RunningTopology::start_init_validated(config, None, Default::default())
         .await
         .unwrap()
 }
@@ -753,4 +774,35 @@ where
     let events = collect_ready(stream).await;
     sender.await.expect("Failed to send data");
     events
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{Arc, RwLock},
+        time::Duration,
+    };
+
+    use super::retry_until;
+
+    // helper which errors the first 3x, and succeeds on the 4th
+    async fn retry_until_helper(count: Arc<RwLock<i32>>) -> Result<(), ()> {
+        if *count.read().unwrap() < 3 {
+            let mut c = count.write().unwrap();
+            *c += 1;
+            return Err(());
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn retry_until_before_timeout() {
+        let count = Arc::new(RwLock::new(0));
+        let func = || {
+            let count = Arc::clone(&count);
+            retry_until_helper(count)
+        };
+
+        retry_until(func, Duration::from_millis(10), Duration::from_secs(1)).await;
+    }
 }

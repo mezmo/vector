@@ -1,9 +1,10 @@
-use indexmap::IndexSet;
-
 use super::{
-    builder::ConfigBuilder, graph::Graph, id::Inputs, transform::get_transform_output_ids,
-    validation, Config, OutputId,
+    builder::ConfigBuilder, graph::Graph, transform::get_transform_output_ids, validation, Config,
+    OutputId,
 };
+
+use indexmap::IndexSet;
+use vector_lib::id::Inputs;
 
 pub fn compile(
     mut builder: ConfigBuilder,
@@ -11,6 +12,8 @@ pub fn compile(
 ) -> Result<(Config, Vec<String>), Vec<String>> {
     let mut errors = Vec::new();
 
+    debug!("Compiling from ConfigBuilder with validate={validate}");
+    trace!("Checking component names...");
     // component names should not have dots in the configuration file
     // but components can expand (like route) to have components with a dot
     // so this check should be done before expanding components
@@ -23,8 +26,11 @@ pub fn compile(
     ) {
         errors.extend(name_errors);
     }
+    trace!("Checked component names, {} errors.", errors.len());
 
+    trace!("Expanding globs...");
     expand_globs(&mut builder);
+    trace!("Expanded globs.");
 
     if validate {
         if let Err(type_errors) = validation::check_shape(&builder) {
@@ -40,19 +46,11 @@ pub fn compile(
         }
     }
 
-    #[cfg(feature = "enterprise")]
-    let hash = Some(builder.sha256_hash());
-
-    #[cfg(not(feature = "enterprise"))]
-    let hash = None;
-
     let ConfigBuilder {
         global,
         #[cfg(feature = "api")]
         api,
         schema,
-        #[cfg(feature = "enterprise")]
-        enterprise,
         healthchecks,
         enrichment_tables,
         sources,
@@ -65,6 +63,12 @@ pub fn compile(
         allow_empty: _,
     } = builder;
 
+    trace!(
+        "Building graph with {} sources, {} transforms, {} sinks",
+        sources.len(),
+        transforms.len(),
+        sinks.len()
+    );
     let graph = match Graph::new(&sources, &transforms, &sinks, schema) {
         Ok(graph) => graph,
         Err(graph_errors) => {
@@ -72,10 +76,13 @@ pub fn compile(
             return Err(errors);
         }
     };
+    trace!("Built graph.");
 
+    trace!("Typechecking graph...");
     if let Err(type_errors) = graph.typecheck() {
         errors.extend(type_errors);
     }
+    trace!("Typechecked graph.");
 
     if validate {
         if let Err(e) = graph.check_for_cycles() {
@@ -105,14 +112,13 @@ pub fn compile(
         .collect::<Result<Vec<_>, Vec<_>>>()?;
 
     if errors.is_empty() {
+        trace!("Finished compiling, preparing Config...");
+
         let mut config = Config {
             global,
             #[cfg(feature = "api")]
             api,
             schema,
-            #[cfg(feature = "enterprise")]
-            enterprise,
-            hash,
             healthchecks,
             enrichment_tables,
             sources,
@@ -123,7 +129,10 @@ pub fn compile(
             graceful_shutdown_duration,
         };
 
+        trace!("Propagating acknowledgements...");
         config.propagate_acknowledgements()?;
+        trace!("Finished propagating acknowledgements.");
+        trace!("Finished preparing Config.");
 
         let mut warnings = vec![];
         if validate {
@@ -140,14 +149,25 @@ pub fn compile(
 pub(crate) fn expand_globs(config: &mut ConfigBuilder) {
     let mut transforms_with_globs = vec![];
     let mut sinks_with_globs = vec![];
+
+    debug!(
+        "Expanding globs for {} transforms...",
+        config.transforms.len()
+    );
     for (id, transform) in config.transforms.iter() {
+        trace!("Expanding globs for transform {}", &id);
+
         for input in transform.inputs.iter() {
             if input.chars().any(is_glob_reserved_char) {
                 transforms_with_globs.push(id.clone());
             }
         }
     }
+
+    debug!("Expanding globs for {} sinks...", config.sinks.len());
     for (id, sink) in config.sinks.iter() {
+        trace!("Expanding globs for sink {}", &id);
+
         for input in sink.inputs.iter() {
             if input.chars().any(is_glob_reserved_char) {
                 sinks_with_globs.push(id.clone());
@@ -179,6 +199,11 @@ pub(crate) fn expand_globs(config: &mut ConfigBuilder) {
         .map(|output_id| output_id.to_string())
         .collect::<IndexSet<String>>();
 
+    trace!(
+        "Expanding globs for {} transforms and {} sinks",
+        transforms_with_globs.len(),
+        sinks_with_globs.len(),
+    );
     for id in transforms_with_globs.iter() {
         let transform = config.transforms.get_mut(id).unwrap();
         expand_globs_inner(&mut transform.inputs, &id.to_string(), &candidates);

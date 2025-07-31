@@ -11,13 +11,13 @@ use opentelemetry_rs::opentelemetry::{
 
 use vector_core::{
     config::log_schema,
-    event::{Event, EventMetadata, LogEvent, Value},
+    event::{Event, EventMetadata, KeyString, LogEvent, Value},
 };
 
 use vector_common::btreemap;
 
 use crate::decoding::format::mezmo::open_telemetry::{
-    nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
+    get_uniq_request_id, nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
 };
 
 pub fn parse_traces_request(bytes: &[u8]) -> vector_common::Result<smallvec::SmallVec<[Event; 1]>> {
@@ -96,21 +96,23 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
             };
 
             for scope_spans in resource_spans.scope_spans.into_iter() {
-                let mut scope: BTreeMap<String, Value> = BTreeMap::new();
+                let mut scope: BTreeMap<KeyString, Value> = BTreeMap::new();
                 if let Some(s) = &scope_spans.scope {
                     let attributes = OpenTelemetryKeyValue {
                         attributes: s.attributes.clone(),
                     };
 
-                    scope = btreemap! {
-                        "name" => Value::from(s.name.clone()),
-                        "version" => Value::from(s.version.clone()),
-                        "attributes" => attributes.to_value(),
-                    }
+                    let initial_scope: BTreeMap<KeyString, Value> = btreemap! {
+                        KeyString::from("name") => Value::from(s.name.clone()),
+                        KeyString::from("version") => Value::from(s.version.clone()),
+                        KeyString::from("attributes") => attributes.to_value(),
+                    };
+                    scope = initial_scope;
                 }
                 scope.insert("schema_url".into(), Value::from(scope_spans.schema_url));
 
                 let scope = Value::from(scope);
+                let span_uniq_id: Value = Value::from(faster_hex::hex_string(&get_uniq_request_id()));
 
                 acc.extend(scope_spans.spans.into_iter().map(|span| {
                     let links = Value::Array(
@@ -123,11 +125,11 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                                 .to_value();
 
                                 Value::Object(btreemap! {
-                                    "trace_id" => faster_hex::hex_string(&link.trace_id),
-                                    "span_id" => faster_hex::hex_string(&link.span_id),
-                                    "trace_state" => link.trace_state.clone(),
-                                    "attributes" => attributes,
-                                    "dropped_attributes_count" => link.dropped_attributes_count,
+                                    KeyString::from("trace_id") => faster_hex::hex_string(&link.trace_id),
+                                    KeyString::from("span_id") => faster_hex::hex_string(&link.span_id),
+                                    KeyString::from("trace_state") => link.trace_state.clone(),
+                                    KeyString::from("attributes") => attributes,
+                                    KeyString::from("dropped_attributes_count") => link.dropped_attributes_count,
                                 })
                             })
                             .collect(),
@@ -143,10 +145,10 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                                 .to_value();
 
                                 Value::Object(btreemap! {
-                                    "name" => string_to_value(event.name.clone().into()),
-                                    "timestamp" => nano_to_timestamp(event.time_unix_nano),
-                                    "attributes" => attributes,
-                                    "dropped_attributes_count" => event.dropped_attributes_count,
+                                    KeyString::from("name") => string_to_value(event.name.clone().into()),
+                                    KeyString::from("timestamp") => nano_to_timestamp(event.time_unix_nano),
+                                    KeyString::from("attributes") => attributes,
+                                    KeyString::from("dropped_attributes_count") => event.dropped_attributes_count,
                                 })
                             })
                             .collect(),
@@ -155,28 +157,28 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                     let start_time_unix_nano = nano_to_timestamp(span.start_time_unix_nano);
 
                     let mut message = btreemap! {
-                        "name" => string_to_value(span.name.into()),
-                        "hostname" => resource_host_name.clone(),
-                        "trace_id" => Value::from(faster_hex::hex_string(&span.trace_id)),
-                        "trace_state" => Value::from(span.trace_state),
-                        "span_id" => Value::from(faster_hex::hex_string(&span.span_id)),
-                        "parent_span_id" => Value::from(faster_hex::hex_string(&span.parent_span_id)),
-                        "start_timestamp" => start_time_unix_nano.clone(),
-                        "end_timestamp" => nano_to_timestamp(span.end_time_unix_nano),
-                        "kind" => Value::from(span.kind as i32),
-                        "dropped_attributes_count" => span.dropped_attributes_count,
-                        "events" => events,
-                        "dropped_events_count" => span.dropped_events_count,
-                        "links" => links,
-                        "dropped_links_count" => span.dropped_links_count,
+                        KeyString::from("name") => string_to_value(span.name.into()),
+                        KeyString::from("hostname") => resource_host_name.clone(),
+                        KeyString::from("trace_id") => Value::from(faster_hex::hex_string(&span.trace_id)),
+                        KeyString::from("trace_state") => Value::from(span.trace_state),
+                        KeyString::from("span_id") => Value::from(faster_hex::hex_string(&span.span_id)),
+                        KeyString::from("parent_span_id") => Value::from(faster_hex::hex_string(&span.parent_span_id)),
+                        KeyString::from("start_timestamp") => start_time_unix_nano.clone(),
+                        KeyString::from("end_timestamp") => nano_to_timestamp(span.end_time_unix_nano),
+                        KeyString::from("kind") => Value::from(span.kind as i32),
+                        KeyString::from("dropped_attributes_count") => span.dropped_attributes_count,
+                        KeyString::from("events") => events,
+                        KeyString::from("dropped_events_count") => span.dropped_events_count,
+                        KeyString::from("links") => links,
+                        KeyString::from("dropped_links_count") => span.dropped_links_count,
                     };
 
                     if let Some(status) = span.status {
                         message.insert(
                             "status".into(),
                             Value::Object(btreemap! {
-                                "message" => string_to_value(status.message.to_string()),
-                                "code" => Value::from(status.code as i32),
+                                KeyString::from("message") => string_to_value(status.message.to_string()),
+                                KeyString::from("code") => Value::from(status.code as i32),
                             }),
                         );
                     }
@@ -187,17 +189,18 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                     };
 
                     let user_metadata = btreemap! {
-                        "level" => Cow::from("trace"),
-                        "resource" => resource.clone(),
-                        "scope" => scope.clone(),
-                        "attributes" => filtered_attributes.to_value(),
+                        KeyString::from("level") => Cow::from("trace"),
+                        KeyString::from("resource") => resource.clone(),
+                        KeyString::from("scope") => scope.clone(),
+                        KeyString::from("attributes") => filtered_attributes.to_value(),
+                        KeyString::from("span_uniq_id") => span_uniq_id.clone(),
                     };
 
                     let message_key = log_schema().message_key().unwrap().to_string();
 
                     let mut log_event = LogEvent::from_map(btreemap! {
-                        message_key.as_str() => Value::Object(message),
-                        log_schema().user_metadata_key() => Value::Object(user_metadata),
+                        KeyString::from(message_key.as_str()) => Value::Object(message),
+                        KeyString::from(log_schema().user_metadata_key()) => Value::Object(user_metadata),
                     }, EventMetadata::default());
 
                     if let Some(timestamp_key) = log_schema().timestamp_key() {
@@ -218,8 +221,7 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{NaiveDateTime, TimeZone, Utc};
-    use std::ops::Deref;
+    use chrono::DateTime;
 
     use opentelemetry_rs::opentelemetry::metrics::{AnyValue, AnyValueOneOfvalue, KeyValue};
     use std::borrow::Cow;
@@ -292,13 +294,7 @@ mod tests {
         let traces = to_events(traces_data.clone());
 
         assert_eq!(
-            *traces[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("message")
-                .unwrap()
-                .deref(),
+            *traces[0].clone().into_log().value().get("message").unwrap(),
             Value::Object(BTreeMap::from([
                 ("name".into(), "test_span_name".into()),
                 ("trace_id".into(), Value::from("74726163655f6964")),
@@ -311,10 +307,8 @@ mod tests {
                 (
                     "start_timestamp".into(),
                     Value::from(
-                        Utc.from_utc_datetime(
-                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 11_u32)
-                                .expect("timestamp should be a valid timestamp"),
-                        )
+                        DateTime::from_timestamp(1_579_134_612_i64, 11_u32)
+                            .expect("timestamp should be a valid timestamp")
                     )
                 ),
                 ("dropped_attributes_count".into(), Value::Integer(10)),
@@ -323,10 +317,8 @@ mod tests {
                 (
                     "end_timestamp".into(),
                     Value::from(
-                        Utc.from_utc_datetime(
-                            &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 12_u32)
-                                .expect("timestamp should be a valid timestamp"),
-                        )
+                        DateTime::from_timestamp(1_579_134_612_i64, 12_u32)
+                            .expect("timestamp should be a valid timestamp")
                     )
                 ),
                 (
@@ -341,10 +333,8 @@ mod tests {
                         (
                             "timestamp".into(),
                             Value::from(
-                                Utc.from_utc_datetime(
-                                    &NaiveDateTime::from_timestamp_opt(1_579_134_612_i64, 13_u32)
-                                        .expect("timestamp should be a valid timestamp"),
-                                )
+                                DateTime::from_timestamp(1_579_134_612_i64, 13_u32)
+                                    .expect("timestamp should be a valid timestamp")
                             )
                         ),
                     ]))]))
@@ -374,14 +364,16 @@ mod tests {
             ]))
         );
 
+        let trace = traces[0].clone().into_log();
+
+        let metadata = trace.get("metadata").unwrap();
+
+        let span_uniq_id = metadata.get("span_uniq_id");
+
+        assert!(span_uniq_id.is_some());
+
         assert_eq!(
-            *traces[0]
-                .clone()
-                .into_log()
-                .value()
-                .get("metadata")
-                .unwrap()
-                .deref(),
+            *metadata,
             Value::Object(BTreeMap::from([
                 (
                     "resource".into(),
@@ -411,6 +403,7 @@ mod tests {
                     Value::Object(BTreeMap::from([("test".into(), "test".into()),]))
                 ),
                 ("level".into(), "trace".into()),
+                ("span_uniq_id".into(), span_uniq_id.unwrap().clone()),
             ]))
         );
     }

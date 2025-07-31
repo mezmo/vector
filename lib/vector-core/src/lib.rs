@@ -38,7 +38,9 @@
 pub mod config;
 pub mod event;
 pub mod fanout;
+pub mod ipallowlist;
 pub mod metrics;
+pub mod mezmo;
 pub mod partition;
 pub mod schema;
 pub mod serde;
@@ -52,17 +54,13 @@ pub mod tls;
 pub mod transform;
 pub mod usage_metrics;
 #[cfg(feature = "vrl")]
-mod vrl;
+pub mod vrl;
 
 use float_eq::FloatEq;
 use std::path::PathBuf;
 
 #[cfg(feature = "vrl")]
 pub use crate::vrl::compile_vrl;
-
-#[cfg(any(test, feature = "test"))]
-pub use vector_common::event_test_util;
-pub use vector_common::{byte_size_of::ByteSizeOf, internal_event};
 
 pub use event::EstimatedJsonEncodedSizeOf;
 

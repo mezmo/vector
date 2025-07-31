@@ -8,16 +8,17 @@ use vrl::value::Value;
 use crate::{
     gcp::{GcpAuthenticator, GcpError},
     http::HttpClient,
-    mezmo::{user_trace::MezmoUserLog, MezmoContext},
     sinks::{
         gcs_common::service::GcsResponse,
         util::retries::{RetryAction, RetryLogic},
         Healthcheck, HealthcheckError,
     },
-    user_log_error,
 };
+use mezmo::{user_log_error, user_trace::MezmoUserLog, MezmoContext};
 
-pub const BASE_URL: &str = "https://storage.googleapis.com/";
+pub fn default_endpoint() -> String {
+    "https://storage.googleapis.com".to_string()
+}
 
 /// GCS Predefined ACLs.
 ///
@@ -173,6 +174,7 @@ impl RetryLogic for GcsRetryLogic {
 
             return match status {
                 StatusCode::UNAUTHORIZED => RetryAction::Retry("unauthorized".into()),
+                StatusCode::REQUEST_TIMEOUT => RetryAction::Retry("request timeout".into()),
                 StatusCode::TOO_MANY_REQUESTS => RetryAction::Retry("too many requests".into()),
                 StatusCode::NOT_IMPLEMENTED => {
                     RetryAction::DontRetry("endpoint not implemented".into())

@@ -4,7 +4,7 @@ use anyhow::{anyhow, Ok, Result};
 use glob::glob;
 use std::process::Command;
 
-/// Uploads target/artifacts to GitHub releases
+/// Uploads target/artifacts to `GitHub` releases
 #[derive(clap::Args, Debug)]
 #[command()]
 pub struct Cli {}

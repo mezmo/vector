@@ -8,7 +8,6 @@ Acq
 AEAD
 agentpayload
 aimd
-akx
 allowerased
 amka
 amping
@@ -32,7 +31,6 @@ aqf
 architecting
 archivable
 ARNOTAREALIDD
-arshiyasolei
 asdf
 asdfasdf
 assertverify
@@ -62,7 +60,6 @@ awscli
 awsec
 awslabs
 axum
-Aziz
 azureresourceid
 babim
 badunit
@@ -146,6 +143,7 @@ centiseconds
 cernan
 cfactor
 CFFI
+cfgs
 CGP
 cgroups
 chans
@@ -157,7 +155,6 @@ chkptr
 chronosphere
 chunkenc
 cicd
-Cim
 ciphersuites
 CLA
 Claranet
@@ -167,7 +164,6 @@ clibtype
 clickhouse
 clonable
 cloudresourcemanager
-cloudsmith
 cloudwatchlogs
 cmark
 CMK
@@ -188,9 +184,9 @@ concating
 concats
 condrestart
 conffiles
-configkey
 configmap
 confl
+confluentinc
 confy
 consigliere
 CONTEUDO
@@ -288,7 +284,6 @@ Doop
 downcasted
 droptest
 dsl
-dsmith
 dstat
 dstport
 dtype
@@ -321,13 +316,10 @@ eni
 enp
 enumdecl
 enumflags
-ENVARS
 envsubst
-EOIG
 EOL'ed
 Err'ing
 errorf
-Errorsfor
 esb
 esque
 etheus
@@ -416,7 +408,6 @@ fsevent
 fslock
 FSTRM
 fsyncdata
-fuchsnj
 fullhuman
 futs
 fuzzcheck
@@ -448,8 +439,8 @@ gnux
 gny
 Godbolt
 gogoproto
+gohai
 goldberg
-goldmark
 GPB
 gpgcheck
 gpgkey
@@ -522,6 +513,7 @@ imds
 IMSD
 incentivizes
 incrementalize
+indexgateway
 indexmap
 indicatif
 indoc
@@ -564,6 +556,7 @@ jmxrmi
 jmxtrans
 Jolokia
 jsn
+JSONAs
 jsonify
 jsonlines
 jstype
@@ -573,6 +566,7 @@ jtype
 juchiast
 karppila
 kartar
+kebabcase
 kemmer
 kernelmode
 keybase
@@ -624,6 +618,7 @@ lognamespace
 lognamespacing
 logplex
 logproto
+logql
 logqlmodel
 logsense
 logsev
@@ -633,7 +628,6 @@ losslessly
 lpop
 lpush
 Luc
-luciofranco
 lucperkins
 lukesteensen
 macports
@@ -655,7 +649,6 @@ maybeanothertest
 mbean
 mcache
 mcr
-meh
 meln
 memfd
 memmap
@@ -686,7 +679,6 @@ mlua
 mmdb
 Mmm
 moby
-mockwatchlogs
 modulesloaddir
 mooper
 moosh
@@ -734,9 +726,7 @@ nbase
 ndarray
 ndjson
 nearline
-neuronull
 newcerts
-newrelix
 nextest
 nfox
 ngx
@@ -752,6 +742,7 @@ nodebuginfo
 nodistro
 nofield
 nofree
+nohup
 nomac
 NONALPHANUM
 nonbare
@@ -786,6 +777,7 @@ nullishness
 numbackends
 oahd
 oap
+OIDC
 OKD
 omfwd
 omitempty
@@ -815,14 +807,15 @@ ouicompat
 outputspatterns
 overaligned
 overalignment
+owen
 owo
 oyaml
-pablosichert
 pageheap
 paq
 parallelizable
 pareto
 partitionable
+pascalcase
 passthrough
 pathbuf
 pathgen
@@ -830,6 +823,7 @@ peekable
 PEMS
 pgmajfault
 pgrep
+pidof
 PII
 Pitbull
 pkc
@@ -868,12 +862,14 @@ protoc
 protofbuf
 protosizer
 Prt
+psl
 psv
 publickey
 purgecss
 pyld
 Pzb
 qqq
+queryrangebase
 quickcheck
 quix
 quuux
@@ -944,6 +940,7 @@ rxs
 ryangjchandler
 ryu
 sadf
+salvacorts
 samehost
 samenet
 samerole
@@ -954,7 +951,7 @@ sccache
 schemaless
 schemars
 schoen
-scl
+screamingsnakecase
 sda
 sdata
 SDID
@@ -979,7 +976,6 @@ shortcode
 shortstat
 should've
 shutsdown
-Sichert
 SIEM
 sighup
 Signsoff
@@ -1004,6 +1000,7 @@ smp
 smpl
 smtracking
 snakecase
+Sni
 Soldotna
 somehost
 somejob
@@ -1043,7 +1040,6 @@ stdduration
 stdlog
 Steensen
 stephenwakely
-strat
 strconv
 streamsink
 strng
@@ -1126,11 +1122,11 @@ Tomola
 tonydanza
 toolbars
 toolchains
-toolset
 toor
 topdir
 topojson
 toproto
+towncrier
 Toxiproxy
 Tpng
 Trauring
@@ -1144,7 +1140,6 @@ trivy
 Troutwine
 trustarc
 truste
-TRUSTSTORE
 TSDB
 Tsvg
 turbofish
@@ -1164,6 +1159,7 @@ undertagline
 underutilized
 underutilizing
 unevictable
+unflatten
 unioning
 unitdir
 unmark
@@ -1192,7 +1188,6 @@ vectordir
 vectordotdev
 vectorized
 vendored
-veryyyyyyy
 viceversa
 viewkind
 visualising
@@ -1212,7 +1207,6 @@ walkthrough
 waninfo
 wasmtime
 watchexec
-watchlogs
 wayfor
 webgraphviz
 webpki
@@ -1235,7 +1229,6 @@ wktpointer
 wmem
 woooooow
 woothee
-wor
 wordlist
 workdir
 workstreams
@@ -1247,8 +1240,6 @@ wtcache
 wtime
 wtimeouts
 wtr
-wurstmeister
-wwang
 xact
 xcatsy
 Xcg

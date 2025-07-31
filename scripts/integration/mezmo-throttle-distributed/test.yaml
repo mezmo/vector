@@ -1,0 +1,13 @@
+features:
+- mezmo-throttle-distributed-integration-tests
+
+test_filter: "::mezmo_throttle_distributed::"
+
+env:
+  MEZMO_STATE_CONNECTION_STRING: redis://dragonfly:6379/0
+
+matrix:
+  version: [latest]
+paths:
+- "src/transforms/mezmo_throttle_distributed/**"
+- "scripts/integration/mezmo-throttle-distributed/**"

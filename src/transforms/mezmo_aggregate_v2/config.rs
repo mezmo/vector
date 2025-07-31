@@ -5,6 +5,7 @@ use crate::config::{
     TransformOutput,
 };
 use crate::mezmo::persistence::RocksDBPersistenceConnection;
+use crate::mezmo_env_config;
 use crate::schema::Definition;
 use crate::transforms::remap::RemapConfig;
 use crate::transforms::Transform;
@@ -120,11 +121,11 @@ const fn default_window_duration_ms() -> u32 {
 }
 
 const fn default_flush_tick_ms() -> u64 {
-    5
+    1000
 }
 
-const fn default_mem_cardinality_limit() -> u32 {
-    2000
+fn default_mem_cardinality_limit() -> u32 {
+    mezmo_env_config!("MEZMO_AGGREGATION_CARDINALITY_LIMIT", 20_000)
 }
 
 const fn default_mem_window_limit() -> u32 {
@@ -162,7 +163,7 @@ impl MezmoAggregateV2Config {
             source: Some(self.source.clone()),
             ..Default::default()
         };
-        let (program, _, _, _) = remap_config.compile_vrl_program(
+        let (program, _, _) = remap_config.compile_vrl_program(
             ctx.enrichment_tables.clone(),
             ctx.merged_schema_definition.clone(),
             ctx.mezmo_ctx.clone(),
@@ -189,9 +190,9 @@ impl MezmoAggregateV2Config {
 
         let state_persistence_tick_ms = self.state_persistence_tick_ms;
         let state_persistence_max_jitter_ms = self.state_persistence_max_jitter_ms;
-        let state_persistence: Option<Box<dyn PersistenceConnection>> =
+        let state_persistence: Option<Arc<dyn PersistenceConnection>> =
             match (&self.state_persistence_base_path, ctx.mezmo_ctx.clone()) {
-                (Some(base_path), Some(mezmo_ctx)) => Some(Box::new(
+                (Some(base_path), Some(mezmo_ctx)) => Some(Arc::new(
                     RocksDBPersistenceConnection::new(base_path, &mezmo_ctx)?,
                 )),
                 (_, Some(mezmo_ctx)) => {

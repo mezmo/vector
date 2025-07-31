@@ -4,6 +4,7 @@ use futures::{FutureExt, SinkExt};
 use http::{Request, Uri};
 use hyper::Body;
 use indoc::indoc;
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
 use serde_json::{json, Value};
 use snafu::{ResultExt, Snafu};
 use tokio_util::codec::Encoder as _;
@@ -15,7 +16,6 @@ use crate::{
     event::Event,
     gcp::{GcpAuthConfig, GcpAuthenticator, Scope, PUBSUB_URL},
     http::HttpClient,
-    mezmo::user_trace::MezmoUserLog,
     sinks::{
         gcs_common::config::healthcheck_response,
         util::{
@@ -25,7 +25,6 @@ use crate::{
         Healthcheck, UriParseSnafu, VectorSink,
     },
     tls::{TlsConfig, TlsSettings},
-    user_log_error,
 };
 
 #[derive(Debug, Snafu)]
@@ -98,7 +97,7 @@ pub struct PubsubConfig {
     #[serde(
         default,
         deserialize_with = "crate::serde::bool_or_struct",
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
+        skip_serializing_if = "crate::serde::is_default"
     )]
     acknowledgements: AcknowledgementsConfig,
 }
@@ -128,7 +127,7 @@ impl SinkConfig for PubsubConfig {
             .validate()?
             .limit_max_bytes(MAX_BATCH_PAYLOAD_SIZE)?
             .into_batch_settings()?;
-        let request_settings = self.request.unwrap_with(&Default::default());
+        let request_settings = self.request.into_settings();
         let tls_settings = TlsSettings::from_options(&self.tls)?;
         let client = HttpClient::new(tls_settings, cx.proxy())?;
 
@@ -229,7 +228,6 @@ impl HttpEventEncoder<Value> for PubSubSinkEventEncoder {
     }
 }
 
-#[async_trait::async_trait]
 impl HttpSink for PubsubSink {
     type Input = Value;
     type Output = Vec<BoxedRawValue>;

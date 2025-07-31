@@ -10,7 +10,7 @@ use crate::{
         util::{retries::RetryLogic, TowerRequestConfig},
     },
 };
-use aws_sdk_firehose::types::SdkError;
+use aws_sdk_firehose::error::SdkError;
 
 use super::{
     record::{Record, SendRecord},
@@ -63,9 +63,15 @@ pub struct KinesisSinkBaseConfig {
     #[serde(
         default,
         deserialize_with = "crate::serde::bool_or_struct",
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
+        skip_serializing_if = "crate::serde::is_default"
     )]
     pub acknowledgements: AcknowledgementsConfig,
+
+    /// The log field used as the Kinesis record’s partition key value.
+    ///
+    /// If not specified, a unique partition key is generated for each Kinesis record.
+    #[configurable(metadata(docs::examples = "user_id"))]
+    pub partition_key_field: Option<ConfigValuePath>,
 }
 
 impl KinesisSinkBaseConfig {
@@ -98,7 +104,7 @@ where
     SdkError<<C as SendRecord>::E>: UserLoggingError,
     RT: RetryLogic<Response = KinesisResponse> + Default,
 {
-    let request_limits = config.request.unwrap_with(&TowerRequestConfig::default());
+    let request_limits = config.request.into_settings();
 
     let region = config.region.region();
     let service = ServiceBuilder::new()

@@ -1,20 +1,13 @@
 use std::sync::Arc;
 
-#[cfg(feature = "enterprise")]
-use futures_util::future::BoxFuture;
 use futures_util::FutureExt as _;
 use tokio::sync::{mpsc, Mutex, MutexGuard};
 use vector_lib::usage_metrics::UsageMetrics;
 
 #[cfg(feature = "api")]
 use crate::api;
-#[cfg(feature = "enterprise")]
-use crate::config::enterprise::{
-    report_on_reload, EnterpriseError, EnterpriseMetadata, EnterpriseReporter,
-};
-use crate::internal_events::{
-    VectorConfigLoadError, VectorRecoveryError, VectorReloadError, VectorReloaded,
-};
+use crate::extra_context::ExtraContext;
+use crate::internal_events::{VectorRecoveryError, VectorReloadError, VectorReloaded};
 
 use crate::{config, signal::ShutdownError, topology::RunningTopology};
 
@@ -24,6 +17,10 @@ pub struct SharedTopologyController(Arc<Mutex<TopologyController>>);
 impl SharedTopologyController {
     pub fn new(inner: TopologyController) -> Self {
         Self(Arc::new(Mutex::new(inner)))
+    }
+
+    pub fn blocking_lock(&self) -> MutexGuard<TopologyController> {
+        self.0.blocking_lock()
     }
 
     pub async fn lock(&self) -> MutexGuard<TopologyController> {
@@ -39,10 +36,9 @@ pub struct TopologyController {
     pub topology: RunningTopology,
     pub config_paths: Vec<config::ConfigPath>,
     pub require_healthy: Option<bool>,
-    #[cfg(feature = "enterprise")]
-    pub enterprise_reporter: Option<EnterpriseReporter<BoxFuture<'static, ()>>>,
     #[cfg(feature = "api")]
     pub api_server: Option<api::Server>,
+    pub extra_context: ExtraContext,
 }
 
 impl std::fmt::Debug for TopologyController {
@@ -56,7 +52,6 @@ impl std::fmt::Debug for TopologyController {
 
 #[derive(Clone, Debug)]
 pub enum ReloadOutcome {
-    NoConfig,
     MissingApiKey,
     Success,
     RolledBack,
@@ -64,49 +59,63 @@ pub enum ReloadOutcome {
 }
 
 impl TopologyController {
-    pub async fn reload(&mut self, new_config: Option<config::Config>) -> ReloadOutcome {
+    pub async fn reload(&mut self, new_config: config::Config) -> ReloadOutcome {
         self.reload_with_metrics(new_config, None).await
     }
 
     pub async fn reload_with_metrics(
         &mut self,
-        new_config: Option<config::Config>,
+        mut new_config: config::Config,
         metrics_tx: Option<mpsc::UnboundedSender<UsageMetrics>>,
     ) -> ReloadOutcome {
-        if new_config.is_none() {
-            emit!(VectorConfigLoadError);
-            return ReloadOutcome::NoConfig;
-        }
-        let mut new_config = new_config.unwrap();
-
         new_config
             .healthchecks
             .set_require_healthy(self.require_healthy);
 
-        #[cfg(feature = "enterprise")]
-        // Augment config to enable observability within Datadog, if applicable.
-        match EnterpriseMetadata::try_from(&new_config) {
-            Ok(metadata) => {
-                if let Some(e) = report_on_reload(
-                    &mut new_config,
-                    metadata,
-                    self.config_paths.clone(),
-                    self.enterprise_reporter.as_ref(),
-                ) {
-                    self.enterprise_reporter = Some(e);
-                }
+        // Start the api server or disable it, if necessary
+        #[cfg(feature = "api")]
+        if !new_config.api.enabled {
+            if let Some(server) = self.api_server.take() {
+                debug!("Dropping api server.");
+                drop(server)
             }
-            Err(err) => {
-                if let EnterpriseError::MissingApiKey = err {
-                    emit!(VectorReloadError);
-                    return ReloadOutcome::MissingApiKey;
+        } else if self.api_server.is_none() {
+            use crate::internal_events::ApiStarted;
+            use std::sync::atomic::AtomicBool;
+            use tokio::runtime::Handle;
+
+            debug!("Starting api server.");
+
+            self.api_server = match api::Server::start(
+                self.topology.config(),
+                self.topology.watch(),
+                Arc::<AtomicBool>::clone(&self.topology.running),
+                &Handle::current(),
+            ) {
+                Ok(api_server) => {
+                    emit!(ApiStarted {
+                        addr: new_config.api.address.unwrap(),
+                        playground: new_config.api.playground,
+                        graphql: new_config.api.graphql,
+                    });
+
+                    Some(api_server)
+                }
+                Err(error) => {
+                    let error = error.to_string();
+                    error!("An error occurred that Vector couldn't handle: {}.", error);
+                    return ReloadOutcome::FatalError(ShutdownError::ApiFailed { error });
                 }
             }
         }
 
         match self
             .topology
-            .reload_config_and_respawn_with_metrics(new_config, metrics_tx)
+            .reload_config_and_respawn_with_metrics(
+                new_config,
+                metrics_tx,
+                self.extra_context.clone(),
+            )
             .await
         {
             Ok(true) => {

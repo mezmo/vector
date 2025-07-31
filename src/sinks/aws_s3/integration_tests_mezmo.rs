@@ -10,6 +10,7 @@ use similar_asserts::assert_eq;
 use tokio_stream::StreamExt;
 use vector_lib::codecs::{
     decoding::format::{Deserializer, JsonDeserializerConfig, JsonDeserializerOptions},
+    encoding::format::JsonSerializerOptions,
     encoding::FramingConfig,
     JsonSerializerConfig, MetricTagValues,
 };
@@ -36,7 +37,7 @@ use super::file_consolidator_async::{FileConsolidationConfig, FileConsolidatorAs
 use super::integration_tests::{
     client, create_bucket, get_keys, get_lines, get_object, s3_address,
 };
-use aws_sdk_s3::types::ByteStream;
+use aws_smithy_types::byte_stream::ByteStream;
 use flate2::read::GzEncoder;
 use std::io::Read;
 use std::{thread, time};
@@ -175,6 +176,7 @@ async fn s3_file_consolidator_enabled_run() {
             requested_size_bytes: 512000000,
             base_path: None,
             output_format: None,
+            aws_timeout: None,
         },
         bucket.clone(),
     );
@@ -469,7 +471,7 @@ async fn s3_file_consolidation_process_text_files() {
     let obj = get_object(&bucket, keys[0].clone()).await;
     assert_eq!(obj.content_encoding, Some("identity".to_string()));
     assert_eq!(obj.content_type, Some("text/x-log".to_string()));
-    assert_eq!(obj.content_length, 59); // line length plus newlines
+    assert_eq!(obj.content_length, Some(59)); // line length plus newlines
 
     let response_lines = get_lines(obj).await;
     assert_eq!(response_lines.len(), 3);
@@ -536,7 +538,7 @@ async fn s3_file_consolidation_process_json_files() {
     let obj = get_object(&bucket, keys[0].clone()).await;
     assert_eq!(obj.content_encoding, Some("identity".to_string()));
     assert_eq!(obj.content_type, Some("text/x-log".to_string()));
-    assert_eq!(obj.content_length, 67); //text with comma separators
+    assert_eq!(obj.content_length, Some(67)); //text with comma separators
 
     let response_lines = get_lines(obj).await;
     assert_eq!(response_lines.len(), 1);
@@ -606,7 +608,7 @@ async fn s3_file_consolidation_process_ndjson_files() {
     let obj = get_object(&bucket, keys[0].clone()).await;
     assert_eq!(obj.content_encoding, Some("identity".to_string()));
     assert_eq!(obj.content_type, Some("text/x-log".to_string()));
-    assert_eq!(obj.content_length, 110); // line length plus newlines
+    assert_eq!(obj.content_length, Some(110)); // line length plus newlines
 
     let response_lines = get_lines(obj).await;
     assert_eq!(response_lines.len(), 3);
@@ -702,7 +704,7 @@ async fn s3_file_consolidation_compressed_files() {
     let obj = get_object(&bucket, keys[0].clone()).await;
     assert_eq!(obj.content_encoding, Some("identity".to_string()));
     assert_eq!(obj.content_type, Some("text/x-log".to_string()));
-    assert_eq!(obj.content_length, 302); // decompressed plus newlines
+    assert_eq!(obj.content_length, Some(302)); // decompressed plus newlines
 
     let response_lines = get_lines(obj).await;
     assert_eq!(response_lines.len(), 3);
@@ -965,7 +967,7 @@ async fn s3_file_consolidation_lots_of_10mb_files() {
         let obj = get_object(&bucket, k).await;
         assert_eq!(obj.content_encoding, Some("identity".to_string()));
         assert_eq!(obj.content_type, Some("text/x-log".to_string()));
-        assert_eq!(obj.content_length, 151_500_014);
+        assert_eq!(obj.content_length, Some(151_500_014));
 
         // 15 files of 100_000 lines that are all bashed together
         let response_lines = get_lines(obj).await;
@@ -1084,7 +1086,7 @@ fn json_config(bucket: &str, batch_size: usize) -> S3SinkConfig {
         region: RegionOrEndpoint::with_both("minio", s3_address()),
         encoding: (
             None::<FramingConfig>,
-            JsonSerializerConfig::new(MetricTagValues::Single),
+            JsonSerializerConfig::new(MetricTagValues::Single, JsonSerializerOptions::default()),
         )
             .into(),
         compression: Compression::None,
@@ -1094,6 +1096,7 @@ fn json_config(bucket: &str, batch_size: usize) -> S3SinkConfig {
         auth: Default::default(),
         acknowledgements: Default::default(),
         file_consolidation_config: Default::default(),
+        timezone: Default::default(),
     }
 }
 

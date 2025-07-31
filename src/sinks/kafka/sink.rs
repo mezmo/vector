@@ -1,14 +1,14 @@
 use rdkafka::{
-    consumer::{BaseConsumer, Consumer},
     error::KafkaError,
-    producer::FutureProducer,
+    producer::{BaseProducer, FutureProducer, Producer},
     ClientConfig,
 };
 use snafu::{ResultExt, Snafu};
 use tokio::time::Duration;
+use tracing::Span;
 use vrl::path::OwnedTargetPath;
 
-use super::config::{KafkaRole, KafkaSinkConfig};
+use super::config::KafkaSinkConfig;
 use crate::{
     kafka::KafkaStatisticsContext,
     sinks::kafka::{request_builder::KafkaRequestBuilder, service::KafkaService},
@@ -20,8 +20,6 @@ use crate::{
 pub(super) enum BuildError {
     #[snafu(display("creating kafka producer failed: {}", source))]
     KafkaCreateFailed { source: KafkaError },
-    #[snafu(display("invalid topic template: {}", source))]
-    TopicTemplate { source: TemplateParseError },
 }
 
 pub struct KafkaSink {
@@ -37,14 +35,17 @@ pub(crate) fn create_producer(
     client_config: ClientConfig,
 ) -> crate::Result<FutureProducer<KafkaStatisticsContext>> {
     let producer = client_config
-        .create_with_context(KafkaStatisticsContext::default())
+        .create_with_context(KafkaStatisticsContext {
+            expose_lag_metrics: false,
+            span: Span::current(),
+        })
         .context(KafkaCreateFailedSnafu)?;
     Ok(producer)
 }
 
 impl KafkaSink {
     pub(crate) fn new(config: KafkaSinkConfig, cx: SinkContext) -> crate::Result<Self> {
-        let producer_config = config.to_rdkafka(KafkaRole::Producer)?;
+        let producer_config = config.to_rdkafka()?;
         let producer = create_producer(producer_config)?;
         let serializer = config.encoding.build()?;
         let transformer =
@@ -105,23 +106,27 @@ impl KafkaSink {
 
 pub(crate) async fn healthcheck(config: KafkaSinkConfig) -> crate::Result<()> {
     trace!("Healthcheck started.");
-    let client = config.to_rdkafka(KafkaRole::Consumer).unwrap();
-    let topic = match config.topic.render_string(&LogEvent::from_str_legacy("")) {
-        Ok(topic) => Some(topic),
-        Err(error) => {
-            warn!(
-                message = "Could not generate topic for healthcheck.",
-                %error,
-            );
-            None
-        }
+    let client_config = config.to_rdkafka().unwrap();
+    let topic: Option<String> = match config.healthcheck_topic {
+        Some(topic) => Some(topic),
+        _ => match config.topic.render_string(&LogEvent::from_str_legacy("")) {
+            Ok(topic) => Some(topic),
+            Err(error) => {
+                warn!(
+                    message = "Could not generate topic for healthcheck.",
+                    %error,
+                );
+                None
+            }
+        },
     };
 
     tokio::task::spawn_blocking(move || {
-        let consumer: BaseConsumer = client.create().unwrap();
+        let producer: BaseProducer = client_config.create().unwrap();
         let topic = topic.as_ref().map(|topic| &topic[..]);
 
-        consumer
+        producer
+            .client()
             .fetch_metadata(topic, Duration::from_secs(3))
             .map(|_| ())
     })

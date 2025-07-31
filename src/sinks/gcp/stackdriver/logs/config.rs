@@ -9,13 +9,14 @@ use crate::{
         prelude::*,
         util::{
             http::{http_response_retry_logic, HttpService},
+            service::TowerRequestConfigDefaults,
             BoxedRawValue, RealtimeSizeBasedDefaultBatchSettings,
         },
     },
-    user_log_error,
 };
 use http::{Request, Uri};
 use hyper::Body;
+use mezmo::user_log_error;
 use snafu::Snafu;
 use std::collections::HashMap;
 use vector_lib::lookup::lookup_v2::ConfigValuePath;
@@ -30,6 +31,13 @@ use super::{
 enum HealthcheckError {
     #[snafu(display("Resource not found"))]
     NotFound,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct StackdriverTowerRequestConfigDefaults;
+
+impl TowerRequestConfigDefaults for StackdriverTowerRequestConfigDefaults {
+    const RATE_LIMIT_NUM: u64 = 1_000;
 }
 
 /// Configuration for the `gcp_stackdriver_logs` sink.
@@ -74,10 +82,7 @@ pub(super) struct StackdriverConfig {
     pub(super) auth: GcpAuthConfig,
 
     #[configurable(derived)]
-    #[serde(
-        default,
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
-    )]
+    #[serde(default, skip_serializing_if = "crate::serde::is_default")]
     pub(super) encoding: Transformer,
 
     #[configurable(derived)]
@@ -86,7 +91,7 @@ pub(super) struct StackdriverConfig {
 
     #[configurable(derived)]
     #[serde(default)]
-    pub(super) request: TowerRequestConfig,
+    pub(super) request: TowerRequestConfig<StackdriverTowerRequestConfigDefaults>,
 
     #[configurable(derived)]
     pub(super) tls: Option<TlsConfig>,
@@ -95,7 +100,7 @@ pub(super) struct StackdriverConfig {
     #[serde(
         default,
         deserialize_with = "crate::serde::bool_or_struct",
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
+        skip_serializing_if = "crate::serde::is_default"
     )]
     acknowledgements: AcknowledgementsConfig,
 }
@@ -215,11 +220,7 @@ impl SinkConfig for StackdriverConfig {
             .limit_max_bytes(MAX_BATCH_PAYLOAD_SIZE)?
             .into_batcher_settings()?;
 
-        let request_limits = self.request.unwrap_with(
-            &TowerRequestConfig::default()
-                .rate_limit_duration_secs(1)
-                .rate_limit_num(1000),
-        );
+        let request_limits = self.request.into_settings();
 
         let tls_settings = TlsSettings::from_options(&self.tls)?;
         let client = HttpClient::new(tls_settings, cx.proxy())?;

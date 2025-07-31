@@ -3,12 +3,13 @@ use std::{
     convert::{Infallible, TryFrom},
     fmt,
     net::SocketAddr,
+    time::Duration,
 };
 
-use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{FutureExt, TryFutureExt};
 use hyper::{service::make_service_fn, Server};
+use tokio::net::TcpStream;
 use tower::ServiceBuilder;
 use tracing::Span;
 use vector_lib::{
@@ -28,12 +29,12 @@ use warp::{
 
 use crate::{
     config::SourceContext,
-    http::build_http_trace_layer,
+    http::{build_http_trace_layer, KeepaliveConfig, MaxConnectionAgeLayer},
     internal_events::{
         HttpBadRequest, HttpBytesReceived, HttpEventsReceived, HttpInternalError, StreamClosedError,
     },
     sources::util::http::HttpMethod,
-    tls::{MaybeTlsSettings, TlsEnableableConfig},
+    tls::{MaybeTlsIncomingStream, MaybeTlsSettings, TlsEnableableConfig},
     SourceSender,
 };
 
@@ -43,7 +44,6 @@ use super::{
     error::ErrorMessage,
 };
 
-#[async_trait]
 pub trait HttpSource: Clone + Send + Sync + 'static {
     // This function can be defined to enrich events with additional HTTP
     // metadata. This function should be used rather than internal enrichment so
@@ -54,6 +54,7 @@ pub trait HttpSource: Clone + Send + Sync + 'static {
         _request_path: &str,
         _headers_config: &HeaderMap,
         _query_parameters: &HashMap<String, String>,
+        _source_ip: Option<&SocketAddr>,
     ) {
     }
 
@@ -64,6 +65,10 @@ pub trait HttpSource: Clone + Send + Sync + 'static {
         query_parameters: &HashMap<String, String>,
         path: &str,
     ) -> Result<Vec<Event>, ErrorMessage>;
+
+    fn decode(&self, encoding_header: Option<&str>, body: Bytes) -> Result<Bytes, ErrorMessage> {
+        decode(encoding_header, body)
+    }
 
     #[allow(clippy::too_many_arguments)]
     fn run(
@@ -77,12 +82,15 @@ pub trait HttpSource: Clone + Send + Sync + 'static {
         auth: &Option<HttpSourceAuthConfig>,
         cx: SourceContext,
         acknowledgements: SourceAcknowledgementsConfig,
+        keepalive_settings: KeepaliveConfig,
     ) -> crate::Result<crate::sources::Source> {
         let tls = MaybeTlsSettings::from_config(tls, true)?;
         let protocol = tls.http_protocol_name();
         let auth = HttpSourceAuth::try_from(auth.as_ref())?;
         let path = path.to_owned();
         let acknowledgements = cx.do_acknowledgements(acknowledgements);
+        let enable_source_ip = self.enable_source_ip();
+
         Ok(Box::pin(async move {
             let mut filter: BoxedFilter<()> = match method {
                 HttpMethod::Head => warp::head().boxed(),
@@ -91,6 +99,7 @@ pub trait HttpSource: Clone + Send + Sync + 'static {
                 HttpMethod::Post => warp::post().boxed(),
                 HttpMethod::Patch => warp::patch().boxed(),
                 HttpMethod::Delete => warp::delete().boxed(),
+                HttpMethod::Options => warp::options().boxed(),
             };
 
             // https://github.com/rust-lang/rust-clippy/issues/8148
@@ -120,26 +129,27 @@ pub trait HttpSource: Clone + Send + Sync + 'static {
                 .and(warp::header::headers_cloned())
                 .and(warp::body::bytes())
                 .and(warp::query::<HashMap<String, String>>())
+                .and(warp::filters::ext::optional())
                 .and_then(
                     move |path: FullPath,
                           auth_header,
-                          encoding_header,
+                          encoding_header: Option<String>,
                           headers: HeaderMap,
                           body: Bytes,
-                          query_parameters: HashMap<String, String>| {
+                          query_parameters: HashMap<String, String>,
+                          addr: Option<PeerAddr>| {
                         debug!(message = "Handling HTTP request.", headers = ?headers);
                         let http_path = path.as_str();
 
-                        emit!(HttpBytesReceived {
-                            byte_size: body.len(),
-                            http_path,
-                            protocol,
-                        });
-
                         let events = auth
                             .is_valid(&auth_header)
-                            .and_then(|()| decode(&encoding_header, body))
+                            .and_then(|()| self.decode(encoding_header.as_deref(), body))
                             .and_then(|body| {
+                                emit!(HttpBytesReceived {
+                                    byte_size: body.len(),
+                                    http_path,
+                                    protocol,
+                                });
                                 self.build_events(body, &headers, &query_parameters, path.as_str())
                             })
                             .map(|mut events| {
@@ -155,6 +165,7 @@ pub trait HttpSource: Clone + Send + Sync + 'static {
                                     path.as_str(),
                                     &headers,
                                     &query_parameters,
+                                    addr.map(|PeerAddr(inner_addr)| inner_addr).as_ref(),
                                 );
 
                                 events
@@ -179,9 +190,27 @@ pub trait HttpSource: Clone + Send + Sync + 'static {
             });
 
             let span = Span::current();
-            let make_svc = make_service_fn(move |_conn| {
+            let make_svc = make_service_fn(move |conn: &MaybeTlsIncomingStream<TcpStream>| {
+                let remote_addr = conn.peer_addr();
+                let remote_addr_ref = enable_source_ip.then_some(remote_addr);
                 let svc = ServiceBuilder::new()
                     .layer(build_http_trace_layer(span.clone()))
+                    .option_layer(keepalive_settings.max_connection_age_secs.map(|secs| {
+                        MaxConnectionAgeLayer::new(
+                            Duration::from_secs(secs),
+                            keepalive_settings.max_connection_age_jitter_factor,
+                            remote_addr,
+                        )
+                    }))
+                    .map_request(move |mut request: hyper::Request<_>| {
+                        if let Some(remote_addr_inner) = remote_addr_ref.as_ref() {
+                            request
+                                .extensions_mut()
+                                .insert(PeerAddr::new(*remote_addr_inner));
+                        }
+
+                        request
+                    })
                     .service(warp::service(routes.clone()));
                 futures_util::future::ok::<_, Infallible>(svc)
             });
@@ -202,6 +231,20 @@ pub trait HttpSource: Clone + Send + Sync + 'static {
 
             Ok(())
         }))
+    }
+
+    fn enable_source_ip(&self) -> bool {
+        false
+    }
+}
+
+#[derive(Clone)]
+#[repr(transparent)]
+struct PeerAddr(SocketAddr);
+
+impl PeerAddr {
+    const fn new(addr: SocketAddr) -> Self {
+        Self(addr)
     }
 }
 

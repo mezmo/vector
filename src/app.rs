@@ -1,26 +1,17 @@
 #![allow(missing_docs)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{num::NonZeroUsize, path::PathBuf, process::ExitStatus, time::Duration};
 
 use exitcode::ExitCode;
 use futures::StreamExt;
-#[cfg(feature = "enterprise")]
-use futures_util::future::BoxFuture;
-use once_cell::race::OnceNonZeroUsize;
 use std::time::Instant;
-use tokio::{
-    runtime::{self, Runtime},
-    sync::mpsc,
-};
+use tokio::runtime::{self, Runtime};
+use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use vector_lib::usage_metrics::{start_publishing_metrics, UsageMetrics};
 
-#[cfg(feature = "enterprise")]
-use crate::config::enterprise::{
-    attach_enterprise_components, report_configuration, EnterpriseError, EnterpriseMetadata,
-    EnterpriseReporter,
-};
-#[cfg(not(feature = "enterprise-tests"))]
-use crate::metrics;
+use crate::extra_context::ExtraContext;
 #[cfg(feature = "api")]
 use crate::{api, internal_events::ApiStarted};
 use crate::{
@@ -30,7 +21,7 @@ use crate::{
     internal_events::mezmo_config::{
         MezmoConfigCompile, MezmoConfigReload, MezmoConfigReloadSignalReceive,
     },
-    mezmo,
+    internal_events::{VectorQuit, VectorStarted, VectorStopped},
     signal::{SignalHandler, SignalPair, SignalRx, SignalTo},
     topology::{
         ReloadOutcome, RunningTopology, SharedTopologyController, ShutdownErrorReceiver,
@@ -45,11 +36,11 @@ use std::os::unix::process::ExitStatusExt;
 use std::os::windows::process::ExitStatusExt;
 use tokio::runtime::Handle;
 
-pub static WORKER_THREADS: OnceNonZeroUsize = OnceNonZeroUsize::new();
+static WORKER_THREADS: AtomicUsize = AtomicUsize::new(0);
 
-use crate::internal_events::{VectorQuit, VectorStarted, VectorStopped};
-
-use tokio::sync::broadcast::error::RecvError;
+pub fn worker_threads() -> Option<NonZeroUsize> {
+    NonZeroUsize::new(WORKER_THREADS.load(Ordering::Relaxed))
+}
 
 pub struct ApplicationConfig {
     pub config_paths: Vec<config::ConfigPath>,
@@ -58,9 +49,8 @@ pub struct ApplicationConfig {
     pub internal_topologies: Vec<RunningTopology>,
     #[cfg(feature = "api")]
     pub api: config::api::Options,
-    #[cfg(feature = "enterprise")]
-    pub enterprise: Option<EnterpriseReporter<BoxFuture<'static, ()>>>,
     pub metrics_tx: mpsc::UnboundedSender<UsageMetrics>,
+    pub extra_context: ExtraContext,
 }
 
 pub struct Application {
@@ -73,6 +63,7 @@ impl ApplicationConfig {
     pub async fn from_opts(
         opts: &RootOpts,
         signal_handler: &mut SignalHandler,
+        extra_context: ExtraContext,
     ) -> Result<Self, ExitCode> {
         let config_paths = opts.config_paths_with_formats();
 
@@ -89,21 +80,14 @@ impl ApplicationConfig {
         )
         .await?;
 
-        Self::from_config(config_paths, config).await
+        Self::from_config(config_paths, config, extra_context).await
     }
 
     pub async fn from_config(
         config_paths: Vec<ConfigPath>,
         config: Config,
+        extra_context: ExtraContext,
     ) -> Result<Self, ExitCode> {
-        // This is ugly, but needed to allow `config` to be mutable for building the enterprise
-        // features, but also avoid a "does not need to be mutable" warning when the enterprise
-        // feature is not enabled.
-        #[cfg(feature = "enterprise")]
-        let mut config = config;
-        #[cfg(feature = "enterprise")]
-        let enterprise = build_enterprise(&mut config, config_paths.clone())?;
-
         let (metrics_tx, metrics_rx) = mpsc::unbounded_channel::<UsageMetrics>();
         start_publishing_metrics(metrics_rx)
             .await
@@ -112,10 +96,13 @@ impl ApplicationConfig {
         #[cfg(feature = "api")]
         let api = config.api;
 
-        let (topology, graceful_crash_receiver) =
-            RunningTopology::start_init_validated(config, Some(metrics_tx.clone()))
-                .await
-                .ok_or(exitcode::CONFIG)?;
+        let (topology, graceful_crash_receiver) = RunningTopology::start_init_validated(
+            config,
+            Some(metrics_tx.clone()),
+            extra_context.clone(),
+        )
+        .await
+        .ok_or(exitcode::CONFIG)?;
 
         Ok(Self {
             config_paths,
@@ -124,14 +111,19 @@ impl ApplicationConfig {
             internal_topologies: Vec::new(),
             #[cfg(feature = "api")]
             api,
-            #[cfg(feature = "enterprise")]
-            enterprise,
             metrics_tx,
+            extra_context,
         })
     }
 
-    pub async fn add_internal_config(&mut self, config: Config) -> Result<(), ExitCode> {
-        let Some((topology, _)) = RunningTopology::start_init_validated(config, None).await else {
+    pub async fn add_internal_config(
+        &mut self,
+        config: Config,
+        extra_context: ExtraContext,
+    ) -> Result<(), ExitCode> {
+        let Some((topology, _)) =
+            RunningTopology::start_init_validated(config, None, extra_context).await
+        else {
             return Err(exitcode::CONFIG);
         };
         self.internal_topologies.push(topology);
@@ -151,7 +143,8 @@ impl ApplicationConfig {
                 Ok(api_server) => {
                     emit!(ApiStarted {
                         addr: self.api.address.unwrap(),
-                        playground: self.api.playground
+                        playground: self.api.playground,
+                        graphql: self.api.graphql
                     });
 
                     Some(api_server)
@@ -174,29 +167,35 @@ impl ApplicationConfig {
 }
 
 impl Application {
-    pub fn run() -> ExitStatus {
-        let (runtime, app) = Self::prepare_start().unwrap_or_else(|code| std::process::exit(code));
+    pub fn run(extra_context: ExtraContext) -> ExitStatus {
+        let (runtime, app) =
+            Self::prepare_start(extra_context).unwrap_or_else(|code| std::process::exit(code));
 
         runtime.block_on(app.run())
     }
 
-    pub fn prepare_start() -> Result<(Runtime, StartedApplication), ExitCode> {
-        Self::prepare()
+    pub fn prepare_start(
+        extra_context: ExtraContext,
+    ) -> Result<(Runtime, StartedApplication), ExitCode> {
+        Self::prepare(extra_context)
             .and_then(|(runtime, app)| app.start(runtime.handle()).map(|app| (runtime, app)))
     }
 
-    pub fn prepare() -> Result<(Runtime, Self), ExitCode> {
+    pub fn prepare(extra_context: ExtraContext) -> Result<(Runtime, Self), ExitCode> {
         let opts = Opts::get_matches().map_err(|error| {
             // Printing to stdout/err can itself fail; ignore it.
             _ = error.print();
             exitcode::USAGE
         })?;
 
-        Self::prepare_from_opts(opts)
+        Self::prepare_from_opts(opts, extra_context)
     }
 
-    pub fn prepare_from_opts(opts: Opts) -> Result<(Runtime, Self), ExitCode> {
-        init_global(!opts.root.openssl_no_probe);
+    pub fn prepare_from_opts(
+        opts: Opts,
+        extra_context: ExtraContext,
+    ) -> Result<(Runtime, Self), ExitCode> {
+        opts.root.init_global();
 
         let color = opts.root.color.use_color();
 
@@ -206,7 +205,7 @@ impl Application {
             opts.log_level(),
             opts.root.internal_log_rate_limit,
         );
-        mezmo::user_trace::init(opts.root.user_log_rate_limit);
+        ::mezmo::user_trace::init(opts.root.user_log_rate_limit);
 
         // Can only log this after initializing the logging subsystem
         if opts.root.openssl_no_probe {
@@ -225,6 +224,7 @@ impl Application {
         let config = runtime.block_on(ApplicationConfig::from_opts(
             &opts.root,
             &mut signals.handler,
+            extra_context,
         ))?;
 
         #[cfg(feature = "api-client")]
@@ -260,8 +260,7 @@ impl Application {
             topology: config.topology,
             config_paths: config.config_paths.clone(),
             require_healthy: root_opts.require_healthy,
-            #[cfg(feature = "enterprise")]
-            enterprise_reporter: config.enterprise,
+            extra_context: config.extra_context,
         });
 
         Ok(StartedApplication {
@@ -300,7 +299,7 @@ fn start_remote_task_execution(
                 }
 
                 runtime.spawn(async move {
-                    mezmo::remote_task_execution::start_polling_for_tasks(
+                    crate::mezmo::remote_task_execution::start_polling_for_tasks(
                         api_config,
                         auth_token,
                         get_endpoint_url,
@@ -399,99 +398,99 @@ async fn handle_signal(
             // We use build_no_validation() to speed up building
             // Configs were fully validated when generated and better errors
             // won't help us much at this point (as it will blow up anyway)
-            let new_config = config_builder
+            if let Ok(new_config) = config_builder
                 .build_no_validation()
                 .map_err(handle_config_errors)
-                .ok();
+            {
+                emit!(MezmoConfigCompile {
+                    elapsed: Instant::now() - start
+                });
 
-            emit!(MezmoConfigCompile {
-                elapsed: Instant::now() - start
-            });
+                let mut reload_outcome = None;
+                let reload_future =
+                    topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone()));
 
-            let mut reload_outcome = ReloadOutcome::NoConfig;
-            let reload_future =
-                topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone()));
+                tokio::pin!(reload_future);
 
-            tokio::pin!(reload_future);
-
-            // LOG-17772: Set a maximum amount of time to wait for configuration reloading before
-            // triggering corrective action. By default, this will wait for 150 seconds / 2.5 minutes.
-            let config_reload_max_sec = std::env::var("CONFIG_RELOAD_MAX_SEC").unwrap_or_else(|_| {
+                // LOG-17772: Set a maximum amount of time to wait for configuration reloading before
+                // triggering corrective action. By default, this will wait for 150 seconds / 2.5 minutes.
+                let config_reload_max_sec = std::env::var("CONFIG_RELOAD_MAX_SEC").unwrap_or_else(|_| {
                 warn!("couldn't read value for CONFIG_RELOAD_MAX_SEC env var, default will be used");
                 "150".to_owned()
             });
-            let config_reload_max_sec = config_reload_max_sec.parse::<usize>().unwrap_or_else(|_| {
+                let config_reload_max_sec = config_reload_max_sec.parse::<usize>().unwrap_or_else(|_| {
                 warn!("failed to parse CONFIG_RELOAD_MAX_SEC value {config_reload_max_sec}, default will be used");
                 150
             });
-            let mut reload_future_done = false;
-            for i in 1..=config_reload_max_sec {
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(1)) => {
-                        info!("Waiting for topology to be reloaded after {i} secs")
-                    },
-                    outcome = &mut reload_future => {
-                        reload_outcome = outcome;
-                        reload_future_done = true;
-                        break;
+                let mut reload_future_done = false;
+                for i in 1..=config_reload_max_sec {
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                            info!("Waiting for topology to be reloaded after {i} secs")
+                        },
+                        outcome = &mut reload_future => {
+                            reload_outcome = Some(outcome);
+                            reload_future_done = true;
+                            break;
+                        }
                     }
                 }
-            }
 
-            let elapsed = Instant::now() - start;
+                let elapsed = Instant::now() - start;
 
-            // LOG-17772: If the config reload future doesn't resolve in the allotted
-            // time, then crash the vector process and allow k8s to respawn the process
-            // in order to get config reloading to work again. Note that panic! doesn't
-            // work to terminate the process since the higher level code traps the panic
-            // and prevents termination.
-            if !reload_future_done {
-                emit!(MezmoConfigReload {
-                    elapsed,
-                    success: false
-                });
-                error!("New topology reload future failed to resolved within the limit.");
-                std::process::abort();
-            }
+                // LOG-17772: If the config reload future doesn't resolve in the allotted
+                // time, then crash the vector process and allow k8s to respawn the process
+                // in order to get config reloading to work again. Note that panic! doesn't
+                // work to terminate the process since the higher level code traps the panic
+                // and prevents termination.
+                if !reload_future_done {
+                    emit!(MezmoConfigReload {
+                        elapsed,
+                        success: false
+                    });
+                    error!("New topology reload future failed to resolved within the limit.");
+                    std::process::abort();
+                }
 
-            match reload_outcome {
-                ReloadOutcome::NoConfig => {
-                    emit!(MezmoConfigReload {
-                        elapsed,
-                        success: false
-                    });
-                    warn!("Config reload resulted in no config");
+                match reload_outcome {
+                    Some(ReloadOutcome::MissingApiKey) => {
+                        emit!(MezmoConfigReload {
+                            elapsed,
+                            success: false
+                        });
+                        warn!("Config reload missing API key");
+                    }
+                    Some(ReloadOutcome::Success) => {
+                        emit!(MezmoConfigReload {
+                            elapsed,
+                            success: true
+                        });
+                        info!("Config reload succeeded, took {:?}", elapsed);
+                    }
+                    Some(ReloadOutcome::RolledBack) => {
+                        emit!(MezmoConfigReload {
+                            elapsed,
+                            success: false
+                        });
+                        warn!("Config reload rolled back");
+                    }
+                    Some(ReloadOutcome::FatalError(error)) => {
+                        emit!(MezmoConfigReload {
+                            elapsed,
+                            success: false
+                        });
+                        error!("Config reload fatal error");
+                        return Some(SignalTo::Shutdown(Some(error)));
+                    }
+                    None => {
+                        emit!(MezmoConfigReload {
+                            elapsed,
+                            success: false
+                        });
+                        warn!("Config reload resulted in no config");
+                    }
                 }
-                ReloadOutcome::MissingApiKey => {
-                    emit!(MezmoConfigReload {
-                        elapsed,
-                        success: false
-                    });
-                    warn!("Config reload missing API key");
-                }
-                ReloadOutcome::Success => {
-                    emit!(MezmoConfigReload {
-                        elapsed,
-                        success: true
-                    });
-                    info!("Config reload succeeded, took {:?}", elapsed);
-                }
-                ReloadOutcome::RolledBack => {
-                    emit!(MezmoConfigReload {
-                        elapsed,
-                        success: false
-                    });
-                    warn!("Config reload rolled back");
-                }
-                ReloadOutcome::FatalError(error) => {
-                    emit!(MezmoConfigReload {
-                        elapsed,
-                        success: false
-                    });
-                    error!("Config reload fatal error");
-                    return Some(SignalTo::Shutdown(Some(error)));
-                }
-            }
+            };
             None
         }
         Ok(SignalTo::ReloadFromDisk) => {
@@ -503,18 +502,21 @@ async fn handle_signal(
             }
 
             // Reload config
-            let new_config = config::load_from_paths_with_provider_and_secrets(
+            if let Ok(new_config) = config::load_from_paths_with_provider_and_secrets(
                 &topology_controller.config_paths,
                 signal_handler,
                 allow_empty_config,
             )
             .await
             .map_err(handle_config_errors)
-            .ok();
+            {
+                if let ReloadOutcome::FatalError(error) =
+                    topology_controller.reload(new_config).await
+                {
+                    return Some(SignalTo::Shutdown(Some(error)));
+                }
+            };
 
-            if let ReloadOutcome::FatalError(error) = topology_controller.reload(new_config).await {
-                return Some(SignalTo::Shutdown(Some(error)));
-            }
             None
         }
         Err(RecvError::Lagged(amt)) => {
@@ -591,15 +593,6 @@ impl FinishedApplication {
     }
 }
 
-pub fn init_global(openssl_probe: bool) {
-    if openssl_probe {
-        openssl_probe::init_ssl_cert_env_vars();
-    }
-
-    #[cfg(not(feature = "enterprise-tests"))]
-    metrics::init_global().expect("metrics initialization failed");
-}
-
 fn get_log_levels(default: &str) -> String {
     std::env::var("VECTOR_LOG")
         .or_else(|_| {
@@ -611,21 +604,7 @@ fn get_log_levels(default: &str) -> String {
                 log
             })
         })
-        .unwrap_or_else(|_| match default {
-            "off" => "off".to_owned(),
-            level => [
-                format!("vector={}", level),
-                format!("codec={}", level),
-                format!("vrl={}", level),
-                format!("file_source={}", level),
-                format!("tower_limit={}", level),
-                format!("rdkafka={}", level),
-                format!("buffers={}", level),
-                format!("lapin={}", level),
-                format!("kube={}", level),
-            ]
-            .join(","),
-        })
+        .unwrap_or_else(|_| default.into())
 }
 
 pub fn build_runtime(threads: Option<usize>, thread_name: &str) -> Result<Runtime, ExitCode> {
@@ -634,16 +613,16 @@ pub fn build_runtime(threads: Option<usize>, thread_name: &str) -> Result<Runtim
     rt_builder.enable_all().thread_name(thread_name);
 
     let threads = threads.unwrap_or_else(crate::num_threads);
-    let threads = NonZeroUsize::new(threads).ok_or_else(|| {
+    if threads == 0 {
         error!("The `threads` argument must be greater or equal to 1.");
-        exitcode::CONFIG
-    })?;
+        return Err(exitcode::CONFIG);
+    }
     WORKER_THREADS
-        .set(threads)
-        .expect("double thread initialization");
-    rt_builder.worker_threads(threads.get());
+        .compare_exchange(0, threads, Ordering::Acquire, Ordering::Relaxed)
+        .unwrap_or_else(|_| panic!("double thread initialization"));
+    rt_builder.worker_threads(threads);
 
-    debug!(messaged = "Building runtime.", worker_threads = threads);
+    info!(messaged = "Building runtime.", worker_threads = threads);
     Ok(rt_builder.build().expect("Unable to create async runtime"))
 }
 
@@ -659,22 +638,21 @@ pub async fn load_configs(
 
     if watch_config {
         // Start listening for config changes immediately.
-        config::watcher::spawn_thread(config_paths.iter().map(Into::into), None).map_err(
-            |error| {
-                error!(message = "Unable to start config watcher.", %error);
-                exitcode::CONFIG
-            },
-        )?;
+        config::watcher::spawn_thread(
+            signal_handler.clone_tx(),
+            config_paths.iter().map(Into::into),
+            None,
+        )
+        .map_err(|error| {
+            error!(message = "Unable to start config watcher.", %error);
+            exitcode::CONFIG
+        })?;
     }
 
     info!(
         message = "Loading configs.",
         paths = ?config_paths.iter().map(<&PathBuf>::from).collect::<Vec<_>>()
     );
-
-    // config::init_log_schema should be called before initializing sources.
-    #[cfg(not(feature = "enterprise-tests"))]
-    config::init_log_schema(&config_paths, true).map_err(handle_config_errors)?;
 
     let mut config = config::load_from_paths_with_provider_and_secrets(
         &config_paths,
@@ -684,6 +662,7 @@ pub async fn load_configs(
     .await
     .map_err(handle_config_errors)?;
 
+    config::init_log_schema(config.global.log_schema.clone(), true);
     config::init_telemetry(config.global.telemetry.clone(), true);
 
     if !config.healthchecks.enabled {
@@ -693,41 +672,6 @@ pub async fn load_configs(
     config.graceful_shutdown_duration = graceful_shutdown_duration;
 
     Ok(config)
-}
-
-#[cfg(feature = "enterprise")]
-// Enable enterprise features, if applicable.
-fn build_enterprise(
-    config: &mut Config,
-    config_paths: Vec<ConfigPath>,
-) -> Result<Option<EnterpriseReporter<BoxFuture<'static, ()>>>, ExitCode> {
-    use crate::ENTERPRISE_ENABLED;
-
-    ENTERPRISE_ENABLED
-        .set(
-            config
-                .enterprise
-                .as_ref()
-                .map(|e| e.enabled)
-                .unwrap_or_default(),
-        )
-        .expect("double initialization of enterprise enabled flag");
-
-    match EnterpriseMetadata::try_from(&*config) {
-        Ok(metadata) => {
-            let enterprise = EnterpriseReporter::new();
-
-            attach_enterprise_components(config, &metadata);
-            enterprise.send(report_configuration(config_paths, metadata));
-
-            Ok(Some(enterprise))
-        }
-        Err(EnterpriseError::MissingApiKey) => {
-            error!("Enterprise configuration incomplete: missing API key.");
-            Err(exitcode::CONFIG)
-        }
-        Err(_) => Ok(None),
-    }
 }
 
 pub fn init_logging(color: bool, format: LogFormat, log_level: &str, rate: u64) {
