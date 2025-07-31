@@ -207,7 +207,8 @@ impl DatadogMetricsConfig {
     /// The `endpoint` configuration field will be used here if it is present.
     fn get_base_agent_endpoint(&self, dd_common: &DatadogCommonConfig) -> String {
         dd_common.endpoint.clone().unwrap_or_else(|| {
-            let version = str::replace(crate::built_info::PKG_VERSION, ".", "-");
+            let version = str::replace(crate::built_info::PKG_VERSION, ['.', '+'], "-");
+
             format!(
                 "https://{}-vector.agent.{}",
                 version,
