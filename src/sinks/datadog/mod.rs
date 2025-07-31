@@ -146,7 +146,7 @@ impl DatadogCommonConfig {
         client: HttpClient,
         cx: SinkContext,
     ) -> crate::Result<Healthcheck> {
-        let validate_endpoint = self.get_api_endpoint(self.site.as_str())?;
+        let validate_endpoint = self.get_api_endpoint("/api/v1/validate")?;
 
         let api_key: String = self.default_api_key.clone().into();
 

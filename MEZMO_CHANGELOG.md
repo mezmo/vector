@@ -1,3 +1,15 @@
+## [8.23.4](https://github.com/answerbook/vector/compare/v8.23.3...v8.23.4) (2025-07-31)
+
+
+### Bug Fixes
+
+* **datadog**: use correct path when building uri for healthcheck [c75f103](https://github.com/answerbook/vector/commit/c75f103cb7887e9a4a3c2631a1bbd09110f6fdc4) - Mike Del Tito [LOG-22141](https://logdna.atlassian.net/browse/LOG-22141)
+
+
+### Miscellaneous
+
+* Merge pull request #691 from answerbook/mdeltito/LOG-22141 [491722a](https://github.com/answerbook/vector/commit/491722a29f0025af8c013c4b74c23754016ccd16) - GitHub [LOG-22141](https://logdna.atlassian.net/browse/LOG-22141)
+
 ## [8.23.3](https://github.com/answerbook/vector/compare/v8.23.2...v8.23.3) (2025-07-29)
 
 
