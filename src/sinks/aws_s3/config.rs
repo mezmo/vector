@@ -237,7 +237,7 @@ impl S3SinkConfig {
             .map(|ssekms_key_id| Template::try_from(ssekms_key_id.as_str()))
             .transpose()?;
 
-        let partitioner = S3KeyPartitioner::new(key_prefix, ssekms_key_id);
+        let partitioner = S3KeyPartitioner::new(key_prefix, ssekms_key_id, None);
 
         let (framer, serializer) = self.encoding.build(SinkType::MessageBased)?;
         // Mezmo-only: Since the message reshaper is contained within the Transformer which is a tuple within

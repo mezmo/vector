@@ -83,6 +83,7 @@ pipeline {
             allOf {
                 expression { !(env.TOP_COMMIT ==~ /^Merge remote-tracking branch.*$/) }
                 expression { !(env.TOP_COMMIT ==~ /^Merge upstream.*$/) }
+                expression { !(env.TOP_COMMIT ==~ /^.*\[skip lint\].*$/) }
             }
           }
           tools {

@@ -388,11 +388,10 @@ impl IngestorProcess {
         self.backoff.reset();
 
         let messages = messages
-            .map(|messages| {
+            .inspect(|messages| {
                 emit!(SqsMessageReceiveSucceeded {
                     count: messages.len(),
                 });
-                messages
             })
             .unwrap();
 
@@ -596,9 +595,8 @@ impl IngestorProcess {
         let lines: Box<dyn Stream<Item = Bytes> + Send + Unpin> = Box::new(
             FramedRead::new(object_reader, self.state.decoder.framer.clone())
                 .map(|res| {
-                    res.map(|bytes| {
+                    res.inspect(|bytes| {
                         bytes_received.emit(ByteSize(bytes.len()));
-                        bytes
                     })
                     .map_err(|err| {
                         read_error = Some(err);
