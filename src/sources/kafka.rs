@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     io::Cursor,
     pin::Pin,
     sync::{
@@ -14,6 +14,7 @@ use bytes::Bytes;
 use chrono::{DateTime, TimeZone, Utc};
 use futures::{Stream, StreamExt};
 use futures_util::future::OptionFuture;
+use itertools::Itertools;
 use rdkafka::{
     consumer::{
         stream_consumer::StreamPartitionQueue, CommitMode, Consumer, ConsumerContext, Rebalance,
@@ -49,7 +50,7 @@ use vector_lib::{
     config::{LegacyKey, LogNamespace},
     EstimatedJsonEncodedSizeOf,
 };
-use vrl::value::{kind::Collection, Kind};
+use vrl::value::{kind::Collection, Kind, ObjectMap};
 
 use crate::{
     codecs::{Decoder, DecodingConfig},
@@ -357,12 +358,9 @@ impl SourceConfig for KafkaSourceConfig {
             );
         }
 
-        let (consumer, callback_rx) = create_consumer(self, acknowledgements)?;
-
         Ok(Box::pin(kafka_source(
             self.clone(),
-            consumer,
-            callback_rx,
+            acknowledgements,
             decoder,
             cx.out,
             cx.shutdown,
@@ -422,7 +420,7 @@ impl SourceConfig for KafkaSourceConfig {
                 None,
             );
 
-        vec![SourceOutput::new_logs(
+        vec![SourceOutput::new_maybe_logs(
             self.decoding.output_type(),
             schema_definition,
         )]
@@ -436,57 +434,80 @@ impl SourceConfig for KafkaSourceConfig {
 #[allow(clippy::too_many_arguments)]
 async fn kafka_source(
     config: KafkaSourceConfig,
-    consumer: StreamConsumer<KafkaSourceContext>,
-    callback_rx: UnboundedReceiver<KafkaCallback>,
+    acknowledgements: bool,
     decoder: Decoder,
     out: SourceSender,
     shutdown: ShutdownSignal,
     eof: bool,
     log_namespace: LogNamespace,
 ) -> Result<(), ()> {
-    let span = info_span!("kafka_source");
-    let consumer = Arc::new(consumer);
+    loop {
+        let span = info_span!("kafka_source");
+        let config = config.clone();
+        let decoder = decoder.clone();
+        let out = out.clone();
+        let shutdown = shutdown.clone();
+        let (consumer, callback_rx) = create_consumer(&config, acknowledgements).map_err(|e| {
+            error!("Failed to create consumer {}", e);
+        })?;
 
-    consumer
-        .context()
-        .consumer
-        .set(Arc::downgrade(&consumer))
-        .expect("Error setting up consumer context.");
+        let consumer = Arc::new(consumer);
 
-    // EOF signal allowing the coordination task to tell the kafka client task when all partitions have reached EOF
-    let (eof_tx, eof_rx) = eof.then(oneshot::channel::<()>).unzip();
+        consumer
+            .context()
+            .consumer
+            .set(Arc::downgrade(&consumer))
+            .expect("Error setting up consumer context.");
 
-    let coordination_task = {
-        let span = span.clone();
-        let consumer = Arc::clone(&consumer);
-        let drain_timeout_ms = config
-            .drain_timeout_ms
-            .map_or(config.session_timeout_ms / 2, Duration::from_millis);
-        let consumer_state =
-            ConsumerStateInner::<Consuming>::new(config, decoder, out, log_namespace, span);
-        tokio::spawn(async move {
-            coordinate_kafka_callbacks(
-                consumer,
-                callback_rx,
-                consumer_state,
-                drain_timeout_ms,
-                eof_tx,
-            )
-            .await;
-        })
-    };
+        // EOF signal allowing the coordination task to tell the kafka client task when all partitions have reached EOF
+        let (eof_tx, eof_rx) = eof.then(oneshot::channel::<()>).unzip();
 
-    let client_task = {
-        let consumer = Arc::clone(&consumer);
-        tokio::task::spawn_blocking(move || {
-            let _enter = span.enter();
-            drive_kafka_consumer(consumer, shutdown, eof_rx);
-        })
-    };
+        let topics: Vec<&str> = config.topics.iter().map(|s| s.as_str()).collect();
+        if let Err(e) = consumer.subscribe(&topics).context(SubscribeSnafu) {
+            error!("{}", e);
+            return Err(());
+        }
 
-    _ = tokio::join!(client_task, coordination_task);
-    consumer.context().commit_consumer_state();
+        let coordination_task = {
+            let span = span.clone();
+            let consumer = Arc::clone(&consumer);
+            let drain_timeout_ms = config
+                .drain_timeout_ms
+                .map_or(config.session_timeout_ms / 2, Duration::from_millis);
+            let consumer_state =
+                ConsumerStateInner::<Consuming>::new(config, decoder, out, log_namespace, span);
+            tokio::spawn(async move {
+                coordinate_kafka_callbacks(
+                    consumer,
+                    callback_rx,
+                    consumer_state,
+                    drain_timeout_ms,
+                    eof_tx,
+                )
+                .await;
+            })
+        };
 
+        let client_task = {
+            let consumer = Arc::clone(&consumer);
+            tokio::task::spawn_blocking(move || {
+                let _enter = span.enter();
+                drive_kafka_consumer(consumer, shutdown, eof_rx)
+            })
+        };
+
+        let (client_result, _) = tokio::join!(client_task, coordination_task);
+
+        match client_result {
+            Ok(true) => {
+                info!("Received fatal error in client task. Creating new consumer.");
+            }
+            _ => {
+                consumer.context().commit_consumer_state();
+                break;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -584,9 +605,10 @@ impl ConsumerStateInner<Consuming> {
         }
     }
 
-    /// Spawn a task on the provided JoinSet to consume the kafka StreamPartitionQueue, and handle acknowledgements for the messages consumed
-    /// Returns a channel sender that can be used to signal that the consumer should stop and drain pending acknowledgements,
-    /// and an AbortHandle that can be used to forcefully end the task.
+    /// Spawn a task on the provided JoinSet to consume the kafka StreamPartitionQueue, and handle
+    /// acknowledgements for the messages consumed Returns a channel sender that can be used to
+    /// signal that the consumer should stop and drain pending acknowledgements, and an AbortHandle
+    /// that can be used to forcefully end the task.
     fn consume_partition(
         &self,
         join_set: &mut JoinSet<(TopicPartition, PartitionConsumerStatus)>,
@@ -616,10 +638,33 @@ impl ConsumerStateInner<Consuming> {
 
             loop {
                 tokio::select!(
+                    // Make sure to handle the acknowledgement stream before new messages to prevent
+                    // unbounded memory growth caused by those acks being handled slower than
+                    // incoming messages when the load is high.
+                    biased;
+
                     // is_some() checks prevent polling end_signal after it completes
                     _ = &mut end_signal, if finalizer.is_some() => {
                         finalizer.take();
                     },
+
+                    ack = ack_stream.next() => match ack {
+                        Some((status, entry)) => {
+                            if status == BatchStatus::Delivered {
+                                if let Err(error) =  consumer.store_offset(&entry.topic, entry.partition, entry.offset) {
+                                    emit!(KafkaOffsetUpdateError { error });
+                                }
+                            }
+                        }
+                        None if finalizer.is_none() => {
+                            debug!("Acknowledgement stream complete for partition {}:{}.", &tp.0, tp.1);
+                            break
+                        }
+                        None => {
+                            debug!("Acknowledgement stream empty for {}:{}", &tp.0, tp.1);
+                        }
+                    },
+
                     message = messages.next(), if finalizer.is_some() => match message {
                         None => unreachable!("MessageStream never calls Ready(None)"),
                         Some(Err(error)) => match error {
@@ -640,23 +685,6 @@ impl ConsumerStateInner<Consuming> {
                             parse_message(msg, decoder.clone(), &keys, &mut out, acknowledgements, &finalizer, log_namespace).await;
                         }
                     },
-
-                    ack = ack_stream.next() => match ack {
-                        Some((status, entry)) => {
-                            if status == BatchStatus::Delivered {
-                                if let Err(error) =  consumer.store_offset(&entry.topic, entry.partition, entry.offset) {
-                                    emit!(KafkaOffsetUpdateError { error });
-                                }
-                            }
-                        }
-                        None if finalizer.is_none() => {
-                            debug!("Acknowledgement stream complete for partition {}:{}.", &tp.0, tp.1);
-                            break
-                        }
-                        None => {
-                            debug!("Acknowledgement stream empty for {}:{}", &tp.0, tp.1);
-                        }
-                    }
                 )
             }
             (tp, status)
@@ -777,7 +805,10 @@ async fn coordinate_kafka_callbacks(
                 abort_handles.remove(&finished_partition);
 
                 (drain_deadline, consumer_state) = match consumer_state {
-                    ConsumerState::Complete => unreachable!("Partition consumer finished after completion."),
+                    ConsumerState::Complete => {
+                        debug!("coordinate_kafka_callbacks: partition consumer finished after completion.");
+                        unreachable!("Partition consumer finished after completion.")
+                    },
                     ConsumerState::Draining(mut state) => {
                         state.partition_drained(finished_partition);
 
@@ -810,7 +841,11 @@ async fn coordinate_kafka_callbacks(
             },
             Some(callback) = callbacks.recv() => match callback {
                 KafkaCallback::PartitionsAssigned(mut assigned_partitions, done) => match consumer_state {
-                    ConsumerState::Complete => unreachable!("Partition assignment received after completion."),
+                    ConsumerState::Complete => {
+                        let assigned_partitions = assigned_partitions.iter().map(|(topic, partition)| format!("{topic}:{partition}")).join(",");
+                        debug!("coordinate_kafka_callbacks: [{assigned_partitions}] partition assigned after completion.");
+                        unreachable!("Partition assignment received after completion.")
+                    },
                     ConsumerState::Draining(_) => error!("Partition assignment received while draining revoked partitions, maybe an invalid assignment."),
                     ConsumerState::Consuming(ref consumer_state) => {
                         let acks = consumer.context().acknowledgements;
@@ -831,7 +866,11 @@ async fn coordinate_kafka_callbacks(
                     }
                 },
                 KafkaCallback::PartitionsRevoked(mut revoked_partitions, drain) => (drain_deadline, consumer_state) = match consumer_state {
-                    ConsumerState::Complete => unreachable!("Partitions revoked after completion."),
+                    ConsumerState::Complete => {
+                        let revoked_partitions = revoked_partitions.iter().map(|(topic, partition)| format!("{topic}:{partition}")).join(",");
+                        debug!("coordinate_kafka_callbacks: [{revoked_partitions}] partitions revoked after completion");
+                        unreachable!("Partitions revoked after completion.")
+                    },
                     ConsumerState::Draining(d) => {
                         // NB: This would only happen if the task driving the kafka client (i.e. rebalance handlers)
                         // is not handling shutdown signals, and a revoke happens during a shutdown drain; otherwise
@@ -855,7 +894,10 @@ async fn coordinate_kafka_callbacks(
                     }
                 },
                 KafkaCallback::ShuttingDown(drain) => (drain_deadline, consumer_state) = match consumer_state {
-                    ConsumerState::Complete => unreachable!("Shutdown received after completion."),
+                    ConsumerState::Complete => {
+                        debug!("coordinate_kafka_callbacks: unexpected shutdown after completion.");
+                        unreachable!("Shutdown received after completion.")
+                    },
                     // Shutting down is just like a full assignment revoke, but we also close the
                     // callback channels, since we don't expect additional assignments or rebalances
                     ConsumerState::Draining(state) => {
@@ -868,25 +910,36 @@ async fn coordinate_kafka_callbacks(
                     ConsumerState::Consuming(state) => {
                         callbacks.close();
                         let (deadline, mut state) = state.begin_drain(max_drain_ms, drain, true);
-                        if let Ok(tpl) = consumer.assignment() {
-                            tpl.elements()
-                                .iter()
-                                .for_each(|el| {
-
-                                let tp: TopicPartition = (el.topic().into(), el.partition());
-                                if let Some(end) = end_signals.remove(&tp) {
-                                    debug!("Shutting down and revoking partition {}:{}", &tp.0, tp.1);
-                                    state.revoke_partition(tp, end);
-                                } else {
-                                    debug!("Consumer task for partition {}:{} already finished.", &tp.0, tp.1);
+                        match consumer.assignment() {
+                            Ok(tpl) => {
+                                // TODO  workaround for https://github.com/fede1024/rust-rdkafka/issues/681
+                                if tpl.capacity() == 0 {
+                                    return;
                                 }
-                            });
+                                tpl.elements()
+                                    .iter()
+                                    .for_each(|el| {
+
+                                    let tp: TopicPartition = (el.topic().into(), el.partition());
+                                    if let Some(end) = end_signals.remove(&tp) {
+                                        debug!("Shutting down and revoking partition {}:{}", &tp.0, tp.1);
+                                        state.revoke_partition(tp, end);
+                                    } else {
+                                        debug!("Consumer task for partition {}:{} already finished.", &tp.0, tp.1);
+                                    }
+                                });
+                            },
+                            Err(error) => {
+                                debug!("coordinate_kafka_callbacks: in consuming state with no assignment={error:?}");
+                            }
                         }
                         // If shutdown was initiated by partition EOF mode, the drain phase
                         // will already be complete and would time out if not accounted for here
                         if state.is_drain_complete() {
+                            debug!("coordinate_kafka_callbacks: drain complete, finishing");
                             state.finish_drain(deadline)
                         } else {
+                            debug!("coordinate_kafka_callbacks: drain not complete, continuing");
                             state.keep_draining(deadline)
                         }
                     }
@@ -894,7 +947,10 @@ async fn coordinate_kafka_callbacks(
             },
 
             Some(_) = &mut drain_deadline => (drain_deadline, consumer_state) = match consumer_state {
-                ConsumerState::Complete => unreachable!("Drain deadline received after completion."),
+                ConsumerState::Complete => {
+                    debug!("coordinate_kafka_callbacks: unexpected drain deadline after completion");
+                    unreachable!("Drain deadline received after completion.")
+                },
                 ConsumerState::Consuming(state) => {
                     warn!("A drain deadline fired outside of draining mode.");
                     state.keep_consuming(None.into())
@@ -906,7 +962,7 @@ async fn coordinate_kafka_callbacks(
                             handle.abort();
                         }
                     }
-                    draining.finish_drain(drain_deadline)
+                    draining.finish_drain(drain_deadline) // why does it go back to Consuming?
                 }
             },
         }
@@ -917,18 +973,21 @@ fn drive_kafka_consumer(
     consumer: Arc<StreamConsumer<KafkaSourceContext>>,
     mut shutdown: ShutdownSignal,
     eof: Option<oneshot::Receiver<()>>,
-) {
+) -> bool // returns true on fatal error where client should be restarted
+{
     Handle::current().block_on(async move {
         let mut eof: OptionFuture<_> = eof.into();
         let mut stream = consumer.stream();
         loop {
             tokio::select! {
                 _ = &mut shutdown => {
+                    debug!("drive_kafka_consumer: shutdown signal resolved");
                     consumer.context().shutdown();
                     break
                 },
 
                 Some(_) = &mut eof => {
+                    debug!("drive_kafka_consumer: eof signal resolved");
                     consumer.context().shutdown();
                     break
                 },
@@ -936,15 +995,29 @@ fn drive_kafka_consumer(
                 // NB: messages are not received on this thread, however we poll
                 // the consumer to serve client callbacks, such as rebalance notifications
                 message = stream.next() => match message {
-                    None => unreachable!("MessageStream never returns Ready(None)"),
-                    Some(Err(error)) => emit!(KafkaReadError { error }),
+                    None => {
+                        debug!("drive_kafka_consumer: message stream resolved to None; this is unexpected");
+                        consumer.context().shutdown();
+                        unreachable!("MessageStream never returns Ready(None)")
+                    },
+                    Some(Err(error)) => {
+                        debug!("drive_kafka_consumer: message stream resolved to error={error:?}");
+                        emit!(KafkaReadError { error: error.clone() });
+                        if matches!(error.rdkafka_error_code(), Some(rdkafka::error::RDKafkaErrorCode::Fatal)) {
+                            consumer.context().shutdown();
+                            return true;
+                        }
+                    },
                     Some(Ok(_msg)) => {
+                        consumer.context().shutdown();
+                        debug!("drive_kafka_consumer: [{}:{}] unexpected message on driver thread", _msg.topic(), _msg.partition());
                         unreachable!("Messages are consumed in dedicated tasks for each partition.")
                     }
                 },
             }
         }
-    });
+        false
+    })
 }
 
 async fn parse_message(
@@ -994,10 +1067,11 @@ fn parse_stream<'a>(
     let payload = msg.payload()?; // skip messages with empty payload
 
     let rmsg = ReceivedMessage::from(msg);
+    let partition_id = format!("{}:{}", rmsg.topic, rmsg.partition);
 
     let payload = Cursor::new(Bytes::copy_from_slice(payload));
 
-    let mut stream = FramedRead::new(payload, decoder);
+    let mut stream = FramedRead::with_capacity(payload, decoder, msg.payload_len());
     let (count, _) = stream.size_hint();
     let stream = stream! {
         while let Some(result) = stream.next().await {
@@ -1018,8 +1092,10 @@ fn parse_stream<'a>(
                     // Error is logged by `codecs::Decoder`, no further handling
                     // is needed here.
                     if !error.can_continue() {
+                        debug!("parse_stream: [{partition_id}] halting due to parse error={error}");
                         break;
                     }
+                    debug!("parse_stream: [{partition_id}] failed to parse event={error}");
                 }
             }
         }
@@ -1054,7 +1130,7 @@ impl Keys {
 struct ReceivedMessage {
     timestamp: Option<DateTime<Utc>>,
     key: Value,
-    headers: BTreeMap<String, Value>,
+    headers: ObjectMap,
     topic: String,
     partition: i32,
     offset: i64,
@@ -1073,12 +1149,12 @@ impl ReceivedMessage {
             .map(|key| Value::from(Bytes::from(key.to_owned())))
             .unwrap_or(Value::Null);
 
-        let mut headers_map = BTreeMap::new();
+        let mut headers_map = ObjectMap::new();
         if let Some(headers) = msg.headers() {
             for header in headers.iter() {
                 if let Some(value) = header.value {
                     headers_map.insert(
-                        header.key.to_string(),
+                        header.key.into(),
                         Value::from(Bytes::from(value.to_owned())),
                     );
                 }
@@ -1198,21 +1274,21 @@ fn create_consumer(
         .set("auto.offset.reset", &config.auto_offset_reset)
         .set(
             "session.timeout.ms",
-            &config.session_timeout_ms.as_millis().to_string(),
+            config.session_timeout_ms.as_millis().to_string(),
         )
         .set(
             "socket.timeout.ms",
-            &config.socket_timeout_ms.as_millis().to_string(),
+            config.socket_timeout_ms.as_millis().to_string(),
         )
         .set(
             "fetch.wait.max.ms",
-            &config.fetch_wait_max_ms.as_millis().to_string(),
+            config.fetch_wait_max_ms.as_millis().to_string(),
         )
         .set("enable.partition.eof", "false")
         .set("enable.auto.commit", "true")
         .set(
             "auto.commit.interval.ms",
-            &config.commit_interval_ms.as_millis().to_string(),
+            config.commit_interval_ms.as_millis().to_string(),
         )
         .set("enable.auto.offset.store", "false")
         .set("statistics.interval.ms", "1000")
@@ -1253,10 +1329,9 @@ fn create_consumer(
             config.metrics.topic_lag_metric,
             acknowledgements,
             callbacks,
+            Span::current(),
         ))
         .context(CreateSnafu)?;
-    let topics: Vec<&str> = config.topics.iter().map(|s| s.as_str()).collect();
-    consumer.subscribe(&topics).context(SubscribeSnafu)?;
 
     Ok((consumer, callback_rx))
 }
@@ -1294,9 +1369,13 @@ impl KafkaSourceContext {
         expose_lag_metrics: bool,
         acknowledgements: bool,
         callbacks: UnboundedSender<KafkaCallback>,
+        span: Span,
     ) -> Self {
         Self {
-            stats: kafka::KafkaStatisticsContext { expose_lag_metrics },
+            stats: kafka::KafkaStatisticsContext {
+                expose_lag_metrics,
+                span,
+            },
             acknowledgements,
             consumer: OnceLock::default(),
             callbacks,
@@ -1304,15 +1383,20 @@ impl KafkaSourceContext {
     }
 
     fn shutdown(&self) {
+        debug!("shutdown: starting consumer shutdown");
         let (send, rendezvous) = sync_channel(0);
-        if self
-            .callbacks
-            .send(KafkaCallback::ShuttingDown(send))
-            .is_ok()
-        {
-            while rendezvous.recv().is_ok() {
-                self.commit_consumer_state();
+        match self.callbacks.send(KafkaCallback::ShuttingDown(send)) {
+            Ok(()) => {
+                debug!("shutdown: shutdown signal sent, polling rendezvous channel");
+                while rendezvous.recv().is_ok() {
+                    debug!(
+                        "shutdown: rendezvous channel is still active, commiting consumer state"
+                    );
+                    self.commit_consumer_state();
+                }
+                debug!("shutdown: shutdown signal has been processed");
             }
+            Err(error) => debug!("shutdown: failed to send shutdown signal, error={error:?}"),
         }
     }
 
@@ -1321,18 +1405,41 @@ impl KafkaSourceContext {
     /// each topic-partition has been set up. This function blocks until the
     /// rendezvous channel sender is dropped by the callback handler.
     fn consume_partitions(&self, tpl: &TopicPartitionList) {
+        // TODO  workaround for https://github.com/fede1024/rust-rdkafka/issues/681
+        if tpl.capacity() == 0 {
+            return;
+        }
+
+        let topic_partitions: Vec<TopicPartition> = tpl
+            .elements()
+            .iter()
+            .map(|tp| (tp.topic().into(), tp.partition()))
+            .collect();
+        let topic_partitions_log_frag = topic_partitions
+            .iter()
+            .map(|(topic, partition)| format!("{topic}:{partition}"))
+            .join(",");
+
+        debug!("consume_partitions: [{topic_partitions_log_frag}] starting to consume");
+
         let (send, rendezvous) = sync_channel(0);
-        let _ = self.callbacks.send(KafkaCallback::PartitionsAssigned(
-            tpl.elements()
-                .iter()
-                .map(|tp| (tp.topic().into(), tp.partition()))
-                .collect(),
-            send,
-        ));
+        match self
+            .callbacks
+            .send(KafkaCallback::PartitionsAssigned(topic_partitions, send))
+        {
+            Ok(()) => {
+                debug!("consume_partitions: [{topic_partitions_log_frag}] assignment signal sent")
+            }
+            Err(error) => debug!(
+                "consume_partitions: [{topic_partitions_log_frag}] assignment signal error={error}"
+            ),
+        }
 
         while rendezvous.recv().is_ok() {
+            debug!("consume_partitions: [{topic_partitions_log_frag}] rendezvous channel still active, no-op loop");
             // no-op: wait for partition assignment handler to complete
         }
+        debug!("consume_partitions: [{topic_partitions_log_frag}] assignment signal processed");
     }
 
     /// Emit a PartitionsRevoked callback and block until confirmation is
@@ -1341,33 +1448,57 @@ impl KafkaSourceContext {
     /// signal individual partitions completing. This function blocks until the
     /// sender is dropped by the callback handler.
     fn revoke_partitions(&self, tpl: &TopicPartitionList) {
+        let topic_partitions: Vec<TopicPartition> = tpl
+            .elements()
+            .iter()
+            .map(|tp| (tp.topic().into(), tp.partition()))
+            .collect();
+        let topic_partitions_log_frag = topic_partitions
+            .iter()
+            .map(|(topic, partition)| format!("{topic}:{partition}"))
+            .join(",");
+
+        debug!("revoke_partitions: [{topic_partitions_log_frag}] starting to revoke");
         let (send, rendezvous) = sync_channel(0);
-        let _ = self.callbacks.send(KafkaCallback::PartitionsRevoked(
-            tpl.elements()
-                .iter()
-                .map(|tp| (tp.topic().into(), tp.partition()))
-                .collect(),
-            send,
-        ));
+        match self
+            .callbacks
+            .send(KafkaCallback::PartitionsRevoked(topic_partitions, send))
+        {
+            Ok(()) => debug!("revoke_partitions: [{topic_partitions_log_frag}] revoke signal sent"),
+            Err(error) => debug!(
+                "revoke_partitions: [{topic_partitions_log_frag}] revoke signal error={error}"
+            ),
+        }
 
         while rendezvous.recv().is_ok() {
+            debug!("revoke_partitions: [{topic_partitions_log_frag}] rendezvous channel active, commiting consumer state");
             self.commit_consumer_state();
         }
+        debug!("revoke_partitions: [{topic_partitions_log_frag}] revoke signal processed");
     }
 
     fn commit_consumer_state(&self) {
-        if let Some(consumer) = self
+        debug!("commit_consumer_state: starting to commit consumer state");
+        match self
             .consumer
             .get()
             .expect("Consumer reference was not initialized.")
             .upgrade()
         {
-            match consumer.commit_consumer_state(CommitMode::Sync) {
-                Ok(_) | Err(KafkaError::ConsumerCommit(RDKafkaErrorCode::NoOffset)) => {
-                    /* Success, or nothing to do - yay \0/ */
+            Some(consumer) => {
+                debug!("commit_consumer_state: weak pointer upgraded");
+                match consumer.commit_consumer_state(CommitMode::Sync) {
+                    Ok(_) | Err(KafkaError::ConsumerCommit(RDKafkaErrorCode::NoOffset)) => {
+                        debug!("commit_consumer_state: consumer state commit ok");
+                        /* Success, or nothing to do - yay \0/ */
+                    }
+                    Err(error) => {
+                        debug!("commit_consumer_state: consumer state commit failed={error}");
+                        emit!(KafkaOffsetUpdateError { error })
+                    }
                 }
-                Err(error) => emit!(KafkaOffsetUpdateError { error }),
             }
+            None => debug!("commit_consumer_state: weak pointer upgrade failed"),
         }
     }
 }
@@ -1384,6 +1515,10 @@ impl ConsumerContext for KafkaSourceContext {
             Rebalance::Assign(tpl) => self.consume_partitions(tpl),
 
             Rebalance::Revoke(tpl) => {
+                // TODO  workaround for https://github.com/fede1024/rust-rdkafka/issues/681
+                if tpl.capacity() == 0 {
+                    return;
+                }
                 self.revoke_partitions(tpl);
                 self.commit_consumer_state();
             }
@@ -1565,7 +1700,6 @@ mod integration_test {
     };
     use stream_cancel::{Trigger, Tripwire};
     use tokio::time::sleep;
-    use vector_lib::buffers::topology::channel::BufferReceiver;
     use vector_lib::event::EventStatus;
     use vrl::{event_path, value};
 
@@ -1737,8 +1871,8 @@ mod integration_test {
                 assert_eq!(event.as_log()["topic"], topic.clone().into());
                 assert!(event.as_log().contains("partition"));
                 assert!(event.as_log().contains("offset"));
-                let mut expected_headers = BTreeMap::new();
-                expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                let mut expected_headers = ObjectMap::new();
+                expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                 assert_eq!(event.as_log()["headers"], Value::from(expected_headers));
             } else {
                 let meta = event.as_log().metadata().value();
@@ -1772,8 +1906,8 @@ mod integration_test {
                 assert!(meta.get(path!("kafka", "partition")).unwrap().is_integer(),);
                 assert!(meta.get(path!("kafka", "offset")).unwrap().is_integer(),);
 
-                let mut expected_headers = BTreeMap::new();
-                expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                let mut expected_headers = ObjectMap::new();
+                expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                 assert_eq!(
                     meta.get(path!("kafka", "headers")).unwrap(),
                     &Value::from(expected_headers)
@@ -1795,8 +1929,9 @@ mod integration_test {
         status: EventStatus,
     ) -> (SourceSender, impl Stream<Item = EventArray> + Unpin) {
         let (pipe, recv) = SourceSender::new_test_sender_with_buffer(100);
-        let recv = BufferReceiver::new(recv.into()).into_stream();
-        let recv = recv.then(move |mut events| async move {
+        let recv = recv.into_stream();
+        let recv = recv.then(move |item| async move {
+            let mut events = item.events;
             events.iter_logs_mut().for_each(|log| {
                 log.insert(event_path!("pipeline_id"), id.to_string());
             });
@@ -1828,12 +1963,9 @@ mod integration_test {
         .build()
         .unwrap();
 
-        let (consumer, callback_rx) = create_consumer(&config, acknowledgements).unwrap();
-
         tokio::spawn(kafka_source(
             config,
-            consumer,
-            callback_rx,
+            acknowledgements,
             decoder,
             out,
             shutdown,
@@ -2201,8 +2333,6 @@ mod integration_test {
         };
         use vector_lib::config::LogNamespace;
 
-        use std::collections::BTreeMap;
-
         const KEY: &str = "my key";
         const HEADER_KEY: &str = "my header";
         const HEADER_VALUE: &str = "my header value";
@@ -2295,8 +2425,8 @@ mod integration_test {
                     assert_eq!(event.as_log()["topic"], topic.clone().into());
                     assert!(event.as_log().contains("partition"));
                     assert!(event.as_log().contains("offset"));
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(event.as_log()["headers"], Value::from(expected_headers));
                 } else {
                     let meta = event.as_log().metadata().value();
@@ -2330,8 +2460,8 @@ mod integration_test {
                     assert!(meta.get(path!("kafka", "partition")).unwrap().is_integer(),);
                     assert!(meta.get(path!("kafka", "offset")).unwrap().is_integer(),);
 
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(
                         meta.get(path!("kafka", "headers")).unwrap(),
                         &Value::from(expected_headers)
@@ -2397,8 +2527,8 @@ mod integration_test {
                     assert_eq!(event.as_log()["topic"], topic.clone().into());
                     assert!(event.as_log().contains("partition"));
                     assert!(event.as_log().contains("offset"));
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(event.as_log()["headers"], Value::from(expected_headers));
                 } else {
                     let meta = event.as_log().metadata().value();
@@ -2428,8 +2558,8 @@ mod integration_test {
                     assert!(meta.get(path!("kafka", "partition")).unwrap().is_integer(),);
                     assert!(meta.get(path!("kafka", "offset")).unwrap().is_integer(),);
 
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(
                         meta.get(path!("kafka", "headers")).unwrap(),
                         &Value::from(expected_headers)
@@ -2495,8 +2625,8 @@ mod integration_test {
                     assert_eq!(event.as_log()["topic"], topic.clone().into());
                     assert!(event.as_log().contains("partition"));
                     assert!(event.as_log().contains("offset"));
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(event.as_log()["headers"], Value::from(expected_headers));
                 } else {
                     let meta = event.as_log().metadata().value();
@@ -2526,8 +2656,8 @@ mod integration_test {
                     assert!(meta.get(path!("kafka", "partition")).unwrap().is_integer(),);
                     assert!(meta.get(path!("kafka", "offset")).unwrap().is_integer(),);
 
-                    let mut expected_headers = BTreeMap::new();
-                    expected_headers.insert(HEADER_KEY.to_string(), Value::from(HEADER_VALUE));
+                    let mut expected_headers = ObjectMap::new();
+                    expected_headers.insert(HEADER_KEY.into(), Value::from(HEADER_VALUE));
                     assert_eq!(
                         meta.get(path!("kafka", "headers")).unwrap(),
                         &Value::from(expected_headers)

@@ -124,7 +124,7 @@ impl MetricSplit for AggregatedSummarySplitter {
             }
             MetricValue::AggregatedSummary { .. } => {
                 // Further extract the aggregated summary components so we can generate our multiple metrics.
-                let (time, kind, value) = data.into_parts();
+                let (time, kind, value, arbitrary) = data.into_parts();
                 let (quantiles, count, sum) = match value {
                     MetricValue::AggregatedSummary {
                         quantiles,
@@ -140,12 +140,15 @@ impl MetricSplit for AggregatedSummarySplitter {
 
                 let mut count_series = series.clone();
                 count_series.name_mut().name_mut().push_str("_count");
+                let count_arbitrary = arbitrary.clone();
+
                 let count_data = MetricData::from_parts(
                     time,
                     kind,
                     MetricValue::Counter {
                         value: count as f64,
                     },
+                    count_arbitrary,
                 );
                 let count_metadata = metadata.clone();
 
@@ -155,12 +158,16 @@ impl MetricSplit for AggregatedSummarySplitter {
                     let mut quantile_series = series.clone();
                     quantile_series
                         .replace_tag(String::from("quantile"), quantile.to_quantile_string());
+
+                    let quantile_arbitrary = arbitrary.clone();
+
                     let quantile_data = MetricData::from_parts(
                         time,
                         kind,
                         MetricValue::Gauge {
                             value: quantile.value,
                         },
+                        quantile_arbitrary,
                     );
                     let quantile_metadata = metadata.clone();
 
@@ -173,8 +180,14 @@ impl MetricSplit for AggregatedSummarySplitter {
 
                 let mut sum_series = series;
                 sum_series.name_mut().name_mut().push_str("_sum");
-                let sum_data =
-                    MetricData::from_parts(time, kind, MetricValue::Counter { value: sum });
+                let sum_arbitrary = arbitrary.clone();
+
+                let sum_data = MetricData::from_parts(
+                    time,
+                    kind,
+                    MetricValue::Counter { value: sum },
+                    sum_arbitrary,
+                );
                 let sum_metadata = metadata;
 
                 metrics.push_back(Metric::from_parts(sum_series, sum_data, sum_metadata));

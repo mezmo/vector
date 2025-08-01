@@ -5,7 +5,6 @@ use crate::{
         pulsar::sink::{healthcheck, PulsarSink},
     },
     template::Template,
-    user_log_error,
 };
 use futures_util::FutureExt;
 use pulsar::{
@@ -77,7 +76,7 @@ pub struct PulsarSinkConfig {
     #[serde(
         default,
         deserialize_with = "crate::serde::bool_or_struct",
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
+        skip_serializing_if = "crate::serde::is_default"
     )]
     pub acknowledgements: AcknowledgementsConfig,
 }

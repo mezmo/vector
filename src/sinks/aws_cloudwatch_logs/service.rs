@@ -7,16 +7,26 @@ use std::{
 use crate::sinks::prelude::{
     MezmoLoggingService, SinkContext, UserLoggingError, UserLoggingResponse,
 };
-use aws_sdk_cloudwatchlogs::error::{
-    CreateLogGroupError, CreateLogStreamError, DescribeLogStreamsError, PutLogEventsError,
+use aws_sdk_cloudwatchlogs::{
+    error::ProvideErrorMetadata,
+    operation::{
+        create_log_group::CreateLogGroupError, create_log_stream::CreateLogStreamError,
+        describe_log_streams::DescribeLogStreamsError, put_log_events::PutLogEventsError,
+        put_retention_policy::PutRetentionPolicyError,
+    },
+    types::InputLogEvent,
+    Client as CloudwatchLogsClient,
 };
-use aws_sdk_cloudwatchlogs::model::InputLogEvent;
-use aws_sdk_cloudwatchlogs::types::SdkError;
-use aws_sdk_cloudwatchlogs::Client as CloudwatchLogsClient;
+use aws_smithy_runtime_api::client::{orchestrator::HttpResponse, result::SdkError};
 use chrono::Duration;
 use futures::{future::BoxFuture, FutureExt};
 use futures_util::TryFutureExt;
+use http::{
+    header::{HeaderName, InvalidHeaderName, InvalidHeaderValue},
+    HeaderValue,
+};
 use indexmap::IndexMap;
+use snafu::{ResultExt, Snafu};
 use tokio::sync::oneshot;
 use tower::{
     buffer::Buffer,
@@ -34,17 +44,17 @@ use vrl::value::Value;
 
 use crate::sinks::{
     aws_cloudwatch_logs::{
-        config::CloudwatchLogsSinkConfig, request, retry::CloudwatchRetryLogic,
+        config::CloudwatchLogsSinkConfig, config::Retention, request, retry::CloudwatchRetryLogic,
         sink::BatchCloudwatchRequest, CloudwatchKey,
     },
-    util::{retries::FixedRetryPolicy, EncodedLength, TowerRequestConfig, TowerRequestSettings},
+    util::{retries::FibonacciRetryPolicy, EncodedLength, TowerRequestSettings},
 };
 
 type Svc = Buffer<
     ConcurrencyLimit<
         RateLimit<
             Retry<
-                FixedRetryPolicy<CloudwatchRetryLogic<CloudwatchInnerResponse>>,
+                FibonacciRetryPolicy<CloudwatchRetryLogic<CloudwatchInnerResponse>>,
                 Buffer<Timeout<MezmoLoggingService<CloudwatchLogsSvc>>, Vec<InputLogEvent>>,
             >,
         >,
@@ -52,19 +62,13 @@ type Svc = Buffer<
     Vec<InputLogEvent>,
 >;
 
-pub type SmithyClient = std::sync::Arc<
-    aws_smithy_client::Client<
-        aws_smithy_client::erase::DynConnector,
-        aws_smithy_client::erase::DynMiddleware<aws_smithy_client::erase::DynConnector>,
-    >,
->;
-
 #[derive(Debug)]
 pub enum CloudwatchError {
-    Put(SdkError<PutLogEventsError>),
-    Describe(SdkError<DescribeLogStreamsError>),
-    CreateStream(SdkError<CreateLogStreamError>),
-    CreateGroup(SdkError<CreateLogGroupError>),
+    Put(SdkError<PutLogEventsError, HttpResponse>),
+    DescribeLogStreams(SdkError<DescribeLogStreamsError, HttpResponse>),
+    CreateStream(SdkError<CreateLogStreamError, HttpResponse>),
+    CreateGroup(SdkError<CreateLogGroupError, HttpResponse>),
+    PutRetentionPolicy(SdkError<PutRetentionPolicyError, HttpResponse>),
     NoStreamsFound,
 }
 
@@ -72,7 +76,9 @@ impl fmt::Display for CloudwatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CloudwatchError::Put(error) => write!(f, "CloudwatchError::Put: {}", error),
-            CloudwatchError::Describe(error) => write!(f, "CloudwatchError::Describe: {}", error),
+            CloudwatchError::DescribeLogStreams(error) => {
+                write!(f, "CloudwatchError::DescribeLogStreams: {}", error)
+            }
             CloudwatchError::CreateStream(error) => {
                 write!(f, "CloudwatchError::CreateStream: {}", error)
             }
@@ -80,21 +86,24 @@ impl fmt::Display for CloudwatchError {
                 write!(f, "CloudwatchError::CreateGroup: {}", error)
             }
             CloudwatchError::NoStreamsFound => write!(f, "CloudwatchError: No Streams Found"),
+            CloudwatchError::PutRetentionPolicy(error) => {
+                write!(f, "CloudwatchError::PutRetentionPolicy: {}", error)
+            }
         }
     }
 }
 
 impl std::error::Error for CloudwatchError {}
 
-impl From<SdkError<PutLogEventsError>> for CloudwatchError {
-    fn from(error: SdkError<PutLogEventsError>) -> Self {
+impl From<SdkError<PutLogEventsError, HttpResponse>> for CloudwatchError {
+    fn from(error: SdkError<PutLogEventsError, HttpResponse>) -> Self {
         CloudwatchError::Put(error)
     }
 }
 
-impl From<SdkError<DescribeLogStreamsError>> for CloudwatchError {
-    fn from(error: SdkError<DescribeLogStreamsError>) -> Self {
-        CloudwatchError::Describe(error)
+impl From<SdkError<DescribeLogStreamsError, HttpResponse>> for CloudwatchError {
+    fn from(error: SdkError<DescribeLogStreamsError, HttpResponse>) -> Self {
+        CloudwatchError::DescribeLogStreams(error)
     }
 }
 
@@ -126,15 +135,16 @@ impl UserLoggingError for CloudwatchError {
     fn log_msg(&self) -> Option<Value> {
         match self {
             CloudwatchError::Put(error) => extract_user_err(error),
-            CloudwatchError::Describe(error) => extract_user_err(error),
+            CloudwatchError::DescribeLogStreams(error) => extract_user_err(error),
             CloudwatchError::CreateStream(error) => extract_user_err(error),
             CloudwatchError::CreateGroup(error) => extract_user_err(error),
+            CloudwatchError::PutRetentionPolicy(_) => Some("Put Retention Policy Error".into()),
             CloudwatchError::NoStreamsFound => Some("No Streams Found".into()),
         }
     }
 }
 
-fn extract_user_err<E>(err: &SdkError<E>) -> Option<Value>
+fn extract_user_err<E>(err: &SdkError<E, HttpResponse>) -> Option<Value>
 where
     E: SdkErrorWithMessage,
 {
@@ -174,30 +184,42 @@ impl DriverResponse for CloudwatchResponse {
     }
 }
 
+#[derive(Snafu, Debug)]
+enum HeaderError {
+    #[snafu(display("invalid header name {source}"))]
+    InvalidName { source: InvalidHeaderName },
+    #[snafu(display("invalid header value {source}"))]
+    InvalidValue { source: InvalidHeaderValue },
+}
+
 impl CloudwatchLogsPartitionSvc {
     pub fn new(
         config: CloudwatchLogsSinkConfig,
         client: CloudwatchLogsClient,
-        // we store a separate smithy_client to set request headers for PutLogEvents since the regular
-        // client cannot set headers
-        //
-        // https://github.com/awslabs/aws-sdk-rust/issues/537
-        smithy_client: SmithyClient,
         cx: SinkContext,
-    ) -> Self {
-        let request_settings = config
-            .request
-            .tower
-            .unwrap_with(&TowerRequestConfig::default());
+    ) -> crate::Result<Self> {
+        let request_settings = config.request.tower.into_settings();
 
-        Self {
+        let headers = config
+            .request
+            .headers
+            .iter()
+            .map(|(name, value)| {
+                Ok((
+                    HeaderName::from_bytes(name.as_bytes()).context(InvalidNameSnafu {})?,
+                    HeaderValue::from_str(value.as_str()).context(InvalidValueSnafu {})?,
+                ))
+            })
+            .collect::<Result<IndexMap<_, _>, HeaderError>>()?;
+
+        Ok(Self {
             config,
             clients: HashMap::new(),
             request_settings,
             client,
-            smithy_client,
+            headers,
             cx,
-        }
+        })
     }
 }
 
@@ -223,8 +245,10 @@ impl Service<BatchCloudwatchRequest> for CloudwatchLogsPartitionSvc {
                     .message(req.message)
                     .timestamp(req.timestamp)
                     .build()
+                    .expect("all builder fields specified")
             })
             .collect();
+
         let svc = if let Some(svc) = &mut self.clients.get_mut(&key) {
             svc.clone()
         } else {
@@ -247,7 +271,7 @@ impl Service<BatchCloudwatchRequest> for CloudwatchLogsPartitionSvc {
                         self.config.clone(),
                         &key,
                         self.client.clone(),
-                        std::sync::Arc::clone(&self.smithy_client),
+                        self.headers.clone(),
                     ),
                     self.cx.mezmo_ctx.clone(),
                 ));
@@ -268,7 +292,7 @@ impl CloudwatchLogsSvc {
         config: CloudwatchLogsSinkConfig,
         key: &CloudwatchKey,
         client: CloudwatchLogsClient,
-        smithy_client: SmithyClient,
+        headers: IndexMap<HeaderName, HeaderValue>,
     ) -> Self {
         let group_name = key.group.clone();
         let stream_name = key.stream.clone();
@@ -276,14 +300,16 @@ impl CloudwatchLogsSvc {
         let create_missing_group = config.create_missing_group;
         let create_missing_stream = config.create_missing_stream;
 
+        let retention = config.retention.clone();
+
         CloudwatchLogsSvc {
-            headers: config.request.headers,
+            headers,
             client,
-            smithy_client,
             stream_name,
             group_name,
             create_missing_group,
             create_missing_stream,
+            retention,
             token: None,
             token_rx: None,
         }
@@ -300,16 +326,9 @@ impl CloudwatchLogsSvc {
         // We will split events into 24h batches.
         // Relies on log_events being sorted by timestamp in ascending order.
         while let Some(oldest) = events.first() {
-            let limit = oldest.timestamp.expect("timestamp must exist")
-                + Duration::days(1).num_milliseconds();
+            let limit = oldest.timestamp + Duration::days(1).num_milliseconds();
 
-            if events
-                .last()
-                .expect("Events can't be empty")
-                .timestamp
-                .expect("timestamp must exist")
-                <= limit
-            {
+            if events.last().expect("Events can't be empty").timestamp <= limit {
                 // Fast path.
                 // In most cases the difference between oldest and newest event
                 // is less than 24h.
@@ -324,7 +343,7 @@ impl CloudwatchLogsSvc {
             // at found event, and send those before at with this batch, and
             // those after at with the next batch.
             let at = events
-                .binary_search_by_key(&limit, |e| e.timestamp.expect("timestamp must exist"))
+                .binary_search_by_key(&limit, |e| e.timestamp)
                 .unwrap_or_else(|at| at);
 
             // Can't be empty
@@ -359,12 +378,12 @@ impl Service<Vec<InputLogEvent>> for CloudwatchLogsSvc {
 
             request::CloudwatchFuture::new(
                 self.client.clone(),
-                std::sync::Arc::clone(&self.smithy_client),
                 self.headers.clone(),
                 self.stream_name.clone(),
                 self.group_name.clone(),
                 self.create_missing_group,
                 self.create_missing_stream,
+                self.retention.clone(),
                 event_batches,
                 self.token.take(),
                 tx,
@@ -377,28 +396,28 @@ impl Service<Vec<InputLogEvent>> for CloudwatchLogsSvc {
 
 pub struct CloudwatchLogsSvc {
     client: CloudwatchLogsClient,
-    smithy_client: SmithyClient,
-    headers: IndexMap<String, String>,
+    headers: IndexMap<HeaderName, HeaderValue>,
     stream_name: String,
     group_name: String,
     create_missing_group: bool,
     create_missing_stream: bool,
+    retention: Retention,
     token: Option<String>,
     token_rx: Option<oneshot::Receiver<Option<String>>>,
 }
 
 impl EncodedLength for InputLogEvent {
     fn encoded_length(&self) -> usize {
-        self.message.as_ref().expect("message must exist").len() + 26
+        self.message.len() + 26
     }
 }
 
 #[derive(Clone)]
 pub struct CloudwatchLogsPartitionSvc {
     config: CloudwatchLogsSinkConfig,
+    headers: IndexMap<HeaderName, HeaderValue>,
     clients: HashMap<CloudwatchKey, Svc>,
     request_settings: TowerRequestSettings,
     client: CloudwatchLogsClient,
-    smithy_client: SmithyClient,
     cx: SinkContext,
 }

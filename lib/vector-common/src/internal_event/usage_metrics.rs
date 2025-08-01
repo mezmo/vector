@@ -10,7 +10,7 @@ pub struct AggregatedProfileChanged {
 impl InternalEvent for AggregatedProfileChanged {
     #[allow(clippy::cast_precision_loss)]
     fn emit(self) {
-        gauge!("usage_metrics_aggregated_profiles_size", self.count as f64);
+        gauge!("usage_metrics_aggregated_profiles_size").set(self.count as f64);
     }
 
     fn name(&self) -> Option<&'static str> {
@@ -24,7 +24,7 @@ pub struct InsertFailed {
 
 impl InternalEvent for InsertFailed {
     fn emit(self) {
-        counter!("usage_metrics_insert_failed", 1);
+        counter!("usage_metrics_insert_failed").increment(1);
 
         error!(message = "Usage metrics insert failed", error = self.error);
     }

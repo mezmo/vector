@@ -16,9 +16,9 @@ use vector_lib::{
     source::Source,
 };
 
-use super::{schema, ComponentKey, ProxyConfig, Resource};
-use crate::mezmo::MezmoContext;
-use crate::{shutdown::ShutdownSignal, SourceSender};
+use super::{dot_graph::GraphConfig, schema, ComponentKey, ProxyConfig, Resource};
+use crate::{extra_context::ExtraContext, shutdown::ShutdownSignal, SourceSender};
+use mezmo::MezmoContext;
 
 pub type BoxedSource = Box<dyn SourceConfig>;
 
@@ -52,11 +52,12 @@ impl<T: SourceConfig + 'static> From<T> for BoxedSource {
 #[derive(Clone, Debug)]
 pub struct SourceOuter {
     #[configurable(derived)]
-    #[serde(
-        default,
-        skip_serializing_if = "vector_lib::serde::skip_serializing_if_default"
-    )]
+    #[serde(default, skip_serializing_if = "vector_lib::serde::is_default")]
     pub proxy: ProxyConfig,
+
+    #[configurable(derived)]
+    #[serde(default, skip_serializing_if = "vector_lib::serde::is_default")]
+    pub graph: GraphConfig,
 
     #[serde(default, skip)]
     pub sink_acknowledgements: bool,
@@ -70,6 +71,7 @@ impl SourceOuter {
     pub(crate) fn new<I: Into<BoxedSource>>(inner: I) -> Self {
         Self {
             proxy: Default::default(),
+            graph: Default::default(),
             sink_acknowledgements: false,
             inner: inner.into(),
         }
@@ -137,10 +139,13 @@ pub struct SourceContext {
     pub schema_definitions: HashMap<Option<String>, schema::Definition>,
 
     pub mezmo_ctx: Option<MezmoContext>,
+    /// Extra context data provided by the running app and shared across all components. This can be
+    /// used to pass shared settings or other data from outside the components.
+    pub extra_context: ExtraContext,
 }
 
 impl SourceContext {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn new_shutdown(
         key: &ComponentKey,
         out: SourceSender,
@@ -158,12 +163,13 @@ impl SourceContext {
                 schema_definitions: HashMap::default(),
                 schema: Default::default(),
                 mezmo_ctx: None,
+                extra_context: Default::default(),
             },
             shutdown,
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn new_test(
         out: SourceSender,
         schema_definitions: Option<HashMap<Option<String>, schema::Definition>>,
@@ -178,6 +184,7 @@ impl SourceContext {
             schema_definitions: schema_definitions.unwrap_or_default(),
             schema: Default::default(),
             mezmo_ctx: None,
+            extra_context: Default::default(),
         }
     }
 

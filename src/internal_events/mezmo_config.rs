@@ -43,7 +43,7 @@ impl InternalEvent for MezmoGenerateConfigError {
                 }
             }
         }
-        counter!("mezmo_generate_config_error", 1);
+        counter!("mezmo_generate_config_error").increment(1);
     }
 }
 
@@ -55,7 +55,8 @@ pub struct MezmoConfigReload {
 
 impl InternalEvent for MezmoConfigReload {
     fn emit(self) {
-        histogram!("mezmo_config_reload_seconds", self.elapsed, "success" => self.success.to_string());
+        histogram!("mezmo_config_reload_seconds", "success" => self.success.to_string())
+            .record(self.elapsed);
     }
 }
 
@@ -65,7 +66,7 @@ pub struct MezmoConfigCompile {
 
 impl InternalEvent for MezmoConfigCompile {
     fn emit(self) {
-        histogram!("mezmo_config_compile_seconds", self.elapsed);
+        histogram!("mezmo_config_compile_seconds").record(self.elapsed);
     }
 }
 
@@ -75,7 +76,7 @@ pub struct MezmoConfigVrlValidation {
 
 impl InternalEvent for MezmoConfigVrlValidation {
     fn emit(self) {
-        histogram!("mezmo_config_vrl_validation_seconds", self.elapsed);
+        histogram!("mezmo_config_vrl_validation_seconds").record(self.elapsed);
     }
 }
 
@@ -85,7 +86,7 @@ pub struct MezmoConfigVrlValidationError {
 
 impl InternalEvent for MezmoConfigVrlValidationError {
     fn emit(self) {
-        counter!("mezmo_config_vrl_validation_error", self.failure_count);
+        counter!("mezmo_config_vrl_validation_error").increment(self.failure_count);
     }
 }
 
@@ -95,11 +96,8 @@ pub struct MezmoConfigBuilderCreate {
 
 impl InternalEvent for MezmoConfigBuilderCreate {
     fn emit(self) {
-        counter!("mezmo_config_builder_created_total", 1);
-        gauge!(
-            "mezmo_config_builder_revisions_total",
-            self.revisions as f64
-        );
+        counter!("mezmo_config_builder_created_total").increment(1);
+        gauge!("mezmo_config_builder_revisions_total").set(self.revisions as f64);
     }
 }
 
@@ -114,8 +112,8 @@ impl InternalEvent for MezmoConfigServiceResponse<'_> {
         info!(message = "Config service response received.", url = self.url, status_code = ?self.status);
         histogram!(
             "mezmo_config_service_response_seconds",
-            self.elapsed,
-            "success" => self.status.is_success().to_string());
+            "success" => self.status.is_success().to_string())
+        .record(self.elapsed);
     }
 }
 
@@ -126,7 +124,7 @@ pub struct MezmoConfigBuildFailure {
 impl InternalEvent for MezmoConfigBuildFailure {
     fn emit(self) {
         error!(message = format!("Error building the config incrementally: {}", self.error));
-        counter!("mezmo_config_build_failure_total", 1);
+        counter!("mezmo_config_build_failure_total").increment(1);
     }
 }
 
@@ -135,7 +133,7 @@ pub struct MezmoConfigReloadSignalSend {}
 impl InternalEvent for MezmoConfigReloadSignalSend {
     fn emit(self) {
         info!("Sending reload config signal");
-        counter!("mezmo_config_reload_signal_sent_total", 1);
+        counter!("mezmo_config_reload_signal_sent_total").increment(1);
     }
 }
 
@@ -143,6 +141,6 @@ pub struct MezmoConfigReloadSignalReceive {}
 
 impl InternalEvent for MezmoConfigReloadSignalReceive {
     fn emit(self) {
-        counter!("mezmo_config_reload_signal_received_total", 1);
+        counter!("mezmo_config_reload_signal_received_total").increment(1);
     }
 }

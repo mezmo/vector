@@ -22,10 +22,10 @@ use crate::{
     internal_events::{
         MezmoAggregateEventRecorded, MezmoAggregateFlushed, MezmoAggregateUpdateFailed,
     },
-    mezmo::{user_trace::handle_transform_error, MezmoContext},
     schema,
     transforms::{TaskTransform, Transform},
 };
+use mezmo::{user_trace::handle_transform_error, MezmoContext};
 
 /// Configuration for the `mezmo_aggregate` transform.
 #[configurable_component(transform("mezmo_aggregate"))]

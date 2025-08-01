@@ -23,3 +23,6 @@ release-tool
 
 # tilt
 tilt_modules/
+
+# Jetbrains
+.idea/

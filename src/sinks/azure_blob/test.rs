@@ -71,7 +71,7 @@ fn azure_blob_build_request_with_tags() {
         encoder: (
             Default::default(),
             Encoder::<Framer>::new(
-                NewlineDelimitedEncoder::new().into(),
+                NewlineDelimitedEncoder::default().into(),
                 TextSerializerConfig::default().build().into(),
             ),
         ),
@@ -125,7 +125,7 @@ fn azure_blob_build_request_without_compression() {
         encoder: (
             Default::default(),
             Encoder::<Framer>::new(
-                NewlineDelimitedEncoder::new().into(),
+                NewlineDelimitedEncoder::default().into(),
                 TextSerializerConfig::default().build().into(),
             ),
         ),
@@ -174,7 +174,7 @@ fn azure_blob_build_request_with_compression() {
         encoder: (
             Default::default(),
             Encoder::<Framer>::new(
-                NewlineDelimitedEncoder::new().into(),
+                NewlineDelimitedEncoder::default().into(),
                 TextSerializerConfig::default().build().into(),
             ),
         ),
@@ -223,7 +223,7 @@ fn azure_blob_build_request_with_time_format() {
         encoder: (
             Default::default(),
             Encoder::<Framer>::new(
-                NewlineDelimitedEncoder::new().into(),
+                NewlineDelimitedEncoder::default().into(),
                 TextSerializerConfig::default().build().into(),
             ),
         ),
@@ -276,7 +276,7 @@ fn azure_blob_build_request_with_uuid() {
         encoder: (
             Default::default(),
             Encoder::<Framer>::new(
-                NewlineDelimitedEncoder::new().into(),
+                NewlineDelimitedEncoder::default().into(),
                 TextSerializerConfig::default().build().into(),
             ),
         ),
@@ -309,8 +309,11 @@ async fn azure_blob_build_config_with_invalid_connection_string() {
         ..default_config((None::<FramingConfig>, TextSerializerConfig::default()).into())
     };
 
-    sink_config
+    assert!(sink_config
         .build(SinkContext::new_test())
         .await
-        .expect("builds with invalid connection string");
+        .expect("builds with invalid connection string")
+        .1
+        .await
+        .is_err());
 }

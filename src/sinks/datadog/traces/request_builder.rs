@@ -20,7 +20,7 @@ use super::{
     sink::PartitionKey,
 };
 use crate::{
-    event::{Event, TraceEvent, Value},
+    event::{Event, ObjectMap, TraceEvent, Value},
     sinks::util::{
         metadata::RequestMetadataBuilder, Compression, Compressor, IncrementalRequestBuilder,
     },
@@ -39,6 +39,7 @@ pub enum RequestBuilderError {
         dropped_events: u64,
     },
 
+    #[allow(dead_code)]
     #[snafu(display("Unsupported endpoint ({})", reason))]
     UnsupportedEndpoint { reason: String, dropped_events: u64 },
 }
@@ -268,7 +269,7 @@ fn encode_trace(trace: &TraceEvent) -> dd_proto::TracerPayload {
         .and_then(|m| m.as_object())
         .map(|m| {
             m.iter()
-                .map(|(k, v)| (k.clone(), v.to_string_lossy().into_owned()))
+                .map(|(k, v)| (k.to_string(), v.to_string_lossy().into_owned()))
                 .collect::<BTreeMap<String, String>>()
         })
         .unwrap_or_default();
@@ -340,7 +341,7 @@ fn encode_trace(trace: &TraceEvent) -> dd_proto::TracerPayload {
     }
 }
 
-fn convert_span(span: &BTreeMap<String, Value>) -> dd_proto::Span {
+fn convert_span(span: &ObjectMap) -> dd_proto::Span {
     let trace_id = match span.get("trace_id") {
         Some(Value::Integer(val)) => *val,
         _ => 0,
@@ -371,7 +372,7 @@ fn convert_span(span: &BTreeMap<String, Value>) -> dd_proto::Span {
         .and_then(|m| m.as_object())
         .map(|m| {
             m.iter()
-                .map(|(k, v)| (k.clone(), v.to_string_lossy().into_owned()))
+                .map(|(k, v)| (k.to_string(), v.to_string_lossy().into_owned()))
                 .collect::<BTreeMap<String, String>>()
         })
         .unwrap_or_default();
@@ -381,7 +382,7 @@ fn convert_span(span: &BTreeMap<String, Value>) -> dd_proto::Span {
         .and_then(|m| m.as_object())
         .map(|m| {
             m.iter()
-                .map(|(k, v)| (k.clone(), v.coerce_to_bytes().into_iter().collect()))
+                .map(|(k, v)| (k.to_string(), v.coerce_to_bytes().into_iter().collect()))
                 .collect::<BTreeMap<String, Vec<u8>>>()
         })
         .unwrap_or_default();
@@ -393,7 +394,7 @@ fn convert_span(span: &BTreeMap<String, Value>) -> dd_proto::Span {
             m.iter()
                 .filter_map(|(k, v)| {
                     if let Value::Float(f) = v {
-                        Some((k.clone(), f.into_inner()))
+                        Some((k.to_string(), f.into_inner()))
                     } else {
                         None
                     }

@@ -26,15 +26,19 @@ use vector_lib::{
 use crate::{
     codecs::{Decoder, DecodingConfig},
     config::{
-        log_schema, GenerateConfig, Output, Resource, SourceAcknowledgementsConfig, SourceConfig,
-        SourceContext,
+        log_schema, GenerateConfig, Resource, SourceAcknowledgementsConfig, SourceConfig,
+        SourceContext, SourceOutput,
     },
     event::{Event, LogEvent},
+    http::KeepaliveConfig,
     internal_events::{HerokuLogplexRequestReadError, HerokuLogplexRequestReceived},
     serde::{bool_or_struct, default_decoding, default_framing_message_based},
-    sources::util::{
-        http::{add_query_parameters, HttpMethod},
-        ErrorMessage, HttpSource, HttpSourceAuthConfig,
+    sources::{
+        http_server::{build_param_matcher, remove_duplicates, HttpConfigParamKind},
+        util::{
+            http::{add_query_parameters, HttpMethod},
+            ErrorMessage, HttpSource, HttpSourceAuthConfig,
+        },
     },
     tls::TlsEnableableConfig,
 };
@@ -50,9 +54,16 @@ pub struct LogplexConfig {
 
     /// A list of URL query parameters to include in the log event.
     ///
+    /// Accepts the wildcard (`*`) character for query parameters matching a specified pattern.
+    ///
+    /// Specifying "*" results in all query parameters included in the log event.
+    ///
     /// These override any values included in the body with conflicting names.
     #[serde(default)]
-    #[configurable(metadata(docs::examples = "application", docs::examples = "source"))]
+    #[configurable(metadata(docs::examples = "application"))]
+    #[configurable(metadata(docs::examples = "source"))]
+    #[configurable(metadata(docs::examples = "param*"))]
+    #[configurable(metadata(docs::examples = "*"))]
     query_parameters: Vec<String>,
 
     #[configurable(derived)]
@@ -77,6 +88,10 @@ pub struct LogplexConfig {
     #[configurable(metadata(docs::hidden))]
     #[serde(default)]
     log_namespace: Option<bool>,
+
+    #[configurable(derived)]
+    #[serde(default)]
+    keepalive: KeepaliveConfig,
 }
 
 impl LogplexConfig {
@@ -146,6 +161,7 @@ impl Default for LogplexConfig {
             decoding: default_decoding(),
             acknowledgements: SourceAcknowledgementsConfig::default(),
             log_namespace: None,
+            keepalive: KeepaliveConfig::default(),
         }
     }
 }
@@ -167,7 +183,10 @@ impl SourceConfig for LogplexConfig {
                 .build()?;
 
         let source = LogplexSource {
-            query_parameters: self.query_parameters.clone(),
+            query_parameters: build_param_matcher(&remove_duplicates(
+                self.query_parameters.clone(),
+                "query_parameters",
+            ))?,
             decoder,
             log_namespace,
         };
@@ -182,14 +201,18 @@ impl SourceConfig for LogplexConfig {
             &self.auth,
             cx,
             self.acknowledgements,
+            self.keepalive.clone(),
         )
     }
 
-    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<Output> {
+    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<SourceOutput> {
         // There is a global and per-source `log_namespace` config.
         // The source config overrides the global setting and is merged here.
         let schema_def = self.schema_definition(global_log_namespace.merge(self.log_namespace));
-        vec![Output::default(self.decoding.output_type()).with_schema_definition(schema_def)]
+        vec![SourceOutput::new_maybe_logs(
+            self.decoding.output_type(),
+            schema_def,
+        )]
     }
 
     fn resources(&self) -> Vec<Resource> {
@@ -203,7 +226,7 @@ impl SourceConfig for LogplexConfig {
 
 #[derive(Clone, Default)]
 struct LogplexSource {
-    query_parameters: Vec<String>,
+    query_parameters: Vec<HttpConfigParamKind>,
     decoder: Decoder,
     log_namespace: LogNamespace,
 }
@@ -277,6 +300,7 @@ impl HttpSource for LogplexSource {
         _request_path: &str,
         _headers_config: &HeaderMap,
         query_parameters: &HashMap<String, String>,
+        _source_ip: Option<&SocketAddr>,
     ) {
         add_query_parameters(
             events,
@@ -449,6 +473,7 @@ mod tests {
                 decoding: default_decoding(),
                 acknowledgements: acknowledgements.into(),
                 log_namespace: None,
+                keepalive: Default::default(),
             }
             .build(context)
             .await
@@ -534,6 +559,51 @@ mod tests {
             assert_eq!(*log.get_source_type().unwrap(), "heroku_logs".into());
             assert_eq!(log["appname"], "lumberjack-store".into());
             assert_eq!(log["absent"], Value::Null);
+        }).await;
+    }
+
+    #[tokio::test]
+    async fn logplex_query_parameters_wildcard() {
+        assert_source_compliance(&HTTP_PUSH_SOURCE_TAGS, async {
+            let auth = make_auth();
+
+            let (rx, addr) = source(
+                Some(auth.clone()),
+                vec!["*".to_string()],
+                EventStatus::Delivered,
+                true,
+            )
+            .await;
+
+            let mut events = spawn_collect_n(
+                async move {
+                    assert_eq!(
+                        200,
+                        send(addr, SAMPLE_BODY, Some(auth), "appname=lumberjack-store").await
+                    )
+                },
+                rx,
+                SAMPLE_BODY.lines().count(),
+            )
+            .await;
+
+            let event = events.remove(0);
+            let log = event.as_log();
+
+            assert_eq!(
+                *log.get_message().unwrap(),
+                r#"at=info method=GET path="/cart_link" host=lumberjack-store.timber.io request_id=05726858-c44e-4f94-9a20-37df73be9006 fwd="73.75.38.87" dyno=web.1 connect=1ms service=22ms status=304 bytes=656 protocol=http"#.into()
+            );
+            assert_eq!(
+                log[log_schema().timestamp_key().unwrap().to_string()],
+                "2020-01-08T22:33:57.353034+00:00"
+                    .parse::<DateTime<Utc>>()
+                    .unwrap()
+                    .into()
+            );
+            assert_eq!(*log.get_host().unwrap(), "host".into());
+            assert_eq!(*log.get_source_type().unwrap(), "heroku_logs".into());
+            assert_eq!(log["appname"], "lumberjack-store".into());
         }).await;
     }
 
@@ -655,10 +725,10 @@ mod tests {
             ..Default::default()
         };
 
-        let definition = config.outputs(LogNamespace::Vector)[0]
-            .clone()
-            .log_schema_definition
-            .unwrap();
+        let definitions = config
+            .outputs(LogNamespace::Vector)
+            .remove(0)
+            .schema_definition(true);
 
         let expected_definition =
             Definition::new_with_default_metadata(Kind::bytes(), [LogNamespace::Vector])
@@ -699,17 +769,17 @@ mod tests {
                     None,
                 );
 
-        assert_eq!(definition, expected_definition)
+        assert_eq!(definitions, Some(expected_definition))
     }
 
     #[test]
     fn output_schema_definition_legacy_namespace() {
         let config = LogplexConfig::default();
 
-        let definition = config.outputs(LogNamespace::Legacy)[0]
-            .clone()
-            .log_schema_definition
-            .unwrap();
+        let definitions = config
+            .outputs(LogNamespace::Legacy)
+            .remove(0)
+            .schema_definition(true);
 
         let expected_definition = Definition::new_with_default_metadata(
             Kind::object(Collection::empty()),
@@ -731,6 +801,6 @@ mod tests {
         .with_event_field(&owned_value_path!("proc_id"), Kind::bytes(), None)
         .unknown_fields(Kind::bytes());
 
-        assert_eq!(definition, expected_definition)
+        assert_eq!(definitions, Some(expected_definition))
     }
 }

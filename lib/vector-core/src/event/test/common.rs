@@ -1,18 +1,15 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    iter,
-};
+use std::{collections::BTreeSet, iter};
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use quickcheck::{empty_shrinker, Arbitrary, Gen};
+use vrl::value::{ObjectMap, Value};
 
 use super::super::{
     metric::{
-        Bucket, MetricData, MetricName, MetricSeries, MetricSketch, MetricTags, MetricTime,
-        Quantile, Sample,
+        Bucket, MetricArbitrary, MetricData, MetricName, MetricSeries, MetricSketch, MetricTags,
+        MetricTime, Quantile, Sample,
     },
     Event, EventMetadata, LogEvent, Metric, MetricKind, MetricValue, StatisticKind, TraceEvent,
-    Value,
 };
 use crate::metrics::AgentDDSketch;
 
@@ -53,9 +50,7 @@ fn datetime(g: &mut Gen) -> DateTime<Utc> {
     // are. We just sort of arbitrarily restrict things.
     let secs = i64::arbitrary(g) % 32_000;
     let nanosecs = u32::arbitrary(g) % 32_000;
-    NaiveDateTime::from_timestamp_opt(secs, nanosecs)
-        .expect("invalid timestamp")
-        .and_utc()
+    DateTime::from_timestamp(secs, nanosecs).expect("invalid timestamp")
 }
 
 impl Arbitrary for Event {
@@ -82,7 +77,7 @@ impl Arbitrary for Event {
 impl Arbitrary for LogEvent {
     fn arbitrary(g: &mut Gen) -> Self {
         let mut gen = Gen::new(MAX_MAP_SIZE);
-        let map: BTreeMap<String, Value> = BTreeMap::arbitrary(&mut gen);
+        let map: ObjectMap = ObjectMap::arbitrary(&mut gen);
         let metadata: EventMetadata = EventMetadata::arbitrary(g);
         LogEvent::from_map(map, metadata)
     }
@@ -573,6 +568,7 @@ impl Arbitrary for MetricData {
             },
             kind: MetricKind::arbitrary(g),
             value: MetricValue::arbitrary(g),
+            arbitrary: MetricArbitrary::default(),
         }
     }
 

@@ -8,6 +8,7 @@ use exitcode::ExitCode;
 
 use crate::{
     config::{self, Config, ConfigDiff},
+    extra_context::ExtraContext,
     topology::{self, builder::TopologyPieces},
 };
 
@@ -23,6 +24,10 @@ pub struct Opts {
     /// Disables health checks.
     #[clap(long)]
     pub no_health: bool,
+
+    /// Disables health checks during validation.
+    #[arg(long)]
+    pub skip_healthchecks: bool,
 
     /// Fail validation on warnings that are probably a mistake in the configuration
     /// or are recommended to be fixed.
@@ -140,24 +145,18 @@ pub fn validate_config(opts: &Opts, fmt: &mut Formatter) -> Option<Config> {
         fmt.title(format!("Failed to load {:?}", &paths_list));
         fmt.sub_error(errors);
     };
-    config::init_log_schema(&paths, true)
+    let builder = config::load_builder_from_paths(&paths)
         .map_err(&mut report_error)
         .ok()?;
-    let (builder, load_warnings) = config::load_builder_from_paths(&paths)
-        .map_err(&mut report_error)
-        .ok()?;
+    config::init_log_schema(builder.global.log_schema.clone(), true);
 
     // Build
-    let (config, build_warnings) = builder
+    let (config, warnings) = builder
         .build_with_warnings()
         .map_err(&mut report_error)
         .ok()?;
 
     // Warnings
-    let warnings = load_warnings
-        .into_iter()
-        .chain(build_warnings)
-        .collect::<Vec<_>>();
     if !warnings.is_empty() {
         if opts.deny_warnings {
             report_error(warnings);
@@ -181,12 +180,8 @@ async fn validate_environment(opts: &Opts, config: &Config, fmt: &mut Formatter)
     } else {
         return false;
     };
-
-    if !opts.no_health {
-        validate_healthchecks(opts, config, &diff, &mut pieces, fmt).await
-    } else {
-        true
-    }
+    (opts.no_health || opts.skip_healthchecks)
+        || validate_healthchecks(opts, config, &diff, &mut pieces, fmt).await
 }
 
 async fn validate_components(
@@ -194,7 +189,15 @@ async fn validate_components(
     diff: &ConfigDiff,
     fmt: &mut Formatter,
 ) -> Option<TopologyPieces> {
-    match topology::TopologyPieces::build(config, diff, None, HashMap::new()).await {
+    match topology::TopologyPieces::build(
+        config,
+        diff,
+        None,
+        HashMap::new(),
+        ExtraContext::default(),
+    )
+    .await
+    {
         Ok(pieces) => {
             fmt.success("Component configuration");
             Some(pieces)

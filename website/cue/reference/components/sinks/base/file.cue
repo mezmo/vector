@@ -15,8 +15,8 @@ base: components: sinks: file: configuration: {
 				Whether or not end-to-end acknowledgements are enabled.
 
 				When enabled for a sink, any source connected to that sink, where the source supports
-				end-to-end acknowledgements as well, waits for events to be acknowledged by the sink
-				before acknowledging them at the source.
+				end-to-end acknowledgements as well, waits for events to be acknowledged by **all
+				connected** sinks before acknowledging them at the source.
 
 				Enabling or disabling acknowledgements at the sink level takes precedence over any global
 				[`acknowledgements`][global_acks] configuration.
@@ -78,7 +78,20 @@ base: components: sinks: file: configuration: {
 					gelf: """
 						Encodes an event as a [GELF][gelf] message.
 
+						This codec is experimental for the following reason:
+
+						The GELF specification is more strict than the actual Graylog receiver.
+						Vector's encoder currently adheres more strictly to the GELF spec, with
+						the exception that some characters such as `@`  are allowed in field names.
+
+						Other GELF codecs such as Loki's, use a [Go SDK][implementation] that is maintained
+						by Graylog, and is much more relaxed than the GELF spec.
+
+						Going forward, Vector will use that [Go SDK][implementation] as the reference implementation, which means
+						the codec may continue to relax the enforcement of specification.
+
 						[gelf]: https://docs.graylog.org/docs/gelf
+						[implementation]: https://github.com/Graylog2/go-gelf/blob/v2/gelf/reader.go
 						"""
 					json: """
 						Encodes an event as [JSON][json].
@@ -148,7 +161,7 @@ base: components: sinks: file: configuration: {
 					delimiter: {
 						description: "The field delimiter to use when writing CSV."
 						required:    false
-						type: uint: default: 44
+						type: ascii_char: default: ","
 					}
 					double_quote: {
 						description: """
@@ -170,7 +183,7 @@ base: components: sinks: file: configuration: {
 																To use this, `double_quotes` needs to be disabled as well otherwise it is ignored.
 																"""
 						required: false
-						type: uint: default: 34
+						type: ascii_char: default: "\""
 					}
 					fields: {
 						description: """
@@ -188,7 +201,7 @@ base: components: sinks: file: configuration: {
 					quote: {
 						description: "The quote character to use when writing CSV."
 						required:    false
-						type: uint: default: 34
+						type: ascii_char: default: "\""
 					}
 					quote_style: {
 						description: "The quoting style to use when writing CSV data."
@@ -218,6 +231,16 @@ base: components: sinks: file: configuration: {
 				description: "List of fields that are excluded from the encoded event."
 				required:    false
 				type: array: items: type: string: {}
+			}
+			json: {
+				description:   "Options for the JsonSerializer."
+				relevant_when: "codec = \"json\""
+				required:      false
+				type: object: options: pretty: {
+					description: "Whether to use pretty JSON formatting."
+					required:    false
+					type: bool: default: false
+				}
 			}
 			metric_tag_values: {
 				description: """
@@ -291,7 +314,34 @@ base: components: sinks: file: configuration: {
 				type: object: options: delimiter: {
 					description: "The ASCII (7-bit) character that delimits byte sequences."
 					required:    true
-					type: uint: {}
+					type: ascii_char: {}
+				}
+			}
+			length_delimited: {
+				description:   "Options for the length delimited decoder."
+				relevant_when: "method = \"length_delimited\""
+				required:      true
+				type: object: options: {
+					length_field_is_big_endian: {
+						description: "Length field byte order (little or big endian)"
+						required:    false
+						type: bool: default: true
+					}
+					length_field_length: {
+						description: "Number of bytes representing the field length"
+						required:    false
+						type: uint: default: 4
+					}
+					length_field_offset: {
+						description: "Number of bytes in the header before the length field"
+						required:    false
+						type: uint: default: 0
+					}
+					max_frame_length: {
+						description: "Maximum frame length"
+						required:    false
+						type: uint: default: 8388608
+					}
 				}
 			}
 			method: {
@@ -325,6 +375,20 @@ base: components: sinks: file: configuration: {
 			unit: "seconds"
 		}
 	}
+	internal_metrics: {
+		description: "Configuration of internal metrics for file-based components."
+		required:    false
+		type: object: options: include_file_tag: {
+			description: """
+				Whether or not to include the "file" tag on the component's corresponding internal metrics.
+
+				This is useful for distinguishing between different files while monitoring. However, the tag's
+				cardinality is unbounded.
+				"""
+			required: false
+			type: bool: default: false
+		}
+	}
 	path: {
 		description: """
 			File path to write events to.
@@ -336,5 +400,16 @@ base: components: sinks: file: configuration: {
 			examples: ["/tmp/vector-%Y-%m-%d.log", "/tmp/application-{{ application_id }}-%Y-%m-%d.log", "/tmp/vector-%Y-%m-%d.log.zst"]
 			syntax: "template"
 		}
+	}
+	timezone: {
+		description: """
+			Timezone to use for any date specifiers in template strings.
+
+			This can refer to any valid timezone as defined in the [TZ database][tzdb], or "local" which refers to the system local timezone. It will default to the [globally configured timezone](https://vector.dev/docs/reference/configuration/global-options/#timezone).
+
+			[tzdb]: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+			"""
+		required: false
+		type: string: examples: ["local", "America/New_York", "EST5EDT"]
 	}
 }

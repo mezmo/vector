@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::{
     collections::BTreeMap,
     fs::File,
@@ -11,14 +12,15 @@ use vector_lib::codecs::MetricTagValues;
 use vector_lib::compile_vrl;
 use vector_lib::config::{LogNamespace, OutputId, TransformOutput};
 use vector_lib::configurable::configurable_component;
+use vector_lib::enrichment::TableRegistry;
 use vector_lib::lookup::{metadata_path, owned_value_path, PathPrefix};
 use vector_lib::schema::Definition;
 use vector_lib::TimeZone;
 use vector_vrl_functions::set_semantic_meaning::MeaningList;
 use vrl::compiler::runtime::{Runtime, Terminate};
 use vrl::compiler::state::ExternalEnv;
-use vrl::compiler::{CompileConfig, ExpressionError, Function, Program, TypeState, VrlRuntime};
-use vrl::diagnostic::{DiagnosticMessage, Formatter, Note};
+use vrl::compiler::{CompileConfig, ExpressionError, Program, TypeState, VrlRuntime};
+use vrl::diagnostic::{DiagnosticList, DiagnosticMessage, Formatter, Note};
 use vrl::path;
 use vrl::path::ValuePath;
 use vrl::value::{Kind, Value};
@@ -27,22 +29,24 @@ use crate::{
     config::{log_schema, ComponentKey, DataType, Input, TransformConfig, TransformContext},
     event::{Event, TargetEvents, VrlTarget},
     internal_events::{RemapMappingAbort, RemapMappingError},
-    mezmo::{vrl as mezmo_vrl_functions, MezmoContext},
     schema,
     transforms::{SyncTransform, Transform, TransformOutputsBuf},
     Result,
 };
+use mezmo::{functions as mezmo_vrl_functions, MezmoContext};
 
 const DROPPED: &str = "dropped";
+type CacheKey = (TableRegistry, schema::Definition);
+type CacheValue = (Program, String, MeaningList);
 
 /// Configuration for the `remap` transform.
 #[configurable_component(transform(
     "remap",
     "Modify your observability data as it passes through your topology using Vector Remap Language (VRL)."
 ))]
-#[derive(Clone, Debug, Derivative)]
+#[derive(Derivative)]
 #[serde(deny_unknown_fields)]
-#[derivative(Default)]
+#[derivative(Default, Debug)]
 pub struct RemapConfig {
     /// The [Vector Remap Language][vrl] (VRL) program to execute for each event.
     ///
@@ -102,11 +106,9 @@ pub struct RemapConfig {
 
     /// Drops any event that is manually aborted during processing.
     ///
-    /// Normally, if a VRL program is manually aborted (using [`abort`][vrl_docs_abort]) when
-    /// processing an event, the original, unmodified event is sent downstream. In some cases,
-    /// you may not wish to send the event any further, such as if certain transformation or
-    /// enrichment is strictly required. Setting `drop_on_abort` to `true` allows you to ensure
-    /// these events do not get processed any further.
+    /// If a VRL program is manually aborted (using [`abort`][vrl_docs_abort]) when
+    /// processing an event, this option controls whether the original, unmodified event is sent
+    /// downstream without any modifications or if it is dropped.
     ///
     /// Additionally, dropped events can potentially be diverted to a specially-named output for
     /// further logging and analysis by setting `reroute_dropped`.
@@ -132,15 +134,68 @@ pub struct RemapConfig {
     #[configurable(derived, metadata(docs::hidden))]
     #[serde(default)]
     pub runtime: VrlRuntime,
+
+    #[configurable(derived, metadata(docs::hidden))]
+    #[serde(skip)]
+    #[derivative(Debug = "ignore")]
+    /// Cache can't be `BTreeMap` or `HashMap` because of `TableRegistry`, which doesn't allow us to inspect tables inside it.
+    /// And even if we allowed the inspection, the tables can be huge, resulting in a long comparison or hash computation
+    /// while using `Vec` allows us to use just a shallow comparison
+    pub cache: Mutex<Vec<(CacheKey, std::result::Result<CacheValue, String>)>>,
+}
+
+impl Clone for RemapConfig {
+    fn clone(&self) -> Self {
+        Self {
+            source: self.source.clone(),
+            file: self.file.clone(),
+            metric_tag_values: self.metric_tag_values,
+            timezone: self.timezone,
+            drop_on_error: self.drop_on_error,
+            drop_on_abort: self.drop_on_abort,
+            reroute_dropped: self.reroute_dropped,
+            runtime: self.runtime,
+            cache: Mutex::new(Default::default()),
+        }
+    }
+}
+
+/// The propagated errors should not contain file contents to prevent exposing sensitive data.
+fn redacted_diagnostics(source: &str, diagnostics: DiagnosticList) -> String {
+    let placeholder = '*';
+    // The formatter depends on whitespaces.
+    let redacted_source: String = source
+        .chars()
+        .map(|c| if c.is_whitespace() { c } else { placeholder })
+        .collect();
+    // Remove placeholder chars to hide the content length.
+    format!(
+        "{}{}",
+        "File contents were redacted.",
+        Formatter::new(&redacted_source, diagnostics)
+            .colored()
+            .to_string()
+            .replace(placeholder, " ")
+    )
 }
 
 impl RemapConfig {
     pub(crate) fn compile_vrl_program(
         &self,
-        enrichment_tables: vector_lib::enrichment::TableRegistry,
+        enrichment_tables: TableRegistry,
         merged_schema_definition: schema::Definition,
         mezmo_ctx: Option<MezmoContext>,
-    ) -> Result<(Program, String, Vec<Box<dyn Function>>, CompileConfig)> {
+    ) -> Result<CacheValue> {
+        if let Some((_, res)) = self
+            .cache
+            .lock()
+            .expect("Data poisoned")
+            .iter()
+            .find(|v| v.0 .0 == enrichment_tables && v.0 .1 == merged_schema_definition)
+        {
+            return res.clone().map_err(Into::into);
+        }
+
         let source = match (&self.source, &self.file) {
             (Some(source), None) => source.to_owned(),
             (None, Some(path)) => {
@@ -170,27 +225,36 @@ impl RemapConfig {
         };
         let mut config = CompileConfig::default();
 
-        config.set_custom(enrichment_tables);
+        config.set_custom(enrichment_tables.clone());
         config.set_custom(MeaningList::default());
         if let Some(ctx) = mezmo_ctx {
             config.set_custom(ctx)
         }
 
-        compile_vrl(&source, &functions, &state, config)
-            .map_err(|diagnostics| {
-                Formatter::new(&source, diagnostics)
+        let res = compile_vrl(&source, &functions, &state, config)
+            .map_err(|diagnostics| match self.file {
+                None => Formatter::new(&source, diagnostics)
                     .colored()
                     .to_string()
-                    .into()
+                    .into(),
+                Some(_) => redacted_diagnostics(&source, diagnostics).into(),
             })
             .map(|result| {
                 (
                     result.program,
-                    Formatter::new(&source, result.warnings).to_string(),
-                    functions,
-                    result.config,
+                    Formatter::new(&source, result.warnings)
+                        .colored()
+                        .to_string(),
+                    result.config.get_custom::<MeaningList>().unwrap().clone(),
                 )
-            })
+            });
+
+        self.cache
+            .lock()
+            .expect("Data poisoned")
+            .push(((enrichment_tables, merged_schema_definition), res.clone()));
+
+        res.map_err(Into::into)
     }
 }
 
@@ -285,12 +349,12 @@ impl TransformConfig for RemapConfig {
             );
         }
 
-        let default_output = TransformOutput::new(DataType::all(), default_definitions);
+        let default_output = TransformOutput::new(DataType::all_bits(), default_definitions);
 
         if self.reroute_dropped {
             vec![
                 default_output,
-                TransformOutput::new(DataType::all(), dropped_definitions).with_port(DROPPED),
+                TransformOutput::new(DataType::all_bits(), dropped_definitions).with_port(DROPPED),
             ]
         } else {
             vec![default_output]
@@ -358,7 +422,7 @@ impl Remap<AstRunner> {
         context: &TransformContext,
     ) -> crate::Result<(Self, String)> {
         let mezmo_ctx = context.mezmo_ctx.clone();
-        let (program, warnings, _, _) = config.compile_vrl_program(
+        let (program, warnings, _) = config.compile_vrl_program(
             context.enrichment_tables.clone(),
             context.merged_schema_definition.clone(),
             mezmo_ctx,
@@ -443,7 +507,7 @@ where
                         self.component_key
                             .as_ref()
                             .map(ToString::to_string)
-                            .unwrap_or_else(String::new),
+                            .unwrap_or_default(),
                     );
                     metric.replace_tag(
                         format!("{}.dropped.component_type", metadata_key),
@@ -519,18 +583,20 @@ where
             Err(reason) => {
                 let (reason, error, drop) = match reason {
                     Terminate::Abort(error) => {
-                        emit!(RemapMappingAbort {
-                            event_dropped: self.drop_on_abort,
-                        });
-
+                        if !self.reroute_dropped {
+                            emit!(RemapMappingAbort {
+                                event_dropped: self.drop_on_abort,
+                            });
+                        }
                         ("abort", error, self.drop_on_abort)
                     }
                     Terminate::Error(error) => {
-                        emit!(RemapMappingError {
-                            error: error.to_string(),
-                            event_dropped: self.drop_on_error,
-                        });
-
+                        if !self.reroute_dropped {
+                            emit!(RemapMappingError {
+                                error: error.to_string(),
+                                event_dropped: self.drop_on_error,
+                            });
+                        }
                         ("error", error, self.drop_on_error)
                     }
                 };
@@ -573,6 +639,7 @@ pub enum BuildError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     use indoc::{formatdoc, indoc};
@@ -581,6 +648,7 @@ mod tests {
     use vrl::{btreemap, event_path};
 
     use super::*;
+    use crate::metrics::Controller;
     use crate::{
         config::{build_unit_tests, ConfigBuilder},
         event::{
@@ -1209,9 +1277,8 @@ mod tests {
                     MetricValue::Counter { value: 1.0 },
                     // The schema definition is set in the topology, which isn't used in this test. Setting the definition
                     // to the actual value to skip the assertion here
-                    EventMetadata::default().with_schema_definition(&Arc::new(
-                        output.metadata().schema_definition().clone()
-                    )),
+                    EventMetadata::default()
+                        .with_schema_definition(output.metadata().schema_definition()),
                 )
                 .with_tags(Some(metric_tags! {
                     "hello" => "world",
@@ -1230,9 +1297,8 @@ mod tests {
                     MetricValue::Counter { value: 1.0 },
                     // The schema definition is set in the topology, which isn't used in this test. Setting the definition
                     // to the actual value to skip the assertion here
-                    EventMetadata::default().with_schema_definition(&Arc::new(
-                        output.metadata().schema_definition().clone()
-                    )),
+                    EventMetadata::default()
+                        .with_schema_definition(output.metadata().schema_definition()),
                 )
                 .with_tags(Some(metric_tags! {
                     "hello" => "goodbye",
@@ -1254,9 +1320,8 @@ mod tests {
                     MetricValue::Counter { value: 1.0 },
                     // The schema definition is set in the topology, which isn't used in this test. Setting the definition
                     // to the actual value to skip the assertion here
-                    EventMetadata::default().with_schema_definition(&Arc::new(
-                        output.metadata().schema_definition().clone()
-                    )),
+                    EventMetadata::default()
+                        .with_schema_definition(output.metadata().schema_definition()),
                 )
                 .with_tags(Some(metric_tags! {
                     "not_hello" => "oops",
@@ -1427,7 +1492,7 @@ mod tests {
         //         LogNamespace::Legacy
         //     ),
         //     vec![TransformOutput::new(
-        //         DataType::all(),
+        //         DataType::all_bits(),
         //         [("test".into(), schema_definition)].into()
         //     )]
         // );
@@ -1494,8 +1559,8 @@ mod tests {
     fn collect_outputs(ft: &mut dyn SyncTransform, event: Event) -> CollectedOuput {
         let mut outputs = TransformOutputsBuf::new_with_capacity(
             vec![
-                TransformOutput::new(DataType::all(), HashMap::new()),
-                TransformOutput::new(DataType::all(), HashMap::new()).with_port(DROPPED),
+                TransformOutput::new(DataType::all_bits(), HashMap::new()),
+                TransformOutput::new(DataType::all_bits(), HashMap::new()).with_port(DROPPED),
             ],
             1,
         );
@@ -1521,8 +1586,8 @@ mod tests {
     ) -> std::result::Result<Event, Event> {
         let mut outputs = TransformOutputsBuf::new_with_capacity(
             vec![
-                TransformOutput::new(DataType::all(), HashMap::new()),
-                TransformOutput::new(DataType::all(), HashMap::new()).with_port(DROPPED),
+                TransformOutput::new(DataType::all_bits(), HashMap::new()),
+                TransformOutput::new(DataType::all_bits(), HashMap::new()).with_port(DROPPED),
             ],
             1,
         );
@@ -1688,7 +1753,7 @@ mod tests {
 
     //     assert_eq!(
     //         vec![TransformOutput::new(
-    //             DataType::all(),
+    //             DataType::all_bits(),
     //             // The `never` definition should have been passed on to the end.
     //             [(
     //                 "in".into(),
@@ -1714,7 +1779,7 @@ mod tests {
 
     //     assert_eq!(
     //         vec![TransformOutput::new(
-    //             DataType::all(),
+    //             DataType::all_bits(),
     //             [(
     //                 "in1".into(),
     //                 Definition::default_legacy_namespace()
@@ -1767,7 +1832,7 @@ mod tests {
 
     //     assert_eq!(
     //         vec![TransformOutput::new(
-    //             DataType::all(),
+    //             DataType::all_bits(),
     //             [(
     //                 "in".into(),
     //                 Definition::new_with_default_metadata(
@@ -1799,7 +1864,7 @@ mod tests {
 
     //     assert_eq!(
     //         vec![TransformOutput::new(
-    //             DataType::all(),
+    //             DataType::all_bits(),
     //             [(
     //                 "in1".into(),
     //                 Definition::default_legacy_namespace()
@@ -1848,7 +1913,7 @@ mod tests {
 
         assert_eq!(
             vec![TransformOutput::new(
-                DataType::all(),
+                DataType::all_bits(),
                 [(
                     "in".into(),
                     Definition::new_with_default_metadata(
@@ -1983,4 +2048,95 @@ mod tests {
     //         outputs1[0].schema_definitions(true),
     //     );
     // }
+
+    // #[test]
+    // fn check_remap_array_vector_namespace() {
+    //     let event = {
+    //         let mut event = LogEvent::from("input");
+    //         // mark the event as a "Vector" namespaced log
+    //         event
+    //             .metadata_mut()
+    //             .value_mut()
+    //             .insert("vector", BTreeMap::new());
+    //         Event::from(event)
+    //     };
+    //
+    //     let conf = RemapConfig {
+    //         source: Some(
+    //             r#". = [null]
+    //
+    //             .to_string(),
+    //         ),
+    //         file: None,
+    //         drop_on_error: true,
+    //         drop_on_abort: false,
+    //         ..Default::default()
+    //     };
+    //     let mut tform = remap(conf.clone()).unwrap();
+    //     let result = transform_one(&mut tform, event).unwrap();
+    //
+    //     // Legacy namespace nests this under "message", Vector should set it as the root
+    //     assert_eq!(result.as_log().get("."), Some(&Value::Null));
+    //
+    //     let enrichment_tables = vector_lib::enrichment::TableRegistry::default();
+    //     let outputs1 = conf.outputs(
+    //         enrichment_tables,
+    //         &[(
+    //             "in".into(),
+    //             schema::Definition::new_with_default_metadata(
+    //                 Kind::any_object(),
+    //                 [LogNamespace::Vector],
+    //             ),
+    //         )],
+    //         LogNamespace::Vector,
+    //     );
+    //
+    //     let wanted =
+    //         schema::Definition::new_with_default_metadata(Kind::null(), [LogNamespace::Vector]);
+    //
+    //     assert_eq!(
+    //         HashMap::from([(OutputId::from("in"), wanted.clone())]),
+    //         outputs1[0].schema_definitions(true),
+    //         "{:#?}\n{:#?}",
+    //         HashMap::from([(OutputId::from("in"), wanted)]),
+    //         outputs1[0].schema_definitions(true),
+    //
+    //     );
+    // }
+
+    fn assert_no_metrics(source: String) {
+        vector_lib::metrics::init_test();
+
+        let config = RemapConfig {
+            source: Some(source),
+            drop_on_error: true,
+            drop_on_abort: true,
+            reroute_dropped: true,
+            ..Default::default()
+        };
+        let mut ast_runner = remap(config).unwrap();
+        let input_event =
+            Event::from_json_value(serde_json::json!({"a": 42}), LogNamespace::Vector).unwrap();
+        let dropped_event = transform_one_fallible(&mut ast_runner, input_event).unwrap_err();
+        let dropped_log = dropped_event.as_log();
+        assert_eq!(dropped_log.get(event_path!("a")), Some(&Value::from(42)));
+
+        let controller = Controller::get().expect("no controller");
+        let metrics = controller
+            .capture_metrics()
+            .into_iter()
+            .map(|metric| (metric.name().to_string(), metric))
+            .collect::<BTreeMap<String, Metric>>();
+        assert_eq!(metrics.get("component_discarded_events_total"), None);
+        assert_eq!(metrics.get("component_errors_total"), None);
+    }
+    #[test]
+    fn do_not_emit_metrics_when_dropped() {
+        assert_no_metrics("abort".to_string());
+    }
+
+    #[test]
+    fn do_not_emit_metrics_when_errored() {
+        assert_no_metrics("parse_key_value!(.message)".to_string());
+    }
 }

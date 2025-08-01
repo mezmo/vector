@@ -217,7 +217,7 @@ impl SourceConfig for RedisSourceConfig {
             )
             .with_standard_vector_source_metadata();
 
-        vec![SourceOutput::new_logs(
+        vec![SourceOutput::new_maybe_logs(
             self.decoding.output_type(),
             schema_definition,
         )]
@@ -330,7 +330,7 @@ mod integration_test {
     async fn redis_source_list_rpop() {
         // Push some test data into a list object which we'll read from.
         let client = redis::Client::open(REDIS_SERVER).unwrap();
-        let mut conn = client.get_tokio_connection_manager().await.unwrap();
+        let mut conn = client.get_connection_manager().await.unwrap();
 
         let key = format!("test-key-{}", random_string(10));
         debug!("Test key name: {}.", key);
@@ -373,7 +373,7 @@ mod integration_test {
     async fn redis_source_list_rpop_with_log_namespace() {
         // Push some test data into a list object which we'll read from.
         let client = redis::Client::open(REDIS_SERVER).unwrap();
-        let mut conn = client.get_tokio_connection_manager().await.unwrap();
+        let mut conn = client.get_connection_manager().await.unwrap();
 
         let key = format!("test-key-{}", random_string(10));
         debug!("Test key name: {}.", key);
@@ -412,7 +412,7 @@ mod integration_test {
     async fn redis_source_list_lpop() {
         // Push some test data into a list object which we'll read from.
         let client = redis::Client::open(REDIS_SERVER).unwrap();
-        let mut conn = client.get_tokio_connection_manager().await.unwrap();
+        let mut conn = client.get_connection_manager().await.unwrap();
 
         let key = format!("test-key-{}", random_string(10));
         debug!("Test key name: {}.", key);
@@ -451,6 +451,7 @@ mod integration_test {
         );
     }
 
+    #[allow(deprecated)]
     #[tokio::test]
     async fn redis_source_channel_consume_event() {
         let key = format!("test-channel-{}", random_string(10));

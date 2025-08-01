@@ -17,7 +17,7 @@ use crate::{
         ConnectionOpen, OpenGauge, SocketMode, UnixSocketConnectionEstablished,
         UnixSocketOutgoingConnectionError, UnixSocketSendError,
     },
-    sink::VecSinkExt,
+    sink_ext::VecSinkExt,
     sinks::{
         util::{
             retries::ExponentialBackoff,
@@ -257,7 +257,7 @@ mod tests {
             .build(
                 Default::default(),
                 Encoder::<Framer>::new(
-                    NewlineDelimitedEncoder::new().into(),
+                    NewlineDelimitedEncoder::default().into(),
                     TextSerializerConfig::default().build().into(),
                 ),
             )

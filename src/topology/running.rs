@@ -6,34 +6,32 @@ use std::{
     },
 };
 
-use futures::{future, Future, FutureExt};
-use tokio::{
-    sync::{
-        mpsc::{self, UnboundedSender},
-        watch,
-    },
-    time::{interval, sleep_until, Duration, Instant},
-};
-use tracing::Instrument;
-use vector_lib::buffers::topology::channel::BufferSender;
-use vector_lib::trigger::DisabledTrigger;
-use vector_lib::usage_metrics::UsageMetrics;
-
 use super::{
     builder,
     builder::TopologyPieces,
     fanout::{ControlChannel, ControlMessage},
     handle_errors, retain, take_healthchecks,
     task::TaskOutput,
-    BuiltBuffer, TapOutput, TapResource, TaskHandle, WatchRx, WatchTx,
+    BuiltBuffer, TaskHandle,
 };
 use crate::{
     config::{ComponentKey, Config, ConfigDiff, HealthcheckOptions, Inputs, OutputId, Resource},
     event::EventArray,
+    extra_context::ExtraContext,
     shutdown::SourceShutdownCoordinator,
     signal::ShutdownError,
     spawn_named,
 };
+use futures::{future, Future, FutureExt};
+use tokio::{
+    sync::{mpsc, watch},
+    time::{interval, sleep_until, Duration, Instant},
+};
+use tracing::Instrument;
+use vector_lib::buffers::topology::channel::BufferSender;
+use vector_lib::tap::topology::{TapOutput, TapResource, WatchRx, WatchTx};
+use vector_lib::trigger::DisabledTrigger;
+use vector_lib::usage_metrics::UsageMetrics;
 
 pub type ShutdownErrorReceiver = mpsc::UnboundedReceiver<ShutdownError>;
 
@@ -223,15 +221,20 @@ impl RunningTopology {
     ///
     /// If all changes from the new configuration cannot be made, and the current configuration
     /// cannot be fully restored, then `Err(())` is returned.
-    pub async fn reload_config_and_respawn(&mut self, new_config: Config) -> Result<bool, ()> {
-        self.reload_config_and_respawn_with_metrics(new_config, None)
+    pub async fn reload_config_and_respawn(
+        &mut self,
+        new_config: Config,
+        extra_context: ExtraContext,
+    ) -> Result<bool, ()> {
+        self.reload_config_and_respawn_with_metrics(new_config, None, extra_context)
             .await
     }
 
     pub async fn reload_config_and_respawn_with_metrics(
         &mut self,
         new_config: Config,
-        metrics_tx: Option<UnboundedSender<UsageMetrics>>,
+        metrics_tx: Option<mpsc::UnboundedSender<UsageMetrics>>,
+        extra_context: ExtraContext,
     ) -> Result<bool, ()> {
         info!("Reloading running topology with new configuration.");
 
@@ -267,6 +270,7 @@ impl RunningTopology {
             &diff,
             metrics_tx.clone(),
             buffers.clone(),
+            extra_context.clone(),
         )
         .await
         {
@@ -293,9 +297,14 @@ impl RunningTopology {
         warn!("Failed to completely load new configuration. Restoring old configuration.");
 
         let diff = diff.flip();
-        if let Some(mut new_pieces) =
-            TopologyPieces::build_or_log_errors(&self.config, &diff, metrics_tx.clone(), buffers)
-                .await
+        if let Some(mut new_pieces) = TopologyPieces::build_or_log_errors(
+            &self.config,
+            &diff,
+            metrics_tx.clone(),
+            buffers,
+            extra_context.clone(),
+        )
+        .await
         {
             if self
                 .run_healthchecks(&diff, &mut new_pieces, self.config.healthchecks)
@@ -998,11 +1007,18 @@ impl RunningTopology {
 
     pub async fn start_init_validated(
         config: Config,
-        metrics_tx: Option<UnboundedSender<UsageMetrics>>,
+        metrics_tx: Option<mpsc::UnboundedSender<UsageMetrics>>,
+        extra_context: ExtraContext,
     ) -> Option<(Self, ShutdownErrorReceiver)> {
         let diff = ConfigDiff::initial(&config);
-        let pieces =
-            TopologyPieces::build_or_log_errors(&config, &diff, metrics_tx, HashMap::new()).await?;
+        let pieces = TopologyPieces::build_or_log_errors(
+            &config,
+            &diff,
+            metrics_tx,
+            HashMap::new(),
+            extra_context,
+        )
+        .await?;
         Self::start_validated(config, diff, pieces).await
     }
 

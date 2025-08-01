@@ -1,9 +1,7 @@
-use deadpool_postgres::PoolConfig;
 use std::borrow::Cow;
 use std::time::{Duration, SystemTime};
 use std::{
     collections::{BTreeMap, HashMap},
-    env,
     future::ready,
     num::NonZeroUsize,
 };
@@ -23,17 +21,17 @@ use uuid::Uuid;
 use vector_lib::config::{log_schema, TransformOutput};
 use vector_lib::configurable::configurable_component;
 
-use crate::mezmo::MezmoContext;
 use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogClusterStatus};
 use crate::transforms::mezmo_log_clustering::store::save_in_loop;
+use mezmo::MezmoContext;
 use vector_lib::event::LogEvent;
-use vector_lib::usage_metrics::{get_annotations, get_db_config, AnnotationSet};
+use vector_lib::usage_metrics::{
+    get_annotations, include_metadata_in_size, log_event_size, AnnotationSet,
+};
 use vrl::value::Value;
 
 mod drain;
 mod store;
-
-const DEFAULT_DB_CONNECTION_POOL_SIZE: usize = 2;
 
 /// Configuration for the `mezmo_log_clustering` transform.
 #[configurable_component(transform("mezmo_log_clustering"))]
@@ -73,6 +71,10 @@ pub struct MezmoLogClusteringConfig {
     /// When `store_metrics` is enabled, it determines the flush interval.
     #[serde(default = "default_store_metrics_flush_interval")]
     pub store_metrics_flush_interval: Duration,
+
+    /// Total amount of log samples to be stored per cluster.
+    #[serde(default = "default_max_log_samples_amount")]
+    pub max_log_samples_amount: usize,
 }
 
 const fn default_max_clusters() -> usize {
@@ -95,6 +97,10 @@ const fn default_store_metrics_flush_interval() -> Duration {
     Duration::from_secs(20)
 }
 
+const fn default_max_log_samples_amount() -> usize {
+    5
+}
+
 impl_generate_config_from_default!(MezmoLogClusteringConfig);
 
 type DbTransmitter = UnboundedSender<LogGroupInfo>;
@@ -105,26 +111,18 @@ static ONCE: OnceCell<DbTransmitter> = OnceCell::const_new();
 impl TransformConfig for MezmoLogClusteringConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
         // Create a channel with a db connection pool only once
-        let mut key = None;
+        let mut account_id = None;
+        let mut component_id = None;
         let db_tx = if self.store_metrics {
-            let db_url = env::var("MEZMO_METRICS_DB_URL").ok();
-            let Some(db_url) = db_url else {
-                return Err(
-                    "Cannot store log clustering metrics without MEZMO_METRICS_DB_URL being set"
-                        .into(),
-                );
-            };
-
-            let Ok(mut config) = get_db_config(db_url.as_str()) else {
-                return Err("Invalid db url".into());
-            };
-            config.pool = Some(PoolConfig::new(DEFAULT_DB_CONNECTION_POOL_SIZE));
             let Some(mezmo_ctx) = context.mezmo_ctx.as_ref() else {
                 return Err("Cannot store log clustering metrics without a component key".into());
             };
-            key = get_component_info(mezmo_ctx);
-            if key.is_none() {
-                return Err("Component key is not valid".into());
+            (account_id, component_id) = get_component_info(mezmo_ctx);
+            if account_id.is_none() {
+                return Err("Account id is not valid".into());
+            }
+            if component_id.is_none() {
+                return Err("Component id is not valid".into());
             }
 
             let store_metrics_flush_interval = self.store_metrics_flush_interval;
@@ -134,7 +132,7 @@ impl TransformConfig for MezmoLogClusteringConfig {
                     // Start saving in the background
                     // This task will be running forever, topology changes should not affect it
                     tokio::spawn(async move {
-                        save_in_loop(rx, config, store_metrics_flush_interval).await;
+                        save_in_loop(rx, store_metrics_flush_interval).await;
                     });
 
                     tx
@@ -147,7 +145,10 @@ impl TransformConfig for MezmoLogClusteringConfig {
         };
 
         Ok(Transform::event_task(MezmoLogClustering::new(
-            self, key, db_tx,
+            self,
+            account_id,
+            component_id,
+            db_tx,
         )))
     }
 
@@ -176,17 +177,19 @@ struct MezmoLogClustering {
     sample_start: Option<i64>,
     sample_end: Option<i64>,
     transform_status: Option<TransformStatus>,
-    key: Option<ComponentInfo>,
+    account_id: Option<Uuid>,
+    component_id: Option<String>,
     db_tx: Option<DbTransmitter>,
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 enum TransformStatus {
     Noop,
     Store,
     AnnotateEvent,
 }
 
+#[derive(Debug)]
 pub(crate) struct LogGroupInfo {
     local_id: LocalId,
     cluster_id: String,
@@ -194,12 +197,14 @@ pub(crate) struct LogGroupInfo {
     template: Option<String>,
     annotation_set: Option<AnnotationSet>,
     key: ComponentInfo,
+    samples: Vec<Value>,
 }
 
 impl MezmoLogClustering {
     pub fn new(
         config: &MezmoLogClusteringConfig,
-        key: Option<ComponentInfo>,
+        account_id: Option<Uuid>,
+        component_id: Option<String>,
         db_tx: Option<DbTransmitter>,
     ) -> Self {
         let similarity_threshold = if config.similarity_threshold > 1.0
@@ -234,15 +239,22 @@ impl MezmoLogClustering {
         };
 
         MezmoLogClustering {
-            parser: drain::LogParser::new(NonZeroUsize::new(config.max_clusters).unwrap_or_else(
-                || {
+            parser: drain::LogParser::new(
+                NonZeroUsize::new(config.max_clusters).unwrap_or_else(|| {
                     warn!(
                         "Attempted to use a max clusters of zero. Using the default: {}",
                         default_max_clusters()
                     );
                     NonZeroUsize::new(default_max_clusters()).unwrap()
-                },
-            ))
+                }),
+                NonZeroUsize::new(config.max_log_samples_amount).unwrap_or_else(|| {
+                    warn!(
+                        "Attempted to use a log samples amount of zero. Using the default: {}",
+                        default_max_log_samples_amount()
+                    );
+                    NonZeroUsize::new(default_max_log_samples_amount()).unwrap()
+                }),
+            )
             .sim_threshold(similarity_threshold)
             .max_node_depth(max_node_depth)
             .max_children(max_children),
@@ -250,7 +262,8 @@ impl MezmoLogClustering {
             sample_start: config.sample_start,
             sample_end: config.sample_end,
             transform_status: None,
-            key,
+            account_id,
+            component_id,
             db_tx,
             cluster_field: config.cluster_field.clone(),
         }
@@ -292,7 +305,10 @@ impl MezmoLogClustering {
             if last_status == Some(TransformStatus::Store) {
                 // We are no longer storing data from this component.
                 // Free the parser memory by dropping the previous parser.
-                self.parser = drain::LogParser::new(NonZeroUsize::new(1).unwrap());
+                self.parser = drain::LogParser::new(
+                    NonZeroUsize::new(1).unwrap(),
+                    NonZeroUsize::new(1).unwrap(),
+                );
             }
 
             return Some(event);
@@ -310,17 +326,48 @@ impl MezmoLogClustering {
             None
         };
 
-        let (group, group_status) = self.parser.add_log_line(line.as_ref());
+        let (group, group_status) = self.parser.add_log_line(line.as_ref(), log.get_message());
+
+        let message_field_name = if let Some(field) = log_schema().message_key() {
+            field.to_string()
+        } else {
+            "message".to_string()
+        };
 
         if status == TransformStatus::Store {
+            // the clustering is occuring on just the specified line,
+            // but we want to store the billing calculated size of the message
+            // so informed decisions can be made against full events using
+            // clustering line sizes
+            let mut message_size: i64 = 0;
+            if let Some(fields) = log.as_map() {
+                message_size = log_event_size(fields, include_metadata_in_size()) as i64;
+            }
+
+            let local_id = group.local_id();
+
             let mut info = LogGroupInfo {
-                local_id: group.local_id(),
+                local_id,
                 cluster_id: group.cluster_id(),
-                size: line.as_ref().len() as i64,
+                size: message_size,
                 template: None,
                 annotation_set: None,
-                // The component_key was already validated to be "some" for the Store case
-                key: self.key.as_ref().unwrap().clone(),
+                // self.account_id and self.component_id were already validated to be "some" for the Store case
+                key: ComponentInfo {
+                    account_id: self.account_id.unwrap(),
+                    component_id: get_analysis_id_from_log(log)
+                        .unwrap_or_else(|| self.component_id.clone().unwrap()),
+                },
+                samples: group
+                    .get_unstored_samples()
+                    .iter()
+                    .map(|s| {
+                        Value::Object(BTreeMap::from([(
+                            message_field_name.clone().into(),
+                            s.sample.clone(),
+                        )]))
+                    })
+                    .collect::<Vec<Value>>(),
             };
 
             // Send the full cluster information only when it was added/changed
@@ -329,24 +376,21 @@ impl MezmoLogClustering {
                 info.annotation_set = log.as_map().and_then(get_annotations);
             }
 
-            if let Err(_) = self.db_tx.as_ref().expect("can't fail").send(info) {
-                error!("Db channel closed");
-            }
+            match self.db_tx.as_ref().expect("can't fail").send(info) {
+                Ok(()) => {
+                    self.parser.mark_cluster_samples_as_stored(local_id);
+                }
+                Err(_) => error!("Db channel closed"),
+            };
         } else if status == TransformStatus::AnnotateEvent {
             let mut cluster = BTreeMap::new();
 
+            cluster.insert("cluster_id".into(), Value::Bytes(group.cluster_id().into()));
             cluster.insert(
-                "cluster_id".to_string(),
-                Value::Bytes(group.cluster_id().into()),
-            );
-            cluster.insert(
-                "match_count".to_string(),
+                "match_count".into(),
                 Value::Integer(group.match_count() as i64),
             );
-            cluster.insert(
-                "template".to_string(),
-                Value::Bytes(format!("{}", group).into()),
-            );
+            cluster.insert("template".into(), Value::Bytes(format!("{}", group).into()));
 
             log.insert(
                 field_name.expect("to be set for annotate case").as_str(),
@@ -411,30 +455,55 @@ struct LogGroupAggregateInfo {
     size: i64,
     template: Option<String>,
     annotation_set: Option<AnnotationSet>,
+    samples: Vec<Value>,
 }
 
-#[derive(Hash, Eq, PartialEq, Clone)]
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
 struct ComponentInfo {
     account_id: Uuid,
-    // The id of the shared route/source or other component that is being tracked
+    // Previously the id of the shared route/source or other component that is being tracked
+    //  now the id of the specific profiling run. The component_id of the node is set to the
+    //  data_profile_id currently
     component_id: String,
 }
 
-fn get_component_info(mezmo_ctx: &MezmoContext) -> Option<ComponentInfo> {
-    Some(ComponentInfo {
-        account_id: mezmo_ctx.account_id()?,
-        component_id: mezmo_ctx.component_id().to_string(),
-    })
+fn get_component_info(mezmo_ctx: &MezmoContext) -> (Option<Uuid>, Option<String>) {
+    (
+        mezmo_ctx.account_id(),
+        Some(mezmo_ctx.component_id().to_string()),
+    )
+}
+
+fn get_analysis_id_from_log(log: &LogEvent) -> Option<String> {
+    let annotations = log.get(log_schema().annotations_key())?.as_object();
+
+    if let Some(data_profile_value) = annotations?.get("data_profile_id") {
+        if let Some(data_profile_id) = data_profile_value.as_str() {
+            return Some(data_profile_id.to_string());
+        }
+    }
+    if let Some(analysis_value) = annotations?.get("analysis_id") {
+        if let Some(analysis_id) = analysis_value.as_str() {
+            return Some(analysis_id.to_string());
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
 
-    use super::{default_store_metrics_flush_interval, MezmoLogClusteringConfig};
+    use super::{
+        default_max_log_samples_amount, default_store_metrics_flush_interval,
+        get_analysis_id_from_log, MezmoLogClusteringConfig,
+    };
 
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
+    use vector_lib::config::log_schema;
+    use vector_lib::event::Value;
 
     use crate::{
         event::{Event, LogEvent},
@@ -458,6 +527,7 @@ mod tests {
             sample_start: None,
             sample_end: None,
             store_metrics_flush_interval: default_store_metrics_flush_interval(),
+            max_log_samples_amount: default_max_log_samples_amount(),
         }
     }
 
@@ -493,12 +563,15 @@ mod tests {
             let (topology, mut out) =
                 create_topology(ReceiverStream::new(rx), transform_config).await;
 
-            let mut log_parser = super::drain::LogParser::new(NonZeroUsize::new(1000).unwrap());
+            let mut log_parser = super::drain::LogParser::new(
+                NonZeroUsize::new(1000).unwrap(),
+                NonZeroUsize::new(5).unwrap(),
+            );
 
             tx.send(Event::Log(LogEvent::from("hi there 1")))
                 .await
                 .unwrap();
-            let (cluster, _) = log_parser.add_log_line("hi there 1");
+            let (cluster, _) = log_parser.add_log_line("hi there 1", None);
             let new_event = out.recv().await.unwrap();
             verify_cluster(new_event, "hi there <*>", &cluster.cluster_id(), 1);
 
@@ -506,13 +579,13 @@ mod tests {
                 .await
                 .unwrap();
             let new_event = out.recv().await.unwrap();
-            let (cluster, _) = log_parser.add_log_line("hi there 2");
+            let (cluster, _) = log_parser.add_log_line("hi there 2", None);
             verify_cluster(new_event, "hi there <*>", &cluster.cluster_id(), 2);
 
             tx.send(Event::Log(LogEvent::from("hi there 3")))
                 .await
                 .unwrap();
-            let (cluster, _) = log_parser.add_log_line("hi there 3");
+            let (cluster, _) = log_parser.add_log_line("hi there 3", None);
             let new_event = out.recv().await.unwrap();
             verify_cluster(new_event, "hi there <*>", &cluster.cluster_id(), 3);
 
@@ -521,5 +594,56 @@ mod tests {
             assert_eq!(out.recv().await, None);
         })
         .await;
+    }
+
+    #[test]
+    fn test_get_analysis_id_from_log() {
+        let no_annotations_log = LogEvent::from("no annotations log");
+        assert_eq!(
+            get_analysis_id_from_log(&no_annotations_log),
+            None,
+            "Log with no annotations returns None"
+        );
+
+        let mut annotations_no_id_log = LogEvent::from("annotations no id log");
+        annotations_no_id_log.insert(
+            log_schema().annotations_key(),
+            Value::Object(btreemap!("test_key" => Value::Bytes("test_value".into()))),
+        );
+        assert_eq!(
+            get_analysis_id_from_log(&annotations_no_id_log),
+            None,
+            "Log with no id in annotations returns None"
+        );
+
+        let mut data_profile_and_analysis_id_log =
+            LogEvent::from("data profile and analysis id log");
+        data_profile_and_analysis_id_log.insert(
+            log_schema().annotations_key(),
+            Value::Object(btreemap!(
+                "profile_thing" => Value::Bytes("test_profile_thing".into()),
+                "data_profile_id" => Value::Bytes("test_data_profile_id".into()),
+                "analysis_id" => Value::Bytes("test_analysis_id".into())
+            )),
+        );
+        assert_eq!(
+            get_analysis_id_from_log(&data_profile_and_analysis_id_log),
+            Some("test_data_profile_id".to_string()),
+            "data_profile_id preferred over analysis_id"
+        );
+
+        let mut analysis_id_only_log = LogEvent::from("analysis id only log");
+        analysis_id_only_log.insert(
+            log_schema().annotations_key(),
+            Value::Object(btreemap!(
+                "profile_thing" => Value::Bytes("test_data_profile_id".into()),
+                "analysis_id" => Value::Bytes("test_analysis_id".into())
+            )),
+        );
+        assert_eq!(
+            get_analysis_id_from_log(&analysis_id_only_log),
+            Some("test_analysis_id".to_string()),
+            "Log with analysis_id only returns it"
+        );
     }
 }

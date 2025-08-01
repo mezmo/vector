@@ -9,10 +9,7 @@ pub struct MezmoLogClusteringStore {
 
 impl InternalEvent for MezmoLogClusteringStore {
     fn emit(self) {
-        histogram!("mezmo_log_clustering_store_seconds", self.elapsed);
-        histogram!(
-            "mezmo_log_clustering_store_records",
-            self.total_usage_records as f64
-        );
+        histogram!("mezmo_log_clustering_store_seconds").record(self.elapsed);
+        histogram!("mezmo_log_clustering_store_records").record(self.total_usage_records as f64);
     }
 }

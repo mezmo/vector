@@ -1,17 +1,31 @@
-use once_cell::sync::Lazy;
+use rocksdb::statistics::{Histogram, StatsLevel, Ticker};
 use rocksdb::{BlockBasedOptions, Cache, DBCompactionStyle, Options, DB};
 use snafu::{ResultExt, Snafu};
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::mezmo::MezmoContext;
-use crate::Error;
+use crate::mezmo_env_config;
+use crate::{
+    internal_events::mezmo_persistence::{
+        MezmoPersistenceRocksDBHistogram, MezmoPersistenceRocksDBTicker,
+    },
+    Error,
+};
+use mezmo::MezmoContext;
 
 use super::PersistenceConnection;
 
 const POD_NAME_ENV_VAR: &str = "POD_NAME";
+
+const MAX_LOG_FILE_SIZE_ENV_VAR: &str = "MAX_ROCKSDB_LOG_FILE_SIZE";
+const MAX_LOG_FILE_SIZE_DEFAULT: usize = 1024 * 1024 * 10; // 10 MB max
+
+const MAX_LOG_FILE_NUM_ENV_VAR: &str = "MAX_ROCKSDB_LOG_FILE_NUM";
+const MAX_LOG_FILE_NUM_DEFAULT: usize = 5; // 5 logs max
 
 // Minimum allowed blockcache size is 512KB (default 32MB)
 // https://github.com/facebook/rocksdb/wiki/Block-Cache
@@ -27,10 +41,17 @@ const ROCKSDB_TTL_SECS: u64 = 90_000; // 25 hours
 // Global registry of RocksDB connections.
 // Connections/databases are partitioned by account. Each component for a given account
 // will operate on a reference to the same DB connection.
-static ROCKSDB_CONNECTION_REGISTRY: Lazy<RocksDBConnectionRegistry> =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+static ROCKSDB_CONNECTION_REGISTRY: LazyLock<RocksDBConnectionRegistry> =
+    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-type RocksDBConnectionRegistry = Arc<Mutex<HashMap<String, Arc<DB>>>>;
+type RocksDB = DB;
+type RocksDBConnectionRegistry = Arc<Mutex<HashMap<String, Arc<RocksDBConnection>>>>;
+
+#[derive(Debug)]
+pub struct RocksDBConnection {
+    pub db: RocksDB,
+    pub db_opts: RocksDBOptions,
+}
 
 #[derive(Debug, Snafu)]
 enum RocksDBPersistenceError {
@@ -46,18 +67,97 @@ enum RocksDBPersistenceError {
         #[snafu(source)]
         source: std::string::FromUtf8Error,
     },
-    #[snafu(display("Invalid db path: {path:?}"))]
-    InvalidPath { path: PathBuf },
     #[snafu(display("Invalid context: {mezmo_ctx:?}"))]
     InvalidContext { mezmo_ctx: MezmoContext },
     #[snafu(display("Missing required environment variable: {var}"))]
     MissingEnvironmentVariable { var: String },
 }
 
+#[derive(Default)]
+pub struct RocksDBOptions(Options);
+
+impl Deref for RocksDBOptions {
+    type Target = Options;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for RocksDBOptions {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl std::fmt::Debug for RocksDBOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RocksDBOptions").finish()
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct RocksDBPersistenceConnection {
-    db: Arc<DB>,
+    connection: Arc<RocksDBConnection>,
     mezmo_ctx: MezmoContext,
+}
+
+impl RocksDBPersistenceConnection {
+    /// Emits metrics for RocksDB Tickers and Histograms into the internal_metrics event stream
+    fn report_metrics(&self) {
+        emit!(MezmoPersistenceRocksDBTicker {
+            ticker: Ticker::BytesRead,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::DbGet,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::BytesPerRead,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::DecompressionTimesNanos,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBTicker {
+            ticker: Ticker::BytesWritten,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::BytesPerWrite,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::TableSyncMicros,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::WriteStall,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+
+        emit!(MezmoPersistenceRocksDBHistogram {
+            histogram: Histogram::CompressionTimesNanos,
+            connection: &self.connection,
+            mezmo_ctx: &self.mezmo_ctx,
+        });
+    }
 }
 
 /// Implementation of [PersistenceConnection] that uses RocksDB as its underlying data store.
@@ -65,7 +165,20 @@ pub(crate) struct RocksDBPersistenceConnection {
 /// are namespaced with the [MezmoContext] component_id. The account DB instance is shared across
 /// threads/components.
 impl PersistenceConnection for RocksDBPersistenceConnection {
+    /// Creates a new [RocksDBPersistenceConnection] instance, either by creating a new RocksDB
+    /// database connection or reusing an existing connection.
+    /// New connections use the default TTL for Mezmo
     fn new(base_path: &str, mezmo_ctx: &MezmoContext) -> Result<Self, Error> {
+        Self::new_with_ttl(base_path, mezmo_ctx, ROCKSDB_TTL_SECS)
+    }
+
+    /// Creates a new [RocksDBPersistenceConnection] instance, either by creating a new RocksDB
+    /// database connection or reusing an existing connection with the specified record TTL
+    fn new_with_ttl(
+        base_path: &str,
+        mezmo_ctx: &MezmoContext,
+        ttl_secs: u64,
+    ) -> Result<Self, Error> {
         let account_id = match mezmo_ctx.account_id() {
             Some(account_id) => account_id,
             None => {
@@ -86,14 +199,19 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
             }
         };
 
+        let max_log_file_size: usize =
+            mezmo_env_config!(MAX_LOG_FILE_SIZE_ENV_VAR, MAX_LOG_FILE_SIZE_DEFAULT);
+        let max_log_file_num: usize =
+            mezmo_env_config!(MAX_LOG_FILE_NUM_ENV_VAR, MAX_LOG_FILE_NUM_DEFAULT);
+
         let mut path = PathBuf::from(base_path);
         path.push(format!("{account_id}.{pod_name}.db"));
 
         let mut registry = ROCKSDB_CONNECTION_REGISTRY
             .lock()
             .expect("Could not acquire lock on RocksDB persistence registry");
-        let db = match registry.get(path.to_string_lossy().as_ref()) {
-            Some(db) => Arc::clone(db),
+        let conn = match registry.get(path.to_string_lossy().as_ref()) {
+            Some(conn) => Arc::clone(conn),
             None => {
                 match path.try_exists() {
                     Ok(true) => {
@@ -115,33 +233,39 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
                 let mut block_options = BlockBasedOptions::default();
                 block_options.set_block_cache(&cache);
 
-                let mut db_opts = Options::default();
+                let mut db_opts = RocksDBOptions::default();
                 db_opts.create_if_missing(true);
                 db_opts.set_compaction_style(DBCompactionStyle::Universal);
                 db_opts.optimize_universal_style_compaction(ROCKSDB_BLOCK_CACHE_SIZE);
                 db_opts.set_block_based_table_factory(&block_options);
+                db_opts.enable_statistics();
+                db_opts.set_statistics_level(StatsLevel::All);
+                db_opts.set_log_file_time_to_roll(60 * 60 * 24); // 1 day
+                db_opts.set_keep_log_file_num(max_log_file_num);
+                db_opts.set_max_log_file_size(max_log_file_size);
 
-                let db = Arc::new(DB::open_with_ttl(
-                    &db_opts,
-                    &path,
-                    Duration::from_secs(ROCKSDB_TTL_SECS),
-                )?);
-                registry.insert(path.to_string_lossy().to_string(), Arc::clone(&db));
-                db
+                let db = DB::open_with_ttl(&db_opts, &path, Duration::from_secs(ttl_secs))?;
+                let conn = Arc::new(RocksDBConnection { db, db_opts });
+                registry.insert(path.to_string_lossy().to_string(), Arc::clone(&conn));
+                conn
             }
         };
 
         Ok(Self {
-            db,
+            connection: Arc::clone(&conn),
             mezmo_ctx: mezmo_ctx.clone(),
         })
     }
 
+    /// Gets the value for a given key from the database.
     fn get(&self, key: &str) -> Result<Option<String>, Error> {
         let value = self
+            .connection
             .db
             .get(namespaced_key(&self.mezmo_ctx, key))
             .context(RocksDBSnafu)?;
+
+        self.report_metrics();
 
         match value {
             Some(bytes) => String::from_utf8(bytes)
@@ -151,10 +275,26 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
         }
     }
 
+    /// Sets the value for a given key from the database.
     fn set(&self, key: &str, value: &str) -> Result<(), Error> {
-        self.db
+        self.connection
+            .db
             .put(namespaced_key(&self.mezmo_ctx, key), value)
             .context(RocksDBSnafu)?;
+
+        self.report_metrics();
+
+        Ok(())
+    }
+
+    /// Delete the key from the database
+    fn delete(&self, key: &str) -> Result<(), Error> {
+        self.connection
+            .db
+            .delete(namespaced_key(&self.mezmo_ctx, key))
+            .context(RocksDBSnafu)?;
+
+        self.report_metrics();
 
         Ok(())
     }
@@ -291,7 +431,7 @@ mod tests {
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
-    fn test_set_get_scalar() {
+    fn test_set_get_delete_scalar() {
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let base_path = tmp_path.to_str().unwrap();
 
@@ -313,10 +453,14 @@ mod tests {
         let bool = db.get("boolean").unwrap();
         assert!(bool.is_some());
         assert_eq!(bool.unwrap(), to_json(&false));
+
+        assert!(db.delete("boolean").is_ok());
+        let obj_actual = db.get("boolean").unwrap();
+        assert!(obj_actual.is_none());
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
-    fn test_set_get_complex() {
+    fn test_set_get_delete_complex() {
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let base_path = tmp_path.to_str().unwrap();
 
@@ -339,6 +483,10 @@ mod tests {
         let obj_actual = db.get("object").unwrap();
         assert!(obj_actual.is_some());
         assert_eq!(obj_actual.unwrap(), obj_expected);
+
+        assert!(db.delete("object").is_ok());
+        let obj_actual = db.get("object").unwrap();
+        assert!(obj_actual.is_none());
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]

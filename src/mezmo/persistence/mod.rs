@@ -1,20 +1,26 @@
-#![cfg(feature = "component-persistence")]
-
 mod rocksdb;
-use crate::mezmo::MezmoContext;
 use crate::Error;
+use mezmo::MezmoContext;
 
+pub(crate) use rocksdb::RocksDBConnection;
 pub(crate) use rocksdb::RocksDBPersistenceConnection;
 
 /// The [PersistenceConnection] trait defines the specifics on how to create the state that connects
 /// to the persistence layer, e.g. a DB connection, that can then be used for individual operations.
 /// Objects that implement this trait should expect to live for the life of the component that owns
 /// them.
-pub(crate) trait PersistenceConnection: Send + std::fmt::Debug {
+pub(crate) trait PersistenceConnection: Send + Sync + std::fmt::Debug {
     /// An associated function that creates a new [PersistenceConnection] given a connection string
     /// to the specific data store and a [MezmoContext] that restricts data storage to a given named
     /// component. Components without a valid [MezmoContext] are currently not eligible for persistence.
-    fn new(conn_str: &str, ctx: &MezmoContext) -> Result<Self, Error>
+    fn new(base_path: &str, ctx: &MezmoContext) -> Result<Self, Error>
+    where
+        Self: Sized;
+
+    /// An associated function that creates a new [PersistenceConnection] given a connection string
+    /// to the specific data store and a [MezmoContext] that restricts data storage to a given named
+    /// component. Components without a valid [MezmoContext] are currently not eligible for persistence.
+    fn new_with_ttl(base_path: &str, ctx: &MezmoContext, ttl: u64) -> Result<Self, Error>
     where
         Self: Sized;
 
@@ -28,4 +34,9 @@ pub(crate) trait PersistenceConnection: Send + std::fmt::Debug {
     /// in the MezmoContext instance supplied as part of the [new] function - i.e. the account_id,
     /// pipeline_id, and component_id. Sharing data across components is not permitted.
     fn set(&self, key: &str, value: &str) -> Result<(), Error>;
+
+    /// Deletes a key within the rocks db. An implied namespace is enforced from the values
+    /// in the MezmoContext instance supplied as part of the [new] function - i.e. the account_id,
+    /// pipeline_id, and component_id. Sharing data across components is not permitted.
+    fn delete(&self, key: &str) -> Result<(), Error>;
 }

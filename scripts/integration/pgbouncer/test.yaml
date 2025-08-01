@@ -1,0 +1,18 @@
+features:
+- pgbouncer-integration-tests
+
+test_filter: '::usage_metrics::'
+
+env:
+  PG_HOST: postgres
+  PG_SOCKET: /pg_socket
+
+matrix:
+  version: [ '1.21.0' ]
+  pg_version: [ '14' ]
+
+# changes to these files/paths will invoke the integration test in CI
+# expressions are evaluated using https://github.com/micromatch/picomatch
+paths:
+- "lib/vector-core/src/usage_metrics/**"
+- "scripts/integration/pgbouncer/**"

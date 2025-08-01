@@ -30,11 +30,13 @@ mod batch;
 mod codecs;
 mod common;
 mod conditions;
+#[cfg(feature = "sources-datadog_agent")]
+mod datadog_agent;
 #[cfg(feature = "sinks-datadog_metrics")]
 mod datadog_metrics;
 #[cfg(feature = "sinks-datadog_traces")]
 mod datadog_traces;
-#[cfg(feature = "transforms-dedupe")]
+#[cfg(feature = "transforms-impl-dedupe")]
 mod dedupe;
 #[cfg(feature = "sources-demo_logs")]
 mod demo_logs;
@@ -47,7 +49,7 @@ mod encoding_transcode;
 mod eventstoredb_metrics;
 #[cfg(feature = "sources-exec")]
 mod exec;
-#[cfg(any(feature = "sources-file-descriptor", feature = "sources-stdin"))]
+#[cfg(any(feature = "sources-file_descriptor", feature = "sources-stdin"))]
 mod file_descriptor;
 #[cfg(feature = "transforms-filter")]
 mod filter;
@@ -68,8 +70,6 @@ mod http_client_source;
 mod influxdb;
 #[cfg(feature = "sources-internal_logs")]
 mod internal_logs;
-#[cfg(feature = "sources-internal_metrics")]
-mod internal_metrics;
 #[cfg(all(unix, feature = "sources-journald"))]
 mod journald;
 #[cfg(any(feature = "sources-kafka", feature = "sinks-kafka"))]
@@ -87,13 +87,26 @@ mod lua;
 mod metric_to_log;
 #[cfg(feature = "transforms-mezmo_aggregate")]
 mod mezmo_aggregate;
+#[cfg(feature = "transforms-mezmo_aggregate_distributed")]
+mod mezmo_aggregate_distributed;
 pub mod mezmo_config;
 #[cfg(feature = "transforms-mezmo_log_clustering")]
 pub(crate) mod mezmo_log_clustering;
+#[cfg(any(
+    feature = "transforms-mezmo_aggregate_v2",
+    feature = "transforms-mezmo_throttle",
+    feature = "transforms-trace_head_sample",
+    feature = "transforms-trace_tail_sample",
+))]
+pub mod mezmo_persistence;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 mod mezmo_tag_cardinality_limit;
+#[cfg(feature = "transforms-mezmo_throttle_distributed")]
+mod mezmo_throttle_distributed;
 #[cfg(feature = "sources-mongodb_metrics")]
 mod mongodb_metrics;
+#[cfg(feature = "sinks-mqtt")]
+mod mqtt;
 #[cfg(feature = "sources-nginx_metrics")]
 mod nginx_metrics;
 mod open;
@@ -107,11 +120,11 @@ mod process;
     feature = "sinks-prometheus"
 ))]
 mod prometheus;
-#[cfg(feature = "sinks-pulsar")]
+#[cfg(any(feature = "sinks-pulsar", feature = "sources-pulsar"))]
 mod pulsar;
 #[cfg(feature = "sources-redis")]
 mod redis;
-#[cfg(feature = "transforms-reduce")]
+#[cfg(feature = "transforms-impl-reduce")]
 mod reduce;
 mod remap;
 mod sample;
@@ -171,11 +184,13 @@ pub(crate) use self::aws_kinesis_firehose::*;
 #[cfg(any(feature = "sources-aws_s3", feature = "sources-aws_sqs",))]
 pub(crate) use self::aws_sqs::*;
 pub(crate) use self::codecs::*;
+#[cfg(feature = "sources-datadog_agent")]
+pub(crate) use self::datadog_agent::*;
 #[cfg(feature = "sinks-datadog_metrics")]
 pub(crate) use self::datadog_metrics::*;
 #[cfg(feature = "sinks-datadog_traces")]
 pub(crate) use self::datadog_traces::*;
-#[cfg(feature = "transforms-dedupe")]
+#[cfg(feature = "transforms-impl-dedupe")]
 pub(crate) use self::dedupe::*;
 #[cfg(feature = "sources-demo_logs")]
 pub(crate) use self::demo_logs::*;
@@ -193,7 +208,7 @@ pub(crate) use self::exec::*;
     feature = "sinks-file",
 ))]
 pub(crate) use self::file::*;
-#[cfg(any(feature = "sources-file-descriptor", feature = "sources-stdin"))]
+#[cfg(any(feature = "sources-file_descriptor", feature = "sources-stdin"))]
 pub(crate) use self::file_descriptor::*;
 #[cfg(feature = "transforms-filter")]
 pub(crate) use self::filter::*;
@@ -211,8 +226,6 @@ pub(crate) use self::http_client_source::*;
 pub(crate) use self::influxdb::*;
 #[cfg(feature = "sources-internal_logs")]
 pub(crate) use self::internal_logs::*;
-#[cfg(feature = "sources-internal_metrics")]
-pub(crate) use self::internal_metrics::*;
 #[cfg(all(unix, feature = "sources-journald"))]
 pub(crate) use self::journald::*;
 #[cfg(any(feature = "sources-kafka", feature = "sinks-kafka"))]
@@ -231,8 +244,14 @@ pub(crate) use self::lua::*;
 pub(crate) use self::metric_to_log::*;
 #[cfg(feature = "transforms-mezmo_aggregate")]
 pub(crate) use self::mezmo_aggregate::*;
+#[cfg(feature = "transforms-mezmo_aggregate_distributed")]
+pub(crate) use self::mezmo_aggregate_distributed::*;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 pub(crate) use self::mezmo_tag_cardinality_limit::*;
+#[cfg(feature = "transforms-mezmo_throttle_distributed")]
+pub(crate) use self::mezmo_throttle_distributed::*;
+#[cfg(feature = "sinks-mqtt")]
+pub(crate) use self::mqtt::*;
 #[cfg(feature = "sources-nginx_metrics")]
 pub(crate) use self::nginx_metrics::*;
 #[allow(unused_imports)]
@@ -245,15 +264,15 @@ pub(crate) use self::postgresql_metrics::*;
     feature = "sinks-prometheus"
 ))]
 pub(crate) use self::prometheus::*;
-#[cfg(feature = "sinks-pulsar")]
+#[cfg(any(feature = "sinks-pulsar", feature = "sources-pulsar"))]
 pub(crate) use self::pulsar::*;
 #[cfg(feature = "sources-redis")]
 pub(crate) use self::redis::*;
-#[cfg(feature = "transforms-reduce")]
+#[cfg(feature = "transforms-impl-reduce")]
 pub(crate) use self::reduce::*;
 #[cfg(feature = "transforms-remap")]
 pub(crate) use self::remap::*;
-#[cfg(feature = "transforms-sample")]
+#[cfg(feature = "transforms-impl-sample")]
 pub(crate) use self::sample::*;
 #[cfg(feature = "sinks-sematext")]
 pub(crate) use self::sematext_metrics::*;

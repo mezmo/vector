@@ -1,4 +1,4 @@
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono::DateTime;
 use prometheus_remote_write::prometheus::{Label, MetricMetadata, MetricType, Sample, TimeSeries};
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -24,10 +24,6 @@ use super::metric_sample_types::{
 
 #[derive(Debug, snafu::Snafu)]
 pub enum ParseError {
-    #[snafu(display("Unexpected Summary or Histogram: {message}"))]
-    UnknownSummaryOrHistogram { message: String },
-    #[snafu(display("Unexpected Metric Builder"))]
-    UnexpectedMetricBuilder,
     #[snafu(display("Unexpected Sample Type for Sample Group"))]
     SampleGroupTypeMismatch,
     #[snafu(display("Missing `le` label"))]
@@ -42,16 +38,6 @@ pub enum ParseError {
     },
     #[snafu(display("Value {value} out of range to be converted to a u64"))]
     F64toU64ValueOutOfRange { value: f64 },
-    #[snafu(display("Value {value} out of range to be converted to a i64"))]
-    F64toI64ValueOutOfRange { value: f64 },
-    #[snafu(display("Duplicate Histogram Sum sample"))]
-    DuplicateHistogramSumSample,
-    #[snafu(display("Duplicate Histogram Count sample"))]
-    DuplicateHistogramCountSample,
-    #[snafu(display("Duplicate Summary Sum sample"))]
-    DuplicateSummarySumSample,
-    #[snafu(display("Duplicate Summary Count sample"))]
-    DuplicateSummaryCountSample,
 }
 
 fn try_f64_to_u64(f: f64) -> Result<u64, ParseError> {
@@ -100,12 +86,6 @@ impl<'a> GroupingStrategy<'a> {
     }
 }
 
-#[derive(Ord, PartialOrd, Eq, PartialEq, Hash)]
-struct SampleGrouping<'a> {
-    name: Cow<'a, str>,
-    kind: GroupingStrategy<'a>,
-}
-
 enum GroupedSampleType {
     Summary,
     Histogram,
@@ -135,7 +115,7 @@ fn matching_group<'a, 's, T: Default>(
     values: &'s mut SampleGroupMap<'a, T>,
     group: SampleGroupKey<'a>,
 ) -> &'s mut T {
-    values.entry(group).or_insert_with(T::default)
+    values.entry(group).or_default()
 }
 
 #[derive(Debug)]
@@ -358,9 +338,8 @@ impl<'a> TypedSampleGroupMap<'a> {
             if let (Some(timestamp_key), Some(timestamp)) =
                 (log_schema().timestamp_key(), key.timestamp)
             {
-                let ts = NaiveDateTime::from_timestamp_millis(timestamp)
+                let ts = DateTime::from_timestamp_millis(timestamp)
                     .expect("timestamp should be a valid timestamp");
-                let ts = Utc.from_utc_datetime(&ts);
                 log_event.insert((lookup::PathPrefix::Event, timestamp_key), ts);
             }
             out.push(log_event.into());

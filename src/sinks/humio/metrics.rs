@@ -5,7 +5,7 @@ use indoc::indoc;
 use vector_lib::codecs::JsonSerializerConfig;
 use vector_lib::configurable::configurable_component;
 use vector_lib::lookup;
-use vector_lib::lookup::lookup_v2::{ConfigValuePath, OptionalValuePath};
+use vector_lib::lookup::lookup_v2::{ConfigValuePath, OptionalTargetPath, OptionalValuePath};
 use vector_lib::sensitive_string::SensitiveString;
 use vector_lib::sink::StreamSink;
 
@@ -84,7 +84,8 @@ pub struct HumioMetricsConfig {
 
     /// Overrides the name of the log field used to retrieve the hostname to send to Humio.
     ///
-    /// By default, the [global `log_schema.host_key` option][global_host_key] is used.
+    /// By default, the [global `log_schema.host_key` option][global_host_key] is used if log
+    /// events are Legacy namespaced, or the semantic meaning of "host" is used, if defined.
     ///
     /// [global_host_key]: https://vector.dev/docs/reference/configuration/global-options/#log_schema.host_key
     #[serde(default = "config_host_key")]
@@ -132,7 +133,7 @@ pub struct HumioMetricsConfig {
     #[serde(
         default,
         deserialize_with = "crate::serde::bool_or_struct",
-        skip_serializing_if = "crate::serde::skip_serializing_if_default"
+        skip_serializing_if = "crate::serde::is_default"
     )]
     acknowledgements: AcknowledgementsConfig,
 }
@@ -165,7 +166,10 @@ impl SinkConfig for HumioMetricsConfig {
             source: self.source.clone(),
             encoding: JsonSerializerConfig::default().into(),
             event_type: self.event_type.clone(),
-            host_key: self.host_key.clone(),
+            host_key: OptionalTargetPath::from(
+                vrl::path::PathPrefix::Event,
+                self.host_key.path.clone(),
+            ),
             indexed_fields: self.indexed_fields.clone(),
             index: self.index.clone(),
             compression: self.compression,
@@ -175,9 +179,10 @@ impl SinkConfig for HumioMetricsConfig {
             timestamp_nanos_key: None,
             acknowledgements: Default::default(),
             // hard coded as humio expects this format so no sense in making it configurable
-            timestamp_key: OptionalValuePath {
-                path: Some(lookup::owned_value_path!("timestamp")),
-            },
+            timestamp_key: OptionalTargetPath::from(
+                vrl::path::PathPrefix::Event,
+                Some(lookup::owned_value_path!("timestamp")),
+            ),
         };
 
         let (sink, healthcheck) = sink.clone().build(cx).await?;

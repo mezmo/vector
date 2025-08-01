@@ -2,14 +2,15 @@
 #[allow(unused_imports)]
 use std::collections::HashSet;
 
-use snafu::Snafu;
+pub mod dedupe;
+pub mod mezmo_common;
+pub mod reduce;
+pub mod sample;
 
 #[cfg(feature = "transforms-aggregate")]
 pub mod aggregate;
 #[cfg(feature = "transforms-aws_ec2_metadata")]
 pub mod aws_ec2_metadata;
-#[cfg(feature = "transforms-dedupe")]
-pub mod dedupe;
 #[cfg(feature = "transforms-filter")]
 pub mod filter;
 #[cfg(any(test, feature = "transforms-log_to_metric"))]
@@ -20,6 +21,8 @@ pub mod lua;
 pub mod metric_to_log;
 #[cfg(feature = "transforms-mezmo_aggregate")]
 pub mod mezmo_aggregate;
+#[cfg(feature = "transforms-mezmo_aggregate_distributed")]
+pub mod mezmo_aggregate_distributed;
 #[cfg(feature = "transforms-mezmo_aggregate_v2")]
 pub mod mezmo_aggregate_v2;
 #[cfg(feature = "transforms-mezmo_log_classification")]
@@ -32,36 +35,29 @@ pub mod mezmo_log_to_metric;
 pub mod mezmo_tag_cardinality_limit;
 #[cfg(feature = "transforms-mezmo_throttle")]
 pub mod mezmo_throttle;
+#[cfg(feature = "transforms-mezmo_throttle_distributed")]
+pub mod mezmo_throttle_distributed;
 #[cfg(feature = "transforms-protobuf_to_log")]
 pub mod protobuf_to_log;
 #[cfg(feature = "transforms-protobuf_to_metric")]
 pub mod protobuf_to_metric;
-#[cfg(feature = "transforms-reduce")]
-pub mod reduce;
 #[cfg(feature = "transforms-remap")]
 pub mod remap;
 #[cfg(feature = "transforms-route")]
 pub mod route;
-#[cfg(feature = "transforms-sample")]
-pub mod sample;
 #[cfg(feature = "transforms-tag_cardinality_limit")]
 pub mod tag_cardinality_limit;
 #[cfg(feature = "transforms-throttle")]
 pub mod throttle;
+#[cfg(feature = "transforms-trace_head_sample")]
+pub mod trace_head_sample;
+#[cfg(feature = "transforms-trace_tail_sample")]
+pub mod trace_tail_sample;
 
 pub use vector_lib::transform::{
     FunctionTransform, OutputBuffer, SyncTransform, TaskTransform, Transform, TransformOutputs,
     TransformOutputsBuf,
 };
-
-#[derive(Debug, Snafu)]
-enum BuildError {
-    #[snafu(display("Invalid regular expression: {}", source))]
-    InvalidRegex { source: regex::Error },
-
-    #[snafu(display("Invalid substring expression: {}", name))]
-    InvalidSubstring { name: String },
-}
 
 #[cfg(test)]
 mod test {

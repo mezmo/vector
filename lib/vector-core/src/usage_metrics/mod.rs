@@ -1,4 +1,3 @@
-use deadpool_postgres::{Config, PoolConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
@@ -10,15 +9,17 @@ use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
     time::{sleep, Duration},
 };
-use url::Url;
-use vector_common::byte_size_of::ByteSizeOf;
-use vrl::value::Value;
+use vector_common::{
+    byte_size_of::ByteSizeOf,
+    internal_event::{emit, usage_metrics::AggregatedProfileChanged},
+};
+
+use vrl::value::{KeyString, Value};
 
 use crate::{
     config::log_schema,
     event::EventArray,
     event::{array::EventContainer, MetricValue},
-    internal_event::{emit, usage_metrics::AggregatedProfileChanged},
     usage_metrics::flusher::HttpFlusher,
 };
 use flusher::{DbFlusher, MetricsFlusher, StdErrFlusher};
@@ -27,12 +28,12 @@ use self::flusher::NoopFlusher;
 
 const DEFAULT_FLUSH_INTERVAL_SECS: u64 = 20;
 const DEFAULT_PROFILE_FLUSH_INTERVAL: Duration = Duration::from_secs(60);
-const DEFAULT_DB_CONNECTION_POOL_SIZE: usize = 4;
 const BASE_ARRAY_SIZE: usize = 8; // Add some overhead to the array and object size
 const BASE_BTREE_SIZE: usize = 8;
 static INTERNAL_TRANSFORM: ComponentKind = ComponentKind::Transform { internal: true };
 
 mod flusher;
+mod integration_tests;
 
 /// Represents an aggregated view of events per component for billing and profiling.
 #[derive(Debug)]
@@ -135,9 +136,11 @@ impl UsageMetricsKey {
             return false;
         };
 
-        // Only internal instances of the log classification component should be tracked
-        // for profiling.
-        !internal && self.component_type == "mezmo_log_classification"
+        // log classification should be tracked for both
+        // shared source usage and transform profiling
+        !internal
+            && (self.component_type == "mezmo_log_classification"
+                || self.component_type == "data-profiler")
     }
 
     /// Determines whether the component with this key should be tracked for billing
@@ -446,7 +449,7 @@ fn get_size_and_profile(array: &EventArray) -> UsageProfileValue {
             let mut usage_by_annotation = AnnotationMap::new();
             for log_event in a {
                 if let Some(fields) = log_event.as_map() {
-                    let size = log_event_size(fields);
+                    let size = log_event_size(fields, include_metadata_in_size());
                     total_size += size;
 
                     if let Some(annotation_set) = get_annotations(fields) {
@@ -514,7 +517,21 @@ fn is_profile_enabled() -> bool {
     })
 }
 
-pub fn get_annotations(fields: &BTreeMap<String, Value>) -> Option<AnnotationSet> {
+/// Determines whether we track size from `.metadata` or not.
+/// TRUE by default.
+pub fn include_metadata_in_size() -> bool {
+    // Inaccessible outside of the function but it isn't dropped at the end of the function
+    static SHOULD_TRACK_METADATA: OnceLock<bool> = OnceLock::new();
+
+    *SHOULD_TRACK_METADATA.get_or_init(|| {
+        env::var("USAGE_METRICS_TRACK_METADATA_SIZE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(true)
+    })
+}
+
+pub fn get_annotations(fields: &BTreeMap<KeyString, Value>) -> Option<AnnotationSet> {
     let annotations_field = fields.get(log_schema().annotations_key())?.as_object()?;
 
     let set = AnnotationSet {
@@ -532,20 +549,20 @@ pub fn get_annotations(fields: &BTreeMap<String, Value>) -> Option<AnnotationSet
     }
 }
 
-fn get_string_field(fields: &BTreeMap<String, Value>, key: &str) -> Option<String> {
+fn get_string_field(fields: &BTreeMap<KeyString, Value>, key: &str) -> Option<String> {
     let bytes = fields.get(key)?.as_bytes();
     std::str::from_utf8(bytes?)
         .map(std::string::ToString::to_string)
         .ok()
 }
 
-fn get_log_type(fields: &BTreeMap<String, Value>) -> Option<String> {
+fn get_log_type(fields: &BTreeMap<KeyString, Value>) -> Option<String> {
     // Log type is stored as `classification.event_types = {"MY_LOG_TYPE": 1}`
     let classification = fields.get("classification")?.as_object()?;
     let event_types = classification.get("event_types")?.as_object()?;
     let (log_type, _) = event_types.first_key_value()?;
 
-    Some(log_type.clone())
+    Some(log_type.to_string())
 }
 
 /// Estimate the byte size of a single [Value]
@@ -568,13 +585,18 @@ pub fn value_size(v: &Value) -> usize {
 
 /// Estimate the byte size of all fields within an event, accounting for
 /// both the value of ".message" and ".metadata" top-level fields.
-pub fn log_event_size(event_map: &BTreeMap<String, Value>) -> usize {
-    event_map
-        .get(&log_schema().message_key().unwrap().to_string())
-        .map_or(0, value_size)
-        + event_map
-            .get(log_schema().user_metadata_key())
-            .map_or(0, value_size)
+pub fn log_event_size(event_map: &BTreeMap<KeyString, Value>, include_metadata: bool) -> usize {
+    let mut size = event_map
+        .get::<KeyString>(&log_schema().message_key().unwrap().to_string().into())
+        .map_or(0, value_size);
+
+    if include_metadata {
+        size += event_map
+            .get::<KeyString>(&log_schema().user_metadata_key().into())
+            .map_or(0, value_size);
+    }
+
+    size
 }
 
 /// Estimate the value of the metric based on the type
@@ -650,7 +672,7 @@ async fn get_flusher(
         }
 
         return Ok(Arc::new(
-            DbFlusher::new(db_url, &pod_name)
+            DbFlusher::new(&pod_name)
                 .await
                 .map_err(|_| MetricsPublishingError::FlusherError)?,
         ));
@@ -660,7 +682,7 @@ async fn get_flusher(
         // Http endpoint used by Pulse
         let auth_token = env::var("MEZMO_LOCAL_DEPLOY_AUTH_TOKEN").ok();
         let headers = if let Some(token) = auth_token {
-            HashMap::from([("Authorization".to_string(), format!("Token {token}"))])
+            HashMap::from([("Authorization".into(), format!("Token {token}"))])
         } else {
             return Err(MetricsPublishingError::AuthNotSetError);
         };
@@ -709,7 +731,7 @@ fn start_publishing_metrics_with_flusher(
             loop {
                 tokio::select! {
                     // Use unbiased (pseudo random) branch selection, that way we support for immediate flushes
-                    _ = &mut timeout => {
+                    () = &mut timeout => {
                         // Break the inner loop, start a new timer
                         break;
                     },
@@ -785,45 +807,6 @@ fn start_publishing_metrics_with_flusher(
             }
         }
     });
-}
-
-/// Gets a config instance from the url.
-/// # Errors
-/// When the url can not be parsed as a valid config.
-pub fn get_db_config(endpoint_url: &str) -> Result<Config, MetricsPublishingError> {
-    // The library deadpool postgres does not support urls like tokio_postgres::connect
-    // Implement our own
-    let url = Url::parse(endpoint_url).map_err(|_| MetricsPublishingError::DbEndpointUrlInvalid)?;
-    if url.scheme() != "postgresql" && url.scheme() != "postgres" {
-        error!(
-            message = "Invalid scheme for metrics db",
-            scheme = url.scheme()
-        );
-        return Err(MetricsPublishingError::DbEndpointUrlInvalid);
-    }
-
-    let mut cfg = Config::new();
-    cfg.host = url.host().map(|h| h.to_string());
-    cfg.port = url.port();
-    cfg.user = (!url.username().is_empty()).then(|| {
-        urlencoding::decode(url.username())
-            .expect("UTF-8")
-            .to_string()
-    });
-    cfg.password = url
-        .password()
-        .map(|v| urlencoding::decode(v).expect("UTF-8").to_string());
-    if let Some(mut path_segments) = url.path_segments() {
-        if let Some(first) = path_segments.next() {
-            cfg.dbname = Some(first.into());
-        }
-    }
-
-    // Postgres client supports request pipelining (aka pipeline mode).
-    // We can have a small pool and send a large number of requests in parallel
-    cfg.pool = Some(PoolConfig::new(DEFAULT_DB_CONNECTION_POOL_SIZE));
-
-    Ok(cfg)
 }
 
 #[cfg(test)]
@@ -979,6 +962,11 @@ mod tests {
         assert!(value.is_tracked_for_profiling());
         assert!(!value.is_tracked_for_billing());
 
+        let value: UsageMetricsKey = "v1:data-profiler:transform:comp1:account1".parse().unwrap();
+        assert!(value.is_tracked());
+        assert!(value.is_tracked_for_profiling());
+        assert!(!value.is_tracked_for_billing());
+
         let value: UsageMetricsKey = "v1:filter-by-field:transform:comp1:pipe1:account1"
             .parse()
             .unwrap();
@@ -996,14 +984,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn log_event_size_test() {
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
+        event_map.insert(
+            log_schema().message_key().unwrap().to_string().into(),
+            "foo".into(),
+        );
+        event_map.insert(
+            log_schema().user_metadata_key().to_string().into(),
+            "foo".into(),
+        );
+
+        assert_eq!(log_event_size(&event_map, true), 6);
+        assert_eq!(log_event_size(&event_map, false), 3);
+    }
+
     #[assay(env = [("USAGE_METRICS_PROFILE_ENABLED", "true")])]
     fn track_usage_key_not_tracked_either() {
         let key: UsageMetricsKey = "v1:filter-by-field:transform:comp1:pipe1:account1"
             .parse()
             .unwrap();
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         event_map.insert(
-            log_schema().message_key().unwrap().to_string(),
+            log_schema().message_key().unwrap().to_string().into(),
             "foo".into(),
         );
         let event: LogEvent = event_map.into();
@@ -1017,9 +1021,9 @@ mod tests {
         let key: UsageMetricsKey = "v1:remap:internal_transform:comp1:pipe1:account1"
             .parse()
             .unwrap();
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         event_map.insert(
-            log_schema().message_key().unwrap().to_string(),
+            log_schema().message_key().unwrap().to_string().into(),
             "the message".into(),
         );
 
@@ -1041,32 +1045,37 @@ mod tests {
 
     #[assay(env = [("USAGE_METRICS_PROFILE_ENABLED", "true")])]
     fn track_usage_key_profiling_only() {
-        let key: UsageMetricsKey = "v1:mezmo_log_classification:transform:comp1:account1"
-            .parse()
-            .unwrap();
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
-        event_map.insert(
-            log_schema().message_key().unwrap().to_string(),
-            "the message".into(),
-        );
+        let component_ids = vec![
+            "v1:mezmo_log_classification:transform:comp1:account1",
+            "v1:data-profiler:transform:comp2:account1",
+        ];
 
-        let mut event: LogEvent = event_map.into();
-        event.insert(annotation_path(vec!["app"].as_ref()).as_str(), "app-1");
+        for component_id in component_ids {
+            let key: UsageMetricsKey = component_id.parse().unwrap();
+            let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
+            event_map.insert(
+                log_schema().message_key().unwrap().to_string().into(),
+                "the message".into(),
+            );
 
-        let mut rx = track_usage_test(&key, event);
-        let tracked = rx.try_recv();
-        assert!(tracked.is_ok());
+            let mut event: LogEvent = event_map.into();
+            event.insert(annotation_path(vec!["app"].as_ref()).as_str(), "app-1");
 
-        let tracked = tracked.unwrap();
-        assert_eq!(tracked.key, key, "should be the same key");
-        assert!(
-            tracked.billing.is_none(),
-            "should NOT contain billing metrics"
-        );
-        assert!(
-            tracked.usage_by_annotation.is_some(),
-            "should contain profiling metrics"
-        );
+            let mut rx = track_usage_test(&key, event);
+            let tracked = rx.try_recv();
+            assert!(tracked.is_ok());
+
+            let tracked = tracked.unwrap();
+            assert_eq!(tracked.key, key, "should be the same key");
+            assert!(
+                tracked.billing.is_none(),
+                "should NOT contain billing metrics"
+            );
+            assert!(
+                tracked.usage_by_annotation.is_some(),
+                "should contain profiling metrics"
+            );
+        }
     }
 
     #[test]
@@ -1101,7 +1110,7 @@ mod tests {
 
     #[test]
     fn get_annotations_empty_annotations_return_none() {
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         event_map.insert(
             log_schema().annotations_key().into(),
             Value::Object(BTreeMap::new()),
@@ -1122,10 +1131,13 @@ mod tests {
 
     #[test]
     fn get_size_and_profile_log_message_number_test() {
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         event_map.insert("this_is_ignored".into(), 1u8.into());
         event_map.insert("another_ignored".into(), 1.into());
-        event_map.insert(log_schema().message_key().unwrap().to_string(), 9.into());
+        event_map.insert(
+            KeyString::from(log_schema().message_key().unwrap().to_string()),
+            9.into(),
+        );
         let event: LogEvent = event_map.into();
         let usage_profile = get_size_and_profile(&event.into());
         assert_eq!(
@@ -1136,10 +1148,10 @@ mod tests {
 
     #[test]
     fn get_size_and_profile_log_message_and_meta_test() {
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         event_map.insert("this_is_ignored".into(), 2.into());
         event_map.insert(
-            log_schema().message_key().unwrap().to_string(),
+            KeyString::from(log_schema().message_key().unwrap().to_string()),
             "hello ".into(),
         );
         event_map.insert(log_schema().user_metadata_key().into(), "world".into());
@@ -1153,14 +1165,14 @@ mod tests {
 
     #[test]
     fn get_size_and_profile_log_nested_test() {
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
-        let mut nested_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
+        let mut nested_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         nested_map.insert("prop1".into(), 1u64.into());
         nested_map.insert("prop2".into(), 1u8.into());
         nested_map.insert("prop3".into(), 1i32.into());
         nested_map.insert("prop4".into(), "abcd".into());
         event_map.insert(
-            log_schema().message_key().unwrap().to_string(),
+            KeyString::from(log_schema().message_key().unwrap().to_string()),
             Value::from(nested_map),
         );
         let event: LogEvent = event_map.into();

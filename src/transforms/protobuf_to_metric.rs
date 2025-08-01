@@ -4,12 +4,11 @@ use smallvec::SmallVec;
 use vector_lib::configurable::configurable_component;
 use vector_lib::{codecs::decoding::MezmoDeserializer, config::LogNamespace, event::Value};
 
-use crate::mezmo::user_trace::handle_deserializer_error;
+use mezmo::{user_trace::handle_deserializer_error, MezmoContext};
 
 use crate::{
     config::{DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext},
     event::{Event, LogEvent},
-    mezmo::MezmoContext,
     schema,
     transforms::{FunctionTransform, OutputBuffer, Transform},
 };
@@ -150,7 +149,7 @@ impl FunctionTransform for ProtobufToMetric {
                 {
                     if let Some(user_meta_obj) = metadata.as_object() {
                         for entry in user_meta_obj.iter() {
-                            user_metadata.insert(entry.0.to_string(), entry.1.clone());
+                            user_metadata.insert(entry.0.clone(), entry.1.clone());
                         }
                     }
                 }
@@ -168,7 +167,7 @@ impl FunctionTransform for ProtobufToMetric {
                 {
                     if let Some(meta_obj) = metadata.as_object() {
                         for entry in meta_obj.iter() {
-                            internal_metadata.insert(entry.0.to_string(), entry.1.clone());
+                            internal_metadata.insert(entry.0.clone(), entry.1.clone());
                         }
                     }
                 }
@@ -201,7 +200,7 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
-    use vector_lib::event::Value;
+    use vector_lib::event::{KeyString, Value};
 
     use crate::event::{Event, LogEvent};
     use crate::test_util::components::assert_transform_compliance;
@@ -217,7 +216,7 @@ mod tests {
     }
 
     fn log_event_from_bytes(msg: &[u8], metadata: &Value) -> LogEvent {
-        let mut event_map: BTreeMap<String, Value> = BTreeMap::new();
+        let mut event_map: BTreeMap<KeyString, Value> = BTreeMap::new();
         event_map.insert("message".into(), msg.into());
         event_map.insert("timestamp".into(), ts().into());
         event_map.insert("metadata".into(), metadata.clone());
@@ -254,11 +253,11 @@ mod tests {
             ("original_type".into(), "sum".into()),
             ("data_provider".into(), "otlp".into()),
             (
-                "headers".to_owned(),
+                "headers".into(),
                 Value::Object(BTreeMap::from([("key".into(), "value".into())])),
             ),
             (
-                "resource".to_owned(),
+                "resource".into(),
                 Value::Object(BTreeMap::from([
                     (
                         "attributes".into(),
@@ -275,7 +274,7 @@ mod tests {
                 ]))
             ),
             (
-                "scope".to_owned(),
+                "scope".into(),
                 Value::Object(BTreeMap::from([
                     ("attributes".into(), Value::Object(BTreeMap::new())),
                     ("dropped_attributes_count".into(), Value::Integer(0)),
@@ -304,10 +303,10 @@ mod tests {
         attrs_3.extend(base_metadata.clone());
         attrs_4.extend(base_metadata.clone());
 
-        let expected_metadata_1 = Value::Object(BTreeMap::from_iter(attrs_1));
-        let expected_metadata_2 = Value::Object(BTreeMap::from_iter(attrs_2));
-        let expected_metadata_3 = Value::Object(BTreeMap::from_iter(attrs_3));
-        let expected_metadata_4 = Value::Object(BTreeMap::from_iter(attrs_4));
+        let mut expected_metadata_1 = Value::Object(BTreeMap::from_iter(attrs_1));
+        let mut expected_metadata_2 = Value::Object(BTreeMap::from_iter(attrs_2));
+        let mut expected_metadata_3 = Value::Object(BTreeMap::from_iter(attrs_3));
+        let mut expected_metadata_4 = Value::Object(BTreeMap::from_iter(attrs_4));
 
         let event = log_event_from_bytes(metrics, &expected_metadata_1);
         let result = do_transform(
@@ -325,11 +324,27 @@ mod tests {
             let log = &event.clone().into_log();
             let event_metadata = log.get("metadata").expect("Metadata is empty");
 
+            let uniq_id = event_metadata.get("resource.uniq_id");
+
+            assert!(uniq_id.is_some());
+
             match i {
-                11 => assert_eq!(*event_metadata, expected_metadata_2),
-                12 => assert_eq!(*event_metadata, expected_metadata_3),
-                13 => assert_eq!(*event_metadata, expected_metadata_4),
-                _ => assert_eq!(*event_metadata, expected_metadata_1),
+                11 => {
+                    expected_metadata_2.insert("resource.uniq_id", uniq_id.unwrap().clone());
+                    assert_eq!(*event_metadata, expected_metadata_2)
+                }
+                12 => {
+                    expected_metadata_3.insert("resource.uniq_id", uniq_id.unwrap().clone());
+                    assert_eq!(*event_metadata, expected_metadata_3)
+                }
+                13 => {
+                    expected_metadata_4.insert("resource.uniq_id", uniq_id.unwrap().clone());
+                    assert_eq!(*event_metadata, expected_metadata_4)
+                }
+                _ => {
+                    expected_metadata_1.insert("resource.uniq_id", uniq_id.unwrap().clone());
+                    assert_eq!(*event_metadata, expected_metadata_1)
+                }
             }
         }
     }

@@ -6,6 +6,13 @@ def PROJECT_NAME = "vector"
 def CURRENT_BRANCH = currentBranch()
 def DOCKER_REPO = "docker.io/mezmohq"
 
+def slugify(str) {
+  def s = str.toLowerCase()
+  s = s.replaceAll(/[^a-z0-9\s-\/]/, "").replaceAll(/\s+/, " ").trim()
+  s = s.replaceAll(/[\/\s]/, '-').replaceAll(/-{2,}/, '-')
+  s
+}
+
 def BRANCH_BUILD = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
 
 def CREDS = [
@@ -13,12 +20,11 @@ def CREDS = [
     credentialsId: 'github-api-token',
     variable: 'GITHUB_TOKEN'
   ),
-  aws(
-    credentialsId: 'aws',
+  aws(credentialsId: 'aws',
     accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-  ),
+    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'),
 ]
+
 def NPMRC = [
     configFile(fileId: 'npmrc', variable: 'NPM_CONFIG_USERCONFIG')
 ]
@@ -70,16 +76,27 @@ pipeline {
         error("A maintainer needs to approve this PR for CI by commenting")
       }
     }
+    stage('Release Tool') {
+      steps {
+        sh 'make release-tool'
+      }
+    }
     stage('Needs Testing?') {
       // Do not run the stages on a release commit, unless it's for a sanity build.
       when {
         anyOf {
-          expression { !(env.TOP_COMMIT ==~ /^release: 20\d\d-\d\d-\d\d, Version \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/) }
+          expression { !(env.TOP_COMMIT ==~ /^chore\(release\): \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/) }
           environment name: 'SANITY_BUILD', value: 'true'
         }
       }
       stages {
         stage('Lint and test release'){
+          when {
+            allOf {
+                expression { !(env.TOP_COMMIT ==~ /^Merge remote-tracking branch.*$/) }
+                expression { !(env.TOP_COMMIT ==~ /^Merge upstream.*$/) }
+            }
+          }
           tools {
             nodejs 'NodeJS 20'
           }
@@ -92,19 +109,26 @@ pipeline {
           steps {
             script {
               configFileProvider(NPMRC) {
-                sh 'npm ci --ignore-scripts'
-                sh 'npm run commitlint'
-                if (!env.CHANGE_FORK) {
-                  sh 'npm run release:dry'
-                }
+                sh 'npm ci'
+                sh 'npm run release:dry'
               }
             }
+            sh './release-tool lint'
+            sh './release-tool test'
+          }
+        }
+
+        stage('Checks'){
+          steps {
+            sh """
+              make check-scripts ENVIRONMENT=true
+              make check-fmt ENVIRONMENT=true
+              make check-clippy ENVIRONMENT=true
+            """
           }
         }
 
         stage('Unit test'){
-          // Important: do one step serially since it'll be the one to prepare the testing container
-          // and install the rust toolchain in it. Volume mounts are created here, too.
           steps {
             sh """
               make test ENVIRONMENT=true
@@ -112,52 +136,28 @@ pipeline {
           }
         }
 
-        stage('Checks') {
-          // All `make ENVIRONMENT=true` steps should now use the existing container
-          parallel {
-            stage('check-clippy'){
-              steps {
-                sh """
-                  make check-clippy ENVIRONMENT=true
-                  make check-scripts ENVIRONMENT=true
-                """
-              }
-            }
-            stage('check-fmt'){
-              steps {
-                sh """
-                  make check ENVIRONMENT=true
-                  make check-fmt ENVIRONMENT=true
-                """
-              }
-            }
-            stage('check-deny'){
-              steps {
-                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                  sh """
-                    make check-deny ENVIRONMENT=true
-                  """
-                }
-              }
-            }
-            stage('image test') {
-              when {
-                changeRequest() // Only do this during PRs because it can take 30 minutes
-              }
-              steps {
-                script {
-                  buildx.build(
-                    project: PROJECT_NAME
-                  , push: false
-                  , tags: [BRANCH_BUILD]
-                  , dockerfile: "distribution/docker/mezmo/Dockerfile"
-                  , docker_repo: DOCKER_REPO
-                  )
-                }
-              }
+        stage('image test') {
+          when {
+            allOf{
+              changeRequest() // Only do this during PRs because it can take 30 minutes
+              changeset "distribution/docker/mezmo/Dockerfile"
             }
           }
-        } // End Checks
+          steps {
+            script {
+              def semver = npm.semver()
+              def pkg_version = "${semver.version}+${BRANCH_BUILD}"
+              buildx.build(
+                project: PROJECT_NAME
+              , push: false
+              , tags: [BRANCH_BUILD]
+              , dockerfile: "distribution/docker/mezmo/Dockerfile"
+              , args: [RELEASE_VERSION: pkg_version]
+              , docker_repo: DOCKER_REPO
+              )
+            }
+          }
+        }
 
         stage('Feature build and publish') {
           when {
@@ -167,18 +167,24 @@ pipeline {
           }
           steps {
             script {
-              def feature_tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
+              def tag = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
+              def semver = npm.semver()
+              def pkg_version = "${semver.version}+${tag}"
               buildx.build(
                 project: PROJECT_NAME
               , push: true
-              , tags: [feature_tag]
+              , tags: [tag]
               , dockerfile: "distribution/docker/mezmo/Dockerfile"
+              , args: [RELEASE_VERSION: pkg_version]
               , docker_repo: DOCKER_REPO
               )
             }
+            sh './release-tool clean'
+            sh "./release-tool build APP_VERSION='" + slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}") + "'"
+            sh './release-tool publish'
+            archiveArtifacts artifacts: 'output/'
           }
-        } // End Feature build and publish
-
+        }
         stage('Release Commit') {
           when {
             branch DEFAULT_BRANCH
@@ -197,39 +203,38 @@ pipeline {
               }
             }
           }
-        } // End release commit
-
-      } // End stages
-
-    } // End Needs testing
-
+        }
+      }
+    }
     stage('Publish') {
       when {
         allOf {
           branch DEFAULT_BRANCH
-          expression { env.TOP_COMMIT ==~ /^release: 20\d\d-\d\d-\d\d, Version \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/ }
+          expression { env.TOP_COMMIT ==~ /^chore\(release\): \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/ }
           not {
             environment name: 'SANITY_BUILD', value: 'true'
           }
         }
       }
-      tools {
-        nodejs 'NodeJS 20'
-      }
       steps {
         script {
-          def semver = npm.semver() // get the tag
+          def tag = sh (
+            script: "./release-tool debug-RELEASE_VERSION",
+            returnStdout: true
+          ).split(' = ')[1].trim()
 
           buildx.build(
             project: PROJECT_NAME
           , push: true
-          , tags: [semver.version]
+          , tags: [tag]
           , dockerfile: "distribution/docker/mezmo/Dockerfile"
+          , args: [RELEASE_VERSION: tag]
           , docker_repo: DOCKER_REPO
           )
         }
+        sh './release-tool clean'
       }
-    } // End Publish
+    }
   }
   post {
     always {
@@ -250,5 +255,5 @@ pipeline {
         }
       }
     }
-  } // End post
-} // End pipeline
+  }
+}

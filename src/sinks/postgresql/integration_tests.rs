@@ -14,8 +14,9 @@ use futures_util::{stream, Stream};
 use serde_json::json;
 use serde_json::Value as SerdeValue;
 use std::env;
-use tokio_postgres::{Client, NoTls};
+use tokio_postgres::{Client, NoTls, Statement};
 use vector_lib::btreemap;
+use vector_lib::config::LogNamespace;
 use vector_lib::event::{
     Event, EventArray, LogEvent, Metric, MetricKind, MetricTags, MetricValue, Value,
 };
@@ -57,6 +58,18 @@ fn metric_table_schema(table_name: &str) -> Vec<String> {
                 name VARCHAR(80),
                 tag VARCHAR(80),
                 value DOUBLE PRECISION
+            )"#
+        ),
+        format!("TRUNCATE {table_name}"),
+    ]
+}
+
+fn jsonb_table_schema() -> Vec<String> {
+    let table_name = "jsonb_testing";
+    vec![
+        format!(
+            r#"CREATE TABLE IF NOT EXISTS {table_name} (
+                my_col JSONB
             )"#
         ),
         format!("TRUNCATE {table_name}"),
@@ -132,6 +145,18 @@ fn metric_schema_config(table_name: &str) -> PostgreSQLSchemaConfig {
                 path: ".counter.value".to_owned(),
             },
         ],
+    }
+}
+
+fn jsonb_schema_config() -> PostgreSQLSchemaConfig {
+    let table_name = "jsonb_testing";
+
+    PostgreSQLSchemaConfig {
+        table: table_name.to_owned(),
+        fields: vec![PostgreSQLFieldConfig {
+            name: "my_col".to_owned(),
+            path: ".my_col".to_owned(),
+        }],
     }
 }
 
@@ -229,6 +254,7 @@ async fn log_events() {
             Value::from(btreemap! {
                 "hello" => true,
                 "num" => 123,
+                "serialized_null_is_allowed" => "here's a null \u{0000} character",
                 "nested_object" => {
                     btreemap! {
                         "one" => 1
@@ -240,6 +266,7 @@ async fn log_events() {
             ".json_field",
             Value::from(btreemap! {
                 "my_key" => "this is a json object",
+                "unicode" => "unicode �� charactres are ok in jsonb, just not nulls",
             }),
         );
         Event::Log(log_event)
@@ -424,4 +451,148 @@ async fn metrics() {
     .unwrap();
 
     check_metric_events_match(&psql_client, test_table_name, &events).await;
+}
+
+#[tokio::test]
+async fn jsonb_value_storage() {
+    let events: Vec<Event> = vec![
+        Event::from_json_value(
+            json! ({
+                "name": "regular string",
+                "my_col": json!({"my_key": "a regular string"}),
+                "expected": "a regular string"
+            }),
+            LogNamespace::default(),
+        )
+        .expect("event"),
+        Event::from_json_value(
+            json! ({
+                "name": "string with unicode characters",
+                "my_col": json!({"my_key": "normal unicode string ��"}),
+                "expected": "normal unicode string ��"
+            }),
+            LogNamespace::default(),
+        )
+        .expect("event"),
+        Event::from_json_value(
+            json! ({
+                "name": "string with unicode nulls",
+                "my_col": json!({"my_key": "a regular string \u{0000}with\u{0000} nulls"}),
+                "expected": "a regular string with nulls"
+            }),
+            LogNamespace::default(),
+        )
+        .expect("event"),
+        Event::from_json_value(
+            json! ({
+                "name" : "integer",
+                "my_col": json!({"my_key": 3587}),
+                "expected": 3587
+            }),
+            LogNamespace::default(),
+        )
+        .expect("event"),
+        Event::from_json_value(
+            json! ({
+                "name" : "boolean",
+                "my_col": json!({"my_key": true}),
+                "expected": true
+            }),
+            LogNamespace::default(),
+        )
+        .expect("event"),
+        Event::from_json_value(
+            json! ({
+                "name" : "float",
+                "my_col": json!({"my_key": 123.456}),
+                "expected": 123.456
+            }),
+            LogNamespace::default(),
+        )
+        .expect("event"),
+        Event::from_json_value(
+            json! ({
+                "name" : "nested object with string keys and no bad values",
+                "my_col": json!({"my_key": json!({"hello": true, "num": 123})}),
+                "expected": json!({"hello": true, "num": 123})
+            }),
+            LogNamespace::default(),
+        )
+        .expect("event"),
+        Event::from_json_value(
+            json! ({
+                "name" : "nested object with unicode keys and no bad values",
+                "my_col": json!({"my_key": json!({"hello �": true, "num": 123})}),
+                "expected": json!({"hello �": true, "num": 123})
+            }),
+            LogNamespace::default(),
+        )
+        .expect("event"),
+        Event::from_json_value(
+            json! ({
+                "name" : "nested object with unicode nulls in the values",
+                "my_col": json!({"my_key": json!({"hello": "goodbye null\u{0000}, nice knowing\u{0000} you"})}),
+                "expected": json!({"hello": "goodbye null, nice knowing you"})
+            }),
+            LogNamespace::default(),
+        )
+        .expect("event"),
+        Event::from_json_value(
+            json! ({
+                "name" : "nested array with unicode nulls",
+                "my_col": json!({"my_key": json!({"arr": ["goodbye �� null\u{0000}, nice knowing\u{0000} you"]})}),
+                "expected": json!({"arr": ["goodbye �� null, nice knowing you"]})
+            }),
+            LogNamespace::default(),
+        )
+        .expect("event"),
+        Event::from_json_value(
+            json! ({
+                "name" : "array with unicode nulls",
+                "my_col": json!({"my_key": json!(["goodbye �� null\u{0000}, nice knowing\u{0000} you"])}),
+                "expected": json!(["goodbye �� null, nice knowing you"])
+            }),
+            LogNamespace::default(),
+        )
+        .expect("event"),
+    ];
+
+    trace_init();
+    let psql_client = &test_table_init(jsonb_table_schema()).await;
+
+    let (batch, mut _receiver) = BatchNotifier::new_with_receiver();
+    let stream = map_event_batch_stream(stream::iter(events.clone()), Some(batch));
+
+    assert_sink_compliance(&SINK_TAGS, async move {
+        let config = PostgreSQLSinkConfig {
+            connection: connection_string(),
+            schema: jsonb_schema_config(),
+            ..Default::default()
+        };
+        let sink = PostgreSQLSink::new(config).unwrap();
+        let sink = VectorSink::from_event_streamsink(sink);
+        sink.run(stream).await
+    })
+    .await
+    .unwrap();
+
+    let stmt = format!("SELECT my_col FROM jsonb_testing");
+    let rows = psql_client.query(&stmt, &[]).await.unwrap();
+
+    // Grab all values AS JSON from the DB so that we can retain the types for comparison.
+    // Use SerdeValue to handle typing for retrieving the column's value.
+    for (row, event) in std::iter::zip(rows, events) {
+        let log = event.as_log();
+        let value = log.get(".expected").unwrap();
+        let expected: SerdeValue = json!({"my_key": value});
+        assert_eq!(
+            row.get::<usize, SerdeValue>(0),
+            expected,
+            "{}",
+            format!(
+                "Test case not found in the DB: {:?}",
+                log.get(".name").unwrap().to_string_lossy()
+            )
+        );
+    }
 }

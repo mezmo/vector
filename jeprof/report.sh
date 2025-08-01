@@ -9,10 +9,11 @@ fi
 
 if [ ! -f "$1" ]; then
   POD=$1
+  STS=$(echo "$POD" | cut -d"-" -f1,2)
   NS=pipeline
   NAME="heap-$NS-$POD-$(date +%F-%H-%M-%S)"
   FILE=$NAME.tar.gz
-  VERSION=$(kubectl -n pipeline get statefulset vector-gen0 -o=jsonpath='{$.spec.template.spec.containers[:1].image}' | cut -d':' -f2)
+  VERSION=$(kubectl -n pipeline get statefulset "$STS" -o=jsonpath='{$.spec.template.spec.containers[:1].image}' | cut -d':' -f2)
 
   # shellcheck disable=SC2016
   kubectl exec -n "$NS" "$POD" -- bash -c 'tar -zcf /tmp/heap.tar.gz  $(ls -t *.heap | head -1 | cut -d" " -f2)'

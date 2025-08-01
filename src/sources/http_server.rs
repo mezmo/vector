@@ -2,7 +2,7 @@ use std::{collections::HashMap, net::SocketAddr};
 
 use bytes::{Bytes, BytesMut};
 use chrono::Utc;
-use http::{StatusCode, Uri};
+use http::StatusCode;
 use http_serde;
 use tokio_util::codec::Decoder as _;
 use vrl::value::{kind::Collection, Kind};
@@ -22,13 +22,12 @@ use vector_lib::{
 
 use crate::{
     codecs::{Decoder, DecodingConfig},
-    components::validation::*,
     config::{
         GenerateConfig, Resource, SourceAcknowledgementsConfig, SourceConfig, SourceContext,
         SourceOutput,
     },
     event::{Event, Value},
-    register_validatable_component,
+    http::KeepaliveConfig,
     serde::{bool_or_struct, default_decoding},
     sources::util::{http::HttpMethod, Encoding, ErrorMessage, HttpSource, HttpSourceAuthConfig},
     tls::TlsEnableableConfig,
@@ -99,10 +98,16 @@ pub struct SimpleHttpConfig {
 
     /// A list of URL query parameters to include in the log event.
     ///
+    /// Accepts the wildcard (`*`) character for query parameters matching a specified pattern.
+    ///
+    /// Specifying "*" results in all query parameters included in the log event.
+    ///
     /// These override any values included in the body with conflicting names.
     #[serde(default)]
     #[configurable(metadata(docs::examples = "application"))]
     #[configurable(metadata(docs::examples = "source"))]
+    #[configurable(metadata(docs::examples = "param*"))]
+    #[configurable(metadata(docs::examples = "*"))]
     query_parameters: Vec<String>,
 
     #[configurable(derived)]
@@ -128,6 +133,11 @@ pub struct SimpleHttpConfig {
     #[serde(default = "default_path_key")]
     #[configurable(metadata(docs::examples = "vector_http_path"))]
     path_key: OptionalValuePath,
+
+    /// If set, the name of the log field used to add the remote IP to each event
+    #[serde(default = "default_host_key")]
+    #[configurable(metadata(docs::examples = "hostname"))]
+    host_key: OptionalValuePath,
 
     /// Specifies the action of the HTTP request.
     #[serde(default = "default_http_method")]
@@ -157,6 +167,10 @@ pub struct SimpleHttpConfig {
     #[configurable(metadata(docs::hidden))]
     #[serde(default)]
     log_namespace: Option<bool>,
+
+    #[configurable(derived)]
+    #[serde(default)]
+    keepalive: KeepaliveConfig,
 }
 
 impl SimpleHttpConfig {
@@ -188,6 +202,13 @@ impl SimpleHttpConfig {
                 None,
                 &owned_value_path!("query_parameters"),
                 Kind::object(Collection::empty().with_unknown(Kind::bytes())).or_undefined(),
+                None,
+            )
+            .with_source_metadata(
+                SimpleHttpConfig::NAME,
+                self.host_key.path.clone().map(LegacyKey::Overwrite),
+                &owned_value_path!("host"),
+                Kind::bytes().or_undefined(),
                 None,
             )
             .with_standard_vector_source_metadata();
@@ -252,6 +273,7 @@ impl Default for SimpleHttpConfig {
             auth: None,
             path: default_path(),
             path_key: default_path_key(),
+            host_key: default_host_key(),
             method: default_http_method(),
             response_code: default_http_response_code(),
             strict_path: true,
@@ -259,35 +281,12 @@ impl Default for SimpleHttpConfig {
             decoding: Some(default_decoding()),
             acknowledgements: SourceAcknowledgementsConfig::default(),
             log_namespace: None,
+            keepalive: KeepaliveConfig::default(),
         }
     }
 }
 
 impl_generate_config_from_default!(SimpleHttpConfig);
-
-impl ValidatableComponent for SimpleHttpConfig {
-    fn validation_configuration() -> ValidationConfiguration {
-        let config = Self {
-            decoding: Some(DeserializerConfig::Json(Default::default())),
-            ..Default::default()
-        };
-
-        let listen_addr_http = format!("http://{}/", config.address);
-        let uri = Uri::try_from(&listen_addr_http).expect("should not fail to parse URI");
-
-        let external_resource = ExternalResource::new(
-            ResourceDirection::Push,
-            HttpResourceConfig::from_parts(uri, Some(config.method.into())),
-            config
-                .get_decoding_config()
-                .expect("should not fail to get decoding config"),
-        );
-
-        ValidationConfiguration::from_source(Self::NAME, config, Some(external_resource))
-    }
-}
-
-register_validatable_component!(SimpleHttpConfig);
 
 const fn default_http_method() -> HttpMethod {
     HttpMethod::Post
@@ -301,12 +300,16 @@ fn default_path_key() -> OptionalValuePath {
     OptionalValuePath::from(owned_value_path!("path"))
 }
 
+fn default_host_key() -> OptionalValuePath {
+    OptionalValuePath::none()
+}
+
 const fn default_http_response_code() -> StatusCode {
     StatusCode::OK
 }
 
 /// Removes duplicates from the list, and logs a `warn!()` for each duplicate removed.
-fn remove_duplicates(mut list: Vec<String>, list_name: &str) -> Vec<String> {
+pub fn remove_duplicates(mut list: Vec<String>, list_name: &str) -> Vec<String> {
     list.sort();
 
     let mut dedup = false;
@@ -326,13 +329,18 @@ fn remove_duplicates(mut list: Vec<String>, list_name: &str) -> Vec<String> {
     list
 }
 
+/// Convert [`SocketAddr`] into a string, returning only the IP address.
+fn socket_addr_to_ip_string(addr: &SocketAddr) -> String {
+    addr.ip().to_string()
+}
+
 #[derive(Clone)]
-enum HttpConfigParamKind {
+pub enum HttpConfigParamKind {
     Glob(glob::Pattern),
     Exact(String),
 }
 
-fn build_param_matcher(list: &[String]) -> crate::Result<Vec<HttpConfigParamKind>> {
+pub fn build_param_matcher(list: &[String]) -> crate::Result<Vec<HttpConfigParamKind>> {
     list.iter()
         .map(|s| match s.contains('*') {
             true => Ok(HttpConfigParamKind::Glob(glob::Pattern::new(s)?)),
@@ -355,6 +363,7 @@ impl SourceConfig for SimpleHttpConfig {
                 "query_parameters",
             ))?,
             path_key: self.path_key.clone(),
+            host_key: self.host_key.clone(),
             decoder,
             log_namespace,
         };
@@ -368,6 +377,7 @@ impl SourceConfig for SimpleHttpConfig {
             &self.auth,
             cx,
             self.acknowledgements,
+            self.keepalive.clone(),
         )
     }
 
@@ -378,7 +388,7 @@ impl SourceConfig for SimpleHttpConfig {
 
         let schema_definition = self.schema_definition(log_namespace);
 
-        vec![SourceOutput::new_logs(
+        vec![SourceOutput::new_maybe_logs(
             self.decoding
                 .as_ref()
                 .map(|d| d.output_type())
@@ -401,6 +411,7 @@ struct SimpleHttpSource {
     headers: Vec<HttpConfigParamKind>,
     query_parameters: Vec<HttpConfigParamKind>,
     path_key: OptionalValuePath,
+    host_key: OptionalValuePath,
     decoder: Decoder,
     log_namespace: LogNamespace,
 }
@@ -414,6 +425,7 @@ impl HttpSource for SimpleHttpSource {
         request_path: &str,
         headers_config: &HeaderMap,
         query_parameters: &HashMap<String, String>,
+        source_ip: Option<&SocketAddr>,
     ) {
         let now = Utc::now();
         let unused_metadata_path_value = owned_value_path!("not used");
@@ -522,6 +534,16 @@ impl HttpSource for SimpleHttpSource {
                         SimpleHttpConfig::NAME,
                         now,
                     );
+
+                    if let Some(addr) = source_ip {
+                        self.log_namespace.insert_source_metadata(
+                            SimpleHttpConfig::NAME,
+                            log,
+                            self.host_key.path.as_ref().map(LegacyKey::Overwrite),
+                            path!("host"),
+                            socket_addr_to_ip_string(addr),
+                        );
+                    }
                 }
                 _ => {
                     continue;
@@ -561,15 +583,20 @@ impl HttpSource for SimpleHttpSource {
 
         Ok(events)
     }
+
+    fn enable_source_ip(&self) -> bool {
+        self.host_key.path.is_some()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
-    use std::{collections::BTreeMap, io::Write, net::SocketAddr};
+    use std::{io::Write, net::SocketAddr};
 
     use crate::sources::http_server::HttpMethod;
     use crate::{
+        components::validation::prelude::*,
         config::{log_schema, SourceConfig, SourceContext},
         event::{Event, EventStatus, Value},
         test_util::{
@@ -583,7 +610,7 @@ mod tests {
         Compression,
     };
     use futures::Stream;
-    use http::{HeaderMap, Method, StatusCode};
+    use http::{HeaderMap, Method, StatusCode, Uri};
     use similar_asserts::assert_eq;
     use vector_lib::codecs::{
         decoding::{DeserializerConfig, FramingConfig},
@@ -595,8 +622,7 @@ mod tests {
     use vector_lib::lookup::{event_path, owned_value_path, OwnedTargetPath, PathPrefix};
     use vector_lib::schema::Definition;
     use vrl::path;
-    use vrl::value::kind::Collection;
-    use vrl::value::Kind;
+    use vrl::value::{kind::Collection, Kind, ObjectMap};
 
     use super::{remove_duplicates, SimpleHttpConfig};
 
@@ -610,6 +636,7 @@ mod tests {
         headers: Vec<String>,
         query_parameters: Vec<String>,
         path_key: &'a str,
+        host_key: &'a str,
         path: &'a str,
         method: &'a str,
         response_code: StatusCode,
@@ -622,6 +649,7 @@ mod tests {
         let (sender, recv) = SourceSender::new_test_finalize(status);
         let address = next_addr();
         let path = path.to_owned();
+        let host_key = OptionalValuePath::from(owned_value_path!(host_key));
         let path_key = if !path_key.is_empty() {
             OptionalValuePath::from(owned_value_path!(path_key))
         } else {
@@ -645,12 +673,14 @@ mod tests {
                 auth: None,
                 strict_path,
                 path_key,
+                host_key,
                 path,
                 method,
                 framing,
                 decoding,
                 acknowledgements: acknowledgements.into(),
                 log_namespace: None,
+                keepalive: Default::default(),
             }
             .build(context)
             .await
@@ -749,6 +779,7 @@ mod tests {
                 vec![],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -793,6 +824,7 @@ mod tests {
                 vec![],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -831,6 +863,7 @@ mod tests {
                 vec![],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -863,6 +896,7 @@ mod tests {
                 vec![],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -900,6 +934,7 @@ mod tests {
                 vec![],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -944,6 +979,7 @@ mod tests {
                 vec![],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -981,8 +1017,8 @@ mod tests {
         {
             let event = events.remove(0);
             let log = event.as_log();
-            let mut map = BTreeMap::new();
-            map.insert("dotted.key2".to_string(), Value::from("value2"));
+            let mut map = ObjectMap::new();
+            map.insert("dotted.key2".into(), Value::from("value2"));
             assert_eq!(log["nested"], map.into());
         }
     }
@@ -994,6 +1030,7 @@ mod tests {
                 vec![],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -1081,6 +1118,7 @@ mod tests {
                 ],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -1135,6 +1173,7 @@ mod tests {
                 vec!["*".to_string()],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -1184,6 +1223,7 @@ mod tests {
                     "absent".to_string(),
                 ],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -1224,6 +1264,7 @@ mod tests {
                 vec![],
                 vec!["*".to_string()],
                 "http_path",
+                "host",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -1268,6 +1309,7 @@ mod tests {
                 vec![],
                 vec!["s*".to_string()],
                 "http_path",
+                "host",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -1305,6 +1347,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn http_query_wildcard() {
+        let mut events = assert_source_compliance(&HTTP_PUSH_SOURCE_TAGS, async {
+            let (rx, addr) = source(
+                vec![],
+                vec!["*".to_string()],
+                "http_path",
+                "remote_ip",
+                "/",
+                "POST",
+                StatusCode::OK,
+                true,
+                EventStatus::Delivered,
+                true,
+                None,
+                Some(JsonDeserializerConfig::default().into()),
+            )
+            .await;
+
+            spawn_ok_collect_n(
+                send_with_query(addr, "{\"key1\":\"value1\"}", "source=staging&region=gb"),
+                rx,
+                1,
+            )
+            .await
+        })
+        .await;
+
+        {
+            let event = events.remove(0);
+            let log = event.as_log();
+            let query = log.metadata().value().get("query_parameters").unwrap();
+
+            assert_eq!(log["key1"], "value1".into());
+            assert_eq!(query.get("source").unwrap(), &Value::from("staging"));
+            assert_eq!(query.get("region").unwrap(), &Value::from("gb"));
+            assert_event_metadata(log, "http_path").await;
+        }
+    }
+
+    #[tokio::test]
     async fn http_gzip_deflate() {
         let mut events = assert_source_compliance(&HTTP_PUSH_SOURCE_TAGS, async {
             let body = "test body";
@@ -1324,6 +1406,7 @@ mod tests {
                 vec![],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -1354,6 +1437,7 @@ mod tests {
                 vec![],
                 vec![],
                 "vector_http_path",
+                "vector_remote_ip",
                 "/event/path",
                 "POST",
                 StatusCode::OK,
@@ -1396,6 +1480,7 @@ mod tests {
                 vec![],
                 vec![],
                 "",
+                "host",
                 "/event/path",
                 "POST",
                 StatusCode::OK,
@@ -1437,6 +1522,7 @@ mod tests {
                 vec![],
                 vec![],
                 "vector_http_path",
+                "vector_remote_ip",
                 "/event",
                 "POST",
                 StatusCode::OK,
@@ -1499,6 +1585,7 @@ mod tests {
             vec![],
             vec![],
             "vector_http_path",
+            "vector_remote_ip",
             "/",
             "POST",
             StatusCode::OK,
@@ -1523,6 +1610,7 @@ mod tests {
                 vec![],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::ACCEPTED,
@@ -1556,6 +1644,7 @@ mod tests {
                 vec![],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -1586,6 +1675,7 @@ mod tests {
                 vec![],
                 vec![],
                 "http_path",
+                "remote_ip",
                 "/",
                 "POST",
                 StatusCode::OK,
@@ -1618,6 +1708,7 @@ mod tests {
             vec![],
             vec![],
             "http_path",
+            "remote_ip",
             "/",
             "GET",
             StatusCode::OK,
@@ -1668,6 +1759,11 @@ mod tests {
                     None,
                 )
                 .with_metadata_field(
+                    &owned_value_path!(SimpleHttpConfig::NAME, "host"),
+                    Kind::bytes().or_undefined(),
+                    None,
+                )
+                .with_metadata_field(
                     &owned_value_path!("vector", "ingest_timestamp"),
                     Kind::timestamp(),
                     None,
@@ -1697,6 +1793,11 @@ mod tests {
         .with_event_field(&owned_value_path!("source_type"), Kind::bytes(), None)
         .with_event_field(&owned_value_path!("timestamp"), Kind::timestamp(), None)
         .with_event_field(&owned_value_path!("path"), Kind::bytes(), None)
+        .with_event_field(
+            &owned_value_path!("host"),
+            Kind::bytes().or_undefined(),
+            None,
+        )
         .unknown_fields(Kind::bytes());
 
         assert_eq!(definitions, Some(expected_definition))
@@ -1734,4 +1835,38 @@ mod tests {
             );
         }
     }
+
+    impl ValidatableComponent for SimpleHttpConfig {
+        fn validation_configuration() -> ValidationConfiguration {
+            let config = Self {
+                decoding: Some(DeserializerConfig::Json(Default::default())),
+                ..Default::default()
+            };
+
+            let log_namespace: LogNamespace = config.log_namespace.unwrap_or(false).into();
+
+            let listen_addr_http = format!("http://{}/", config.address);
+            let uri = Uri::try_from(&listen_addr_http).expect("should not fail to parse URI");
+
+            let external_resource = ExternalResource::new(
+                ResourceDirection::Push,
+                HttpResourceConfig::from_parts(uri, Some(config.method.into())),
+                config
+                    .get_decoding_config()
+                    .expect("should not fail to get decoding config"),
+            );
+
+            ValidationConfiguration::from_source(
+                Self::NAME,
+                log_namespace,
+                vec![ComponentTestCaseConfig::from_source(
+                    config,
+                    None,
+                    Some(external_resource),
+                )],
+            )
+        }
+    }
+
+    register_validatable_component!(SimpleHttpConfig);
 }

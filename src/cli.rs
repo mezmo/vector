@@ -234,6 +234,14 @@ impl RootOpts {
         )
         .collect()
     }
+
+    pub fn init_global(&self) {
+        if !self.openssl_no_probe {
+            openssl_probe::init_ssl_cert_env_vars();
+        }
+
+        crate::metrics::init_global().expect("metrics initialization failed");
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -315,7 +323,7 @@ impl SubCommand {
             Self::Vrl(s) => {
                 let mut functions = vrl::stdlib::all();
                 functions.extend(vector_vrl_functions::all());
-                functions.extend(crate::mezmo::vrl::cli_vrl_functions());
+                functions.extend(mezmo::functions::cli_vrl_functions());
                 vrl::cli::cmd::cmd(s, functions)
             }
         }

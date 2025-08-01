@@ -1,6 +1,8 @@
 use chrono::Utc;
 use fakedata::mezmo::access_log::json_access_log_line;
 use fakedata::mezmo::error_log::apache_error_log_line;
+use fakedata::mezmo::infrastructure::infra_log_line;
+use fakedata::mezmo::kubernetes::kubernetes_log_line;
 use fakedata::mezmo::metrics;
 use fakedata::mezmo::{
     access_log::{apache_common_log_line, nginx_access_log_line},
@@ -95,10 +97,18 @@ const fn default_device_count() -> usize {
     3
 }
 
+const fn default_max_user_provided_lines() -> usize {
+    25
+}
+
 #[derive(Debug, PartialEq, Eq, Snafu)]
 pub enum MezmoDemoLogsConfigError {
     #[snafu(display("A non-empty list of lines is required for the shuffle format"))]
     ShuffleDemoLogsItemsEmpty,
+    #[snafu(display("A non-empty list of lines is required from the user"))]
+    UserProvidedLinesItemsEmpty,
+    #[snafu(display("A maximum of {max_user_provided_lines} user-provided lines are allowed"))]
+    UserProvidedTooMany { max_user_provided_lines: usize },
 }
 
 /// Output format configuration.
@@ -155,11 +165,25 @@ pub enum MezmoOutputFormat {
 
     /// Generic metrics in the Mezmo metrics format
     GenericMetrics,
+
+    /// User-provided logs to be infinitly looped sequentially
+    UserProvided {
+        /// The lines that the user provided to be looped over
+        lines: Vec<String>,
+        /// The maximum number of user provided lines to loop over
+        #[serde(default = "default_max_user_provided_lines")]
+        max_user_provided_lines: usize,
+    },
+    /// Infrastructure logs
+    Infrastructure,
+    /// Kubernetes logs
+    Kubernetes,
 }
 
 struct State {
     financial_evt_state: OnceCell<EventGenerator>,
     metrics_evt_state: OnceCell<metrics::Generator>,
+    user_provided_idx: usize,
 }
 
 impl State {
@@ -167,14 +191,16 @@ impl State {
         State {
             financial_evt_state: OnceCell::new(),
             metrics_evt_state: OnceCell::new(),
+            user_provided_idx: 0,
         }
     }
 
-    #[cfg(any(test, feature = "test"))]
+    #[cfg(test)]
     fn new_with(financial_evt_state: OnceCell<EventGenerator>) -> State {
         State {
             financial_evt_state,
             metrics_evt_state: OnceCell::new(),
+            user_provided_idx: 0,
         }
     }
 }
@@ -236,6 +262,21 @@ impl MezmoOutputFormat {
                     .expect("generic metric event state should be set")
                     .generate_next()
             }
+            Self::UserProvided { ref lines, .. } => {
+                let idx = state.user_provided_idx;
+                let line = lines[idx].clone();
+                state.user_provided_idx = (idx + 1) % (lines.len()); // zero-based index, infinite loop
+                line
+            }
+            Self::Infrastructure => {
+                let log = infra_log_line();
+                serde_json::to_string(&log)
+                    .expect("infrastructure log event should be json encodable")
+            }
+            Self::Kubernetes => {
+                let log = kubernetes_log_line();
+                serde_json::to_string(&log).expect("kubernetes log event should be json encodable")
+            }
         }
     }
 
@@ -250,7 +291,7 @@ impl MezmoOutputFormat {
         }
     }
 
-    // Ensures that the `lines` list is non-empty if `Shuffle` is chosen
+    // Ensures that the `lines` list is non-empty if `Shuffle` or `UserProvided` is chosen
     pub(self) fn validate(&self) -> Result<(), MezmoDemoLogsConfigError> {
         match self {
             Self::Shuffle { lines, .. } => {
@@ -259,6 +300,20 @@ impl MezmoOutputFormat {
                 } else {
                     Ok(())
                 }
+            }
+            Self::UserProvided {
+                lines,
+                max_user_provided_lines,
+            } => {
+                if lines.is_empty() {
+                    return Err(MezmoDemoLogsConfigError::UserProvidedLinesItemsEmpty);
+                }
+                if lines.len() > *max_user_provided_lines {
+                    return Err(MezmoDemoLogsConfigError::UserProvidedTooMany {
+                        max_user_provided_lines: *max_user_provided_lines,
+                    });
+                }
+                Ok(())
             }
             _ => Ok(()),
         }
@@ -388,7 +443,7 @@ impl SourceConfig for MezmoDemoLogsConfig {
             .schema_definition(log_namespace)
             .with_standard_vector_source_metadata();
 
-        vec![SourceOutput::new_logs(
+        vec![SourceOutput::new_maybe_logs(
             self.decoding.output_type(),
             schema_definition,
         )]
@@ -475,6 +530,45 @@ mod tests {
         assert_eq!(
             errant_config.format.validate(),
             Err(MezmoDemoLogsConfigError::ShuffleDemoLogsItemsEmpty)
+        );
+    }
+
+    #[test]
+    fn config_user_provided_lines_not_empty() {
+        let empty_lines: Vec<String> = Vec::new();
+
+        let errant_config = MezmoDemoLogsConfig {
+            format: MezmoOutputFormat::UserProvided {
+                lines: empty_lines,
+                max_user_provided_lines: 5,
+            },
+            ..MezmoDemoLogsConfig::default()
+        };
+
+        assert_eq!(
+            errant_config.format.validate(),
+            Err(MezmoDemoLogsConfigError::UserProvidedLinesItemsEmpty)
+        );
+    }
+
+    #[test]
+    fn config_user_provided_lines_too_many() {
+        let max_user_provided_lines = 1;
+        let empty_lines: Vec<String> = vec!["line1".to_string(), "line2".to_string()];
+
+        let errant_config = MezmoDemoLogsConfig {
+            format: MezmoOutputFormat::UserProvided {
+                lines: empty_lines,
+                max_user_provided_lines,
+            },
+            ..MezmoDemoLogsConfig::default()
+        };
+
+        assert_eq!(
+            errant_config.format.validate(),
+            Err(MezmoDemoLogsConfigError::UserProvidedTooMany {
+                max_user_provided_lines
+            })
         );
     }
 
@@ -664,6 +758,70 @@ mod tests {
     async fn generic_metrics_format_generates_output() {
         let mut rx = runit(
             r#"format = "generic_metrics"
+            count = 5"#,
+        )
+        .await;
+
+        for _ in 0..5 {
+            assert!(poll!(rx.next()).is_ready());
+        }
+        assert_eq!(poll!(rx.next()), Poll::Ready(None));
+    }
+
+    #[tokio::test]
+    async fn user_provided_lines_loops() {
+        let message_key = log_schema().message_key().unwrap().to_string();
+        let mut rx = runit(
+            r#"format = "user_provided"
+               lines = ["one", "two", "three"]
+               count = 6"#,
+        )
+        .await;
+
+        let lines = ["one", "two", "three"];
+
+        // First loop
+        for line in lines.iter().take(3) {
+            let event = match poll!(rx.next()) {
+                Poll::Ready(event) => event.unwrap(),
+                _ => unreachable!(),
+            };
+            let log = event.as_log();
+            let message = log[&message_key].to_string_lossy();
+            assert_eq!(line.to_string(), message);
+        }
+        // Second loop
+        for line in lines.iter().take(3) {
+            let event = match poll!(rx.next()) {
+                Poll::Ready(event) => event.unwrap(),
+                _ => unreachable!(),
+            };
+            let log = event.as_log();
+            let message = log[&message_key].to_string_lossy();
+            assert_eq!(line.to_string(), message);
+        }
+
+        assert_eq!(poll!(rx.next()), Poll::Ready(None));
+    }
+
+    #[tokio::test]
+    async fn infrastructure_format_generates_output() {
+        let mut rx = runit(
+            r#"format = "infrastructure"
+            count = 5"#,
+        )
+        .await;
+
+        for _ in 0..5 {
+            assert!(poll!(rx.next()).is_ready());
+        }
+        assert_eq!(poll!(rx.next()), Poll::Ready(None));
+    }
+
+    #[tokio::test]
+    async fn kubernetes_format_generates_output() {
+        let mut rx = runit(
+            r#"format = "kubernetes"
             count = 5"#,
         )
         .await;

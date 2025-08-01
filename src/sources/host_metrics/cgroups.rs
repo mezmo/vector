@@ -116,7 +116,7 @@ impl<'a> CGroupRecurser<'a> {
             if self.load_cpu {
                 self.load_cpu(&cgroup, &tags).await;
             }
-            if self.load_memory && !cgroup.is_root() {
+            if self.load_memory {
                 self.load_memory(&cgroup, &tags).await;
             }
 
@@ -271,10 +271,6 @@ struct CGroup {
 }
 
 impl CGroup {
-    fn is_root(&self) -> bool {
-        self.name == Path::new("/")
-    }
-
     fn tags(&self) -> MetricTags {
         metric_tags! {
             "cgroup" => self.name.to_string_lossy(),
@@ -459,7 +455,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(not(ignored_upstream_flaky), ignore)]
+    #[cfg_attr(not(ignored_upstream_flakey), ignore)]
     async fn generates_cgroups_metrics() {
         let config: HostMetricsConfig = toml::from_str(r#"collectors = ["cgroups"]"#).unwrap();
         let mut buffer = MetricsBuffer::new(None);
@@ -600,11 +596,11 @@ mod tests {
             );
             assert_eq!(
                 count_name(&metrics, "cgroup_memory_anon_bytes"),
-                SUBDIRS.len() - 1
+                SUBDIRS.len()
             );
             assert_eq!(
                 count_name(&metrics, "cgroup_memory_file_bytes"),
-                SUBDIRS.len() - 1
+                SUBDIRS.len()
             );
         }
 

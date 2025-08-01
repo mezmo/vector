@@ -2,13 +2,12 @@ use std::{
     collections::HashMap,
     future::ready,
     num::NonZeroUsize,
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex},
     time::Instant,
 };
 
 use futures::{stream::FuturesOrdered, FutureExt, StreamExt, TryStreamExt};
 use futures_util::stream::FuturesUnordered;
-use once_cell::sync::Lazy;
 use stream_cancel::{StreamExt as StreamCancelExt, Trigger, Tripwire};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::{
@@ -44,35 +43,36 @@ use super::{
     task::{Task, TaskOutput, TaskResult},
     BuiltBuffer, ConfigDiff,
 };
-use crate::mezmo::MezmoContext;
+use crate::mezmo::event_trace::{MezmoSyncTransformTrace, MezmoTaskTransformTrace};
 use crate::{
     config::{
         ComponentKey, Config, DataType, EnrichmentTableConfig, Input, Inputs, OutputId,
         ProxyConfig, SinkContext, SourceContext, TransformContext, TransformOuter, TransformOutput,
     },
     event::{EventArray, EventContainer},
+    extra_context::ExtraContext,
     internal_events::EventsReceived,
     shutdown::SourceShutdownCoordinator,
-    source_sender::CHUNK_SIZE,
+    source_sender::{SourceSenderItem, CHUNK_SIZE},
     spawn_named,
     topology::task::TaskError,
     transforms::{SyncTransform, TaskTransform, Transform, TransformOutputs, TransformOutputsBuf},
     utilization::wrap,
     SourceSender,
 };
+use mezmo::MezmoContext;
 
-static ENRICHMENT_TABLES: Lazy<vector_lib::enrichment::TableRegistry> =
-    Lazy::new(vector_lib::enrichment::TableRegistry::default);
+static ENRICHMENT_TABLES: LazyLock<vector_lib::enrichment::TableRegistry> =
+    LazyLock::new(vector_lib::enrichment::TableRegistry::default);
 
-pub(crate) static SOURCE_SENDER_BUFFER_SIZE: Lazy<usize> =
-    Lazy::new(|| *TRANSFORM_CONCURRENCY_LIMIT * CHUNK_SIZE);
+pub(crate) static SOURCE_SENDER_BUFFER_SIZE: LazyLock<usize> =
+    LazyLock::new(|| *TRANSFORM_CONCURRENCY_LIMIT * CHUNK_SIZE);
 
 const READY_ARRAY_CAPACITY: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(CHUNK_SIZE * 4) };
 pub(crate) const TOPOLOGY_BUFFER_SIZE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(100) };
 
-static TRANSFORM_CONCURRENCY_LIMIT: Lazy<usize> = Lazy::new(|| {
-    crate::app::WORKER_THREADS
-        .get()
+static TRANSFORM_CONCURRENCY_LIMIT: LazyLock<usize> = LazyLock::new(|| {
+    crate::app::worker_threads()
         .map(std::num::NonZeroUsize::get)
         .unwrap_or_else(crate::num_threads)
 });
@@ -91,6 +91,7 @@ struct Builder<'a> {
     inputs: HashMap<ComponentKey, (BufferSender<EventArray>, Inputs<OutputId>)>,
     healthchecks: HashMap<ComponentKey, Task>,
     detach_triggers: HashMap<ComponentKey, Trigger>,
+    extra_context: ExtraContext,
 }
 
 impl<'a> Builder<'a> {
@@ -99,6 +100,7 @@ impl<'a> Builder<'a> {
         diff: &'a ConfigDiff,
         metrics_tx: Option<UnboundedSender<UsageMetrics>>,
         buffers: HashMap<ComponentKey, BuiltBuffer>,
+        extra_context: ExtraContext,
     ) -> Self {
         let metrics_tx = if let Some(tx) = metrics_tx {
             info!("Building pieces with metrics transmitter");
@@ -122,6 +124,7 @@ impl<'a> Builder<'a> {
             inputs: HashMap::new(),
             healthchecks: HashMap::new(),
             detach_triggers: HashMap::new(),
+            extra_context,
         }
     }
 
@@ -265,14 +268,21 @@ impl<'a> Builder<'a> {
                 let pump = async move {
                     debug!("Source pump starting.");
 
-                    while let Some(mut array) = rx.next().await {
+                    while let Some(SourceSenderItem {
+                        events: mut array,
+                        send_reference,
+                    }) = rx.next().await
+                    {
                         usage_tracker.track(&array);
                         array.set_output_id(&source);
                         array.set_source_type(source_type);
-                        fanout.send(array).await.map_err(|e| {
-                            debug!("Source pump finished with an error.");
-                            TaskError::wrapped(e)
-                        })?;
+                        fanout
+                            .send(array, Some(send_reference))
+                            .await
+                            .map_err(|e| {
+                                debug!("Source pump finished with an error.");
+                                TaskError::wrapped(e)
+                            })?;
                     }
 
                     debug!("Source pump finished normally.");
@@ -344,6 +354,7 @@ impl<'a> Builder<'a> {
                 schema_definitions,
                 schema: self.config.schema,
                 mezmo_ctx,
+                extra_context: self.extra_context.clone(),
             };
             let source = source.inner.build(context).await;
             let server = match source {
@@ -358,7 +369,7 @@ impl<'a> Builder<'a> {
             // been signalled to forcefully shutdown, or if the source pump encounters an error.
             //
             // The forceful shutdown will only resolve if the source itself doesn't shutdown gracefully
-            // within the alloted time window. This can occur normally for certain sources, like stdin,
+            // within the allotted time window. This can occur normally for certain sources, like stdin,
             // where the I/O is blocking (in a separate thread) and won't wake up to check if it's time
             // to shutdown unless some input is given.
             let server = async move {
@@ -481,6 +492,7 @@ impl<'a> Builder<'a> {
                 merged_schema_definition: merged_definition.clone(),
                 mezmo_ctx,
                 schema: self.config.schema,
+                extra_context: self.extra_context.clone(),
             };
 
             let node = TransformNode::from_parts(
@@ -506,7 +518,8 @@ impl<'a> Builder<'a> {
             };
 
             let (input_tx, input_rx) =
-                TopologyBuilder::standalone_memory(TOPOLOGY_BUFFER_SIZE, WhenFull::Block).await;
+                TopologyBuilder::standalone_memory(TOPOLOGY_BUFFER_SIZE, WhenFull::Block, &span)
+                    .await;
 
             self.inputs
                 .insert(key.clone(), (input_tx, node.inputs.clone()));
@@ -592,6 +605,7 @@ impl<'a> Builder<'a> {
                 mezmo_ctx,
                 app_name: crate::get_app_name().to_string(),
                 app_name_slug: crate::get_slugified_app_name(),
+                extra_context: self.extra_context.clone(),
             };
 
             let (sink, healthcheck) = match sink.inner.build(cx).await {
@@ -715,8 +729,9 @@ impl TopologyPieces {
         diff: &ConfigDiff,
         metrics_tx: Option<UnboundedSender<UsageMetrics>>,
         buffers: HashMap<ComponentKey, BuiltBuffer>,
+        extra_context: ExtraContext,
     ) -> Option<Self> {
-        match TopologyPieces::build(config, diff, metrics_tx, buffers).await {
+        match TopologyPieces::build(config, diff, metrics_tx, buffers, extra_context).await {
             Err(errors) => {
                 for error in errors {
                     error!(message = "Configuration error.", %error);
@@ -733,8 +748,9 @@ impl TopologyPieces {
         diff: &ConfigDiff,
         metrics_tx: Option<UnboundedSender<UsageMetrics>>,
         buffers: HashMap<ComponentKey, BuiltBuffer>,
+        extra_context: ExtraContext,
     ) -> Result<Self, Vec<String>> {
-        Builder::new(config, diff, metrics_tx, buffers)
+        Builder::new(config, diff, metrics_tx, buffers, extra_context)
             .build()
             .await
     }
@@ -809,6 +825,7 @@ fn build_sync_transform(
     input_rx: BufferReceiver<EventArray>,
     usage_tracker: Box<dyn OutputUsageTracker>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
+    let t = MezmoSyncTransformTrace::maybe_wrap(node.key.clone(), t);
     let (outputs, controls) = TransformOutputs::new(node.outputs, &node.key);
 
     let runner = Runner::new(
@@ -1004,6 +1021,7 @@ fn build_task_transform(
     outputs: &[TransformOutput],
     usage_tracker: Box<dyn OutputUsageTracker>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
+    let t = MezmoTaskTransformTrace::maybe_wrap(key.clone(), t);
     let (mut fanout, control) = Fanout::new();
 
     let input_rx = crate::utilization::wrap(input_rx.into_stream());
@@ -1040,9 +1058,9 @@ fn build_task_transform(
             for event in events.iter_events_mut() {
                 update_runtime_schema_definition(event, &output_id, &schema_definition_map);
             }
-            events
+            (events, Instant::now())
         })
-        .inspect(move |events: &EventArray| {
+        .inspect(move |(events, _): &(EventArray, Instant)| {
             events_sent.emit(CountByteSize(
                 events.len(),
                 events.estimated_json_encoded_size_of(),

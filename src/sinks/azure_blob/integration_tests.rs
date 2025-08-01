@@ -50,7 +50,7 @@ async fn azure_blob_healthcheck_passed() {
         SinkContext::new_test(),
     );
 
-    response.expect("Failed to pass healthcheck");
+    response.expect("Failed to pass healthcheck").await.unwrap();
 }
 
 #[tokio::test]
@@ -385,15 +385,13 @@ impl AzureBlobSinkConfig {
     }
 
     pub async fn get_client(&self) -> Arc<ContainerClient> {
-        let client = azure_common::config::build_client(
+        azure_common::config::build_client(
             self.connection_string.clone().map(Into::into),
             self.storage_account.clone().map(Into::into),
             self.container_name.clone(),
             self.endpoint.clone(),
         )
-        .unwrap();
-
-        client
+        .unwrap()
     }
 
     async fn ensure_container(&self) {

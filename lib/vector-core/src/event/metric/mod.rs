@@ -85,7 +85,7 @@ impl Metric {
         Self::new_with_metadata(name, kind, value, EventMetadata::default())
     }
 
-    /// Creates a new `Metric` with the given `name`, `kind`, `value`, and `metadata`.
+    /// Creates a new `Metric` with the given `name`, `kind`, `value` and `metadata`.
     pub fn new_with_metadata<T: Into<String>>(
         name: T,
         kind: MetricKind,
@@ -107,6 +107,7 @@ impl Metric {
                 },
                 kind,
                 value,
+                arbitrary: MetricArbitrary::default(),
             },
             internal_metadata,
         }
@@ -175,6 +176,12 @@ impl Metric {
     #[must_use]
     pub fn with_value(mut self, value: MetricValue) -> Self {
         self.data.value = value;
+        self
+    }
+
+    #[must_use]
+    pub fn with_arbitrary(mut self, value: MetricArbitrary) -> Self {
+        self.data.arbitrary = value;
         self
     }
 
@@ -261,6 +268,12 @@ impl Metric {
     #[inline]
     pub fn value_mut(&mut self) -> &mut MetricValue {
         &mut self.data.value
+    }
+
+    /// Gets a reference to the arbitrary of this metric.
+    #[inline]
+    pub fn arbitrary_value(&self) -> &MetricArbitrary {
+        &self.data.arbitrary
     }
 
     /// Gets the kind of this metric.
@@ -955,7 +968,7 @@ mod test {
                 )
                 .with_namespace(Some("vector"))
             ),
-            r#"vector_namespace{} = 1.23"#
+            r"vector_namespace{} = 1.23"
         );
 
         assert_eq!(
@@ -996,7 +1009,7 @@ mod test {
                     }
                 )
             ),
-            r#"four{} = histogram 3@1 4@2"#
+            r"four{} = histogram 3@1 4@2"
         );
 
         assert_eq!(
@@ -1012,7 +1025,7 @@ mod test {
                     }
                 )
             ),
-            r#"five{} = count=107 sum=103 53@51 54@52"#
+            r"five{} = count=107 sum=103 53@51 54@52"
         );
 
         assert_eq!(
@@ -1028,7 +1041,7 @@ mod test {
                     }
                 )
             ),
-            r#"six{} = count=2 sum=127 1@63 2@64"#
+            r"six{} = count=2 sum=127 1@63 2@64"
         );
     }
 

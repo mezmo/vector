@@ -1,12 +1,10 @@
-use std::sync::Arc;
-use std::{collections::HashMap, error, pin::Pin};
+use std::{collections::HashMap, error, pin::Pin, sync::Arc, time::Instant};
 
 use futures::{Stream, StreamExt};
 use vector_common::internal_event::{
     self, register, CountByteSize, EventsSent, InternalEventHandle as _, Registered, DEFAULT_OUTPUT,
 };
-use vector_common::json_size::JsonSize;
-use vector_common::EventDataEq;
+use vector_common::{byte_size_of::ByteSizeOf, json_size::JsonSize, EventDataEq};
 
 use crate::config::{ComponentKey, OutputId};
 use crate::event::EventMutRef;
@@ -18,7 +16,7 @@ use crate::{
         into_event_stream, EstimatedJsonEncodedSizeOf, Event, EventArray, EventContainer, EventRef,
     },
     fanout::{self, Fanout},
-    schema, ByteSizeOf,
+    schema,
 };
 
 #[cfg(feature = "lua")]
@@ -117,7 +115,7 @@ dyn_clone::clone_trait_object!(FunctionTransform);
 /// # Invariants
 ///
 /// * It is an illegal invariant to implement `FunctionTransform` for a
-/// `TaskTransform` or vice versa.
+///   `TaskTransform` or vice versa.
 pub trait TaskTransform<T: EventContainer + 'static>: Send + 'static {
     fn transform(
         self: Box<Self>,
@@ -352,8 +350,8 @@ pub fn update_runtime_schema_definition(
 
 #[derive(Debug, Clone)]
 pub struct TransformOutputsBuf {
-    primary_buffer: Option<OutputBuffer>,
-    named_buffers: HashMap<String, OutputBuffer>,
+    pub primary_buffer: Option<OutputBuffer>,
+    pub named_buffers: HashMap<String, OutputBuffer>,
 }
 
 impl TransformOutputsBuf {
@@ -512,8 +510,9 @@ impl OutputBuffer {
         &mut self,
         output: &mut Fanout,
     ) -> Result<(), Box<dyn error::Error + Send + Sync>> {
+        let send_start = Some(Instant::now());
         for array in std::mem::take(&mut self.0) {
-            output.send(array).await?;
+            output.send(array, send_start).await?;
         }
 
         Ok(())
@@ -523,7 +522,7 @@ impl OutputBuffer {
         self.0.iter().flat_map(EventArray::iter_events)
     }
 
-    fn events_mut(&mut self) -> impl Iterator<Item = EventMutRef> {
+    pub fn events_mut(&mut self) -> impl Iterator<Item = EventMutRef> {
         self.0.iter_mut().flat_map(EventArray::iter_events_mut)
     }
 

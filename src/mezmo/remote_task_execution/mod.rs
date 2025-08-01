@@ -1,9 +1,9 @@
-#![cfg(feature = "api-client")]
-
 use chrono::Utc;
 use futures_util::StreamExt;
-use http::{header, HeaderValue};
-use reqwest::Client;
+use reqwest::{
+    header::{self, HeaderValue},
+    Client,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -28,6 +28,7 @@ const TASK_POLL_STEP_DELAY: Duration = Duration::from_millis(500);
 const TASK_MAX_AGE_SECS: isize = 120;
 const DEFAULT_TAP_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_TAP_LIMIT_PER_INTERVAL: isize = 10;
+const DEFAULT_TASK_CYCLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Flush buffered events eagerly, at the expense of I/O overhead.
 /// See [vector::api::schema::events::create_events_stream] for more info.
@@ -40,23 +41,34 @@ pub(crate) async fn start_polling_for_tasks(
     get_endpoint_url: String,
     post_endpoint_url: String,
 ) {
+    let task_execution_timeout = std::env::var("MEZMO_REMOTE_TASK_EXECUTION_TIMEOUT")
+        .ok()
+        .and_then(|v| v.parse().ok().map(Duration::from_secs))
+        .unwrap_or(DEFAULT_TASK_CYCLE_TIMEOUT);
+
     sleep(TASK_INITIAL_POLL_DELAY).await;
-    info!("Starting to poll for tasks");
-    let client = Client::new();
+    info!("Starting to poll for tasks (task_execution_timeout = {task_execution_timeout:?}");
+    let mut client = Client::new();
     loop {
         let start = Instant::now();
-        run_task_step(
+        let task_fut = run_task_step(
             &config,
             &client,
             &auth_token,
             &get_endpoint_url,
             &post_endpoint_url,
-        )
-        .await;
+        );
+
+        if let Err(_) = tokio::time::timeout(task_execution_timeout, task_fut).await {
+            warn!("Remote task execution timed out");
+            client = Client::new();
+        }
 
         let elapsed = start.elapsed();
         if elapsed < TASK_POLL_STEP_DELAY {
-            sleep(TASK_POLL_STEP_DELAY - elapsed).await;
+            let sleep_duration = TASK_POLL_STEP_DELAY - elapsed;
+            debug!("sleeping for {sleep_duration:?}");
+            sleep(sleep_duration).await;
         }
     }
 }
