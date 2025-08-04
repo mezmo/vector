@@ -1405,10 +1405,8 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                 // Create a uniq ID and put it into a arbitrary or metadata
                 // To track group of metrics is in OTLP destination
                 match metric.data {
-                    MetricOneOfdata::gauge(gauge) => gauge
-                        .data_points
-                        .iter()
-                        .map(|data_point| {
+                    MetricOneOfdata::gauge(gauge) => {
+                        gauge.data_points.iter().for_each(|data_point| {
                             let metric_value = GaugeMetricValue::new(data_point.clone());
 
                             let metric_arbitrary = GaugeMetricArbitrary::new(
@@ -1446,56 +1444,50 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                 .to_log_event(),
                             ));
                         })
-                        .collect(),
-                    MetricOneOfdata::sum(sum) => sum
-                        .data_points
-                        .iter()
-                        .map(|data_point| {
-                            let metric_value =
-                                SumMetricValue::new(data_point.clone(), sum.is_monotonic);
+                    }
+                    MetricOneOfdata::sum(sum) => sum.data_points.iter().for_each(|data_point| {
+                        let metric_value =
+                            SumMetricValue::new(data_point.clone(), sum.is_monotonic);
 
-                            let metric_arbitrary = SumMetricArbitrary::new(
-                                data_point.clone(),
-                                metric.name.clone(),
-                                metric.description.clone(),
-                                metric.unit.clone(),
-                                sum.aggregation_temporality,
-                                sum.is_monotonic,
-                            );
+                        let metric_arbitrary = SumMetricArbitrary::new(
+                            data_point.clone(),
+                            metric.name.clone(),
+                            metric.description.clone(),
+                            metric.unit.clone(),
+                            sum.aggregation_temporality,
+                            sum.is_monotonic,
+                        );
 
-                            let metric_metadata = SumMetricMetadata::new(
-                                data_point.clone(),
-                                &recource,
-                                ScopeMetricValue::new(scope_metric.scope.clone()),
-                            );
+                        let metric_metadata = SumMetricMetadata::new(
+                            data_point.clone(),
+                            &recource,
+                            ScopeMetricValue::new(scope_metric.scope.clone()),
+                        );
 
-                            let tags = MetricTagsWrapper {
-                                tags: &sanitize_tags(
-                                    recource.attributes.attributes.clone(),
-                                    data_point.clone().attributes,
-                                ),
-                            };
+                        let tags = MetricTagsWrapper {
+                            tags: &sanitize_tags(
+                                recource.attributes.attributes.clone(),
+                                data_point.clone().attributes,
+                            ),
+                        };
 
-                            out.push(make_event(
-                                {
-                                    MezmoMetric {
-                                        name: metric.name.clone(),
-                                        namespace: None,
-                                        kind: metric_value.kind(),
-                                        tags: Some(&tags),
-                                        user_metadata: Some(&metric_metadata),
-                                        arbitrary_data: Some(&metric_arbitrary),
-                                        value: &metric_value,
-                                    }
+                        out.push(make_event(
+                            {
+                                MezmoMetric {
+                                    name: metric.name.clone(),
+                                    namespace: None,
+                                    kind: metric_value.kind(),
+                                    tags: Some(&tags),
+                                    user_metadata: Some(&metric_metadata),
+                                    arbitrary_data: Some(&metric_arbitrary),
+                                    value: &metric_value,
                                 }
-                                .to_log_event(),
-                            ));
-                        })
-                        .collect(),
-                    MetricOneOfdata::histogram(histogram) => histogram
-                        .data_points
-                        .iter()
-                        .map(|data_point| {
+                            }
+                            .to_log_event(),
+                        ));
+                    }),
+                    MetricOneOfdata::histogram(histogram) => {
+                        histogram.data_points.iter().for_each(|data_point| {
                             let metric_value = HistogramMetricValue::new(data_point.clone());
 
                             let metric_arbitrary = HistogramMetricArbitrary::new(
@@ -1534,11 +1526,9 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                 .to_log_event(),
                             ));
                         })
-                        .collect(),
-                    MetricOneOfdata::exponential_histogram(exp_histogram) => exp_histogram
-                        .data_points
-                        .iter()
-                        .map(|data_point| {
+                    }
+                    MetricOneOfdata::exponential_histogram(exp_histogram) => {
+                        exp_histogram.data_points.iter().for_each(|data_point| {
                             let metric_value =
                                 ExponentialHistogramMetricValue::new(data_point.clone());
 
@@ -1578,11 +1568,9 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                             // For now we just skip this exponential histogram metrics.
                             // out.push(make_event({mezmo_metric}.to_log_event()));
                         })
-                        .collect(),
-                    MetricOneOfdata::summary(summary) => summary
-                        .data_points
-                        .iter()
-                        .map(|data_point| {
+                    }
+                    MetricOneOfdata::summary(summary) => {
+                        summary.data_points.iter().for_each(|data_point| {
                             let metric_value = SummaryMetricValue::new(data_point.clone());
 
                             let metric_arbitrary = SummaryMetricArbitrary::new(
@@ -1620,9 +1608,9 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
                                 .to_log_event(),
                             ));
                         })
-                        .collect(),
-                    MetricOneOfdata::None => todo!(),
-                };
+                    }
+                    MetricOneOfdata::None => {}
+                }
             }
         }
     }

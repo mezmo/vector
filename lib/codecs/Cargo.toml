@@ -17,22 +17,26 @@ csv-core = { version = "0.1.10", default-features = false }
 derivative = { version = "2", default-features = false }
 dyn-clone = { version = "1", default-features = false }
 faster-hex = "0.8"
+flate2.workspace = true
 influxdb-line-protocol = { version = "2", default-features = false }
 lookup = { package = "vector-lookup", path = "../vector-lookup", default-features = false, features = ["test"] }
 memchr = { version = "2", default-features = false }
 once_cell = { version = "1.19", default-features = false }
-ordered-float = { version = "4.3.0", default-features = false }
+ordered-float = { version = "4.5.0", default-features = false }
 prometheus-remote-write = { version = "1.1.3", tag =  "v1.1.4", git = "https://github.com/mezmo/prometheus-remote-write-rs.git" }
 prost.workspace = true
 prost-reflect.workspace = true
-regex = { version = "1.11.0", default-features = false, features = ["std", "perf"] }
+rand.workspace = true
+regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 serde.workspace = true
+serde_with = { version = "3.11.0", default-features = false, features = ["std", "macros", "chrono_0_4"] }
 serde_json.workspace = true
 smallvec = { version = "1", default-features = false, features = ["union"] }
-snafu = { version = "0.7.5", default-features = false, features = ["futures"] }
+snafu.workspace = true
 snap = "1"
 syslog_loose = { version = "0.21", default-features = false, optional = true }
 tokio-util = { version = "0.7", default-features = false, features = ["codec"] }
+tokio.workspace = true
 tracing = { version = "0.1", default-features = false }
 vrl.workspace = true
 vector-common = { path = "../vector-common", default-features = false }
@@ -42,7 +46,6 @@ vector-config-macros = { path = "../vector-config-macros", default-features = fa
 vector-core = { path = "../vector-core", default-features = false, features = ["vrl"] }
 mezmo = { path = "../mezmo", default-features = false }
 opentelemetry-rs = { version = "1.2.1", tag = "v1.2.4" , git = "https://github.com/mezmo/opentelemetry-rs.git" }
-rand = "0.8.5"
 
 [dev-dependencies]
 futures.workspace = true
@@ -51,8 +54,9 @@ tokio = { version = "1", features = ["test-util"] }
 quick-protobuf = "0.8"
 similar-asserts = "1.6.0"
 vector-core = { path = "../vector-core", default-features = false, features = ["vrl", "test"] }
-uuid.workspace = true
 rstest = "0.23.0"
+tracing-test = "0.2.5"
+uuid.workspace = true
 vrl.workspace = true
 
 [features]

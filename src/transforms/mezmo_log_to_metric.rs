@@ -204,6 +204,9 @@ mod tests {
         .await
     }
 
+    // FIXME: Tests using this appear to be flakey when run locally all together. When run individually,
+    // or within `make test environment=true`, they pass. This might have to do with the channels of
+    // the UserSubscription being shared. Attempts to serialize it or share it did not work.
     async fn assert_error_message(
         mut log_stream: impl Stream<Item = LogEvent> + Unpin,
         expected: &str,

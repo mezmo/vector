@@ -11,8 +11,8 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(ddsketch_extended)', 'cfg(
 [dependencies]
 async-graphql = { version = "7.0.7", default-features = false, features = ["playground" ], optional = true }
 async-trait = { version = "0.1", default-features = false }
-bitmask-enum = { version = "2.2.4", default-features = false }
-bytes = { version = "1.7.2", default-features = false, features = ["serde"] }
+bitmask-enum = { version = "2.2.5", default-features = false }
+bytes = { version = "1.8.0", default-features = false, features = ["serde"] }
 chrono.workspace = true
 chrono-tz.workspace = true
 crossbeam-utils = { version = "0.8.20", default-features = false }
@@ -34,27 +34,27 @@ lookup = { package = "vector-lookup", path = "../vector-lookup" }
 metrics.workspace = true
 metrics-tracing-context.workspace = true
 metrics-util.workspace = true
-mlua = { version = "0.9.9", default-features = false, features = ["lua54", "send", "vendored"], optional = true }
+mlua = { version = "0.10.1", default-features = false, features = ["lua54", "send", "vendored"], optional = true }
 no-proxy = { version  = "0.3.5", default-features = false, features = ["serialize"] }
 once_cell = { version = "1.19", default-features = false }
-ordered-float = { version = "4.3.0", default-features = false }
-openssl = { version = "0.10.66", default-features = false, features = ["vendored"] }
+ordered-float = { version = "4.5.0", default-features = false }
+openssl = { version = "0.10.68", default-features = false, features = ["vendored"] }
 parking_lot = { version = "0.12.3", default-features = false }
 pin-project.workspace = true
 proptest = { version = "1.5", optional = true }
 prost-types.workspace = true
 prost .workspace = true
 quanta = { version = "0.12.3", default-features = false }
-regex = { version = "1.11.0", default-features = false, features = ["std", "perf"] }
+regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 reqwest = { version = "0.11", features = ["json"] }
 ryu = { version = "1", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
 serde_with = { version = "3.11.0", default-features = false, features = ["std", "macros"] }
 smallvec = { version = "1", default-features = false, features = ["serde", "const_generics"] }
-snafu = { version = "0.7.5", default-features = false }
+snafu.workspace = true
 socket2 = { version = "0.5.7", default-features = false }
-tokio = { version = "1.40.0", default-features = false, features = ["net"] }
+tokio = { version = "1.41.1", default-features = false, features = ["net"] }
 tokio-openssl = { version = "0.6.5", default-features = false }
 tokio-stream = { version = "0.1", default-features = false, features = ["time"], optional = true }
 tokio-util = { version = "0.7.0", default-features = false, features = ["time"] }
@@ -75,12 +75,13 @@ vector-config-common = { path = "../vector-config-common" }
 vector-config-macros = { path = "../vector-config-macros" }
 opentelemetry-rs = { version = "1.2.1", tag = "v1.2.4" , git = "https://github.com/mezmo/opentelemetry-rs.git" }
 vrl.workspace = true
+cfg-if.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "2.10.0"
 
 [target.'cfg(windows)'.dependencies]
-schannel = "0.1.26"
+schannel = "0.1.27"
 
 [build-dependencies]
 prost-build.workspace = true

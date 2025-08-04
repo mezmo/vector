@@ -313,7 +313,7 @@ impl MezmoAggregateDistributed {
             }
         };
 
-        RECORD_SCRIPT
+        let result: RedisResult<()> = RECORD_SCRIPT
             .key(active_windows_key)
             .key(event_window_key)
             .arg(window_start_ts)
@@ -325,7 +325,9 @@ impl MezmoAggregateDistributed {
             .arg(encode_json(&fields))
             .arg(value)
             .invoke_async(&mut conn)
-            .await?;
+            .await;
+
+        result?;
 
         Ok(())
     }

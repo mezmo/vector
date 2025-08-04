@@ -23,6 +23,8 @@ pub mod json_size;
 
 pub mod config;
 
+pub mod constants;
+
 #[cfg(feature = "conversion")]
 pub use vrl::compiler::TimeZone;
 
