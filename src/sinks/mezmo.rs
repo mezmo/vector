@@ -73,7 +73,6 @@ impl SinkConfig for LogdnaConfig {
 #[derive(Clone, Debug)]
 pub struct MezmoConfig {
     /// Connection config
-
     /// The Ingestion API key.
     #[configurable(metadata(docs::examples = "${LOGDNA_API_KEY}"))]
     #[configurable(metadata(docs::examples = "ef8d5de700e7989468166c40fc8a0ccd"))]
@@ -124,7 +123,6 @@ pub struct MezmoConfig {
     originating_user_agent_field: String,
 
     /// Query config options
-
     /// The hostname that will be attached to each batch of events.
     #[configurable(metadata(docs::examples = "${HOSTNAME}"))]
     #[configurable(metadata(docs::examples = "my-local-machine"))]

@@ -40,7 +40,7 @@ impl<'a> MetricValueAccessor<'a> for SummaryMetricValue {
         Some(Cow::from("summary"))
     }
 
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Object(MetricValuePairs {
             elements: [
                 (
@@ -89,7 +89,7 @@ impl<'a> MetricValueAccessor<'a> for HistogramMetricValue {
         Some(Cow::from("histogram"))
     }
 
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Object(MetricValuePairs {
             elements: [
                 (&"bucket" as &dyn ToString, &self.buckets as &dyn IntoValue),
@@ -137,7 +137,7 @@ impl<'a> MetricValueAccessor<'a> for BasicMetricValue<Counter> {
         Some(Cow::from("count"))
     }
 
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Single(&self.value as &dyn IntoValue)
     }
 }
@@ -150,7 +150,7 @@ impl<'a> MetricValueAccessor<'a> for BasicMetricValue<Gauge> {
         Some(Cow::from("gauge"))
     }
 
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Single(&self.value as &dyn IntoValue)
     }
 }
@@ -163,7 +163,7 @@ impl<'a> MetricValueAccessor<'a> for BasicMetricValue<Untyped> {
         None
     }
 
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Single(&self.value as &dyn IntoValue)
     }
 }

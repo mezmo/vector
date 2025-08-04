@@ -245,7 +245,7 @@ impl SinkConfig for GcsSinkConfig {
         let auth = auth.ok();
 
         let base_url = format!("{}/{}/", self.endpoint, self.bucket);
-        let tls = TlsSettings::from_options(&self.tls)?;
+        let tls = TlsSettings::from_options(self.tls.as_ref())?;
         let client = HttpClient::new(tls, cx.proxy())?;
         let healthcheck = build_healthcheck(
             self.bucket.clone(),

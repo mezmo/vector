@@ -642,7 +642,7 @@ struct Buckets<'a> {
     histogram: &'a histogram::Histogram,
 }
 
-impl<'a> Serialize for Buckets<'a> {
+impl Serialize for Buckets<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -715,7 +715,7 @@ struct Quantiles<'a> {
     histogram: &'a histogram::Histogram,
 }
 
-impl<'a> Serialize for Quantiles<'a> {
+impl Serialize for Quantiles<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

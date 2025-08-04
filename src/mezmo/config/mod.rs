@@ -960,13 +960,19 @@ mod tests {
 
         // Second request for latest revisions should include "profiler_transform_ids"
         assert_eq!(
-            mock_server.received_requests().await.unwrap()[3].body,
-            serde_json::to_vec(&json!({
+            String::from_utf8_lossy(
+                mock_server.received_requests().await.unwrap()[3]
+                    .body
+                    .as_ref()
+            )
+            .parse::<serde_json::Value>()
+            .unwrap(),
+            json!({
                 "revisions": [
                     {"pipeline_id":"pipeline1", "revision_id":"rev1"},
                     {"pipeline_id":"pipeline2", "revision_id":"rev999", "profiler_transform_ids": ["prof1"]}
                 ]
-            })).unwrap()
+            })
         );
 
         // Following times

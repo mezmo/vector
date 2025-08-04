@@ -404,7 +404,7 @@ impl<'a> MetricMetadataGroups {
         &'a self,
         name: &mut Cow<'a, str>,
         suffix_len: usize,
-    ) -> Option<&MetricType> {
+    ) -> Option<&'a MetricType> {
         let len = name.len();
         let prefix = &name[..len - suffix_len];
         if let Some((k, v)) = self.0.get_key_value(prefix) {
@@ -421,39 +421,44 @@ impl<'a> MetricMetadataGroups {
         labels: &mut Vec<Label<'a>>,
         name: String,
     ) -> Result<(Cow<'a, str>, GroupingStrategy<'a>), ParseError> {
-        use MetricType::*;
         const LE_LABEL: &str = "le";
         const QUANTILE_LABEL: &str = "quantile";
 
         let mut name = Cow::from(name);
         let grouping_strategy = if name.ends_with("_bucket") {
             match self.find_and_prep_name(&mut name, 7) {
-                Some(HISTOGRAM | GAUGEHISTOGRAM) => GroupingStrategy::HistogramBucket(
-                    extract_label(LE_LABEL, labels)
-                        .ok_or(ParseError::ExpectedLeLabel)?
-                        .value
-                        .clone(),
-                ),
+                Some(MetricType::HISTOGRAM | MetricType::GAUGEHISTOGRAM) => {
+                    GroupingStrategy::HistogramBucket(
+                        extract_label(LE_LABEL, labels)
+                            .ok_or(ParseError::ExpectedLeLabel)?
+                            .value
+                            .clone(),
+                    )
+                }
                 Some(t) => GroupingStrategy::from_basic_type(t),
                 _ => GroupingStrategy::Untyped,
             }
         } else if name.ends_with("_sum") {
             match self.find_and_prep_name(&mut name, 4) {
-                Some(HISTOGRAM | GAUGEHISTOGRAM) => GroupingStrategy::HistogramSum,
-                Some(SUMMARY) => GroupingStrategy::SummarySum,
+                Some(MetricType::HISTOGRAM | MetricType::GAUGEHISTOGRAM) => {
+                    GroupingStrategy::HistogramSum
+                }
+                Some(MetricType::SUMMARY) => GroupingStrategy::SummarySum,
                 Some(t) => GroupingStrategy::from_basic_type(t),
                 _ => GroupingStrategy::Untyped,
             }
         } else if name.ends_with("_count") {
             match self.find_and_prep_name(&mut name, 6) {
-                Some(HISTOGRAM | GAUGEHISTOGRAM) => GroupingStrategy::HistogramCount,
-                Some(SUMMARY) => GroupingStrategy::SummaryCount,
+                Some(MetricType::HISTOGRAM | MetricType::GAUGEHISTOGRAM) => {
+                    GroupingStrategy::HistogramCount
+                }
+                Some(MetricType::SUMMARY) => GroupingStrategy::SummaryCount,
                 Some(t) => GroupingStrategy::from_basic_type(t),
                 _ => GroupingStrategy::Untyped,
             }
         } else {
             match self.find_and_prep_name(&mut name, 0) {
-                Some(SUMMARY) => GroupingStrategy::SummaryQuantile(
+                Some(MetricType::SUMMARY) => GroupingStrategy::SummaryQuantile(
                     extract_label(QUANTILE_LABEL, labels)
                         .ok_or(ParseError::ExpectedQuantileLabel)?
                         .value

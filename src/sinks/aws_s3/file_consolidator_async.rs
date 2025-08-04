@@ -143,6 +143,7 @@ impl FileConsolidatorAsync {
             TEN_MINUTES_MS
         };
 
+        let force_path_style_value: bool = true;
         let box_bucket = Box::new(self.bucket.clone());
         let box_base_path = Box::new(base_path.clone());
         let box_output_format = Box::new(output_format.clone());
@@ -150,19 +151,23 @@ impl FileConsolidatorAsync {
         let box_region = Box::new(self.region.clone());
         let box_endpoint = Box::new(self.endpoint.clone());
         let box_proxy = Box::new(self.proxy.clone());
-        let box_tls = Box::new(self.tls_options.clone());
         let box_requested_size_bytes =
             Box::new(self.file_consolidation_config.requested_size_bytes);
+
+        let tls_options = self.tls_options.clone();
         let aws_timeout = self.file_consolidation_config.aws_timeout;
 
         let spawned = tokio::spawn(async move {
             let client = match create_client::<S3ClientBuilder>(
+                &S3ClientBuilder {
+                    force_path_style: Some(force_path_style_value),
+                },
                 &box_auth,
                 (*box_region).clone(),
                 (*box_endpoint).clone(),
                 &box_proxy,
-                &box_tls,
-                &aws_timeout,
+                tls_options.as_ref(),
+                aws_timeout.as_ref(),
             )
             .await
             {
