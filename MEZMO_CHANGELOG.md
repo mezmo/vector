@@ -1,5 +1,17 @@
 ## Changelog
 
+## [5.0.1](https://github.com/mezmo/vector/compare/v5.0.0...v5.0.1) (2025-08-04)
+
+
+### Bug Fixes
+
+* **build**: trigger a build [95bf439](https://github.com/mezmo/vector/commit/95bf43977305a271f2da7caca16e558540b036bf) - Phil Ciampini [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+
+
+### Miscellaneous
+
+* Merge pull request #21 from mezmo/pciampini/LOG-22147 [2fb9f99](https://github.com/mezmo/vector/commit/2fb9f9918b6da444e746b5f8b7d1c870a04ab1bc) - GitHub [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+
 # [5.0.0](https://github.com/mezmo/vector/compare/v4.0.1...v5.0.0) (2025-08-04)
 
 
