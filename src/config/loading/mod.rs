@@ -318,10 +318,10 @@ fn default_config_paths() -> Vec<ConfigPath> {
 #[cfg(all(
     test,
     feature = "sinks-elasticsearch",
-    feature = "transforms-pipelines",
     feature = "transforms-sample",
     feature = "sources-demo_logs",
-    feature = "sinks-console"
+    feature = "sinks-console",
+    feature = "sources-file" // Mezmo does not enable the file source used in these tests
 ))]
 mod tests {
     use std::path::PathBuf;

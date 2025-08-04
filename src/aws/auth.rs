@@ -383,11 +383,7 @@ mod tests {
 
     #[test]
     fn parsing_default() {
-        let config = toml::from_str::<ComponentConfig>(
-            r#"
-        "#,
-        )
-        .unwrap();
+        let config = toml::from_str::<ComponentConfig>("").unwrap();
 
         assert!(matches!(config.auth, AwsAuthentication::Default { .. }));
     }
@@ -395,9 +391,9 @@ mod tests {
     #[test]
     fn parsing_default_with_load_timeout() {
         let config = toml::from_str::<ComponentConfig>(
-            r#"
+            "
             auth.load_timeout_secs = 10
-        "#,
+        ",
         )
         .unwrap();
 
@@ -431,11 +427,11 @@ mod tests {
     #[test]
     fn parsing_default_with_imds_client() {
         let config = toml::from_str::<ComponentConfig>(
-            r#"
+            "
             auth.imds.max_attempts = 5
             auth.imds.connect_timeout_seconds = 30
             auth.imds.read_timeout_seconds = 10
-        "#,
+        ",
         )
         .unwrap();
 
