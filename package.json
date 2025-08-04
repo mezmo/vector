@@ -14,13 +14,6 @@
   "commitlint": {
     "extends": "@answerbook/commitlint-config-logdna"
   },
-  "release": {
-    "branches": [
-      "master"
-    ],
-    "extends": "@answerbook/release-config-logdna",
-    "changelogFile": "MEZMO_CHANGELOG.md"
-  },
   "devDependencies": {
     "@answerbook/commitlint-config-logdna": "^2.2.1",
     "@answerbook/release-config-logdna": "^2.0.2",
