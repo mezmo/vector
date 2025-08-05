@@ -1,5 +1,17 @@
 ## Changelog
 
+## [5.0.3](https://github.com/mezmo/vector/compare/v5.0.2...v5.0.3) (2025-08-05)
+
+
+### Bug Fixes
+
+* **release**: regex needs to be correct [d781dad](https://github.com/mezmo/vector/commit/d781dad836c51d8e09674f7483d181e64f1f70de) - Phil Ciampini [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+
+
+### Miscellaneous
+
+* Merge pull request #23 from mezmo/pciampini/LOG-22147 [dfa1e99](https://github.com/mezmo/vector/commit/dfa1e990057a03f9d397e40b6e91544b2c5eaf68) - GitHub [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+
 ## [5.0.2](https://github.com/mezmo/vector/compare/v5.0.1...v5.0.2) (2025-08-05)
 
 
