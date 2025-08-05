@@ -211,7 +211,7 @@ pipeline {
       when {
         allOf {
           branch DEFAULT_BRANCH
-          expression { env.TOP_COMMIT ==~ /^release: \d{4}-\d{2}-\d{2}, Version \d+\.\d+\.\d+ \[skip ci\]$/ }
+          expression { env.TOP_COMMIT ==~ /^release: \d{4}-\d{2}-\d{2}, Version \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/ }
           not {
             environment name: 'SANITY_BUILD', value: 'true'
           }
