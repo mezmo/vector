@@ -1,5 +1,17 @@
 ## Changelog
 
+## [5.0.2](https://github.com/mezmo/vector/compare/v5.0.1...v5.0.2) (2025-08-05)
+
+
+### Bug Fixes
+
+* **release**: build public image commit check [730516e](https://github.com/mezmo/vector/commit/730516eead61e1f46356b0defaed4a3e38d52c44) - Phil Ciampini [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+
+
+### Miscellaneous
+
+* Merge pull request #22 from mezmo/pciampini/LOG-22147 [4c096c1](https://github.com/mezmo/vector/commit/4c096c1c19b8b8d2bed5d1e56bee79352e6505ee) - GitHub [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+
 ## [5.0.1](https://github.com/mezmo/vector/compare/v5.0.0...v5.0.1) (2025-08-04)
 
 
