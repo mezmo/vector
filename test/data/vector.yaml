@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector
+  namespace: pipeline
+data:
+  arch: "amd64"
