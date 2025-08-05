@@ -1,3 +1,15 @@
+## [9.0.1](https://github.com/answerbook/vector/compare/v9.0.0...v9.0.1) (2025-08-05)
+
+
+### Chores
+
+* Add flag to specify the node architecture the app should run on [bf7fa92](https://github.com/answerbook/vector/commit/bf7fa92da71f6524a2d23fd1c6a866466669c206) - Eric Lake [INFRA-7570](https://logdna.atlassian.net/browse/INFRA-7570)
+
+
+### Miscellaneous
+
+* Merge pull request #693 from answerbook/arch-flag [6249172](https://github.com/answerbook/vector/commit/6249172dfc19efeeb7e4b983d3af795ce4c00469) - GitHub
+
 # [9.0.0](https://github.com/answerbook/vector/compare/v8.23.4...v9.0.0) (2025-08-01)
 
 
