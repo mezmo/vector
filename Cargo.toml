@@ -175,7 +175,7 @@ vector-lib = { path = "lib/vector-lib", default-features = false, features = ["v
 vector-config = { path = "lib/vector-config" }
 vector-config-common = { path = "lib/vector-config-common" }
 vector-config-macros = { path = "lib/vector-config-macros" }
-vrl = { version = "0.21.0", git = "ssh://git@github.com/mezmo/vrl.git", tag = "next", features = ["arbitrary", "cli", "test", "test_framework"] }
+vrl = { version = "0.21.0", git = "ssh://git@github.com/mezmo/vrl.git", tag = "v2.1.0", features = ["arbitrary", "cli", "test", "test_framework"] }
 
 [dependencies]
 pin-project.workspace = true
