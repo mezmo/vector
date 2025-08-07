@@ -1,5 +1,13 @@
 ## Changelog
 
+## [6.0.2](https://github.com/mezmo/vector/compare/v6.0.1...v6.0.2) (2025-08-07)
+
+
+### Miscellaneous
+
+* Merge pull request #26 from mezmo/pciampini/LOG-22147 [91fb4e1](https://github.com/mezmo/vector/commit/91fb4e1c216e9b6c291a10b6e0b0282c9f99cdaf) - GitHub [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+* Revert "chore(build): push build image to public and internal" [880115f](https://github.com/mezmo/vector/commit/880115fd061ce44ac23c2ac730649c0f00027335) - Phil Ciampini [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+
 ## [6.0.1](https://github.com/mezmo/vector/compare/v6.0.0...v6.0.1) (2025-08-07)
 
 
