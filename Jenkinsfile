@@ -179,6 +179,13 @@ pipeline {
               , args: [RELEASE_VERSION: pkg_version]
               , docker_repo: DOCKER_REPO
               )
+              buildx.build(
+                project: "${PROJECT_NAME}-mezmo"
+              , push: true
+              , tags: [tag]
+              , dockerfile: "distribution/docker/mezmo/Dockerfile"
+              , args: [RELEASE_VERSION: pkg_version]
+              )
             }
             sh './release-tool clean'
             sh "./release-tool build APP_VERSION='" + slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}") + "'"
@@ -224,6 +231,7 @@ pipeline {
             returnStdout: true
           ).split(' = ')[1].trim()
 
+          // push to public
           buildx.build(
             project: PROJECT_NAME
           , push: true
@@ -231,6 +239,15 @@ pipeline {
           , dockerfile: "distribution/docker/mezmo/Dockerfile"
           , args: [RELEASE_VERSION: tag]
           , docker_repo: DOCKER_REPO
+          )
+
+          // push to internal
+          buildx.build(
+            project: "${PROJECT_NAME}-mezmo"
+          , push: true
+          , tags: [tag]
+          , dockerfile: "distribution/docker/mezmo/Dockerfile"
+          , args: [RELEASE_VERSION: tag]
           )
         }
         sh './release-tool clean'
