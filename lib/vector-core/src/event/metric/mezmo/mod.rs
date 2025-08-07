@@ -101,7 +101,7 @@ where
     }
 }
 
-impl<'a> IntoTagValue for Cow<'a, str> {
+impl IntoTagValue for Cow<'_, str> {
     fn to_tag_value(&self) -> TagValue {
         TagValue::from(self.clone().into_owned())
     }
@@ -113,7 +113,7 @@ impl IntoTagValue for String {
     }
 }
 
-impl<'a> IntoTagValue for &'a str {
+impl IntoTagValue for &str {
     fn to_tag_value(&self) -> TagValue {
         TagValue::from(self.to_owned())
     }
@@ -206,7 +206,7 @@ where
     }
 }
 
-impl<'a, T> IntoValue for &'a [T]
+impl<T> IntoValue for &[T]
 where
     T: IntoValue,
 {
@@ -254,7 +254,7 @@ impl IntoValue for bool {
     }
 }
 
-impl<'a> IntoValue for Cow<'a, [u64]> {
+impl IntoValue for Cow<'_, [u64]> {
     fn to_value(&self) -> Value {
         Value::Array(
             self.clone()
@@ -266,7 +266,7 @@ impl<'a> IntoValue for Cow<'a, [u64]> {
     }
 }
 
-impl<'a> IntoValue for Cow<'a, [f64]> {
+impl IntoValue for Cow<'_, [f64]> {
     fn to_value(&self) -> Value {
         Value::Array(
             self.clone()
@@ -316,7 +316,7 @@ where
     }
 }
 
-impl<'a> IntoValue for Cow<'a, str> {
+impl IntoValue for Cow<'_, str> {
     fn to_value(&self) -> Value {
         Value::from(self.clone())
     }
@@ -373,8 +373,8 @@ pub trait MetricToLogEvent {
     fn to_log_event(&self) -> LogEvent;
 }
 
-impl<'a, 'b, 'c, 'd, 'e, 'f, 'j, T, U, V, M, A> MetricToLogEvent
-    for MezmoMetric<'a, 'b, 'c, 'd, 'e, 'f, 'j, T, U, V, M, A>
+impl<'d, 'e, 'f, 'j, T, U, V, M, A> MetricToLogEvent
+    for MezmoMetric<'_, '_, '_, 'd, 'e, 'f, 'j, T, U, V, M, A>
 where
     T: MetricKindAccessor,
     U: MetricTagsAccessor<'d>,
@@ -494,7 +494,7 @@ mod tests {
         fn metric_type(&'a self) -> Option<Cow<'a, str>> {
             Some(Cow::from("str"))
         }
-        fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+        fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
             MetricValueSerializable::Single(self as &dyn IntoValue)
         }
     }

@@ -256,7 +256,7 @@ impl SinkConfig for ChronicleUnstructuredConfig {
         }
         let auth = auth.ok();
 
-        let tls = TlsSettings::from_options(&self.tls)?;
+        let tls = TlsSettings::from_options(self.tls.as_ref())?;
         let client = HttpClient::new(tls, cx.proxy())?;
 
         let endpoint = self.create_endpoint("v2/unstructuredlogentries:batchCreate")?;

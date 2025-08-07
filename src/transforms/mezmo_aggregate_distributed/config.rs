@@ -92,7 +92,7 @@ pub struct MezmoAggregateDistributedConfig {
     /// vendored `tokio-retry` crate [`vector::sinks::util::retries`].
     /// TODO(LOG-21580): Consider using `backon` directly instead of `tokio-retry`
     /// for greater flexibility and consistency with `redis-rs`.
-
+    ///
     /// A multiplicative factor that will be applied to the retry delay.
     #[serde(default = "default_connection_retry_factor_ms")]
     pub connection_retry_factor_ms: u64,

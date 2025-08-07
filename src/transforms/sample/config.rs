@@ -92,7 +92,7 @@ impl TransformConfig for SampleConfig {
                     condition.build(&context.enrichment_tables, context.mezmo_ctx.clone())
                 })
                 .transpose()?,
-            default_sample_rate_key(),
+            self.sample_rate_key.clone(),
         )))
     }
 

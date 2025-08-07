@@ -439,6 +439,7 @@ async fn s3_flush_on_exhaustion() {
             acknowledgements: Default::default(),
             file_consolidation_config: Default::default(),
             timezone: Default::default(),
+            force_path_style: true,
         }
     };
     let prefix = config.key_prefix.clone();
@@ -491,13 +492,18 @@ pub async fn client() -> S3Client {
     let region = RegionOrEndpoint::with_both("us-east-1", s3_address());
     let proxy = ProxyConfig::default();
     let tls_options = None;
+    let force_path_style_value: bool = true;
+
     create_client::<S3ClientBuilder>(
+        &S3ClientBuilder {
+            force_path_style: Some(force_path_style_value),
+        },
         &auth,
         region.region(),
         region.endpoint(),
         &proxy,
-        &tls_options,
-        &None,
+        tls_options.as_ref(),
+        None,
     )
     .await
     .unwrap()
@@ -525,6 +531,7 @@ fn config(bucket: &str, batch_size: usize) -> S3SinkConfig {
         acknowledgements: Default::default(),
         file_consolidation_config: Default::default(), //MEZMO: new property for s3-sink file consolidation
         timezone: Default::default(),
+        force_path_style: true,
     }
 }
 

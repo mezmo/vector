@@ -48,7 +48,7 @@ pub(crate) struct DefaultConfigService {
 
 impl DefaultConfigService {
     pub(crate) fn new(partition_config: &MezmoPartitionConfig) -> Self {
-        let tls_settings = TlsSettings::from_options(&Some(TlsConfig::default())).unwrap();
+        let tls_settings = TlsSettings::from_options(Some(&TlsConfig::default())).unwrap();
         let http_client = HttpClient::<Body>::new(tls_settings, &ProxyConfig::default())
             .expect("Invalid TLS settings");
 
