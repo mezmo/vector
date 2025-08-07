@@ -59,14 +59,20 @@ pub enum ReloadOutcome {
 }
 
 impl TopologyController {
-    pub async fn reload(&mut self, new_config: config::Config) -> ReloadOutcome {
-        self.reload_with_metrics(new_config, None).await
+    pub async fn reload(
+        &mut self,
+        new_config: config::Config,
+        components_to_reload: Option<Vec<&config::ComponentKey>>,
+    ) -> ReloadOutcome {
+        self.reload_with_metrics(new_config, None, components_to_reload)
+            .await
     }
 
     pub async fn reload_with_metrics(
         &mut self,
         mut new_config: config::Config,
         metrics_tx: Option<mpsc::UnboundedSender<UsageMetrics>>,
+        components_to_reload: Option<Vec<&config::ComponentKey>>,
     ) -> ReloadOutcome {
         new_config
             .healthchecks
@@ -115,6 +121,7 @@ impl TopologyController {
                 new_config,
                 metrics_tx,
                 self.extra_context.clone(),
+                components_to_reload,
             )
             .await
         {

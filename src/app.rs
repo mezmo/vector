@@ -11,8 +11,8 @@ use exitcode::ExitCode;
 use futures::StreamExt;
 use std::time::Instant;
 use tokio::runtime::{self, Runtime};
-use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc;
+use tokio::sync::{broadcast::error::RecvError, MutexGuard};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use vector_lib::usage_metrics::{start_publishing_metrics, UsageMetrics};
 
@@ -21,12 +21,12 @@ use crate::extra_context::ExtraContext;
 use crate::{api, internal_events::ApiStarted};
 use crate::{
     cli::{handle_config_errors, LogFormat, Opts, RootOpts, WatchConfigMethod},
-    config::{self, Config, ConfigPath},
+    config::{self, ComponentConfig, ComponentKey, Config, ConfigPath},
     heartbeat,
     internal_events::mezmo_config::{
         MezmoConfigCompile, MezmoConfigReload, MezmoConfigReloadSignalReceive,
     },
-    internal_events::{VectorQuit, VectorStarted, VectorStopped},
+    internal_events::{VectorConfigLoadError, VectorQuit, VectorStarted, VectorStopped},
     signal::{SignalHandler, SignalPair, SignalRx, SignalTo},
     topology::{
         ReloadOutcome, RunningTopology, SharedTopologyController, ShutdownErrorReceiver,
@@ -404,6 +404,29 @@ async fn handle_signal(
     allow_empty_config: bool,
 ) -> Option<SignalTo> {
     match signal {
+        Ok(SignalTo::ReloadComponents(component_keys)) => {
+            let mut topology_controller = topology_controller.lock().await;
+
+            // Reload paths
+            if let Some(paths) = config::process_paths(config_paths) {
+                topology_controller.config_paths = paths;
+            }
+
+            // Reload config
+            let new_config = config::load_from_paths_with_provider_and_secrets(
+                &topology_controller.config_paths,
+                signal_handler,
+                allow_empty_config,
+            )
+            .await;
+
+            reload_config_from_result(
+                topology_controller,
+                new_config,
+                Some(component_keys.iter().map(AsRef::as_ref).collect()),
+            )
+            .await
+        }
         Ok(SignalTo::ReloadFromConfigBuilder(config_builder)) => {
             emit!(MezmoConfigReloadSignalReceive {});
             let start = Instant::now();
@@ -421,21 +444,19 @@ async fn handle_signal(
                 });
 
                 let mut reload_outcome = None;
-                let reload_future =
-                    topology_controller.reload_with_metrics(new_config, Some(metrics_tx.clone()));
+                let reload_future = topology_controller.reload_with_metrics(
+                    new_config,
+                    Some(metrics_tx.clone()),
+                    None,
+                );
 
                 tokio::pin!(reload_future);
 
                 // LOG-17772: Set a maximum amount of time to wait for configuration reloading before
                 // triggering corrective action. By default, this will wait for 150 seconds / 2.5 minutes.
-                let config_reload_max_sec = std::env::var("CONFIG_RELOAD_MAX_SEC").unwrap_or_else(|_| {
-                warn!("couldn't read value for CONFIG_RELOAD_MAX_SEC env var, default will be used");
-                "150".to_owned()
-            });
-                let config_reload_max_sec = config_reload_max_sec.parse::<usize>().unwrap_or_else(|_| {
-                warn!("failed to parse CONFIG_RELOAD_MAX_SEC value {config_reload_max_sec}, default will be used");
-                150
-            });
+                let config_reload_max_sec =
+                    crate::mezmo_env_config!("CONFIG_RELOAD_MAX_SEC", 150_usize);
+
                 let mut reload_future_done = false;
                 for i in 1..=config_reload_max_sec {
                     tokio::select! {
@@ -516,22 +537,14 @@ async fn handle_signal(
             }
 
             // Reload config
-            if let Ok(new_config) = config::load_from_paths_with_provider_and_secrets(
+            let new_config = config::load_from_paths_with_provider_and_secrets(
                 &topology_controller.config_paths,
                 signal_handler,
                 allow_empty_config,
             )
-            .await
-            .map_err(handle_config_errors)
-            {
-                if let ReloadOutcome::FatalError(error) =
-                    topology_controller.reload(new_config).await
-                {
-                    return Some(SignalTo::Shutdown(Some(error)));
-                }
-            };
+            .await;
 
-            None
+            reload_config_from_result(topology_controller, new_config, None).await
         }
         Err(RecvError::Lagged(amt)) => {
             warn!("Overflow, dropped {} signals.", amt);
@@ -539,6 +552,27 @@ async fn handle_signal(
         }
         Err(RecvError::Closed) => Some(SignalTo::Shutdown(None)),
         Ok(signal) => Some(signal),
+    }
+}
+
+async fn reload_config_from_result(
+    mut topology_controller: MutexGuard<'_, TopologyController>,
+    config: Result<Config, Vec<String>>,
+    components_to_reload: Option<Vec<&ComponentKey>>,
+) -> Option<SignalTo> {
+    match config {
+        Ok(new_config) => match topology_controller
+            .reload(new_config, components_to_reload)
+            .await
+        {
+            ReloadOutcome::FatalError(error) => Some(SignalTo::Shutdown(Some(error))),
+            _ => None,
+        },
+        Err(errors) => {
+            handle_config_errors(errors);
+            emit!(VectorConfigLoadError);
+            None
+        }
     }
 }
 
@@ -649,23 +683,14 @@ pub async fn load_configs(
 ) -> Result<Config, ExitCode> {
     let config_paths = config::process_paths(config_paths).ok_or(exitcode::CONFIG)?;
 
-    if let Some(watcher_conf) = watcher_conf {
-        // Start listening for config changes immediately.
-        config::watcher::spawn_thread(
-            watcher_conf,
-            signal_handler.clone_tx(),
-            config_paths.iter().map(Into::into),
-            None,
-        )
-        .map_err(|error| {
-            error!(message = "Unable to start config watcher.", %error);
-            exitcode::CONFIG
-        })?;
-    }
+    let watched_paths = config_paths
+        .iter()
+        .map(<&PathBuf>::from)
+        .collect::<Vec<_>>();
 
     info!(
         message = "Loading configs.",
-        paths = ?config_paths.iter().map(<&PathBuf>::from).collect::<Vec<_>>()
+        paths = ?watched_paths
     );
 
     let mut config = config::load_from_paths_with_provider_and_secrets(
@@ -675,6 +700,35 @@ pub async fn load_configs(
     )
     .await
     .map_err(handle_config_errors)?;
+
+    let mut watched_component_paths = Vec::new();
+
+    if let Some(watcher_conf) = watcher_conf {
+        for (name, sink) in config.sinks() {
+            let files = sink.inner.files_to_watch();
+            let component_config =
+                ComponentConfig::new(files.into_iter().cloned().collect(), name.clone());
+            watched_component_paths.push(component_config);
+        }
+
+        info!(
+            message = "Starting watcher.",
+            paths = ?watched_paths
+        );
+
+        // Start listening for config changes.
+        config::watcher::spawn_thread(
+            watcher_conf,
+            signal_handler.clone_tx(),
+            watched_paths,
+            watched_component_paths,
+            None,
+        )
+        .map_err(|error| {
+            error!(message = "Unable to start config watcher.", %error);
+            exitcode::CONFIG
+        })?;
+    }
 
     config::init_log_schema(config.global.log_schema.clone(), true);
     config::init_telemetry(config.global.telemetry.clone(), true);

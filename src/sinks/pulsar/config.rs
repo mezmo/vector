@@ -6,7 +6,7 @@ use crate::{
     },
     template::Template,
 };
-use futures_util::FutureExt;
+use futures_util::{FutureExt, TryFutureExt};
 use pulsar::{
     authentication::oauth2::{OAuth2Authentication, OAuth2Params},
     compression,
@@ -15,14 +15,13 @@ use pulsar::{
     TokioExecutor,
 };
 use pulsar::{error::AuthenticationError, OperationRetryOptions};
-use snafu::ResultExt;
+use std::path::Path;
 use std::time::Duration;
 use vector_lib::codecs::{encoding::SerializerConfig, TextSerializerConfig};
 use vector_lib::config::DataType;
 use vector_lib::lookup::lookup_v2::OptionalTargetPath;
 use vector_lib::sensitive_string::SensitiveString;
 use vrl::value::Kind;
-use vrl::value::Value;
 
 /// Configuration for the `pulsar` sink.
 #[configurable_component(sink("pulsar", "Publish observability events to Apache Pulsar topics."))]
@@ -84,6 +83,10 @@ pub struct PulsarSinkConfig {
     #[configurable(derived)]
     #[serde(default)]
     pub connection_retry_options: Option<CustomConnectionRetryOptions>,
+
+    #[configurable(derived)]
+    #[serde(default)]
+    pub(crate) tls: Option<PulsarTlsOptions>,
 }
 
 /// Event batching behavior.
@@ -208,6 +211,25 @@ pub struct CustomConnectionRetryOptions {
     pub keep_alive_secs: Option<u64>,
 }
 
+#[configurable_component]
+#[configurable(description = "TLS options configuration for the Pulsar client.")]
+#[derive(Clone, Debug)]
+pub struct PulsarTlsOptions {
+    /// File path containing a list of PEM encoded certificates.
+    #[configurable(metadata(docs::examples = "/etc/certs/chain.pem"))]
+    pub ca_file: String,
+
+    /// Enables certificate verification.
+    ///
+    /// Do NOT set this to `false` unless you understand the risks of not verifying the validity of certificates.
+    pub verify_certificate: Option<bool>,
+
+    /// Whether hostname verification is enabled when verify_certificate is false.
+    ///
+    /// Set to true if not specified.
+    pub verify_hostname: Option<bool>,
+}
+
 impl Default for PulsarSinkConfig {
     fn default() -> Self {
         Self {
@@ -223,12 +245,13 @@ impl Default for PulsarSinkConfig {
             auth: None,
             acknowledgements: Default::default(),
             connection_retry_options: None,
+            tls: None,
         }
     }
 }
 
 impl PulsarSinkConfig {
-    pub(crate) async fn create_pulsar_client(&self) -> Result<Pulsar<TokioExecutor>, PulsarError> {
+    pub(crate) async fn create_pulsar_client(&self) -> crate::Result<Pulsar<TokioExecutor>> {
         let mut builder = Pulsar::builder(&self.endpoint, TokioExecutor);
         if let Some(auth) = &self.auth {
             builder = match (
@@ -248,10 +271,10 @@ impl PulsarSinkConfig {
                         scope: oauth2.scope.clone(),
                     }),
                 ),
-                _ => return Err(PulsarError::Authentication(AuthenticationError::Custom(
+                _ => return Err(Box::new(PulsarError::Authentication(AuthenticationError::Custom(
                     "Invalid auth config: can only specify name and token or oauth2 configuration"
                         .to_string(),
-                ))),
+                ))))?,
             };
         }
 
@@ -294,7 +317,14 @@ impl PulsarSinkConfig {
         let operation_retry_opts = OperationRetryOptions::default();
         builder = builder.with_operation_retry_options(operation_retry_opts);
 
-        builder.build().await
+        if let Some(options) = &self.tls {
+            builder = builder.with_certificate_chain_file(Path::new(&options.ca_file))?;
+            builder =
+                builder.with_allow_insecure_connection(!options.verify_certificate.unwrap_or(true));
+            builder = builder
+                .with_tls_hostname_verification_enabled(options.verify_hostname.unwrap_or(true));
+        }
+        builder.build().map_err(|e| e.into()).await
     }
 
     pub(crate) fn build_producer_options(&self) -> ProducerOptions {
@@ -357,15 +387,10 @@ impl SinkConfig for PulsarSinkConfig {
         let client = self
             .create_pulsar_client()
             .await
-            .context(super::sink::CreatePulsarSinkSnafu)
-            .map_err(|error| {
-                user_log_error!(mezmo_ctx, Value::from(format!("{error}")));
-                error
-            })?;
+            .map_err(|e| super::sink::BuildError::CreatePulsarSink { source: e })?;
 
         let sink = PulsarSink::new(client, self.clone())?;
-
-        let hc = healthcheck(self.clone(), mezmo_ctx.clone()).boxed();
+        let hc = healthcheck(self.clone(), mezmo_ctx).boxed();
 
         Ok((VectorSink::from_event_streamsink(sink), hc))
     }

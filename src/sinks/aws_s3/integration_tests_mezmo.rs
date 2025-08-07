@@ -53,7 +53,7 @@ fn is_merged_file(file: &str) -> bool {
     ]
   )]
 async fn s3_message_objects_are_reshaped() {
-    let cx = SinkContext::new_test();
+    let cx = SinkContext::default();
 
     let bucket = uuid::Uuid::new_v4().to_string();
 
@@ -107,7 +107,7 @@ async fn s3_message_objects_are_reshaped() {
     ]
   )]
 async fn s3_message_objects_not_reshaped_because_of_env() {
-    let cx = SinkContext::new_test();
+    let cx = SinkContext::default();
 
     let bucket = uuid::Uuid::new_v4().to_string();
 
@@ -154,7 +154,7 @@ async fn s3_message_objects_not_reshaped_because_of_env() {
 
 #[tokio::test]
 async fn s3_file_consolidator_enabled_run() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
     let bucket = uuid::Uuid::new_v4().to_string();
 
     create_bucket(&bucket, false).await;
@@ -192,7 +192,7 @@ async fn s3_file_consolidator_enabled_run() {
 
 #[tokio::test]
 async fn s3_file_consolidator_disabled_run() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     // testing the default scenario where the consolidator is disabled
     let mut fc: FileConsolidatorAsync = Default::default();
@@ -208,7 +208,7 @@ async fn s3_file_consolidator_disabled_run() {
 
 #[tokio::test]
 async fn s3_file_consolidation_process_no_files() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
@@ -230,7 +230,7 @@ async fn s3_file_consolidation_process_no_files() {
 
 #[tokio::test]
 async fn s3_file_consolidation_process_no_tagged_files() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
@@ -270,7 +270,7 @@ async fn s3_file_consolidation_process_no_tagged_files() {
 
 #[tokio::test]
 async fn s3_file_consolidation_process_tag_filters() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
@@ -415,7 +415,7 @@ async fn s3_file_consolidation_process_tag_filters() {
 
 #[tokio::test]
 async fn s3_file_consolidation_process_text_files() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
@@ -483,7 +483,7 @@ async fn s3_file_consolidation_process_text_files() {
 
 #[tokio::test]
 async fn s3_file_consolidation_process_json_files() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
@@ -550,7 +550,7 @@ async fn s3_file_consolidation_process_json_files() {
 
 #[tokio::test]
 async fn s3_file_consolidation_process_ndjson_files() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
@@ -629,7 +629,7 @@ async fn s3_file_consolidation_process_ndjson_files() {
 
 #[tokio::test]
 async fn s3_file_consolidation_compressed_files() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
@@ -715,7 +715,7 @@ async fn s3_file_consolidation_compressed_files() {
 
 #[tokio::test]
 async fn s3_file_consolidation_multiple_consolidated_files() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
@@ -802,7 +802,7 @@ async fn s3_file_consolidation_multiple_consolidated_files() {
 
 #[tokio::test]
 async fn s3_file_consolidation_large_files() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
@@ -912,7 +912,7 @@ async fn s3_file_consolidation_large_files() {
 
 #[tokio::test]
 async fn s3_file_consolidation_lots_of_10mb_files() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();
@@ -979,7 +979,7 @@ async fn s3_file_consolidation_lots_of_10mb_files() {
 
 #[tokio::test]
 async fn s3_file_consolidation_large_amount_of_files() {
-    let _cx = SinkContext::new_test();
+    let _cx = SinkContext::default();
 
     let s3_client = client().await;
     let bucket = uuid::Uuid::new_v4().to_string();

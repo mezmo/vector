@@ -30,6 +30,9 @@
 
 //! The main library to support building Vector.
 
+#[cfg(all(unix, feature = "sinks-socket"))]
+#[macro_use]
+extern crate cfg_if;
 #[macro_use]
 extern crate derivative;
 #[macro_use]
