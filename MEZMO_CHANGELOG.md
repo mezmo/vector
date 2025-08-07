@@ -1,5 +1,18 @@
 ## Changelog
 
+## [6.0.1](https://github.com/mezmo/vector/compare/v6.0.0...v6.0.1) (2025-08-07)
+
+
+### Chores
+
+* **build**: push build image to public and internal [fba7e09](https://github.com/mezmo/vector/commit/fba7e09a3f0c061d56c18edffad25f588347dd7d) - Phil Ciampini [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+* **dep**: ref correct tag [4f54915](https://github.com/mezmo/vector/commit/4f549158d38431bd70f8082b075ceb483b149bb4) - Phil Ciampini [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+
+
+### Miscellaneous
+
+* Merge pull request #25 from mezmo/pciampini/LOG-22147 [683ae66](https://github.com/mezmo/vector/commit/683ae66fffb330e078cf016bef01662a8932ee4e) - GitHub [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+
 # [6.0.0](https://github.com/mezmo/vector/compare/v5.0.3...v6.0.0) (2025-08-07)
 
 
