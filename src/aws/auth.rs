@@ -206,7 +206,7 @@ impl AwsAuthentication {
     /// the correct proxy and TLS options.
     fn assume_role_provider_builder(
         proxy: &ProxyConfig,
-        tls_options: &Option<TlsConfig>,
+        tls_options: Option<&TlsConfig>,
         region: &Region,
         assume_role: &str,
         external_id: Option<&str>,
@@ -234,7 +234,7 @@ impl AwsAuthentication {
         &self,
         service_region: Region,
         proxy: &ProxyConfig,
-        tls_options: &Option<TlsConfig>,
+        tls_options: Option<&TlsConfig>,
     ) -> crate::Result<SharedCredentialsProvider> {
         match self {
             Self::AccessKey {
@@ -339,7 +339,7 @@ impl AwsAuthentication {
 async fn default_credentials_provider(
     region: Region,
     proxy: &ProxyConfig,
-    tls_options: &Option<TlsConfig>,
+    tls_options: Option<&TlsConfig>,
     imds: ImdsAuthentication,
 ) -> crate::Result<SharedCredentialsProvider> {
     let connector = super::connector(proxy, tls_options)?;

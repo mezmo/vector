@@ -61,6 +61,14 @@ spec:
         namespace: pipeline
         key: reshape-message-in-vector
 
+  - name: arch
+    optional: true
+    default: ""
+    valueFrom:
+      configMapKeyRef:
+        name: vector
+        key: arch
+
   - name: cluster-name
     optional: false
     valueFrom:
@@ -396,6 +404,12 @@ spec:
                       operator: In
                       values:
                       - enabled
+                    {{#arch}}
+                    - key: kubernetes.io/arch
+                      operator: In
+                      values:
+                        - {{{arch}}}
+                    {{/arch}}
               podAntiAffinity:
                 preferredDuringSchedulingIgnoredDuringExecution:
                 - weight: 1

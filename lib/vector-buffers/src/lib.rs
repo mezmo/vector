@@ -127,7 +127,7 @@ where
     }
 }
 
-impl<'a, T> EventCount for &'a T
+impl<T> EventCount for &T
 where
     T: EventCount,
 {

@@ -29,7 +29,7 @@ prost-reflect.workspace = true
 rand.workspace = true
 regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 serde.workspace = true
-serde_with = { version = "3.11.0", default-features = false, features = ["std", "macros", "chrono_0_4"] }
+serde_with = { version = "3.12.0", default-features = false, features = ["std", "macros", "chrono_0_4"] }
 serde_json.workspace = true
 smallvec = { version = "1", default-features = false, features = ["union"] }
 snafu.workspace = true
@@ -41,7 +41,6 @@ tracing = { version = "0.1", default-features = false }
 vrl.workspace = true
 vector-common = { path = "../vector-common", default-features = false }
 vector-config = { path = "../vector-config", default-features = false }
-vector-config-common = { path = "../vector-config-common", default-features = false }
 vector-config-macros = { path = "../vector-config-macros", default-features = false }
 vector-core = { path = "../vector-core", default-features = false, features = ["vrl"] }
 mezmo = { path = "../mezmo", default-features = false }
@@ -54,7 +53,7 @@ tokio = { version = "1", features = ["test-util"] }
 quick-protobuf = "0.8"
 similar-asserts = "1.6.0"
 vector-core = { path = "../vector-core", default-features = false, features = ["vrl", "test"] }
-rstest = "0.23.0"
+rstest = "0.24.0"
 tracing-test = "0.2.5"
 uuid.workspace = true
 vrl.workspace = true

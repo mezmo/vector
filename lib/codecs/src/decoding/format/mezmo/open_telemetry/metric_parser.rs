@@ -109,7 +109,7 @@ impl<'a> MetricValueAccessor<'a> for GaugeMetricValue {
         Some(Cow::from("gauge"))
     }
 
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Single(&self.value as &dyn IntoValue)
     }
 }
@@ -275,7 +275,7 @@ impl<'a> MetricValueAccessor<'a> for SumMetricValue {
         }
     }
 
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Single(&self.value as &dyn IntoValue)
     }
 }
@@ -456,7 +456,7 @@ impl<'a> MetricValueAccessor<'a> for HistogramMetricValue {
         Some(Cow::from("histogram"))
     }
 
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Object(MetricValuePairs {
             elements: [
                 (&"count" as &dyn ToString, &self.count as &dyn IntoValue),
@@ -641,7 +641,7 @@ impl<'a> MetricValueAccessor<'a> for ExponentialHistogramMetricValue<'_> {
         Some(Cow::from("exponential_histogram"))
     }
 
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Object(MetricValuePairs {
             elements: [].into_iter(),
         })
@@ -830,7 +830,7 @@ impl<'a> MetricValueAccessor<'a> for SummaryMetricValue {
         Some(Cow::from("summary"))
     }
 
-    fn value(&'a self) -> MetricValueSerializable<'_, Self::ArrIter, Self::ObjIter> {
+    fn value(&'a self) -> MetricValueSerializable<'a, Self::ArrIter, Self::ObjIter> {
         MetricValueSerializable::Object(MetricValuePairs {
             elements: [
                 (&"count" as &dyn ToString, &self.count as &dyn IntoValue),

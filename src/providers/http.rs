@@ -76,7 +76,7 @@ impl Default for HttpConfig {
 /// Makes an HTTP request to the provided endpoint, returning the String body.
 async fn http_request(
     url: &Url,
-    tls_options: &Option<TlsConfig>,
+    tls_options: Option<&TlsConfig>,
     headers: &IndexMap<String, String>,
     payload: &Option<String>,
     proxy: &ProxyConfig,
@@ -142,7 +142,7 @@ async fn http_request(
 /// Calls `http_request`, serializing the result to a `ConfigBuilder`.
 async fn http_request_to_config_builder(
     url: &Url,
-    tls_options: &Option<TlsConfig>,
+    tls_options: Option<&TlsConfig>,
     headers: &IndexMap<String, String>,
     payload: &Option<String>,
     proxy: &ProxyConfig,
@@ -151,7 +151,7 @@ async fn http_request_to_config_builder(
         .await
         .map_err(|e| vec![e])?;
 
-    config::load(config_str.chunk(), crate::config::format::Format::Toml)?
+    config::load(config_str.chunk(), crate::config::format::Format::Toml)
 }
 
 /// Polls the HTTP endpoint after/every `poll_interval_secs`, returning a stream of `ConfigBuilder`.
@@ -172,7 +172,7 @@ fn poll_http(
         loop {
             interval.tick().await;
             let uptime_sec = start_time.elapsed().as_secs();
-            match http_request_to_config_builder(&url, &tls_options, &headers, &get_current_heartbeat_payload(&mut heartbeat, uptime_sec), &proxy).await {
+            match http_request_to_config_builder(&url, tls_options.as_ref(), &headers, &get_current_heartbeat_payload(&mut heartbeat, uptime_sec), &proxy).await {
                 Ok(config_builder) => {
                     let current_hash = config_builder.sha256_hash();
                     // Make sure we only send the reload signal when the config changed
@@ -230,7 +230,7 @@ impl ProviderConfig for HttpConfig {
         let proxy = ProxyConfig::from_env().merge(&self.proxy);
         let config_builder = http_request_to_config_builder(
             &url,
-            &tls_options,
+            tls_options.as_ref(),
             &request.headers,
             &get_current_heartbeat_payload(&mut heartbeat, 0),
             &proxy,

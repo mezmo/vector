@@ -151,7 +151,7 @@ impl HttpRequestBuilder {
                         &self.service_type,
                         &mut request,
                         provider,
-                        &Some(region.clone()),
+                        Some(region),
                     )
                     .await?;
                 }

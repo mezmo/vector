@@ -147,6 +147,7 @@ impl StateVariables {
     }
 
     #[cfg(test)]
+    /// Create a new instance under test
     pub fn new_test() -> Self {
         Self {
             _state_poller: None,
