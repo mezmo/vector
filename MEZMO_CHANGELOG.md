@@ -1,5 +1,273 @@
 ## Changelog
 
+# [6.1.0](https://github.com/mezmo/vector/compare/v6.0.2...v6.1.0) (2025-08-11)
+
+
+### Bug Fixes
+
+* ** gcp_chronicle sink**: add content encoding header when compression is enabled (#22009) [26bd3d1](https://github.com/mezmo/vector/commit/26bd3d1b9fa6f3fe23b785ca2b6b205de2839e44) - GitHub
+* **auth**: allow users to specify session_name for aws auth (#22206) [720f367](https://github.com/mezmo/vector/commit/720f367fbc444c86a1bfceaaa26c1ef0dda9af26) - GitHub
+* **aws_kinesis_firehose source**: correctly parse and store access key (#22629) [709f49d](https://github.com/mezmo/vector/commit/709f49d0518083c08deecffb533d4cb680654253) - GitHub
+* **aws_s3 sink**: Respect endpoint_url field in AWS_CONFIG_FILE (#22687) [0c873ec](https://github.com/mezmo/vector/commit/0c873ecd658636a15bcaa82cc6b4c1867bf93cde) - GitHub
+* **aws_s3 source**: replace info! with debug! to avoid spam (#22215) [e27ea3a](https://github.com/mezmo/vector/commit/e27ea3a702a5ed31119d718ca3b099186de79303) - GitHub
+* **ci**: `prepare.sh` should install the toolchain (#22572) [e1dce44](https://github.com/mezmo/vector/commit/e1dce44355c7dcf0b0d0880111a67f15b997b5d4) - GitHub
+* **ci**: add new unmaintained dependency (#22637) [7644658](https://github.com/mezmo/vector/commit/7644658475ffb00358eb0b8658505541661e5944) - GitHub
+* **ci**: add zstd decompression to DD metrics E2E tests (#22441) [1200b73](https://github.com/mezmo/vector/commit/1200b739833d058cfc95d63a335069bc076472e9) - GitHub
+* **ci**: always run IT suite when in a merge group (#22368) [1c1ded8](https://github.com/mezmo/vector/commit/1c1ded8bf3c564331fd4067878c95386a189bf4c) - GitHub
+* **ci**: bandaid for flaky macOS tests (#22239) [681f08d](https://github.com/mezmo/vector/commit/681f08dc027e8b88e032cb86109bf52eff6b7ecf) - GitHub
+* **ci**: check for merge_group in check-all job (#22372) [84bc0e4](https://github.com/mezmo/vector/commit/84bc0e4523137692234abe1cf6812ff46382058c) - GitHub
+* **ci**: check-all follow-up fix [b90715b](https://github.com/mezmo/vector/commit/b90715bd452e03f4ca151114f5475daca3d99832) - Pavlos Rontidis
+* **ci**: deny check fixes (#22627) [fbee731](https://github.com/mezmo/vector/commit/fbee7310b01697a2ce4fff12884d11ae81b473c0) - GitHub
+* **ci**: E2E comment triggers (#22443) [490526d](https://github.com/mezmo/vector/commit/490526d2a69f63f91a4d0abdb8d7ef02c4899e66) - GitHub
+* **ci**: fix report path (#22351) [3f3428e](https://github.com/mezmo/vector/commit/3f3428e6dac1830364812c64aa9834de1cc30d1e) - GitHub
+* **ci**: fix summary paths (#22305) [e382afe](https://github.com/mezmo/vector/commit/e382afe60cc42bbb6855c28cfab59015832e230f) - GitHub
+* **ci**: install rust toolchain for macos nightly targets (#22596) [cba85ca](https://github.com/mezmo/vector/commit/cba85ca47704033f6c0001d3f7f807074ab226a4) - GitHub
+* **ci**: make some final regression steps optional (#22324) [79852bb](https://github.com/mezmo/vector/commit/79852bbd794338c1ceda3f2c22fcb9eb175f930e) - GitHub
+* **ci**: revert to a previous async-nats version  (#22359) [1346acd](https://github.com/mezmo/vector/commit/1346acd3b704c9c84f1445c7396bce023c22fd9c) - GitHub
+* **ci**: temporarily ignore failing tests (#22378) [cf40d77](https://github.com/mezmo/vector/commit/cf40d77f79d1ba771b2812822ab009cb7f0516e2) - GitHub
+* **cli**: Revert add http sink tls cert/key to `config::watcher` (#22434) [39973ab](https://github.com/mezmo/vector/commit/39973ab03211c234e56983914a816787ae1c520c) - GitHub
+* **cli**: vector top is not refreshing (#22748) [5307b3d](https://github.com/mezmo/vector/commit/5307b3dab262bf7283f262c46cee3c3cbfe414fc) - GitHub
+* **codecs**: `LengthDelimitedEncoder` fix last message framing  (#22536) [7650fa2](https://github.com/mezmo/vector/commit/7650fa2c8c548e5ef5f22843b456b8297a60ee08) - GitHub
+* **deployment**: #22264 add `--no-environment` to systemd service file at `ExecReload` (#22279) [b890bf6](https://github.com/mezmo/vector/commit/b890bf6b7c855cd1970a22f8a28ba9f2872eaaea) - GitHub
+* **dev**: make doc generation platform agnostic (#22223) [48fd7ea](https://github.com/mezmo/vector/commit/48fd7ea164009de1f6b302c74574779b0ef85a93) - GitHub
+* **dev**: use explicit cast because deranged crate may break compile (#22747) [3ff60f2](https://github.com/mezmo/vector/commit/3ff60f215fe78040dfa418861d094217d6422800) - GitHub
+* **enriching**: csv file enrichment tables no longer drop the first row (#22257) [da6886b](https://github.com/mezmo/vector/commit/da6886b5f3578648c2621a1660e0b3b9c51437ca) - GitHub
+* **enriching**: fix flush metrics for `memory` enrichment table (#22296) [ffd3597](https://github.com/mezmo/vector/commit/ffd359786b8b1cd6d78d59e29dce3c5c1b276aeb) - GitHub
+* **enriching**: prevent panic when attaching inputs to sinks with name of a table (#22528) [6caf5f8](https://github.com/mezmo/vector/commit/6caf5f8a2cbeeb99c0383e46d3a73ff43317c3f2) - GitHub
+* **external docs**: Fix wrong links in the guide to Parsing CSV logs with Lua (#22745) [ebb5829](https://github.com/mezmo/vector/commit/ebb582998f716cc32c968cecf1f191482b8cf70e) - GitHub
+* **gcp service**: Prevent overflow for gcp token expiry calculation (#22639) [9e8445e](https://github.com/mezmo/vector/commit/9e8445ea8c2852b23a161ae0b69f9f406f4b6eb0) - GitHub
+* **host_metrics source**: add defensive check to prevent panics (#22604) [d17c099](https://github.com/mezmo/vector/commit/d17c09948831363646dd9f6d79545cfe82481f11) - GitHub
+* **host_metrics source**: use single system instance (#22513) [fe700dc](https://github.com/mezmo/vector/commit/fe700dca4d4ecf0b7802e13e9292852ed5a254a4) - GitHub
+* **releasing**: release.rb now fully resolves paths (#22792) [8a06205](https://github.com/mezmo/vector/commit/8a06205f131e0348cd510b3674ab4db327c6040f) - GitHub
+* **website**: Remove link checker command from CI commands (#22645) [2fa6f14](https://github.com/mezmo/vector/commit/2fa6f147ccbaa9b97553ecf708ce55edefabb8bb) - GitHub
+* **website**: Update permissions and revert id call (#22580) [d0d770f](https://github.com/mezmo/vector/commit/d0d770fbae5106511c1c88852599c82cdfcf32df) - GitHub
+* **website**: Update search index for developer guides (#22685) [1c722e6](https://github.com/mezmo/vector/commit/1c722e677e865539f7bdeb68e4dd99283179529f) - GitHub
+* **website**: use safe semver version (#22381) [8ee3b2b](https://github.com/mezmo/vector/commit/8ee3b2bfe1d8790cc0c7ba4d1d2db1bd9851fea0) - GitHub
+
+
+### Chores
+
+* **administration**: update CODEOWNERS for website related PRs (#22647) [522fe02](https://github.com/mezmo/vector/commit/522fe02b17e814bfd8136f4094a38546c7af4bf2) - GitHub
+* **ci**: `scripts/environment/Dockerfile` now based on ubuntu-24.04 (#22699) [d5afc84](https://github.com/mezmo/vector/commit/d5afc84c2b5de5955508a2ada3fc62333909ba5f) - GitHub
+* **ci**: `ubuntu-20.04` is deprecated - migrate to `ubuntu-24.04` (#22527) [d49c542](https://github.com/mezmo/vector/commit/d49c542930267cc69d577e8d3b86a6c119fcf331) - GitHub
+* **ci**: add amqp sink scope [698ef06](https://github.com/mezmo/vector/commit/698ef061349c6586aec94c597b038a92af657cf9) - GitHub
+* **ci**: add link to macOS ARM builds (#22144) [b92e285](https://github.com/mezmo/vector/commit/b92e2856422347a65c5744578f8573d2b011ab80) - GitHub
+* **ci**: add retries to k8s test job (#22632) [15b28ed](https://github.com/mezmo/vector/commit/15b28ed10b8fd58d59f50bd9f8368b1781edabdf) - GitHub
+* **ci**: add the npm package ecosystem for dependabot (#22674) [4762af5](https://github.com/mezmo/vector/commit/4762af5c3ddd670394360504260ca3797cebfa87) - GitHub
+* **ci**: Bump aws-actions/configure-aws-credentials from 4.0.2 to 4.0.3 (#22354) [3dbab77](https://github.com/mezmo/vector/commit/3dbab771c26aa2459577a0f70a5a7e67fe936963) - GitHub
+* **ci**: Bump aws-actions/configure-aws-credentials from 4.0.3 to 4.1.0 (#22462) [450de36](https://github.com/mezmo/vector/commit/450de36904f3d1524057e8cdb736941194da8d22) - GitHub
+* **ci**: Bump bufbuild/buf-setup-action from 1.49.0 to 1.50.0 (#22258) [36f8848](https://github.com/mezmo/vector/commit/36f88481d02333d7cdffce418f39b51d31de48eb) - GitHub
+* **ci**: Bump docker/build-push-action from 6.11.0 to 6.12.0 (#22259) [7ee7bf7](https://github.com/mezmo/vector/commit/7ee7bf7362d8abcc375079821a498f6075d85bef) - GitHub
+* **ci**: Bump docker/build-push-action from 6.12.0 to 6.13.0 (#22306) [6fa2099](https://github.com/mezmo/vector/commit/6fa2099880417573436e72f8626855266d79d9e3) - GitHub
+* **ci**: Bump docker/build-push-action from 6.13.0 to 6.15.0 (#22575) [5ad8b89](https://github.com/mezmo/vector/commit/5ad8b89124a1a11b6d53d6cffa854f62c872cfaf) - GitHub
+* **ci**: Bump docker/metadata-action from 5.6.1 to 5.7.0 (#22577) [4fdbe8e](https://github.com/mezmo/vector/commit/4fdbe8e9dc5762388427abad39e7fc3c076c90db) - GitHub
+* **ci**: Bump docker/setup-buildx-action from 3.8.0 to 3.9.0 (#22411) [c23095b](https://github.com/mezmo/vector/commit/c23095b17855ab36a3602062a97193d5d38be7c7) - GitHub
+* **ci**: Bump docker/setup-buildx-action from 3.9.0 to 3.10.0 (#22576) [e5f1b1d](https://github.com/mezmo/vector/commit/e5f1b1d26a525283e8746a62aaf465141bfeaa9d) - GitHub
+* **ci**: Bump docker/setup-qemu-action from 3.3.0 to 3.4.0 (#22412) [f7842e6](https://github.com/mezmo/vector/commit/f7842e6faef7112dc6c7c7d1e6776d728da70241) - GitHub
+* **ci**: Bump docker/setup-qemu-action from 3.4.0 to 3.6.0 (#22578) [620ff97](https://github.com/mezmo/vector/commit/620ff9747c66a974b5145eb0d47561cf2b9ac463) - GitHub
+* **ci**: Bump ossf/scorecard-action from 2.4.0 to 2.4.1 (#22574) [c6ee08a](https://github.com/mezmo/vector/commit/c6ee08ab33d1833fd0a982517d39af04f6d7944c) - GitHub
+* **ci**: delete unused script (#22583) [faab858](https://github.com/mezmo/vector/commit/faab8586d7dad34035bae1f764f6e9882ec504eb) - GitHub
+* **ci**: display regression report in summary (#22284) [082a154](https://github.com/mezmo/vector/commit/082a154e69c65166ed52f1a1b44deb9b067069e3) - GitHub
+* **ci**: install released wasm-pack version 0.13.1 (#22526) [88ac3e5](https://github.com/mezmo/vector/commit/88ac3e53f2435871e8d39e3dc245a8acbfe80852) - GitHub
+* **ci**: integration test suite enhancements (#22237) [394c4e3](https://github.com/mezmo/vector/commit/394c4e37f69bf5920af8f2dd5ebf9a7014eb6772) - GitHub
+* **ci**: make Integration Test Suite runnable on Actions (#22356) [f66fe74](https://github.com/mezmo/vector/commit/f66fe74055eace62cba3ce3618dce804d7552861) - GitHub
+* **ci**: Mark RUSTSEC-2025-0007 as ignored (#22493) [1519c3e](https://github.com/mezmo/vector/commit/1519c3e5d56b3129db2060f5c88b4126cbbaaa0e) - GitHub
+* **ci**: only run integration tests when secrets are available (#22414) [1d65736](https://github.com/mezmo/vector/commit/1d65736e4e39467ec5f320f43b0afc95cd6ad70c) - GitHub
+* **ci**: run IT suite when cargo files are modified (#22771) [5ecf5d6](https://github.com/mezmo/vector/commit/5ecf5d6b0a799e2bc2a36c83f38b7ebea481d8b7) - GitHub
+* **ci**: smp version: 0.19.3 -> 0.20.1 (#22266) [b03b3b3](https://github.com/mezmo/vector/commit/b03b3b34ce55924a3fbeb88e943da581123a072c) - GitHub
+* **ci**: Swap traditional file generator for logrotate_fs for file_to_blackhole test (#22285) [d49cf33](https://github.com/mezmo/vector/commit/d49cf33748ad82292198888687b6b50a01d8500f) - GitHub
+* **ci**: Update lading to 0.25.4 (#22271) [604a51b](https://github.com/mezmo/vector/commit/604a51bf7b46e3aa27ebdd278dcbeb5022629e40) - GitHub
+* **ci**: update publish-homebrew token (#22502) [9d59440](https://github.com/mezmo/vector/commit/9d59440ba191987ab884360675ee296a1dda335b) - GitHub
+* **ci**: update smp to 0.20.2 (#22318) [9f9a573](https://github.com/mezmo/vector/commit/9f9a573fca334c42f92bca7752ca00c458c3e106) - GitHub
+* **ci**: update smp to 0.21.0 (#22606) [559d9f2](https://github.com/mezmo/vector/commit/559d9f22dfe8cd2c67a16538ece86dd366566a29) - GitHub
+* **ci**: use RELEASE_VERSION for publish step [skip lint] [f3a8eee](https://github.com/mezmo/vector/commit/f3a8eeef3af26c9b0e7def358838564e6c6e4ed2) - Mike Del Tito [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157)
+* **deps**: Bump async-nats from 0.33.0 to 0.40.0 (#22759) [8d4c82e](https://github.com/mezmo/vector/commit/8d4c82ed6b5f91d800958dd8f5eab7e13ca585a7) - GitHub
+* **deps**: bump async-nats to v0.38 (#22238) [78cb547](https://github.com/mezmo/vector/commit/78cb547daf50b638dd2cae65399c25e52931aa5c) - GitHub
+* **deps**: Bump aws-smithy-http from 0.60.12 to 0.61.1 in the aws group (#22620) [b109e5c](https://github.com/mezmo/vector/commit/b109e5c1220bba694ea1c599763296eaafb74798) - GitHub
+* **deps**: Bump axios from 1.7.5 to 1.8.2 in /website in the npm_and_yarn group across 1 directory (#22610) [e050e47](https://github.com/mezmo/vector/commit/e050e479b7189e9cc6460ef2678851110612f298) - GitHub
+* **deps**: Bump bytes from 1.9.0 to 1.10.0 (#22404) [e36616f](https://github.com/mezmo/vector/commit/e36616f14d7951c908d6e6a3741324de188d9509) - GitHub
+* **deps**: Bump bytesize from 1.3.2 to 2.0.1 (#22563) [1dcc0df](https://github.com/mezmo/vector/commit/1dcc0df4e303994d7ff6ea686fc42040cd1224c9) - GitHub
+* **deps**: Bump cargo-lock from 10.0.1 to 10.1.0 (#22252) [02d40b9](https://github.com/mezmo/vector/commit/02d40b9f32f7694a6b60073f605adc81d9b9e192) - GitHub
+* **deps**: Bump convert_case from 0.6.0 to 0.7.1 (#22249) [dd63177](https://github.com/mezmo/vector/commit/dd63177195eb1a9bc1ff2a434f9bcb7e908d1503) - GitHub
+* **deps**: Bump data-encoding from 2.6.0 to 2.7.0 (#22250) [a60b8bb](https://github.com/mezmo/vector/commit/a60b8bb9b84e7f70a2fe58c3b01d79f8542ef91b) - GitHub
+* **deps**: Bump data-encoding from 2.7.0 to 2.8.0 (#22402) [b0506a3](https://github.com/mezmo/vector/commit/b0506a336c345638f1ee307505bebac1cdf7a6d9) - GitHub
+* **deps**: Bump directories from 5.0.1 to 6.0.0 (#22251) [504a596](https://github.com/mezmo/vector/commit/504a596649b2ff3d0f92bb1c8e2fa0ac06b0af8d) - GitHub
+* **deps**: Bump heim from `4925b53` to `f3537d9` (#22399) [b7ae788](https://github.com/mezmo/vector/commit/b7ae78856ed25bc46cd36e7fa5991363d4528c3b) - GitHub
+* **deps**: Bump hickory-proto from 0.24.2 to 0.24.3 in the cargo group (#22415) [896be62](https://github.com/mezmo/vector/commit/896be62f6d912f993ec011dc9b392e7cc1faf0ec) - GitHub
+* **deps**: Bump indexmap from 2.7.1 to 2.8.0 (#22667) [b79b308](https://github.com/mezmo/vector/commit/b79b30828dfa803b471b1f216b96989e8205abbf) - GitHub
+* **deps**: Bump ipnet from 2.10.1 to 2.11.0 (#22254) [91beca7](https://github.com/mezmo/vector/commit/91beca71452c3636c7969f4281cc51cb89338b35) - GitHub
+* **deps**: Bump lru from 0.12.5 to 0.13.0 (#22397) [950f15e](https://github.com/mezmo/vector/commit/950f15ea54a5f65f8446143871f206237f175bf7) - GitHub
+* **deps**: Bump notify from 7.0.0 to 8.0.0 (#22173) [26421c7](https://github.com/mezmo/vector/commit/26421c7f328c121eed4c9ea0a809b20660d36fcb) - GitHub
+* **deps**: Bump ordered-float from 4.5.0 to 4.6.0 (#22174) [acec925](https://github.com/mezmo/vector/commit/acec9259026d4ec35eec66cb621bb686b2c9cf5d) - GitHub
+* **deps**: Bump owo-colors from 4.1.0 to 4.2.0 (#22565) [a698327](https://github.com/mezmo/vector/commit/a698327ccce69f13e638f73aa67d47233656f252) - GitHub
+* **deps**: Bump proptest from 1.5.0 to 1.6.0 (#22172) [5bf6071](https://github.com/mezmo/vector/commit/5bf6071554ed155817b986e75b8b7c1a2040ef98) - GitHub
+* **deps**: bump pulsar@6.3.1 [skip lint] [da3d2d0](https://github.com/mezmo/vector/commit/da3d2d0a8c4bbed93a836bfb97efba695f5aa681) - Mike Del Tito [LOG-22156](https://logdna.atlassian.net/browse/LOG-22156)
+* **deps**: Bump rand from 0.8.5 to 0.9.0 (#22403) [6db059e](https://github.com/mezmo/vector/commit/6db059e39ddd4a76f31f7d374138ca0d358c7cb7) - GitHub
+* **deps**: Bump rstest from 0.24.0 to 0.25.0 (#22564) [0bc9c58](https://github.com/mezmo/vector/commit/0bc9c58b04a31d40e2f05407a438dcc3e4984779) - GitHub
+* **deps**: Bump similar-asserts from 1.6.1 to 1.7.0 (#22562) [09d795a](https://github.com/mezmo/vector/commit/09d795a4c64dc7f4537da738e9e01a960bffddd6) - GitHub
+* **deps**: Bump smallvec from 1.13.2 to 1.14.0 (#22452) [b46dbec](https://github.com/mezmo/vector/commit/b46dbece64d53f3e8b6f838e13a75d512be99505) - GitHub
+* **deps**: Bump tempfile from 3.15.0 to 3.16.0 (#22400) [d2f216e](https://github.com/mezmo/vector/commit/d2f216efc3ec9def0b3ad3b43ff1527ee0dd7f80) - GitHub
+* **deps**: Bump tempfile from 3.16.0 to 3.17.0 (#22450) [db44877](https://github.com/mezmo/vector/commit/db44877a6a48561700c6e44256dfac1e66452c7b) - GitHub
+* **deps**: Bump tempfile from 3.17.1 to 3.18.0 (#22623) [5d9c71a](https://github.com/mezmo/vector/commit/5d9c71a3c516f795b976d6d2ba4e8e0320bdd2b1) - GitHub
+* **deps**: Bump tempfile from 3.18.0 to 3.19.0 (#22669) [b0cab4f](https://github.com/mezmo/vector/commit/b0cab4fa330d2234063ff648d63e6386dddac489) - GitHub
+* **deps**: Bump the aws group across 1 directory with 4 updates (#22766) [43cb82a](https://github.com/mezmo/vector/commit/43cb82a1301dd0c6e115c2958a71be92e49de01c) - GitHub
+* **deps**: Bump the aws group with 2 updates (#22245) [2378a21](https://github.com/mezmo/vector/commit/2378a21892adfd259ea8746c3c3ed4da717dce79) - GitHub
+* **deps**: Bump the aws group with 2 updates (#22663) [81140cd](https://github.com/mezmo/vector/commit/81140cd76e20ec6022452026867a9c9d89c4caeb) - GitHub
+* **deps**: Bump the aws group with 5 updates (#22712) [6a7d9dd](https://github.com/mezmo/vector/commit/6a7d9dd6d646b3ecaeb5b085a777bcc3a6979f91) - GitHub
+* **deps**: Bump the azure group with 4 updates (#22621) [0085246](https://github.com/mezmo/vector/commit/00852466425c736ec94b7135f57555a634d96894) - GitHub
+* **deps**: Bump the npm_and_yarn group across 1 directory with 2 updates (#22671) [a51cd8d](https://github.com/mezmo/vector/commit/a51cd8d6638a9de7319583b31bba52b026fc6b6a) - GitHub
+* **deps**: Bump the patches group across 1 directory with 15 updates (#22497) [e302274](https://github.com/mezmo/vector/commit/e30227456bc2f09bb9537a3c8fc7e086da3aa4ef) - GitHub
+* **deps**: Bump the patches group across 1 directory with 19 updates (#22370) [4858750](https://github.com/mezmo/vector/commit/4858750a9282b0089a068aea0ac2c6d4c03aeeca) - GitHub
+* **deps**: Bump the patches group across 1 directory with 19 updates (#22628) [0a6c26c](https://github.com/mezmo/vector/commit/0a6c26c3c48030f8ec48f4fa4836abcc0ab8ce78) - GitHub
+* **deps**: Bump the patches group across 1 directory with 31 updates (#22190) [7f10bf9](https://github.com/mezmo/vector/commit/7f10bf91c2c1a4cfebbccfe6e5fd10605cecac4c) - GitHub
+* **deps**: Bump the patches group across 1 directory with 7 updates (#22672) [0900175](https://github.com/mezmo/vector/commit/090017566704ffba9757ee6a261db1317919e24f) - GitHub
+* **deps**: Bump the patches group with 15 updates (#22244) [7eebd94](https://github.com/mezmo/vector/commit/7eebd9471d3cc11b54717253f44ee8487a36bd1e) - GitHub
+* **deps**: Bump the patches group with 3 updates (#22393) [9d67c79](https://github.com/mezmo/vector/commit/9d67c79724b65c2d31e136c3100d5b950eb3db69) - GitHub
+* **deps**: Bump the patches group with 7 updates (#22551) [9fd7761](https://github.com/mezmo/vector/commit/9fd77616b687c7a49472a6b95eecc26eae69fb7d) - GitHub
+* **deps**: Bump the patches group with 7 updates (#22753) [645989d](https://github.com/mezmo/vector/commit/645989dc42dbe6c667107f5c138c51246b05fc2c) - GitHub
+* **deps**: Bump the patches group with 8 updates (#22711) [f095e15](https://github.com/mezmo/vector/commit/f095e154a8b47c32685a3a25722de9dffcf90fc4) - GitHub
+* **deps**: Bump tokio from 1.43.0 to 1.44.0 (#22625) [055fde6](https://github.com/mezmo/vector/commit/055fde6967fd5d3be0d1ee4b413e4cf279399560) - GitHub
+* **deps**: Bump uuid from 1.11.1 to 1.12.0 (#22253) [c0830fd](https://github.com/mezmo/vector/commit/c0830fd72f7118540d807a1bd62802e9b8c7c6b5) - GitHub
+* **deps**: Bump uuid from 1.12.0 to 1.15.1 (#22561) [07f7562](https://github.com/mezmo/vector/commit/07f75629710746cb94a711401dd259b2eb5dc471) - GitHub
+* **deps**: Bump uuid from 1.15.1 to 1.16.0 (#22666) [b23feb3](https://github.com/mezmo/vector/commit/b23feb371d2a99428b32f693ff0830a4aff09dcc) - GitHub
+* **deps**: Bump vrl from `2ccb98e` to `7612a8b` (#22401) [3a82b88](https://github.com/mezmo/vector/commit/3a82b88280eddde6f7193f38bc65dbd0fc298629) - GitHub
+* **deps**: Bump vrl from `2d5e2df` (edited by pront) (#22668) [61d545b](https://github.com/mezmo/vector/commit/61d545b263170383f352ec7c8bc6667aa167f984) - GitHub
+* **deps**: Bump vrl from `7612a8b` to `acfd9f9` (#22453) [a96a970](https://github.com/mezmo/vector/commit/a96a97009f36387d11031e0553e1a41e5d184689) - GitHub
+* **deps**: Bump vrl from `c0245e1` to `2ccb98e` (#22303) [559cb46](https://github.com/mezmo/vector/commit/559cb4667f43cca891189b7179e0f37c778d5c49) - GitHub
+* **deps**: update `hickory_proto` to 0.25.0 (#21759) [6bc5dce](https://github.com/mezmo/vector/commit/6bc5dce33a3ac898e5dea45f90674ac77c83e160) - GitHub
+* **deps**: update Cargo.lock (#22214) [bbaa34c](https://github.com/mezmo/vector/commit/bbaa34c6cbd06848e24399b442b451f5e95796bc) - GitHub
+* **deps**: update openssl related crates (#22352) [ff77761](https://github.com/mezmo/vector/commit/ff77761e2c305f0b0904295654d30f73a039a75c) - GitHub
+* **deps**: Update ring (#22511) [d19ac2a](https://github.com/mezmo/vector/commit/d19ac2a6226cb4220df9a6a70714a51c8dde4ff9) - GitHub
+* **dev**: bump bitflags (#22283) [21776bb](https://github.com/mezmo/vector/commit/21776bbd15113e34841dc6269358fc69b9166546) - GitHub
+* **dev**: cargo update -p vrl (#22591) [5b7c485](https://github.com/mezmo/vector/commit/5b7c485e290a57142bca2925b9a42ad4e1c2c4dd) - GitHub
+* **dev**: fix `vdev check scripts` warnings (#22277) [9161ca7](https://github.com/mezmo/vector/commit/9161ca75417db37fad78848d31ca2a586321c2b2) - GitHub
+* **dev**: fix bug.yml [70d3e63](https://github.com/mezmo/vector/commit/70d3e630736bbf25c6d9e24fb0e21a67b6210a33) - GitHub
+* **dev**: fix CVE-2024-47614 by bumping async-graphql (#22371) [f71ba42](https://github.com/mezmo/vector/commit/f71ba42bf384371ea97ea74bf71f139da12e0335) - GitHub
+* **dev**: fix markdown lint failures (#22219) [14b630f](https://github.com/mezmo/vector/commit/14b630fca53ef5f7f2bab49e5a081b7d30dd61b9) - GitHub
+* **dev**: fix protoc installation script for macOS arm64 (#22221) [ca73a06](https://github.com/mezmo/vector/commit/ca73a067a3a16bf6aeac0e06f51322efdd126476) - GitHub
+* **dev**: populated the new github 'type' field for features (#22315) [1af287f](https://github.com/mezmo/vector/commit/1af287f1f05050e0382d3dac6efb888508dce390) - GitHub
+* **dev**: PR template enhancements (#22779) [89008b6](https://github.com/mezmo/vector/commit/89008b6efe89a9dbe25bb1d4a4b26c4e2c1b7a9f) - GitHub
+* **dev**: replace plork images (#22217) [8e15aeb](https://github.com/mezmo/vector/commit/8e15aebcb1cea013a29f6e747026a58a416a69bb) - GitHub
+* **dev**: switch to Rust 1.85 (#22525) [e686aea](https://github.com/mezmo/vector/commit/e686aeaad592b46c07a55fe88c69f43e3b4f2a5f) - GitHub
+* **dev**: Update bug.yml to test new issue type field [89366e9](https://github.com/mezmo/vector/commit/89366e97c3c8d7c645d250749b58a2f6edfbd4bc) - GitHub
+* **dev**: use build licenses instead of running the tool directly (#22795) [992213e](https://github.com/mezmo/vector/commit/992213ec59e7110ceb7aedcaf2e7614ff2cc853d) - GitHub
+* **dnstap source**: update dnstap protobuf schema (#22348) [59ff175](https://github.com/mezmo/vector/commit/59ff175a514be619437113fc4ef3e80304415d33) - GitHub
+* **external docs**: generate global option configuration automatically from Rust code (#22345) [9593581](https://github.com/mezmo/vector/commit/9593581f775d7132bcf697605e738a90c9d046aa) - GitHub
+* **external docs**: Remove redundant loop in expand schema references (#22508) [b362704](https://github.com/mezmo/vector/commit/b362704a4fb7bcaa90414c4e44c1b66c77e177a3) - GitHub
+* **host_metrics source**: ignore flakey tcp metrics tests (#22544) [3cf1ecc](https://github.com/mezmo/vector/commit/3cf1eccc8dc5cf508a80fa47a251236862221f4c) - GitHub
+* **kubernetes platform**: Update kustomization.yaml (#22776) [ea1cb23](https://github.com/mezmo/vector/commit/ea1cb23d789a0c17aa109a0b7afb986a6aa3c875) - GitHub
+* **performance**: Enable simdutf8 feature for maxminddb (#22456) [0e21450](https://github.com/mezmo/vector/commit/0e214505f9f532078ea9fc6d45af78a94c24a3e7) - GitHub
+* **release**: 10.1.0 [skip ci] [2f4659d](https://github.com/mezmo/vector/commit/2f4659df4a2e79214ccfd01283857418b23f35f5) - LogDNA Bot [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22156](https://logdna.atlassian.net/browse/LOG-22156) [LOG-22156](https://logdna.atlassian.net/browse/LOG-22156) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157)
+* **releasing**: add basic oci labels (#22546) [6fe2317](https://github.com/mezmo/vector/commit/6fe2317d0b1bbc477fafd9ff80f39de55d36dffc) - GitHub
+* **releasing**: add debug statements (#22796) [34328b3](https://github.com/mezmo/vector/commit/34328b354585eb35938c28e0f5e45df5922339a8) - GitHub
+* **releasing**: add known issue for 0.44.0 (#22226) [aaa54ec](https://github.com/mezmo/vector/commit/aaa54ec9bb3052bd676f8baa2fb8d97324533c30) - GitHub
+* **releasing**: automate more pre-release steps (#22614) [f4c6835](https://github.com/mezmo/vector/commit/f4c6835a3032c810e005dc986a6c88849d3b30e0) - GitHub
+* **releasing**: automate release preperation steps (part 1) (#22485) [92f09ee](https://github.com/mezmo/vector/commit/92f09ee495e57bb9ee82813abc043fd97e5de414) - GitHub
+* **releasing**: automate the rest of the release prep steps (#22688) [63db035](https://github.com/mezmo/vector/commit/63db03579d786d2d82e58e1b1a78f4a8e1304586) - GitHub
+* **releasing**: cargo vdev build manifests (#22201) [aaa90cb](https://github.com/mezmo/vector/commit/aaa90cbdf133cf9a21374ab7008036c6c664a22f) - GitHub
+* **releasing**: cargo vdev build manifests (#22505) [4854f06](https://github.com/mezmo/vector/commit/4854f060ce1c80f703f2061dd8a1a09ee3c3275b) - GitHub
+* **releasing**: cherry picking 0.44.0 commits (#22207) [e28d6e8](https://github.com/mezmo/vector/commit/e28d6e8d6514c990009c254f3e16b358478651bb) - GitHub
+* **releasing**: Complete v0.45.0 release (#22506) [8a55813](https://github.com/mezmo/vector/commit/8a55813266aa2b2ea64e96f6fc9d7e9a213a8991) - GitHub
+* **releasing**: prepare v0.46.1 (#22870) [9a19e8a](https://github.com/mezmo/vector/commit/9a19e8a70bfcce38a029add144f53bdb8cebcf8b) - GitHub
+* **releasing**: release prep  (#22835) [5b4e0c9](https://github.com/mezmo/vector/commit/5b4e0c94a0fe97cd9aa8e1229c53984ee666d570) - GitHub
+* **releasing**: repo root fixes (#22797) [4cda798](https://github.com/mezmo/vector/commit/4cda79849ec5a3424e7c7857141dccdd54e2b312) - GitHub
+* **releasing**: tweak release templates (#22202) [a0b4e0a](https://github.com/mezmo/vector/commit/a0b4e0ab7048cad723aeca94d7c747724adf4fe3) - GitHub
+* **releasing**: vdev perpare fixes (#22790) [fef395d](https://github.com/mezmo/vector/commit/fef395dba603cd5a24083bcdff702509efb940dd) - GitHub
+* **releasing**: vdev prepare add before commit (#22798) [1301b96](https://github.com/mezmo/vector/commit/1301b96e5e0fd9c7f76a1a27c8f43f2abd2e8a65) - GitHub
+* **releasing**: vdev prepare refactoring (#22791) [8d5c996](https://github.com/mezmo/vector/commit/8d5c996b290d96d4d1a1cb033078fa0fdb86b0d6) - GitHub
+* **releasing**: vdev prepare tweaks (#22794) [d8c5e0c](https://github.com/mezmo/vector/commit/d8c5e0cc521bfd15882ff38116810f43d617f09b) - GitHub
+* **sinks**: Allow S3Sink builder to accept a type that implements Partitioner (#22658) [c37f0a8](https://github.com/mezmo/vector/commit/c37f0a87ab305cda544d37e8c7fa6763e13b9cf5) - GitHub
+* **vector source**: Revert add `headers` option" (#22741) [8bc821f](https://github.com/mezmo/vector/commit/8bc821f992207e2f6b5372cb7e9fc17aed0de62b) - GitHub
+* **vrl**: use `as_str()` as implemented by `Value`  (#22416) [c231196](https://github.com/mezmo/vector/commit/c23119676042a7964bf19a0b8ac2e4ade5624a36) - GitHub
+* **website**: add notice on timestamp field renaming in the Elasticsearch sink, when use data_stream mode (#22196) [0df7c48](https://github.com/mezmo/vector/commit/0df7c486e7c7251da200167d55f6dbbc1910e6fb) - GitHub
+* **website**: fix enrichment table link (#22646) [c17746d](https://github.com/mezmo/vector/commit/c17746def3891ff4d7b69e2cfa5bbb6c484e4565) - GitHub
+* **website**: tweaks to highlights blog post (#22512) [e99bf9e](https://github.com/mezmo/vector/commit/e99bf9e5bae9ba5d86f3503bb664688674be1f14) - GitHub
+* **website**: Update `typesense-sync` depedency, search config (#22707) [48348ff](https://github.com/mezmo/vector/commit/48348ff1f0517566e6dd228ae96d1649066a925e) - GitHub
+* **website**: Update if statement for preview trigger (#22673) [3e0c157](https://github.com/mezmo/vector/commit/3e0c157f3091ac4c3660a5f24749dd7fd0c7a277) - GitHub
+* **website**: Update workflow from bash to gh scripts (#22503) [da67459](https://github.com/mezmo/vector/commit/da674594f9fcc41b288c5ae2679fae1dc9e3ad74) - GitHub
+* **website**: WEB-5803 | Remove netifly references from Privacy markdown (#22598) [207e5d4](https://github.com/mezmo/vector/commit/207e5d47b48f532671d2858cd898674d0d30a517) - GitHub
+
+
+### Features
+
+* **aws_s3 source**: Support vhost-style S3 bucket addressing (#22475) [e3653c3](https://github.com/mezmo/vector/commit/e3653c38f6a2f66d9108d16814b68003aaa0631a) - GitHub
+* **ci**: publish build images to the GitHub Container Registry (#22694) [56fd462](https://github.com/mezmo/vector/commit/56fd46215cc2080651fa3dc466b6fc8cebd75e50) - GitHub
+* **ci**: refactor and parallelize integration-tests (CI review) (#22380) [22ee402](https://github.com/mezmo/vector/commit/22ee402ad82118634cb46e84aca8cef3755fb87d) - GitHub
+* **ci**: run integration tests in parallel (#22205) [d599ec0](https://github.com/mezmo/vector/commit/d599ec002692e6a206750d187bfa32ea66dd29d3) - GitHub
+* **cli**: Add `--components` option in `vector top` to filter out components (#22392) [aadfa18](https://github.com/mezmo/vector/commit/aadfa189a8899311e33dfc632ccffa9e2789fe4e) - GitHub
+* **cli**: Add http sink tls cert/key to `config::watcher` (#22386) [e84e0bf](https://github.com/mezmo/vector/commit/e84e0bf2abc2cc55479ae39dc176f46dc68b929d) - GitHub
+* **cli**: Handle reload based on referenced file change (#22539) [5e392ad](https://github.com/mezmo/vector/commit/5e392ade8d2080d136b32d02992534190b985668) - GitHub
+* **datadog service**: support filtering on ddtags and ddsource in datadog search syntax (#22281) [cbcbeb3](https://github.com/mezmo/vector/commit/cbcbeb3f36fb22efc7ff856bc967b82ebda641ef) - GitHub
+* **dev**: add config IDE autocompletion guide  (#22329) [f09af60](https://github.com/mezmo/vector/commit/f09af60af4d76516a065ef9483c8cc525450d028) - GitHub
+* **enriching**: add `memory` enrichment table (#21348) [318930b](https://github.com/mezmo/vector/commit/318930b819872ce12c23bbee8475aafda1deeedb) - GitHub
+* **enriching**: run memory enrichment table as a source too (#22466) [3c073f9](https://github.com/mezmo/vector/commit/3c073f9bf91ff36a308f5edb988e657ed753a551) - GitHub
+* **gcp_stackdriver_logs sink**: Support additional top level labels for gcp_stackdriver_logs sink (#22473) [baffdbf](https://github.com/mezmo/vector/commit/baffdbfd8bda0ca3beae4fec38c35a748176ed29) - GitHub
+* **host_metrics source**: add a new collector for tcp stats (#22057) [2d7cbd8](https://github.com/mezmo/vector/commit/2d7cbd88e5a6b408c540df2516d414215a354796) - GitHub
+* **host_metrics source**: Add process virtual memory metric (#22183) [c68bd7a](https://github.com/mezmo/vector/commit/c68bd7af375797c0e4e9f5d94dd2e0c082babe5c) - GitHub
+* **internal**: Make fields in HumioLogsConfig public (#22421) [530c4d1](https://github.com/mezmo/vector/commit/530c4d183658d64deb1ad91f51b9fb96c41aae27) - GitHub
+* **metrics**: separate `expire_metrics_secs` configuration per metric set (#22409) [9a0afba](https://github.com/mezmo/vector/commit/9a0afba675b84a3e8f0b77a80532a10e763237d6) - GitHub
+* **new sink**: initial `websocket_server` sink (#22213) [78adec7](https://github.com/mezmo/vector/commit/78adec73b3ddc6fe403b59ea1a81780649cd059b) - GitHub
+* **new sink**: Keep sink (#22072) [fd515ea](https://github.com/mezmo/vector/commit/fd515ea86e3a3378c69953a4a59556045eb93fe4) - GitHub
+* **postgres sink**: Add postgres sink (#21248) [5e34f9b](https://github.com/mezmo/vector/commit/5e34f9b4f569a819072e73785830247caabd09ce) - GitHub
+* **pulsar sink**: support tls options (#22148) [b4aaaa8](https://github.com/mezmo/vector/commit/b4aaaa88fe96ef23d3e8c4e40a8c2045aa9f56c5) - GitHub
+* **releasing**: refactor homebrew.rs to support ARM builds (#22156) [b77e6c1](https://github.com/mezmo/vector/commit/b77e6c17cdc4416fc12a2a9c8aa3ff0cfeaf97a3) - GitHub
+* **sample transform**: Sample by percent rate (#22727) [0be4137](https://github.com/mezmo/vector/commit/0be41370135167ec75278db09b5729c0003af1f2) - GitHub
+* **sources**: add custom auth strategy for components with HTTP server (#22236) [64c56ed](https://github.com/mezmo/vector/commit/64c56ed302502bae1e0f5fa29608a3616d7e90e5) - GitHub
+* **tag_cardinality_limit transform**: enable per metric limits for `tag_cardinality_limit` (#22077) [47e348c](https://github.com/mezmo/vector/commit/47e348cc8cab3bcbd8d6cf6937f9d0e2e329e080) - GitHub
+* **websocket_server sink**: add message buffering for `websocket_server` (#22479) [8937349](https://github.com/mezmo/vector/commit/8937349d551e4b59e5758fd97a649f37bb6c8721) - GitHub
+* **websocket_server sink**: add simple customizable extra metrics tags for `websocket_server` (#22484) [a6d3add](https://github.com/mezmo/vector/commit/a6d3addd61587372bcc65ac0e0ae6a05614a7a13) - GitHub
+
+
+### Miscellaneous
+
+* Merge pull request #27 from mezmo/pciampini/LOG-22147 [f8b03cc](https://github.com/mezmo/vector/commit/f8b03cc00f28cc8294f8066326acfda72b71052c) - GitHub [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+* Merge upstream tag 'v10.1.0' into pciampini/LOG-22147 [e3e6783](https://github.com/mezmo/vector/commit/e3e6783167c5fbaeac0ab11871c2986f01106fda) - Phil Ciampini [LOG-22147](https://logdna.atlassian.net/browse/LOG-22147)
+* Merge pull request #695 from answerbook/feature/LOG-22157 [2997a29](https://github.com/mezmo/vector/commit/2997a29be60a15062e66f4a95afa6a506fb30ada) - GitHub [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157)
+* Merge tag 'v0.46.1' into feature/LOG-22157 [skip lint] [5d79a9d](https://github.com/mezmo/vector/commit/5d79a9da1d91e86d8f161c68acedd39cf88e14c5) - Mike Del Tito [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157) [LOG-22157](https://logdna.atlassian.net/browse/LOG-22157)
+* Revert "chore(deps): Bump async-nats from 0.33.0 to 0.40.0" (#22772) [6bd4cf1](https://github.com/mezmo/vector/commit/6bd4cf194a98ac4d80c7083db0b136194d8a1a9a) - GitHub
+* add debugging statement [cb09d9a](https://github.com/mezmo/vector/commit/cb09d9a0cd73e3deb53bd440cd2e6b1e648c377a) - Pavlos Rontidis
+* feat (sink: aws_cloudwatch_logs) #11185: Allow specifying a KMS key and tags for newly created AWS CloudWatch log groups. (#22274) [f151cab](https://github.com/mezmo/vector/commit/f151cab1fa156a53b6b44db245deedad8eef6ab8) - GitHub
+* **external docs**: fix missing configuration section for `websocket_server` docs (#22480) [ae84bcd](https://github.com/mezmo/vector/commit/ae84bcd9de4b9a47f4b760c6451d1aea11baa438) - GitHub
+* **external**: add `how_it_works` section for auth config (#22483) [aa43a16](https://github.com/mezmo/vector/commit/aa43a1674cfbeb2e94ac31196a1dade34dc24b75) - GitHub
+* **external**: add docs for `shannon_entropy` function (#22428) [bd06afc](https://github.com/mezmo/vector/commit/bd06afcc6d2df680b3ef42a6873dfba5ab0b27be) - GitHub
+* **external**: add missing Quad9 credits in changelog entries (#22568) [30995ea](https://github.com/mezmo/vector/commit/30995ea87315acaf57b6f1dcfe8ffd1462d104b3) - GitHub
+* **external**: add missing Quad9 credits in previous releases (#22569) [d39ca73](https://github.com/mezmo/vector/commit/d39ca7386d98fbf914da6aa71406015bcfc38460) - GitHub
+* **external**: add note for input/output typs in remap docs (#22435) [e878c89](https://github.com/mezmo/vector/commit/e878c892c14607a651732a93d428ef029e072713) - GitHub
+* **external**: Adds example log payload Vector ships OTEL Collector (#22225) [543e609](https://github.com/mezmo/vector/commit/543e609036078a6882a1a4fe4bb11484805bf10d) - GitHub
+* **external**: Clarify Homebrew support documentation (#22684) [a3d1f7b](https://github.com/mezmo/vector/commit/a3d1f7b382e61f12c5a16bf948435d5095c3a024) - GitHub
+* **external**: document 'open_files' metric (#22676) [f567461](https://github.com/mezmo/vector/commit/f5674617ad5d14186a092e379b8712bb9b8918ae) - GitHub
+* **external**: documentation fixes for style consistency (#22200) [025ac6c](https://github.com/mezmo/vector/commit/025ac6cf85e82ddfd315a6122e06bb672ce778d5) - GitHub
+* **external**: fix 'parse-groks' VRL doc (#22194) [64735f3](https://github.com/mezmo/vector/commit/64735f31bfd9367af3db4cd761fb6c40e7f3b9eb) - GitHub
+* **external**: fix `enrichment_table` and `secret` docs (#22319) [0431a07](https://github.com/mezmo/vector/commit/0431a079273432e69cb5a1fe9add9c85ca4e1edc) - GitHub
+* **external**: fix DD agent docs (#22731) [1b2a413](https://github.com/mezmo/vector/commit/1b2a413a462c17c8c125c0172e97b76292d8d211) - GitHub
+* **external**: fix getting starting guide rendering (#22332) [acd7dd2](https://github.com/mezmo/vector/commit/acd7dd25d1192b344285c73a1541b42909d1af7d) - GitHub
+* **external**: fix is_nullish docs (#22765) [e7c4995](https://github.com/mezmo/vector/commit/e7c4995c482fe854fae3132f47f81ae00d869282) - GitHub
+* **external**: fix OpenTelemetry Sink Quickstart to match expected log data model (#22222) [110c883](https://github.com/mezmo/vector/commit/110c883cf60d4f1ac87a5a952697fd7d966bd9d6) - GitHub
+* **external**: fix typo in csv enrichment guide (#22652) [c9d5b90](https://github.com/mezmo/vector/commit/c9d5b907c2dd30c60d18e6d21648632ce9b4477a) - GitHub
+* **external**: fix wording in common sinks components docs (#22317) [d1e3dda](https://github.com/mezmo/vector/commit/d1e3dda4c4d14f8a4f2eca7f965182d9fcf6e5ff) - GitHub
+* **external**: Generate API docs from Rust code (#22437) [2b63353](https://github.com/mezmo/vector/commit/2b63353b68403b188c7126657336675fb24eb39e) - GitHub
+* **external**: generate global option and common field from Rust macro (#22408) [c9076aa](https://github.com/mezmo/vector/commit/c9076aa240e46b7299f4caa9c0ca89de7704ae08) - GitHub
+* **external**: improve debugging guide (#22735) [a2728eb](https://github.com/mezmo/vector/commit/a2728ebae5568f0999add804bcebbb45c845ee09) - GitHub
+* **external**: improve proto codecs docs (#22280) [17d14d3](https://github.com/mezmo/vector/commit/17d14d3b150569a87f7fec9288c16601ce0064de) - GitHub
+* **external**: introduce debugging guide (#22417) [a0b6cad](https://github.com/mezmo/vector/commit/a0b6cadbb77905589663a7b05c1a8b6239a9000b) - GitHub
+* **external**: update guide to use new config instead of deprecated one (#22775) [4d8f03e](https://github.com/mezmo/vector/commit/4d8f03ed9b00bf276d88092395ec28cad1b0a5d4) - GitHub
+* **external**: update vector tap help (#22490) [8dce2dd](https://github.com/mezmo/vector/commit/8dce2dd6a68fdcb839a222d5600100fb8536fdeb) - GitHub
+* **gcp_chronicle sink**: Add default fallback logic if log_type template cannot be resolved fo… (#22323) [0d57e2a](https://github.com/mezmo/vector/commit/0d57e2aed0b300a8fbe9626283582578484c1620) - GitHub
+* **gcp_chronicle sink**: add support for all Google SecOps regional endpoints (#22033) [56d6a7d](https://github.com/mezmo/vector/commit/56d6a7d89a7306fe682daf90f6c35fb2b3f4d072) - GitHub
+* **http source**: unifying http query parameters (#22242) [9bb3712](https://github.com/mezmo/vector/commit/9bb3712cdf88c07cfeffed07d7640297464c8ed3) - GitHub
+* **internal docs**: Fix dead link on commit sub-categories (#22520) [c3d0f08](https://github.com/mezmo/vector/commit/c3d0f080af57f7da950d335e0b16925decfcb28c) - GitHub
+* **internal docs**: fix dead link on web playground README (#22681) [e1bfa9e](https://github.com/mezmo/vector/commit/e1bfa9e648feafcdeb90c574797cbeeb0925739d) - GitHub
+* **internal**: Implement Display trait for Discriminant type (#22732) [5b490da](https://github.com/mezmo/vector/commit/5b490dabc6aac5de534862438a96a3b52354ce09) - GitHub
+* **throttle transform**: Refactor throttle/rate limiter logic into reusable wrapper (#22719) [44562f6](https://github.com/mezmo/vector/commit/44562f6b3b8a1682009f0a34dc9fb61f3e668dbf) - GitHub
+* **unit tests**: Allow objects and arrays in log_fields test input (#22406) [4c3f3ca](https://github.com/mezmo/vector/commit/4c3f3ca68f586dc8c62a3603ea77a0583ba6e9e0) - GitHub
+* **vector source**: add `headers` option (#22695) [2a85007](https://github.com/mezmo/vector/commit/2a85007ce5c0ea05cdb408f4d6c898049c33f055) - GitHub
+* **vrl**: add documentation for `to_syslog_facility_code` vrl function (#22241) [add77d0](https://github.com/mezmo/vector/commit/add77d0876436f2ed7f25ad55b54c0e58add48d1) - GitHub
+* **vrl**: Add parse_cbor vrl function documentation (#22082) [970606e](https://github.com/mezmo/vector/commit/970606eb6f14c393b7d7e9cb9dd271a8a202d401) - GitHub
+* **vrl**: Update documentation for ip_cidr_contains (#22463) [63cadc6](https://github.com/mezmo/vector/commit/63cadc68a606d0f0033a17b9965d133cd6c293a6) - GitHub
+* **website**: add `alpha` definition (#22635) [9668f2d](https://github.com/mezmo/vector/commit/9668f2da58ba9b8030a5f70f141be82b834d0cd0) - GitHub
+* **website**: fix incorrect example about the contains function (#22724) [e44cd91](https://github.com/mezmo/vector/commit/e44cd9106f84a9a9e87f2e82506113b970f40d0d) - GitHub
+* **websocket_server sink**: add `how_it_works` section for `websocket_server` (#22482) [30f7a12](https://github.com/mezmo/vector/commit/30f7a12c736f93a74990355de0708d56cb81e895) - GitHub
+
 ## [6.0.2](https://github.com/mezmo/vector/compare/v6.0.1...v6.0.2) (2025-08-07)
 
 
