@@ -55,7 +55,7 @@ async fn build_text_encoding_sink(
         extras = extra_config
     );
     let config: HttpSinkConfig = toml::from_str(&config).unwrap();
-    let cx = SinkContext::new_test();
+    let cx = SinkContext::default();
 
     let (sink, _) = config.build(cx).await.unwrap();
     (in_addr, sink)

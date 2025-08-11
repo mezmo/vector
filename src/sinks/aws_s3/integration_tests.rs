@@ -389,7 +389,7 @@ async fn s3_healthchecks() {
         .await
         .unwrap();
     config
-        .build_healthcheck(service.client(), SinkContext::new_test())
+        .build_healthcheck(service.client(), SinkContext::default())
         .unwrap()
         .await
         .unwrap();
@@ -403,7 +403,7 @@ async fn s3_healthchecks_invalid_bucket() {
         .await
         .unwrap();
     assert!(config
-        .build_healthcheck(service.client(), SinkContext::new_test())
+        .build_healthcheck(service.client(), SinkContext::default())
         .unwrap()
         .await
         .is_err());

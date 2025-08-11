@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use bytes::{Buf, Bytes};
 use http::{Response, StatusCode, Uri};
 use hyper::{body, Body};
@@ -14,7 +12,7 @@ use super::{
 };
 use crate::{
     config::SinkContext,
-    http::{HttpClient, MaybeAuth},
+    http::{HttpClient, MaybeAuth, QueryParameterValue, QueryParameters},
     sinks::{
         elasticsearch::{
             ElasticsearchAuthConfig, ElasticsearchCommonMode, ElasticsearchConfig,
@@ -39,7 +37,7 @@ pub struct ElasticsearchCommon {
     pub request_builder: ElasticsearchRequestBuilder,
     pub tls_settings: TlsSettings,
     pub request: RequestConfig,
-    pub query_params: HashMap<String, String>,
+    pub query_params: QueryParameters,
     pub metric_to_log: MetricToLog,
 }
 
@@ -125,19 +123,34 @@ impl ElasticsearchCommon {
         let mut query_params = config.query.clone().unwrap_or_default();
         query_params.insert(
             "timeout".into(),
-            format!("{}s", tower_request.timeout.as_secs()),
+            QueryParameterValue::SingleParam(format!("{}s", tower_request.timeout.as_secs())),
         );
 
         if let Some(pipeline) = &config.pipeline {
             if !pipeline.is_empty() {
-                query_params.insert("pipeline".into(), pipeline.into());
+                query_params.insert(
+                    "pipeline".into(),
+                    QueryParameterValue::SingleParam(pipeline.into()),
+                );
             }
         }
 
         let bulk_url = {
             let mut query = url::form_urlencoded::Serializer::new(String::new());
-            for (p, v) in &query_params {
-                query.append_pair(&p[..], &v[..]);
+            // Iterate through the HashMap
+            for (param_name, param_value) in &query_params {
+                match param_value {
+                    QueryParameterValue::SingleParam(param) => {
+                        // For single parameter, just append one pair
+                        query.append_pair(param_name, param);
+                    }
+                    QueryParameterValue::MultiParams(params) => {
+                        // For multiple parameters, append the same key multiple times
+                        for value in params {
+                            query.append_pair(param_name, value);
+                        }
+                    }
+                }
             }
             format!("{}/_bulk?{}", base_url, query.finish())
         };
