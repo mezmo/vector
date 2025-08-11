@@ -3,7 +3,7 @@ use super::{
     OutputId,
 };
 
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use vector_lib::id::Inputs;
 
 pub fn compile(
@@ -62,14 +62,33 @@ pub fn compile(
         graceful_shutdown_duration,
         allow_empty: _,
     } = builder;
+    let all_sinks = sinks
+        .clone()
+        .into_iter()
+        .chain(
+            enrichment_tables
+                .iter()
+                .filter_map(|(key, table)| table.as_sink(key)),
+        )
+        .collect::<IndexMap<_, _>>();
+    let sources_and_table_sources = sources
+        .clone()
+        .into_iter()
+        .chain(
+            enrichment_tables
+                .iter()
+                .filter_map(|(key, table)| table.as_source(key)),
+        )
+        .collect::<IndexMap<_, _>>();
 
     trace!(
-        "Building graph with {} sources, {} transforms, {} sinks",
-        sources.len(),
+        "Building graph with {} sources/tables, {} transforms, {} sinks",
+        sources_and_table_sources.len(),
         transforms.len(),
         sinks.len()
     );
-    let graph = match Graph::new(&sources, &transforms, &sinks, schema) {
+
+    let graph = match Graph::new(&sources_and_table_sources, &transforms, &all_sinks, schema) {
         Ok(graph) => graph,
         Err(graph_errors) => {
             errors.extend(graph_errors);
@@ -104,6 +123,13 @@ pub fn compile(
         .map(|(key, transform)| {
             let inputs = graph.inputs_for(&key);
             (key, transform.with_inputs(inputs))
+        })
+        .collect();
+    let enrichment_tables = enrichment_tables
+        .into_iter()
+        .map(|(key, table)| {
+            let inputs = graph.inputs_for(&key);
+            (key, table.with_inputs(inputs))
         })
         .collect();
     let tests = tests

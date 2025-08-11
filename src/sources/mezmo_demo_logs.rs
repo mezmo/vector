@@ -11,7 +11,7 @@ use fakedata::mezmo::{
     syslog::{syslog_3164_log_line, syslog_5424_log_line},
 };
 use futures::StreamExt;
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use snafu::Snafu;
 use std::task::Poll;
 use tokio::sync::OnceCell;
@@ -282,7 +282,7 @@ impl MezmoOutputFormat {
 
     fn shuffle_generate(sequence: bool, lines: &[String], n: usize) -> String {
         // unwrap can be called here because `lines` can't be empty
-        let line = lines.choose(&mut rand::thread_rng()).unwrap();
+        let line = lines.choose(&mut rand::rng()).unwrap();
 
         if sequence {
             format!("{} {}", n, line)

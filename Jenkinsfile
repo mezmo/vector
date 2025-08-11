@@ -182,7 +182,7 @@ pipeline {
             }
             sh './release-tool clean'
             sh "./release-tool build APP_VERSION='" + slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}") + "'"
-            sh './release-tool publish'
+            sh "./release-tool publish RELEASE_VERSION='" + slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}") + "'"
             archiveArtifacts artifacts: 'output/'
           }
         }

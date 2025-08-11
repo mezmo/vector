@@ -192,7 +192,7 @@ mod integration_test {
         };
         config.clone().to_rdkafka()?;
         self::sink::healthcheck(config.clone()).await?;
-        KafkaSink::new(config, SinkContext::new_test())
+        KafkaSink::new(config, SinkContext::default())
     }
 
     #[tokio::test]
@@ -362,7 +362,7 @@ mod integration_test {
 
         if test_telemetry_tags {
             assert_data_volume_sink_compliance(&DATA_VOLUME_SINK_TAGS, async move {
-                let sink = KafkaSink::new(config, SinkContext::new_test()).unwrap();
+                let sink = KafkaSink::new(config, SinkContext::default()).unwrap();
                 let sink = VectorSink::from_event_streamsink(sink);
                 sink.run(input_events).await
             })
@@ -370,7 +370,7 @@ mod integration_test {
             .expect("Running sink failed");
         } else {
             assert_sink_compliance(&SINK_TAGS, async move {
-                let sink = KafkaSink::new(config, SinkContext::new_test()).unwrap();
+                let sink = KafkaSink::new(config, SinkContext::default()).unwrap();
                 let sink = VectorSink::from_event_streamsink(sink);
                 sink.run(input_events).await
             })

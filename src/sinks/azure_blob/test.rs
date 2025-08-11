@@ -310,7 +310,7 @@ async fn azure_blob_build_config_with_invalid_connection_string() {
     };
 
     assert!(sink_config
-        .build(SinkContext::new_test())
+        .build(SinkContext::default())
         .await
         .expect("builds with invalid connection string")
         .1

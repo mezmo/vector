@@ -42,7 +42,7 @@ async fn elasticsearch_mezmo_message_reshaping_happens() {
         .expect("Config error");
     let base_url = common.base_url.clone();
 
-    let cx = SinkContext::new_test();
+    let cx = SinkContext::default();
     let (sink, _hc) = config.build(cx.clone()).await.unwrap();
 
     let (batch, mut receiver) = BatchNotifier::new_with_receiver();
@@ -128,7 +128,7 @@ async fn elasticsearch_mezmo_message_reshaping_does_not_happen() {
         .expect("Config error");
     let base_url = common.base_url.clone();
 
-    let cx = SinkContext::new_test();
+    let cx = SinkContext::default();
     let (sink, _hc) = config.build(cx.clone()).await.unwrap();
 
     let (batch, mut receiver) = BatchNotifier::new_with_receiver();

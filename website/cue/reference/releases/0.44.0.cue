@@ -15,6 +15,12 @@ releases: "0.44.0": {
 		This release contains numerous enhancements and fixes.
 		"""
 
+	known_issues: [
+		"""
+			The `aws_s3` source in this version produces many internal logs. These logs will be downgraded to `debug` in the next release. Until then, you can suppress them with `VECTOR_LOG=info,vector::sources::aws_s3=warn`.
+			""",
+	]
+
 	changelog: [
 		{
 			type: "feat"
@@ -91,7 +97,7 @@ releases: "0.44.0": {
 			description: """
 				Add VRL function `parse_dnstap` that can parse dnstap data and produce output in the same format as `dnstap` source.
 				"""
-			contributors: ["esensar"]
+			contributors: ["esensar", "Quad9DNS"]
 		},
 		{
 			type: "enhancement"
