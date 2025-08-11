@@ -47,7 +47,7 @@ async fn azure_blob_healthcheck_passed() {
     let response = azure_common::config::build_healthcheck(
         config.container_name,
         Some(client),
-        SinkContext::new_test(),
+        SinkContext::default(),
     );
 
     response.expect("Failed to pass healthcheck").await.unwrap();
@@ -62,7 +62,7 @@ async fn azure_blob_healthcheck_unknown_container() {
     };
     let client = azure_common::config::build_client(
         config.connection_string.map(Into::into),
-        config.storage_account.map(Into::into),
+        config.storage_account,
         config.container_name.clone(),
         config.endpoint.clone(),
     )
@@ -72,7 +72,7 @@ async fn azure_blob_healthcheck_unknown_container() {
         azure_common::config::build_healthcheck(
             config.container_name,
             Some(client),
-            SinkContext::new_test()
+            SinkContext::default()
         )
         .unwrap()
         .await
@@ -254,7 +254,7 @@ impl AzureBlobSinkConfig {
     fn to_sink(&self) -> VectorSink {
         let client = azure_common::config::build_client(
             self.connection_string.clone().map(Into::into),
-            self.storage_account.clone().map(Into::into),
+            self.storage_account.clone(),
             self.container_name.clone(),
             self.endpoint.clone(),
         )
@@ -274,7 +274,7 @@ impl AzureBlobSinkConfig {
     pub async fn list_blobs(&self, prefix: String) -> Vec<String> {
         let client = azure_common::config::build_client(
             self.connection_string.clone().map(Into::into),
-            self.storage_account.clone().map(Into::into),
+            self.storage_account.clone(),
             self.container_name.clone(),
             self.endpoint.clone(),
         )
@@ -303,7 +303,7 @@ impl AzureBlobSinkConfig {
     pub async fn get_blob(&self, blob: String) -> (Blob, Vec<String>) {
         let client = azure_common::config::build_client(
             self.connection_string.clone().map(Into::into),
-            self.storage_account.clone().map(Into::into),
+            self.storage_account.clone(),
             self.container_name.clone(),
             self.endpoint.clone(),
         )
@@ -397,7 +397,7 @@ impl AzureBlobSinkConfig {
     async fn ensure_container(&self) {
         let client = azure_common::config::build_client(
             self.connection_string.clone().map(Into::into),
-            self.storage_account.clone().map(Into::into),
+            self.storage_account.clone(),
             self.container_name.clone(),
             self.endpoint.clone(),
         )

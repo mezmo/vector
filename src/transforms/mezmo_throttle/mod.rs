@@ -281,7 +281,7 @@ where
             loop {
                 let done = tokio::select! {
                     _ = state_persistence_interval.tick() => {
-                        let jitter = rand::thread_rng().gen_range(0..=self.state_persistence_max_jitter_ms);
+                        let jitter = rand::rng().random_range(0..=self.state_persistence_max_jitter_ms);
                         tokio::time::sleep(Duration::from_millis(jitter)).await;
                         self.persist_state().await;
                         false

@@ -116,7 +116,7 @@ async fn config(
     ]
   )]
 async fn splunk_mezmo_does_not_reshape_messages() {
-    let cx = SinkContext::new_test();
+    let cx = SinkContext::default();
 
     let config = config(
         JsonSerializerConfig::new(MetricTagValues::Single, JsonSerializerOptions::default()).into(),
@@ -145,7 +145,7 @@ async fn splunk_mezmo_does_not_reshape_messages() {
     ]
   )]
 async fn splunk_mezmo_should_reshape_messages() {
-    let cx = SinkContext::new_test();
+    let cx = SinkContext::default();
 
     let config = config(
         JsonSerializerConfig::new(MetricTagValues::Single, JsonSerializerOptions::default()).into(),

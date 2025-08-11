@@ -80,7 +80,7 @@ async fn kafka_mezmo_does_not_reshape_messages() {
     let (events, stream) = random_message_object_events_with_stream(100, num_events, Some(batch));
 
     assert_sink_compliance(&SINK_TAGS, async move {
-        let sink = KafkaSink::new(config, SinkContext::new_test()).unwrap();
+        let sink = KafkaSink::new(config, SinkContext::default()).unwrap();
         let sink = VectorSink::from_event_streamsink(sink);
         sink.run(stream).await
     })
@@ -194,7 +194,7 @@ async fn kafka_mezmo_reshapes_messages() {
         random_message_object_events_with_stream(100, num_events, Some(batch));
 
     assert_sink_compliance(&SINK_TAGS, async move {
-        let sink = KafkaSink::new(config, SinkContext::new_test()).unwrap();
+        let sink = KafkaSink::new(config, SinkContext::default()).unwrap();
         let sink = VectorSink::from_event_streamsink(sink);
         sink.run(stream).await
     })

@@ -328,7 +328,7 @@ mod tests {
             Arc::clone(&http_request_builder),
             EndpointTarget::Event,
             false,
-            SinkContext::new_test(),
+            SinkContext::default(),
         );
         HecService::new(
             BoxService::new(http_service),

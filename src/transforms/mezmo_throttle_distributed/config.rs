@@ -94,7 +94,7 @@ pub struct MezmoThrottleDistributedConfig {
     pub connection_response_timeout_ms: Duration,
 }
 
-fn default_window_duration_ms() -> NonZeroU32 {
+const fn default_window_duration_ms() -> NonZeroU32 {
     NonZeroU32::new(DEFAULT_WINDOW_DURATION_MS).unwrap()
 }
 
