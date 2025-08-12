@@ -1,5 +1,6 @@
 use chrono::Utc;
 use futures_util::StreamExt;
+use rand::Rng;
 use reqwest::{
     header::{self, HeaderValue},
     Client,
@@ -22,13 +23,20 @@ use vector_lib::api_client::{
 };
 
 use crate::config;
+use crate::mezmo_env_config;
 
-const TASK_INITIAL_POLL_DELAY: Duration = Duration::from_secs(5);
-const TASK_POLL_STEP_DELAY: Duration = Duration::from_millis(500);
+// start-up delay for task polling
+const TASK_INITIAL_POLL_DELAY: u64 = 5;
+// how long to wait between polling cycles
+const DEFAULT_TASK_POLL_STEP_DELAY: u64 = 2;
+// ignore tasks older than # seconds
 const TASK_MAX_AGE_SECS: isize = 120;
+// default time task will run before exiting
 const DEFAULT_TAP_TIMEOUT: Duration = Duration::from_secs(5);
+// default record limit tap will return
 const DEFAULT_TAP_LIMIT_PER_INTERVAL: isize = 10;
-const DEFAULT_TASK_CYCLE_TIMEOUT: Duration = Duration::from_secs(60);
+// how long to wait for the API response
+const DEFAULT_TASK_CYCLE_TIMEOUT: u64 = 60;
 
 /// Flush buffered events eagerly, at the expense of I/O overhead.
 /// See [vector::api::schema::events::create_events_stream] for more info.
@@ -40,16 +48,32 @@ pub(crate) async fn start_polling_for_tasks(
     auth_token: String,
     get_endpoint_url: String,
     post_endpoint_url: String,
+    max_iterations: Option<usize>, // for testing only, set to 0 for infinite loop
 ) {
-    let task_execution_timeout = std::env::var("MEZMO_REMOTE_TASK_EXECUTION_TIMEOUT")
-        .ok()
-        .and_then(|v| v.parse().ok().map(Duration::from_secs))
-        .unwrap_or(DEFAULT_TASK_CYCLE_TIMEOUT);
+    let task_initial_pool_delay = Duration::from_secs(mezmo_env_config!(
+        "MEZMO_TASK_INITIAL_POLL_DELAY",
+        TASK_INITIAL_POLL_DELAY
+    ));
+    let task_execution_timeout = Duration::from_secs(mezmo_env_config!(
+        "MEZMO_REMOTE_TASK_EXECUTION_TIMEOUT",
+        DEFAULT_TASK_CYCLE_TIMEOUT
+    ));
+    let task_poll_step_delay = Duration::from_secs(mezmo_env_config!(
+        "MEZMO_REMOTE_TASK_POLL_STEP_DELAY",
+        DEFAULT_TASK_POLL_STEP_DELAY
+    ));
 
-    sleep(TASK_INITIAL_POLL_DELAY).await;
+    sleep(task_initial_pool_delay).await;
     info!("Starting to poll for tasks (task_execution_timeout = {task_execution_timeout:?}");
     let mut client = Client::new();
+    let mut iteration_count = 0;
     loop {
+        iteration_count += 1;
+        if let Some(max) = max_iterations {
+            if iteration_count > max {
+                break;
+            }
+        }
         let start = Instant::now();
         let task_fut = run_task_step(
             &config,
@@ -65,10 +89,18 @@ pub(crate) async fn start_polling_for_tasks(
         }
 
         let elapsed = start.elapsed();
-        if elapsed < TASK_POLL_STEP_DELAY {
-            let sleep_duration = TASK_POLL_STEP_DELAY - elapsed;
-            debug!("sleeping for {sleep_duration:?}");
-            sleep(sleep_duration).await;
+        if elapsed < task_poll_step_delay {
+            let sleep_duration = (task_poll_step_delay - elapsed).as_nanos() as f64;
+
+            // create new sleep duration from jitter
+            let jitter_duration = {
+                let mut rng = rand::rng();
+                // create jitter factor of 75% -> 150% of the calc'd sleep duration
+                let jitter_factor: f64 = rng.random_range(0.75..=1.5);
+                std::time::Duration::from_nanos((sleep_duration * jitter_factor) as u64)
+            };
+            debug!("sleeping for {jitter_duration:?}");
+            sleep(jitter_duration).await;
         }
     }
 }
@@ -343,6 +375,7 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assay::assay;
 
     use httptest::{
         matchers::{all_of, json_decoded, request},
@@ -430,5 +463,47 @@ mod tests {
         let client = Client::new();
 
         run_task_step(&Default::default(), &client, "token", &get_url, &post_url).await;
+    }
+
+    #[assay(
+        env = [
+            ("MEZMO_REMOTE_TASK_POLL_STEP_DELAY", "1"),
+            ("MEZMO_TASK_INITIAL_POLL_DELAY", "0"),
+        ]
+    )]
+    #[tokio::test]
+    async fn poller_sleeps_with_jitter() {
+        let get_path = "/fake/get/url";
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(all_of![request::method("GET"), request::path(get_path),])
+                .times(1)
+                .respond_with(json_encoded(json!({
+                    "data": []
+                }))),
+        );
+
+        let get_url = format!("http://{}{}", server.addr(), get_path);
+        let unused_post_url = format!("http://{}{}", server.addr(), get_path);
+
+        let start = Instant::now();
+        start_polling_for_tasks(
+            Default::default(),
+            String::from("token"),
+            get_url,
+            unused_post_url,
+            Some(1),
+        )
+        .await;
+        let elapsed = start.elapsed();
+
+        assert!(
+            0.75 <= elapsed.as_secs_f64(),
+            "Poller needs to sleep at least 3/4 seconds"
+        );
+        assert!(
+            1.5 >= elapsed.as_secs_f64(),
+            "Poller needs to sleep a max of 1.5 seconds"
+        );
     }
 }
