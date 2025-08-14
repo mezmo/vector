@@ -318,6 +318,7 @@ fn start_remote_task_execution(
                         auth_token,
                         get_endpoint_url,
                         post_endpoint_url,
+                        Some(0),
                     )
                     .await;
                 });
