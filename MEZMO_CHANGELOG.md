@@ -1,3 +1,15 @@
+## [10.1.1](https://github.com/answerbook/vector/compare/v10.1.0...v10.1.1) (2025-08-14)
+
+
+### Bug Fixes
+
+* **remote_task_execution**: add jitter + env settings [62ef919](https://github.com/answerbook/vector/commit/62ef9190eff9cd00aacec6fedca4e98191f13479) - Phil Ciampini [LOG-22190](https://logdna.atlassian.net/browse/LOG-22190)
+
+
+### Miscellaneous
+
+* Merge pull request #696 from answerbook/pciampini/LOG-22190 [d16bb95](https://github.com/answerbook/vector/commit/d16bb95c20234c098a6f1f8c66f4d9df62909e6a) - GitHub [LOG-22190](https://logdna.atlassian.net/browse/LOG-22190)
+
 # [10.1.0](https://github.com/answerbook/vector/compare/v10.0.0...v10.1.0) (2025-08-11)
 
 
