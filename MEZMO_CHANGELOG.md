@@ -1,5 +1,24 @@
 ## Changelog
 
+## [6.1.1](https://github.com/mezmo/vector/compare/v6.1.0...v6.1.1) (2025-08-14)
+
+
+### Bug Fixes
+
+* **remote_task_execution**: add jitter + env settings [62ef919](https://github.com/mezmo/vector/commit/62ef9190eff9cd00aacec6fedca4e98191f13479) - Phil Ciampini [LOG-22190](https://logdna.atlassian.net/browse/LOG-22190)
+
+
+### Chores
+
+* **release**: 10.1.1 [skip ci] [8b1876c](https://github.com/mezmo/vector/commit/8b1876ce013b37ec392622eff98e7ad48056c3ff) - LogDNA Bot [LOG-22190](https://logdna.atlassian.net/browse/LOG-22190) [LOG-22190](https://logdna.atlassian.net/browse/LOG-22190) [LOG-22190](https://logdna.atlassian.net/browse/LOG-22190) [LOG-22190](https://logdna.atlassian.net/browse/LOG-22190) [LOG-22190](https://logdna.atlassian.net/browse/LOG-22190)
+
+
+### Miscellaneous
+
+* Merge pull request #28 from mezmo/pciampini/LOG-22190 [04e935b](https://github.com/mezmo/vector/commit/04e935b8aebfe572d32563365576787e2d559bb1) - GitHub [LOG-22190](https://logdna.atlassian.net/browse/LOG-22190)
+* Merge upstream tag 'v10.1.1' into pciampini/LOG-22190 [46a5253](https://github.com/mezmo/vector/commit/46a5253bd1e08999fa4e134184e457007bd825f8) - Phil Ciampini [LOG-22190](https://logdna.atlassian.net/browse/LOG-22190)
+* Merge pull request #696 from answerbook/pciampini/LOG-22190 [d16bb95](https://github.com/mezmo/vector/commit/d16bb95c20234c098a6f1f8c66f4d9df62909e6a) - GitHub [LOG-22190](https://logdna.atlassian.net/browse/LOG-22190)
+
 # [6.1.0](https://github.com/mezmo/vector/compare/v6.0.2...v6.1.0) (2025-08-11)
 
 
