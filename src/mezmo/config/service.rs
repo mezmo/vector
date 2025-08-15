@@ -13,7 +13,7 @@ use crate::{
     built_info, http::HttpClient, internal_events::mezmo_config::MezmoConfigServiceResponse,
 };
 
-use super::{MezmoPartitionConfig, PipelineId, ProfilerTransformId, Revision, RevisionId};
+use super::{MezmoPartitionConfig, PipelineId, Revision, RevisionId, TomlVersion};
 
 #[async_trait::async_trait]
 pub(crate) trait ConfigService: Send + Sync {
@@ -23,18 +23,14 @@ pub(crate) trait ConfigService: Send + Sync {
     /// Given a list of current revisions, it returns the new revision configuration (if any).
     async fn get_new_revisions(
         &self,
-        current_revisions: Vec<(
-            PipelineId,
-            Option<RevisionId>,
-            Option<Vec<ProfilerTransformId>>,
-        )>,
+        current_revisions: Vec<(PipelineId, Option<RevisionId>, Option<TomlVersion>)>,
     ) -> Result<HashMap<PipelineId, Revision>, String>;
 
     /// Set the loaded_revision_id for the given list of pipelines. This indicates the revision
     /// is actually running within the topology on at least one instance
     async fn set_loaded_revisions(
         &self,
-        revisions: Vec<(PipelineId, RevisionId)>,
+        revisions: Vec<(PipelineId, RevisionId, TomlVersion)>,
     ) -> Result<(), String>;
 }
 
@@ -101,7 +97,7 @@ struct LatestRevisionRequestItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     revision_id: Option<RevisionId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    profiler_transform_ids: Option<Vec<ProfilerTransformId>>,
+    toml_version: Option<TomlVersion>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -113,6 +109,7 @@ struct LoadedRevisionsRequest {
 struct LoadedRevisionRequestItem {
     pipeline_id: PipelineId,
     revision_id: RevisionId,
+    toml_version: TomlVersion,
 }
 
 #[async_trait::async_trait]
@@ -134,19 +131,15 @@ impl ConfigService for DefaultConfigService {
 
     async fn get_new_revisions(
         &self,
-        current_revisions: Vec<(
-            PipelineId,
-            Option<RevisionId>,
-            Option<Vec<ProfilerTransformId>>,
-        )>,
+        current_revisions: Vec<(PipelineId, Option<RevisionId>, Option<TomlVersion>)>,
     ) -> Result<HashMap<PipelineId, Revision>, String> {
         let revisions: Vec<LatestRevisionRequestItem> = current_revisions
             .into_iter()
             .map(
-                |(pipeline_id, revision_id, profiler_transform_ids)| LatestRevisionRequestItem {
+                |(pipeline_id, revision_id, toml_version)| LatestRevisionRequestItem {
                     pipeline_id,
                     revision_id,
-                    profiler_transform_ids,
+                    toml_version,
                 },
             )
             .collect();
@@ -169,14 +162,17 @@ impl ConfigService for DefaultConfigService {
 
     async fn set_loaded_revisions(
         &self,
-        revisions: Vec<(PipelineId, RevisionId)>,
+        revisions: Vec<(PipelineId, RevisionId, TomlVersion)>,
     ) -> Result<(), String> {
         let revisions: Vec<LoadedRevisionRequestItem> = revisions
             .into_iter()
-            .map(|(pipeline_id, revision_id)| LoadedRevisionRequestItem {
-                pipeline_id,
-                revision_id,
-            })
+            .map(
+                |(pipeline_id, revision_id, toml_version)| LoadedRevisionRequestItem {
+                    pipeline_id,
+                    revision_id,
+                    toml_version,
+                },
+            )
             .collect();
         let body =
             serde_json::to_vec(&LoadedRevisionsRequest { revisions }).map_err(|e| e.to_string())?;
