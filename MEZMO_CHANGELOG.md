@@ -1,3 +1,15 @@
+## [10.1.2](https://github.com/answerbook/vector/compare/v10.1.1...v10.1.2) (2025-08-16)
+
+
+### Chores
+
+* **sources**: add upstream opentelemetry source to mezmo build [f0527a3](https://github.com/answerbook/vector/commit/f0527a3f273e5f5a7cc5803ec7125eea5b33f08b) - Phil Ciampini [LOG-22201](https://logdna.atlassian.net/browse/LOG-22201)
+
+
+### Miscellaneous
+
+* Merge pull request #698 from answerbook/feature/LOG-22201 [966c7dc](https://github.com/answerbook/vector/commit/966c7dc79ccf0aff892a0ec35639d0f389683033) - GitHub [LOG-22201](https://logdna.atlassian.net/browse/LOG-22201)
+
 ## [10.1.1](https://github.com/answerbook/vector/compare/v10.1.0...v10.1.1) (2025-08-14)
 
 
