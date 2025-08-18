@@ -1,5 +1,20 @@
 ## Changelog
 
+## [6.1.2](https://github.com/mezmo/vector/compare/v6.1.1...v6.1.2) (2025-08-18)
+
+
+### Chores
+
+* **release**: 10.1.2 [skip ci] [e7ae675](https://github.com/mezmo/vector/commit/e7ae675fcc4e002f333c028f22c6cee39e8339b3) - LogDNA Bot [LOG-22201](https://logdna.atlassian.net/browse/LOG-22201) [LOG-22201](https://logdna.atlassian.net/browse/LOG-22201) [LOG-22201](https://logdna.atlassian.net/browse/LOG-22201) [LOG-22201](https://logdna.atlassian.net/browse/LOG-22201) [LOG-22201](https://logdna.atlassian.net/browse/LOG-22201)
+* **sources**: add upstream opentelemetry source to mezmo build [f0527a3](https://github.com/mezmo/vector/commit/f0527a3f273e5f5a7cc5803ec7125eea5b33f08b) - Phil Ciampini [LOG-22201](https://logdna.atlassian.net/browse/LOG-22201)
+
+
+### Miscellaneous
+
+* Merge pull request #29 from mezmo/pciampini/LOG-22201 [f83f8dc](https://github.com/mezmo/vector/commit/f83f8dc2021dfb463748d8823941a648e9442248) - GitHub [LOG-22201](https://logdna.atlassian.net/browse/LOG-22201)
+* Merge upstream tag 'v10.1.2' into pciampini/LOG-22201 [58f60c0](https://github.com/mezmo/vector/commit/58f60c0dd7fe6b6686774c342fe9b13e7d334298) - Phil Ciampini [LOG-22201](https://logdna.atlassian.net/browse/LOG-22201)
+* Merge pull request #698 from answerbook/feature/LOG-22201 [966c7dc](https://github.com/mezmo/vector/commit/966c7dc79ccf0aff892a0ec35639d0f389683033) - GitHub [LOG-22201](https://logdna.atlassian.net/browse/LOG-22201)
+
 ## [6.1.1](https://github.com/mezmo/vector/compare/v6.1.0...v6.1.1) (2025-08-14)
 
 
