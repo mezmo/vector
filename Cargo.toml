@@ -644,6 +644,7 @@ sources-logs-mezmo = [
   "sources-mezmo_user_logs",
   "sources-kafka",
   "sources-kubernetes_logs",
+  "sources-opentelemetry",
   "sources-pulsar",
   "sources-stdin",
   "sources-syslog",
