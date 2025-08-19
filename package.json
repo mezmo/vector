@@ -1,6 +1,6 @@
 {
   "name": "vector",
-  "version": "10.1.2",
+  "version": "10.1.3",
   "description": "Vector is a high-performance, end-to-end (agent & aggregator) observability data pipeline",
   "repository": {
     "type": "git",

@@ -1,3 +1,15 @@
+## [10.1.3](https://github.com/answerbook/vector/compare/v10.1.2...v10.1.3) (2025-08-19)
+
+
+### Bug Fixes
+
+* **remote_task_execution**: move max_iterations to test only [9c2bea4](https://github.com/answerbook/vector/commit/9c2bea41b326f0665de5387a529e050d20be4865) - Phil Ciampini [LOG-22213](https://logdna.atlassian.net/browse/LOG-22213)
+
+
+### Miscellaneous
+
+* Merge pull request #700 from answerbook/pciampini/LOG-22213 [7e77de4](https://github.com/answerbook/vector/commit/7e77de43d0ddc1cd0afec0e44a01f78b4f089bd8) - GitHub [LOG-22213](https://logdna.atlassian.net/browse/LOG-22213)
+
 ## [10.1.2](https://github.com/answerbook/vector/compare/v10.1.1...v10.1.2) (2025-08-16)
 
 
