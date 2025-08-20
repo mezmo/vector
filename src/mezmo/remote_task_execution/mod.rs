@@ -48,7 +48,7 @@ pub(crate) async fn start_polling_for_tasks(
     auth_token: String,
     get_endpoint_url: String,
     post_endpoint_url: String,
-    max_iterations: Option<usize>, // for testing only, set to 0 for infinite loop
+    #[cfg(test)] max_iterations: Option<usize>, // for testing only, set to 0 for infinite loop
 ) {
     let task_initial_pool_delay = Duration::from_secs(mezmo_env_config!(
         "MEZMO_TASK_INITIAL_POLL_DELAY",
@@ -66,12 +66,18 @@ pub(crate) async fn start_polling_for_tasks(
     sleep(task_initial_pool_delay).await;
     info!("Starting to poll for tasks (task_execution_timeout = {task_execution_timeout:?}");
     let mut client = Client::new();
+
+    #[cfg(test)]
     let mut iteration_count = 0;
+
     loop {
-        iteration_count += 1;
-        if let Some(max) = max_iterations {
-            if iteration_count > max {
-                break;
+        #[cfg(test)]
+        {
+            iteration_count += 1;
+            if let Some(max) = max_iterations {
+                if iteration_count > max {
+                    break;
+                }
             }
         }
         let start = Instant::now();

@@ -312,13 +312,25 @@ fn start_remote_task_execution(
                     return Err(exitcode::USAGE);
                 }
 
+                #[cfg(test)]
                 runtime.spawn(async move {
                     crate::mezmo::remote_task_execution::start_polling_for_tasks(
                         api_config,
                         auth_token,
                         get_endpoint_url,
                         post_endpoint_url,
-                        Some(0),
+                        Some(1),
+                    )
+                    .await;
+                });
+
+                #[cfg(not(test))]
+                runtime.spawn(async move {
+                    crate::mezmo::remote_task_execution::start_polling_for_tasks(
+                        api_config,
+                        auth_token,
+                        get_endpoint_url,
+                        post_endpoint_url,
                     )
                     .await;
                 });
