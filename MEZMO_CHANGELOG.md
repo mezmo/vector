@@ -1,5 +1,24 @@
 ## Changelog
 
+## [6.1.3](https://github.com/mezmo/vector/compare/v6.1.2...v6.1.3) (2025-08-20)
+
+
+### Bug Fixes
+
+* **remote_task_execution**: move max_iterations to test only [9c2bea4](https://github.com/mezmo/vector/commit/9c2bea41b326f0665de5387a529e050d20be4865) - Phil Ciampini [LOG-22213](https://logdna.atlassian.net/browse/LOG-22213)
+
+
+### Chores
+
+* **release**: 10.1.3 [skip ci] [92669ce](https://github.com/mezmo/vector/commit/92669ce0112a9cb53a0bd9753a35a4b7843795c9) - LogDNA Bot [LOG-22213](https://logdna.atlassian.net/browse/LOG-22213) [LOG-22213](https://logdna.atlassian.net/browse/LOG-22213) [LOG-22213](https://logdna.atlassian.net/browse/LOG-22213) [LOG-22213](https://logdna.atlassian.net/browse/LOG-22213) [LOG-22213](https://logdna.atlassian.net/browse/LOG-22213)
+
+
+### Miscellaneous
+
+* Merge pull request #30 from mezmo/pciampini/LOG-22213 [a36e252](https://github.com/mezmo/vector/commit/a36e252b5d6bb1f1215b55fe1ec96d3d60dbef99) - GitHub [LOG-22213](https://logdna.atlassian.net/browse/LOG-22213)
+* Merge upstream tag 'v10.1.3' into pciampini/LOG-22213 [d89e878](https://github.com/mezmo/vector/commit/d89e878fffcd6f611099c50507097c58cb320a44) - Phil Ciampini [LOG-22213](https://logdna.atlassian.net/browse/LOG-22213)
+* Merge pull request #700 from answerbook/pciampini/LOG-22213 [7e77de4](https://github.com/mezmo/vector/commit/7e77de43d0ddc1cd0afec0e44a01f78b4f089bd8) - GitHub [LOG-22213](https://logdna.atlassian.net/browse/LOG-22213)
+
 ## [6.1.2](https://github.com/mezmo/vector/compare/v6.1.1...v6.1.2) (2025-08-18)
 
 
