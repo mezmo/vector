@@ -1,3 +1,15 @@
+# [10.2.0](https://github.com/answerbook/vector/compare/v10.1.3...v10.2.0) (2025-08-21)
+
+
+### Features
+
+* **toml**: consider toml version for revision [e5f1730](https://github.com/answerbook/vector/commit/e5f1730f6de7f2f76041a2c866679614c331cd71) - dominic-mcallister-logdna [LOG-21728](https://logdna.atlassian.net/browse/LOG-21728)
+
+
+### Miscellaneous
+
+* Merge pull request #697 from answerbook/dominic/LOG-21728 [dde43eb](https://github.com/answerbook/vector/commit/dde43eb7a6457ba303943d6a7d2adc1071621c4b) - GitHub [LOG-21728](https://logdna.atlassian.net/browse/LOG-21728)
+
 ## [10.1.3](https://github.com/answerbook/vector/compare/v10.1.2...v10.1.3) (2025-08-19)
 
 
