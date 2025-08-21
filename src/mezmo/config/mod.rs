@@ -132,7 +132,7 @@ fn poll_config(
 // Alias types for readability
 type PipelineId = String;
 type RevisionId = String;
-type ProfilerTransformId = String;
+type TomlVersion = u32;
 
 struct MezmoConfigBuilder {
     service: Box<dyn ConfigService>,
@@ -147,7 +147,7 @@ struct MezmoConfigBuilder {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Revision {
     id: RevisionId,
-    profiler_transform_ids: Option<Vec<ProfilerTransformId>>,
+    toml_version: TomlVersion,
     config: String,
 }
 
@@ -218,6 +218,7 @@ impl MezmoConfigBuilder {
                     errors,
                     pipeline_id: None,
                     revision_id: None,
+                    toml_version: None,
                     incremental: false,
                     cache_len: cache.len(),
                 });
@@ -239,6 +240,7 @@ impl MezmoConfigBuilder {
                     errors: errors.clone(),
                     pipeline_id: None,
                     revision_id: None,
+                    toml_version: None,
                     incremental: false,
                     cache_len: 0,
                 });
@@ -252,7 +254,13 @@ impl MezmoConfigBuilder {
     /// It errors out when getting the partition info or getting new revisions fail (should be retried periodically).
     async fn build_incrementally(
         &mut self,
-    ) -> Result<(Option<ConfigBuilder>, Vec<(PipelineId, RevisionId)>), String> {
+    ) -> Result<
+        (
+            Option<ConfigBuilder>,
+            Vec<(PipelineId, RevisionId, TomlVersion)>,
+        ),
+        String,
+    > {
         debug!("Incremental config build starting");
         trace!("Fetching pipelines by partition");
         let (pipelines, common_config) = self.service.get_pipelines_by_partition().await?;
@@ -276,7 +284,7 @@ impl MezmoConfigBuilder {
 
         let common_config = self.common_config.as_ref().unwrap();
         let mut result_builder = None;
-        let mut loaded: Vec<(PipelineId, RevisionId)> = Vec::new();
+        let mut loaded: Vec<(PipelineId, RevisionId, TomlVersion)> = Vec::new();
 
         if pipelines_removed || common_config_changed {
             debug!(
@@ -297,6 +305,7 @@ impl MezmoConfigBuilder {
                         errors,
                         pipeline_id: None,
                         revision_id: None,
+                        toml_version: None,
                         incremental: true,
                         cache_len: self.cache.len(),
                     });
@@ -315,22 +324,25 @@ impl MezmoConfigBuilder {
 
         for (pipeline_id, revision) in pipelines_with_changes.into_iter() {
             match self.cache.get_key_value(&pipeline_id) {
-                Some(existing) if existing.1.id != revision.id => {
+                Some(existing)
+                    if (existing.1.id != revision.id)
+                        || (existing.1.toml_version != revision.toml_version) =>
+                {
                     info!(
-                        "Building config for new revision {} of pipeline {}",
-                        &revision.id, &pipeline_id
+                        "Building config for revision {} toml_version {} of pipeline {}",
+                        &revision.id, &revision.toml_version, &pipeline_id
                     );
                 }
                 Some(_) => {
                     info!(
-                        "Refreshing config for revision {} of pipeline {}",
-                        &revision.id, &pipeline_id
+                        "Refreshing config for revision {} toml_version {} of pipeline {}",
+                        &revision.id, &revision.toml_version, &pipeline_id
                     );
                 }
                 None => {
                     info!(
-                        "Building config for new pipeline {} with revision {}",
-                        &pipeline_id, &revision.id
+                        "Building config for new pipeline {} with revision {} and toml_version {}",
+                        &pipeline_id, &revision.id, &revision.toml_version
                     );
                 }
             }
@@ -344,7 +356,11 @@ impl MezmoConfigBuilder {
             .await
             {
                 Ok(builder) => {
-                    loaded.push((pipeline_id.clone(), revision.id.clone()));
+                    loaded.push((
+                        pipeline_id.clone(),
+                        revision.id.clone(),
+                        revision.toml_version,
+                    ));
                     self.cache.insert(pipeline_id, revision);
                     result_builder = Some(builder);
                 }
@@ -353,6 +369,7 @@ impl MezmoConfigBuilder {
                         errors,
                         pipeline_id: Some(pipeline_id.clone()),
                         revision_id: Some(revision.id.clone()),
+                        toml_version: Some(revision.toml_version),
                         incremental: true,
                         cache_len: self.cache.len(),
                     });
@@ -381,16 +398,12 @@ impl MezmoConfigBuilder {
         let current_revisions: Vec<_> = pipelines
             .iter()
             .map(|pipeline_id| {
-                let (revision_id, profiler_transform_ids) = self
+                let (revision_id, toml_version) = self
                     .cache
                     .get(pipeline_id)
-                    .map(|r| (r.id.clone(), r.profiler_transform_ids.clone()))
+                    .map(|r| (r.id.clone(), r.toml_version))
                     .unzip();
-                (
-                    pipeline_id.clone(),
-                    revision_id,
-                    profiler_transform_ids.flatten(),
-                )
+                (pipeline_id.clone(), revision_id, toml_version)
             })
             .collect();
 
@@ -428,10 +441,11 @@ async fn generate_config(
     match updated {
         Some((pipeline_id, revision)) => {
             debug!(
-                "Generating config for {} revisions, with updated revision {}:{}",
+                "Generating config for {} revisions, with updated revision {}:{}:{}",
                 revisions.len(),
                 pipeline_id,
-                revision.id
+                revision.id,
+                revision.toml_version
             );
         }
         None => {
@@ -622,11 +636,11 @@ mod tests {
             async fn get_pipelines_by_partition(&self) -> Result<(Vec<PipelineId>, String), String>;
             async fn get_new_revisions(
                 &self,
-                current_revisions: Vec<(PipelineId, Option<RevisionId>, Option<Vec<ProfilerTransformId>>)>,
+                current_revisions: Vec<(PipelineId, Option<RevisionId>, Option<TomlVersion>)>,
             ) -> Result<HashMap<PipelineId, Revision>, String>;
             async fn set_loaded_revisions(
                 &self,
-                revisions: Vec<(PipelineId, RevisionId)>,
+                revisions: Vec<(PipelineId, RevisionId, TomlVersion)>,
             ) -> Result<(), String>;
         }
     }
@@ -673,7 +687,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("a"),
-                    profiler_transform_ids: None,
+                    toml_version: 1,
                     config: S!("invalid_test_config"),
                 },
             )]))
@@ -694,7 +708,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("revision1"),
-                    profiler_transform_ids: None,
+                    toml_version: 1,
                     config: S!(r#"
                     [sources.in]
                     type="stdin"
@@ -738,7 +752,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("revision1"),
-                    profiler_transform_ids: None,
+                    toml_version: 1,
                     config: S!(r#"
                     [sources.in]
                     type="stdin"
@@ -792,7 +806,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("revision1"),
-                    profiler_transform_ids: None,
+                    toml_version: 1,
                     config: S!(r#"
                     [sources.in]
                     type="stdin"
@@ -875,8 +889,8 @@ mod tests {
         Mock::given(matchers::method("POST"))
             .and(path(latest_revisions_url))
             .respond_with(ResponseTemplate::new(200).set_body_raw(r#"{
-                "pipeline1": {"id": "rev1", "config": "[sources.in1]\ntype = \"test_basic\"\n\n[sinks.out1]\ninputs = [\"in1\"]\ntype = \"test_basic\""},
-                "pipeline2": {"id": "rev999", "profiler_transform_ids": ["prof1"], "config": "[sources.in2]\ntype = \"test_basic\"\n\n[sinks.out2]\ninputs = [\"in2\"]\ntype = \"test_basic\""}
+                "pipeline1": {"id": "rev1", "toml_version": 1, "config": "[sources.in1]\ntype = \"test_basic\"\n\n[sinks.out1]\ninputs = [\"in1\"]\ntype = \"test_basic\""},
+                "pipeline2": {"id": "rev999", "toml_version": 1, "config": "[sources.in2]\ntype = \"test_basic\"\n\n[sinks.out2]\ninputs = [\"in2\"]\ntype = \"test_basic\""}
             }"#, "application/json"))
             .up_to_n_times(1)
             .with_priority(1)
@@ -929,18 +943,18 @@ mod tests {
         assert_eq!(loaded.len(), 2, "Two pipelines");
         assert_eq!(
             loaded[0],
-            ("pipeline1".into(), "rev1".into()),
+            ("pipeline1".into(), "rev1".into(), 1),
             "First pipeline"
         );
         assert_eq!(
             loaded[1],
-            ("pipeline2".into(), "rev999".into()),
+            ("pipeline2".into(), "rev999".into(), 1),
             "Second pipeline"
         );
         assert_eq!(b.cache.len(), 2, "Pipelines cached");
 
         // First request for latest revisions should not include revision_id or
-        // profiler_transform_ids
+        // toml_version
         assert_eq!(
             mock_server.received_requests().await.unwrap()[1].body,
             serde_json::to_vec(&json!({
@@ -958,7 +972,7 @@ mod tests {
         assert!(config_builder.is_none(), "No new config");
         assert_eq!(b.cache.len(), 2, "Pipelines still cached");
 
-        // Second request for latest revisions should include "profiler_transform_ids"
+        // Second request for latest revisions should include "toml_version"
         assert_eq!(
             String::from_utf8_lossy(
                 mock_server.received_requests().await.unwrap()[3]
@@ -969,8 +983,8 @@ mod tests {
             .unwrap(),
             json!({
                 "revisions": [
-                    {"pipeline_id":"pipeline1", "revision_id":"rev1"},
-                    {"pipeline_id":"pipeline2", "revision_id":"rev999", "profiler_transform_ids": ["prof1"]}
+                    {"pipeline_id":"pipeline1", "revision_id":"rev1", "toml_version": 1},
+                    {"pipeline_id":"pipeline2", "revision_id":"rev999", "toml_version": 1}
                 ]
             })
         );
@@ -1005,10 +1019,10 @@ mod tests {
         Mock::given(matchers::method("POST"))
             .and(path(latest_revisions_url))
             .respond_with(ResponseTemplate::new(200).set_body_raw(r#"{
-                "pipeline1": {"id": "rev1", "config": "[sources.in]\ntype = \"test_basic\"\n\n[sinks.out]\ninputs = [\"in\"]\ntype = \"test_basic\""},
-                "pipeline2": {"id": "rev2", "config": "\nTHIS_IS_INVALID"},
-                "pipeline3": {"id": "rev3", "config": "[sources.in]\ntype = \"DOES_NOT_EXIST\"\n"},
-                "pipeline4": {"id": "rev3", "config": "\n# THIS IS A GOOD ONE"}
+                "pipeline1": {"id": "rev1", "toml_version": 1, "config": "[sources.in]\ntype = \"test_basic\"\n\n[sinks.out]\ninputs = [\"in\"]\ntype = \"test_basic\""},
+                "pipeline2": {"id": "rev2", "toml_version": 1, "config": "\nTHIS_IS_INVALID"},
+                "pipeline3": {"id": "rev3", "toml_version": 1, "config": "[sources.in]\ntype = \"DOES_NOT_EXIST\"\n"},
+                "pipeline4": {"id": "rev3", "toml_version": 1, "config": "\n# THIS IS A GOOD ONE"}
             }"#, "application/json"))
             .mount(&mock_server)
             .await;
@@ -1049,7 +1063,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("revision1"),
-                    profiler_transform_ids: None,
+                    toml_version: 1,
                     config: S!(r#"
                     [sources.in]
                     type="stdin"
@@ -1079,7 +1093,7 @@ mod tests {
             .expect("to build successfully");
         assert!(loaded
             .iter()
-            .any(|(pipeline, _)| { pipeline == "pipeline1" })); // Loaded
+            .any(|(pipeline, _, _)| { pipeline == "pipeline1" })); // Loaded
         let result = validate_config(config_builder.unwrap()).await;
         assert!(result.is_ok(), "expected the invalid VRL to be excluded");
     }
@@ -1095,7 +1109,7 @@ mod tests {
                 S!("pipeline1"),
                 Revision {
                     id: S!("revision1"),
-                    profiler_transform_ids: None,
+                    toml_version: 1,
                     config: S!(r#"
                     [sources.in]
                     type="stdin"
@@ -1124,7 +1138,7 @@ mod tests {
             .expect("to build successfully");
         assert!(!loaded
             .iter()
-            .any(|(pipeline, _)| { pipeline == "pipeline1" })); // Not loaded
+            .any(|(pipeline, _, _)| { pipeline == "pipeline1" })); // Not loaded
         let result = validate_config(config_builder.unwrap()).await;
         assert!(result.is_ok(), "expected the invalid VRL to be excluded");
     }
@@ -1147,7 +1161,7 @@ mod tests {
             S!("pipeline1"),
             Revision {
                 id: S!("revision1"),
-                profiler_transform_ids: None,
+                toml_version: 1,
                 config: S!(r#"
                 [sources.in]
                 type="stdin"
@@ -1181,7 +1195,7 @@ mod tests {
         );
         assert!(!loaded
             .iter()
-            .any(|(pipeline, _)| { pipeline == "pipeline1" })); // Still not loaded
+            .any(|(pipeline, _, _)| { pipeline == "pipeline1" })); // Still not loaded
     }
 
     fn new_test_builder(service: Box<dyn ConfigService>) -> MezmoConfigBuilder {

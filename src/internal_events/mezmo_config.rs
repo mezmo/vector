@@ -9,6 +9,7 @@ pub struct MezmoGenerateConfigError {
     pub errors: Vec<String>,
     pub pipeline_id: Option<String>,
     pub revision_id: Option<String>,
+    pub toml_version: Option<u32>,
     pub incremental: bool,
     pub cache_len: usize,
 }
