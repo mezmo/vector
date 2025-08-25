@@ -1,5 +1,24 @@
 ## Changelog
 
+# [6.2.0](https://github.com/mezmo/vector/compare/v6.1.3...v6.2.0) (2025-08-25)
+
+
+### Chores
+
+* **release**: 10.2.0 [skip ci] [b1864c3](https://github.com/mezmo/vector/commit/b1864c3125405e8a58a0f1ff4bce4b24661a61f3) - LogDNA Bot [LOG-21728](https://logdna.atlassian.net/browse/LOG-21728) [LOG-21728](https://logdna.atlassian.net/browse/LOG-21728) [LOG-21728](https://logdna.atlassian.net/browse/LOG-21728) [LOG-21728](https://logdna.atlassian.net/browse/LOG-21728) [LOG-21728](https://logdna.atlassian.net/browse/LOG-21728)
+
+
+### Features
+
+* **toml**: consider toml version for revision [e5f1730](https://github.com/mezmo/vector/commit/e5f1730f6de7f2f76041a2c866679614c331cd71) - dominic-mcallister-logdna [LOG-21728](https://logdna.atlassian.net/browse/LOG-21728)
+
+
+### Miscellaneous
+
+* Merge pull request #31 from mezmo/pciampini/merge-upstream-toml-update [5e0a604](https://github.com/mezmo/vector/commit/5e0a604318e4f681bb86973132c2824d5c5fc07d) - GitHub
+* Merge upstream tag 'v10.2.0' into pciampini/merge-upstream-toml-update [58bc35a](https://github.com/mezmo/vector/commit/58bc35afb679772a5c225fd4eb3f23f2b1a8e6e5) - Phil Ciampini
+* Merge pull request #697 from answerbook/dominic/LOG-21728 [dde43eb](https://github.com/mezmo/vector/commit/dde43eb7a6457ba303943d6a7d2adc1071621c4b) - GitHub [LOG-21728](https://logdna.atlassian.net/browse/LOG-21728)
+
 ## [6.1.3](https://github.com/mezmo/vector/compare/v6.1.2...v6.1.3) (2025-08-20)
 
 
