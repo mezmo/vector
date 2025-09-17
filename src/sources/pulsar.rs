@@ -625,7 +625,16 @@ async fn handle_ack(
                     });
                 }
             } else {
-                // The message will remain in the backlog, but not be redelivered.
+                // Ack the message so that it doesn't remain "unacked". We don't want redelivery.
+                if let Err(error) = consumer
+                    .ack_with_id(entry.topic.as_str(), entry.message_id)
+                    .await
+                {
+                    pulsar_error_events.emit(PulsarErrorEventData {
+                        msg: error.to_string(),
+                        error_type: PulsarErrorEventType::Ack,
+                    });
+                }
                 debug!({
                     topic = entry.topic,
                 }, "Cannot deliver to destination: {:?}", status);
