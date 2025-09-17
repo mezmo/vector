@@ -257,8 +257,9 @@ impl GenerateConfig for KafkaSinkConfig {
 #[typetag::serde(name = "kafka")]
 impl SinkConfig for KafkaSinkConfig {
     async fn build(&self, cx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
+        let healthcheck_clone = cx.healthcheck.clone();
         let sink = KafkaSink::new(self.clone(), cx)?;
-        let hc = healthcheck(self.clone()).boxed();
+        let hc = healthcheck(self.clone(), healthcheck_clone).boxed();
         Ok((VectorSink::from_event_streamsink(sink), hc))
     }
 

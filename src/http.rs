@@ -33,6 +33,9 @@ use vector_lib::configurable::configurable_component;
 use vector_lib::sensitive_string::SensitiveString;
 use vrl::value::Value;
 
+#[cfg(feature = "aws-core")]
+use crate::aws::AwsAuthentication;
+
 use crate::{
     config::ProxyConfig,
     internal_events::{http_client, HttpServerRequestReceived, HttpServerResponseSent},
@@ -303,6 +306,16 @@ pub enum Auth {
         /// The bearer authentication token.
         token: SensitiveString,
     },
+
+    #[cfg(feature = "aws-core")]
+    /// AWS authentication.
+    Aws {
+        /// The AWS authentication configuration.
+        auth: AwsAuthentication,
+
+        /// The AWS service name to use for signing.
+        service: String,
+    },
 }
 
 pub trait MaybeAuth: Sized {
@@ -341,6 +354,8 @@ impl Auth {
                 Ok(auth) => map.typed_insert(auth),
                 Err(error) => error!(message = "Invalid bearer token.", token = %token, %error),
             },
+            #[cfg(feature = "aws-core")]
+            _ => {}
         }
     }
 }

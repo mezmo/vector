@@ -386,6 +386,13 @@ impl TransformConfig for RemapConfig {
     fn enable_concurrency(&self) -> bool {
         true
     }
+
+    fn files_to_watch(&self) -> Vec<&PathBuf> {
+        self.file
+            .iter()
+            .chain(self.files.iter().flatten())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]

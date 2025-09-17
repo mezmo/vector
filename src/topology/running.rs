@@ -50,6 +50,7 @@ pub struct RunningTopology {
     watch: (WatchTx, WatchRx),
     pub(crate) running: Arc<AtomicBool>,
     graceful_shutdown_duration: Option<Duration>,
+    pending_reload: Option<HashSet<ComponentKey>>,
 }
 
 impl RunningTopology {
@@ -68,12 +69,22 @@ impl RunningTopology {
             running: Arc::new(AtomicBool::new(true)),
             graceful_shutdown_duration: config.graceful_shutdown_duration,
             config,
+            pending_reload: None,
         }
     }
 
     /// Gets the configuration that represents this running topology.
     pub const fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// Adds a set of component keys to the pending reload set if one exists. Otherwise, it
+    /// initializes the pending reload set.
+    pub fn extend_reload_set(&mut self, new_set: HashSet<ComponentKey>) {
+        match &mut self.pending_reload {
+            None => self.pending_reload = Some(new_set.clone()),
+            Some(existing) => existing.extend(new_set),
+        }
     }
 
     /// Creates a subscription to topology changes.
@@ -258,7 +269,11 @@ impl RunningTopology {
         // spawning the new version of the component.
         //
         // We also shutdown any component that is simply being removed entirely.
-        let diff = ConfigDiff::new(&self.config, &new_config);
+        let diff = if let Some(components) = &self.pending_reload {
+            ConfigDiff::new(&self.config, &new_config, components.clone())
+        } else {
+            ConfigDiff::new(&self.config, &new_config, HashSet::new())
+        };
         let buffers = self
             .shutdown_diff(&diff, &new_config, components_to_reload)
             .await;
@@ -515,6 +530,9 @@ impl RunningTopology {
             .to_change
             .iter()
             .filter(|&key| {
+                if diff.components_to_reload.contains(key) {
+                    return false;
+                }
                 self.config.sink(key).map(|s| s.buffer.clone()).or_else(|| {
                     self.config
                         .enrichment_table(key)

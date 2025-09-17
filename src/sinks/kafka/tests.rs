@@ -64,7 +64,9 @@ mod integration_test {
             headers_key: None,
             acknowledgements: Default::default(),
         };
-        self::sink::healthcheck(config).await.unwrap();
+        self::sink::healthcheck(config, Default::default())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -88,7 +90,9 @@ mod integration_test {
             headers_key: None,
             acknowledgements: Default::default(),
         };
-        self::sink::healthcheck(config).await.unwrap();
+        self::sink::healthcheck(config, Default::default())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -191,7 +195,7 @@ mod integration_test {
             acknowledgements: Default::default(),
         };
         config.clone().to_rdkafka()?;
-        self::sink::healthcheck(config.clone()).await?;
+        self::sink::healthcheck(config.clone(), Default::default()).await?;
         KafkaSink::new(config, SinkContext::default())
     }
 

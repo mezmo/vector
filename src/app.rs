@@ -417,8 +417,11 @@ async fn handle_signal(
     allow_empty_config: bool,
 ) -> Option<SignalTo> {
     match signal {
-        Ok(SignalTo::ReloadComponents(component_keys)) => {
+        Ok(SignalTo::ReloadComponents(components_to_reload)) => {
             let mut topology_controller = topology_controller.lock().await;
+            topology_controller
+                .topology
+                .extend_reload_set(components_to_reload.clone());
 
             // Reload paths
             if let Some(paths) = config::process_paths(config_paths) {
@@ -436,7 +439,13 @@ async fn handle_signal(
             reload_config_from_result(
                 topology_controller,
                 new_config,
-                Some(component_keys.iter().map(AsRef::as_ref).collect()),
+                Some(
+                    components_to_reload
+                        .clone()
+                        .iter()
+                        .map(AsRef::as_ref)
+                        .collect(),
+                ),
             )
             .await
         }
@@ -717,6 +726,13 @@ pub async fn load_configs(
     let mut watched_component_paths = Vec::new();
 
     if let Some(watcher_conf) = watcher_conf {
+        for (name, transform) in config.transforms() {
+            let files = transform.inner.files_to_watch();
+            let component_config =
+                ComponentConfig::new(files.into_iter().cloned().collect(), name.clone());
+            watched_component_paths.push(component_config);
+        }
+
         for (name, sink) in config.sinks() {
             let files = sink.inner.files_to_watch();
             let component_config =
@@ -727,6 +743,10 @@ pub async fn load_configs(
         info!(
             message = "Starting watcher.",
             paths = ?watched_paths
+        );
+        info!(
+            message = "Components to watch.",
+            paths = ?watched_component_paths
         );
 
         // Start listening for config changes.

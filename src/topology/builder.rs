@@ -10,12 +10,7 @@ use futures::{stream::FuturesOrdered, FutureExt, StreamExt, TryStreamExt};
 use futures_util::stream::FuturesUnordered;
 use stream_cancel::{StreamExt as StreamCancelExt, Trigger, Tripwire};
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::{
-    select,
-    sync::mpsc,
-    sync::oneshot,
-    time::{timeout, Duration},
-};
+use tokio::{select, sync::mpsc, sync::oneshot, time::timeout};
 use tracing::Instrument;
 use vector_lib::config::LogNamespace;
 use vector_lib::internal_event::{
@@ -575,6 +570,7 @@ impl<'a> Builder<'a> {
             let sink_inputs = &sink.inputs;
             let healthcheck = sink.healthcheck();
             let enable_healthcheck = healthcheck.enabled && self.config.healthchecks.enabled;
+            let healthcheck_timeout = healthcheck.timeout;
 
             let typetag = sink.inner.get_component_name();
             let input_type = sink.inner.input().data_type();
@@ -698,8 +694,7 @@ impl<'a> Builder<'a> {
             let component_key = key.clone();
             let healthcheck_task = async move {
                 if enable_healthcheck {
-                    let duration = Duration::from_secs(10);
-                    timeout(duration, healthcheck)
+                    timeout(healthcheck_timeout, healthcheck)
                         .map(|result| match result {
                             Ok(Ok(_)) => {
                                 info!("Healthcheck passed.");

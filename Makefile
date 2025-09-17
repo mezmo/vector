@@ -52,7 +52,7 @@ export AUTODESPAWN ?= ${AUTOSPAWN}
 # Override autoinstalling of tools. (Eg `cargo install`)
 export AUTOINSTALL ?= false
 # Override to true for a bit more log output in your environment building (more coming!)
-export VERBOSE ?= false
+export VERBOSE ?= true
 # Override the container tool. Tries docker first and then tries podman.
 export CONTAINER_TOOL ?= auto
 ifeq ($(CONTAINER_TOOL),auto)
