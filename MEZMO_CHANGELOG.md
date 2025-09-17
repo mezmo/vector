@@ -1,3 +1,10 @@
+## [10.2.1](https://github.com/answerbook/vector/compare/v10.2.0...v10.2.1) (2025-09-17)
+
+
+### Bug Fixes
+
+* **pulsar**: `ack` failed message when not `broker_redelivery_enabled` [fcfd083](https://github.com/answerbook/vector/commit/fcfd083582f2edd03cb62ddb6017a0d0a7c8128f) - Darin Spivey [LOG-22330](https://logdna.atlassian.net/browse/LOG-22330)
+
 # [10.2.0](https://github.com/answerbook/vector/compare/v10.1.3...v10.2.0) (2025-08-21)
 
 
