@@ -40,12 +40,12 @@ on:
         value: ${{ jobs.source.outputs.component_docs }}
       markdown:
         value: ${{ jobs.source.outputs.markdown }}
+      website_only:
+        value: ${{ jobs.source.outputs.website_only }}
       install:
         value: ${{ jobs.source.outputs.install }}
       k8s:
         value: ${{ jobs.source.outputs.k8s }}
-      all-int:
-        value: ${{ jobs.int_tests.outputs.all-tests }}
       amqp:
         value: ${{ jobs.int_tests.outputs.amqp }}
       appsignal:
@@ -119,8 +119,6 @@ on:
       all-changes-json:
         value: ${{ jobs.int_tests.outputs.all-changes-json }}
       # e2e tests
-      all-e2e:
-        value: ${{ jobs.e2e_tests.outputs.all-tests }}
       e2e-datadog-logs:
         value: ${{ jobs.e2e_tests.outputs.datadog-logs }}
       e2e-datadog-metrics:
@@ -141,6 +139,7 @@ jobs:
       markdown: ${{ steps.filter.outputs.markdown }}
       install: ${{ steps.filter.outputs.install }}
       k8s: ${{ steps.filter.outputs.k8s }}
+      website_only: ${{ steps.filter.outputs.website == 'true' && steps.filter.outputs.not_website == 'false' }}
     steps:
     - uses: actions/checkout@v4
 
@@ -170,7 +169,6 @@ jobs:
             - 'Cargo.toml'
             - 'Cargo.lock'
             - 'rust-toolchain.toml'
-            - '.github/workflows/pr.yml'
             - 'Makefile'
             - 'scripts/cross/**'
             - "vdev/**"
@@ -195,6 +193,11 @@ jobs:
             - "distribution/install.sh"
           k8s:
             - "src/sources/kubernetes_logs/**"
+          website:
+            - "website/**"
+          not_website:
+            - "**"
+            - "!website/**"
 
   # Detects changes that are specific to integration tests
   int_tests:
@@ -202,7 +205,6 @@ jobs:
     timeout-minutes: 5
     if: ${{ inputs.int_tests }}
     outputs:
-      all-tests: ${{ steps.filter.outputs.all-tests}}
       amqp: ${{ steps.filter.outputs.amqp }}
       appsignal: ${{ steps.filter.outputs.appsignal}}
       aws: ${{ steps.filter.outputs.aws }}
@@ -315,7 +317,6 @@ jobs:
     timeout-minutes: 5
     if: ${{ inputs.e2e_tests }}
     outputs:
-      all-tests: ${{ steps.filter.outputs.all-tests}}
       datadog-logs: ${{ steps.filter.outputs.datadog-logs }}
       datadog-metrics: ${{ steps.filter.outputs.datadog-metrics }}
     steps:

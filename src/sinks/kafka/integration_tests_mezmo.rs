@@ -71,6 +71,8 @@ async fn kafka_mezmo_does_not_reshape_messages() {
         librdkafka_options: HashMap::new(),
         headers_key: Some(ConfigTargetPath::try_from("headers_key".to_owned()).unwrap()),
         acknowledgements: Default::default(),
+        rate_limit_duration_secs: 1,
+        rate_limit_num: 0,
     };
     let topic = format!("{}-{}", topic, chrono::Utc::now().format("%Y%m%d"));
     println!("Topic name generated in test: {:?}", topic);
@@ -184,6 +186,8 @@ async fn kafka_mezmo_reshapes_messages() {
         librdkafka_options: HashMap::new(),
         headers_key: Some(ConfigTargetPath::try_from("headers_key".to_owned()).unwrap()),
         acknowledgements: Default::default(),
+        rate_limit_duration_secs: 1,
+        rate_limit_num: 0,
     };
     let topic = format!("{}-{}", topic, chrono::Utc::now().format("%Y%m%d"));
     println!("Topic name generated in test: {:?}", topic);

@@ -190,10 +190,7 @@ impl TraceTailSample {
 
     fn get_cache_value<T: FromStr>(&mut self, key: &str) -> Option<T> {
         match self.persistence.get(key) {
-            Ok(Some(value)) => match value.parse::<T>() {
-                Ok(x) => Some(x),
-                Err(_) => None,
-            },
+            Ok(Some(value)) => value.parse::<T>().ok(),
             Ok(None) => None,
             Err(e) => {
                 error!(
@@ -277,7 +274,7 @@ impl TraceTailSample {
     fn get_message_field_value(&mut self, message: &Value, field: &str) -> Option<String> {
         if let Some(Value::Bytes(b)) = message.get(field) {
             let field_value = String::from_utf8_lossy(b);
-            if field_value.len() > 0 {
+            if !field_value.is_empty() {
                 return Some(field_value.to_string());
             }
         }
@@ -415,6 +412,7 @@ mod test {
         .unwrap()
     }
 
+    #[allow(warnings)]
     fn test_connection(
         mezmo_ctx: MezmoContext,
         ttl_secs: u64,
@@ -845,6 +843,7 @@ mod test {
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
     #[test]
     fn vector_restart_continue_rate() {
+        #[allow(deprecated)]
         let base_dir = tempdir().expect("Could not create temp dir").into_path();
 
         let traceid_1a = Event::Log(LogEvent::from(btreemap! {
@@ -1015,6 +1014,7 @@ mod test {
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
     #[test]
     fn timestamp_is_always_present() {
+        #[allow(deprecated)]
         let base_dir = tempdir().expect("Could not create temp dir").into_path();
 
         let traceid_1a = Event::Log(LogEvent::from(btreemap! {

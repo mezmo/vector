@@ -145,10 +145,7 @@ impl TraceHeadSample {
 
     fn get_value<T: FromStr>(&mut self, key: &str) -> Option<T> {
         match self.persistence.get(key) {
-            Ok(Some(value)) => match value.parse::<T>() {
-                Ok(x) => Some(x),
-                Err(_) => None,
-            },
+            Ok(Some(value)) => value.parse::<T>().ok(),
             Ok(None) => None,
             Err(e) => {
                 error!(
@@ -256,6 +253,7 @@ mod test {
         .unwrap()
     }
 
+    #[allow(warnings)]
     fn test_connection(
         mezmo_ctx: MezmoContext,
         ttl_secs: u64,
@@ -602,6 +600,7 @@ mod test {
             state_persistence_base_path: Some("/data/component-state".to_owned()),
         };
         let test_ctx = test_ctx();
+        #[allow(deprecated)]
         let base_dir = tempdir().expect("Could not create temp dir").into_path();
         let connection = test_connection(test_ctx.clone(), config.ttl_secs, Some(base_dir.clone()));
         let mut sampler = TraceHeadSample::new(config.clone(), test_ctx.clone(), connection);

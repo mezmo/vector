@@ -338,6 +338,7 @@ mod tests {
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_invalid_context() {
+        #[allow(deprecated)]
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let base_path = tmp_path.to_str().unwrap();
 
@@ -354,6 +355,7 @@ mod tests {
 
     #[assay]
     fn test_missing_pod_name_env() {
+        #[allow(deprecated)]
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let base_path = tmp_path.to_str().unwrap();
 
@@ -370,6 +372,7 @@ mod tests {
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_invalid_base_path_not_a_directory() {
+        #[allow(deprecated)]
         let tmp_path = tempdir()
             .expect("Could not create temp dir")
             .into_path()
@@ -432,6 +435,7 @@ mod tests {
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_set_get_delete_scalar() {
+        #[allow(deprecated)]
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let base_path = tmp_path.to_str().unwrap();
 
@@ -461,6 +465,7 @@ mod tests {
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_set_get_delete_complex() {
+        #[allow(deprecated)]
         let tmp_path = tempdir().expect("Could not create temp dir").into_path();
         let base_path = tmp_path.to_str().unwrap();
 
@@ -491,6 +496,7 @@ mod tests {
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
     fn test_from_multiple_threads_for_the_same_account() {
+        #[allow(deprecated)]
         let base_path_thread_1 = tempdir().expect("Could not create temp dir").into_path();
         let base_path_thread_2 = base_path_thread_1.clone();
 

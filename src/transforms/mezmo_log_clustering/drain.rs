@@ -23,7 +23,7 @@ impl<'a> LogCluster<'a> {
         self.match_count
     }
 
-    pub fn samples_mut(&mut self) -> &mut HashMap<String, LogSample> {
+    pub const fn samples_mut(&mut self) -> &mut HashMap<String, LogSample> {
         &mut self.samples
     }
 

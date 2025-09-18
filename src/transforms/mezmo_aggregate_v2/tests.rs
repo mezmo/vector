@@ -704,6 +704,7 @@ async fn window_alloc_limit_over_time() {
 
 #[assay(env = [("POD_NAME", "vector-test0-0")])]
 async fn with_initial_state() {
+    #[allow(deprecated)]
     let tmp_path = tempdir().expect("Could not create temp dir").into_path();
     let state_persistence_base_path = tmp_path.to_str();
     let limits = AggregatorLimits::new(1, 5000, 1, 5);
@@ -744,6 +745,7 @@ async fn with_initial_state() {
 
 #[assay(env = [("POD_NAME", "vector-test0-0")])]
 async fn persist_state_marks_delivered() {
+    #[allow(deprecated)]
     let tmp_path = tempdir().expect("Could not create temp dir").into_path();
     let state_persistence_base_path = tmp_path.to_str();
     let limits = AggregatorLimits::new(1, 5000, 1, 5);

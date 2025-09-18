@@ -22,15 +22,11 @@ mod s3 {
         pub should_log: bool,
     }
 
-    impl SqsMessageProcessingError<'_> {
-        pub const MESSAGE: &'static str = "Failed to process SQS message.";
-    }
-
     impl InternalEvent for SqsMessageProcessingError<'_> {
         fn emit(self) {
             if self.should_log {
                 error!(
-                    message = Self::MESSAGE,
+                    message = "Failed to process SQS message.",
                     message_id = %self.message_id,
                     error = %self.error,
                     error_code = "failed_processing_sqs_message",
@@ -79,7 +75,7 @@ mod s3 {
         fn emit(self) {
             if self.should_log {
                 error!(
-                    message = Self::MESSAGE,
+                    message = "Deletion of SQS message(s) failed.",
                     message_ids = %self.entries.iter()
                         .map(|x| format!("{}/{}", x.id, x.code))
                         .collect::<Vec<_>>()
@@ -87,7 +83,6 @@ mod s3 {
                     error_code = "failed_deleting_some_sqs_messages",
                     error_type = error_type::ACKNOWLEDGMENT_FAILED,
                     stage = error_stage::PROCESSING,
-                    // internal_log_rate_limit = true, // TODO(mdeltito): upstream added this, but we've added our own rate limiting
                 );
             }
             counter!(
@@ -115,7 +110,7 @@ mod s3 {
         fn emit(self) {
             if self.should_log {
                 error!(
-                    message = Self::MESSAGE,
+                    message = "Deletion of SQS message(s) failed.",
                     message_ids = %self.entries.iter()
                         .map(|x| x.id.as_str())
                         .collect::<Vec<_>>()
@@ -124,9 +119,9 @@ mod s3 {
                     error_code = "failed_deleting_all_sqs_messages",
                     error_type = error_type::ACKNOWLEDGMENT_FAILED,
                     stage = error_stage::PROCESSING,
-                    // internal_log_rate_limit = true, // TODO(mdeltito): upstream added this, but we've added our own rate limiting
                 );
             }
+
             counter!(
                 "component_errors_total",
                 "error_code" => "failed_deleting_all_sqs_messages",
@@ -230,7 +225,7 @@ impl<E: std::fmt::Display> InternalEvent for SqsMessageReceiveError<'_, E> {
             error_code = "failed_fetching_sqs_events",
             error_type = error_type::REQUEST_FAILED,
             stage = error_stage::RECEIVING,
-            internal_log_rate_limit = true,
+
         );
         counter!(
             "component_errors_total",
@@ -287,7 +282,7 @@ impl<E: std::fmt::Display> InternalEvent for SqsMessageDeleteError<'_, E> {
             error = %self.error,
             error_type = error_type::WRITER_FAILED,
             stage = error_stage::PROCESSING,
-            internal_log_rate_limit = true,
+
         );
         counter!(
             "component_errors_total",
