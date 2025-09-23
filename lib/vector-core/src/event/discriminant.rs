@@ -2,6 +2,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use super::{LogEvent, ObjectMap, Value};
+use serde::{Deserialize, Serialize};
 
 // TODO: if we had `Value` implement `Eq` and `Hash`, the implementation here
 // would be much easier. The issue is with `f64` type. We should consider using
@@ -14,7 +15,7 @@ use super::{LogEvent, ObjectMap, Value};
 /// Intended for dissecting streams of events to sub-streams, for instance to
 /// be able to allocate a buffer per sub-stream.
 /// Implements `PartialEq`, `Eq` and `Hash` to enable use as a `HashMap` key.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Discriminant {
     values: Vec<Option<Value>>,
 }
@@ -34,6 +35,16 @@ impl Discriminant {
             })
             .collect();
         Self { values }
+    }
+
+    /// Create a new Discriminant from a vector of values
+    pub fn from_values(values: Vec<Option<Value>>) -> Self {
+        Self { values }
+    }
+
+    /// Get a reference to the values vector
+    pub fn values(&self) -> &Vec<Option<Value>> {
+        &self.values
     }
 }
 

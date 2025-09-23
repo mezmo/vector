@@ -4,6 +4,7 @@
 // to return date fields in the same format as originally received. For example, an epoch field
 // can be an integer or a string, and it will match the output type based on the incoming data.
 
+use rand::Rng;
 use std::collections::BTreeMap;
 use std::{
     collections::{hash_map, HashMap},
@@ -20,12 +21,14 @@ use crate::{
     config::{DataType, Input, TransformConfig, TransformContext},
     event::{discriminant::Discriminant, Event, EventMetadata, LogEvent},
     internal_events::ReduceStaleEventFlushed,
+    mezmo::persistence::{PersistenceConnection, RocksDBPersistenceConnection},
     transforms::{TaskTransform, Transform},
 };
 use async_stream::stream;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use futures::{stream, Stream, StreamExt};
 use indexmap::IndexMap;
+use serde;
 use serde_with::serde_as;
 use vector_lib::config::{log_schema, OutputId, TransformOutput};
 use vector_lib::configurable::configurable_component;
@@ -35,6 +38,54 @@ use vector_lib::schema::Definition;
 
 use crate::event::{KeyString, Value};
 use vector_lib::config::LogNamespace;
+
+// The key for the state persistence db.
+const STATE_PERSISTENCE_KEY: &str = "state";
+
+/// Combined state structure for serialization to RocksDB
+/// Uses a JSON-compatible format by converting Discriminant to Vec<Value>
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct PersistedState {
+    /// Store discriminant map as Vec of (discriminant_values, reduce_state) pairs
+    merge_state: Vec<(Vec<Option<Value>>, ReduceState)>,
+    date_kinds_state: HashMap<String, String>,
+}
+
+impl PersistedState {
+    /// Convert from the runtime HashMap format to the serializable format
+    #[allow(clippy::mutable_key_type)]
+    fn from_runtime_state(
+        merge_state: &HashMap<Discriminant, ReduceState>,
+        date_kinds_state: &HashMap<String, String>,
+    ) -> Self {
+        let merge_state: Vec<(Vec<Option<Value>>, ReduceState)> = merge_state
+            .iter()
+            .map(|(discriminant, reduce_state)| {
+                (discriminant.values().clone(), reduce_state.clone())
+            })
+            .collect();
+
+        Self {
+            merge_state,
+            date_kinds_state: date_kinds_state.clone(),
+        }
+    }
+
+    /// Convert to the runtime HashMap format
+    fn to_runtime_state(&self) -> (HashMap<Discriminant, ReduceState>, HashMap<String, String>) {
+        #[allow(clippy::mutable_key_type)]
+        let merge_state: HashMap<Discriminant, ReduceState> = self
+            .merge_state
+            .iter()
+            .map(|(values, reduce_state)| {
+                let discriminant = Discriminant::from_values(values.clone());
+                (discriminant, reduce_state.clone())
+            })
+            .collect();
+
+        (merge_state, self.date_kinds_state.clone())
+    }
+}
 
 /// Configuration for the `mezmo_reduce` transform.
 #[serde_as]
@@ -105,6 +156,41 @@ pub struct MezmoReduceConfig {
     /// be used to parse them. This eventually will translate Value::Bytes into a Value::Timestamp
     #[serde(default)]
     pub date_formats: HashMap<String, String>,
+
+    /// Sets the base path for the persistence connection.
+    /// NOTE: Leaving this value empty will disable state persistence.
+    #[serde(default = "default_state_persistence_base_path")]
+    pub(super) state_persistence_base_path: Option<String>,
+
+    /// Set how often the state of this transform will be persisted to the [PersistenceConnection]
+    /// storage backend.
+    #[serde(default = "default_state_persistence_tick_ms")]
+    pub(super) state_persistence_tick_ms: u64,
+
+    /// The maximum amount of jitter (ms) to add to the `state_persistence_tick_ms`
+    /// flush interval.
+    #[serde(default = "default_state_persistence_max_jitter_ms")]
+    pub(super) state_persistence_max_jitter_ms: u64,
+}
+
+const fn default_expire_after_ms() -> Duration {
+    Duration::from_millis(30000)
+}
+
+const fn default_flush_period_ms() -> Duration {
+    Duration::from_millis(1000)
+}
+
+const fn default_state_persistence_base_path() -> Option<String> {
+    None
+}
+
+const fn default_state_persistence_tick_ms() -> u64 {
+    30000
+}
+
+const fn default_state_persistence_max_jitter_ms() -> u64 {
+    750
 }
 
 #[derive(Debug, Clone)]
@@ -117,8 +203,43 @@ struct MezmoMetadata {
     date_kinds: Arc<RwLock<HashMap<String, String>>>,
 }
 
+impl serde::Serialize for MezmoMetadata {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("MezmoMetadata", 2)?;
+        state.serialize_field("date_formats", &self.date_formats)?;
+
+        // Extract the HashMap from Arc<RwLock<>>
+        let date_kinds = self.date_kinds.read().unwrap();
+        state.serialize_field("date_kinds", &*date_kinds)?;
+        state.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for MezmoMetadata {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct MezmoMetadataHelper {
+            date_formats: HashMap<String, String>,
+            date_kinds: HashMap<String, String>,
+        }
+
+        let helper = MezmoMetadataHelper::deserialize(deserializer)?;
+        Ok(MezmoMetadata {
+            date_formats: helper.date_formats,
+            date_kinds: Arc::new(RwLock::new(helper.date_kinds)),
+        })
+    }
+}
+
 impl MezmoMetadata {
-    fn new(date_formats: HashMap<String, String>) -> Self {
+    fn new(date_formats: HashMap<String, String>, date_kinds: HashMap<String, String>) -> Self {
         let date_formats = date_formats
             .into_iter()
             .map(|(k, v)| {
@@ -131,7 +252,7 @@ impl MezmoMetadata {
 
         Self {
             date_formats,
-            date_kinds: Arc::new(RwLock::new(HashMap::new())),
+            date_kinds: Arc::new(RwLock::new(date_kinds)),
         }
     }
 
@@ -149,6 +270,7 @@ impl MezmoMetadata {
                 return; // no need to do anything else
             }
         } // Drops read lock
+
         let mut map = self
             .date_kinds
             .write()
@@ -156,14 +278,6 @@ impl MezmoMetadata {
 
         map.insert(date_prop.to_owned(), kind.to_owned());
     }
-}
-
-const fn default_expire_after_ms() -> Duration {
-    Duration::from_millis(30000)
-}
-
-const fn default_flush_period_ms() -> Duration {
-    Duration::from_millis(1000)
 }
 
 const REDUCE_BYTE_THRESHOLD_PER_STATE_DEFAULT: usize = 100 * 1024; // 100K
@@ -201,6 +315,167 @@ struct ReduceState {
     mezmo_metadata: MezmoMetadata,
     size_estimate: usize,
     events: usize,
+}
+
+impl serde::Serialize for ReduceState {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use super::merge_strategy::SerializableReduceValueMerger;
+        use serde::ser::SerializeStruct;
+        use std::time::SystemTime;
+
+        let mut state = serializer.serialize_struct("ReduceState", 7)?;
+
+        // Convert HashMap<KeyString, Box<dyn ReduceValueMerger>> to serializable form
+        let serializable_fields: Result<
+            HashMap<KeyString, SerializableReduceValueMerger>,
+            S::Error,
+        > = self
+            .fields
+            .iter()
+            .map(|(k, v)| {
+                let any_ref = v.as_any();
+                if let Some(serializable) = SerializableReduceValueMerger::from_any_ref(any_ref) {
+                    Ok((k.clone(), serializable))
+                } else {
+                    Err(serde::ser::Error::custom(
+                        "Unable to serialize ReduceValueMerger",
+                    ))
+                }
+            })
+            .collect();
+        state.serialize_field("fields", &serializable_fields?)?;
+
+        let serializable_message_fields: Result<
+            HashMap<KeyString, SerializableReduceValueMerger>,
+            S::Error,
+        > = self
+            .message_fields
+            .iter()
+            .map(|(k, v)| {
+                let any_ref = v.as_any();
+                if let Some(serializable) = SerializableReduceValueMerger::from_any_ref(any_ref) {
+                    Ok((k.clone(), serializable))
+                } else {
+                    Err(serde::ser::Error::custom(
+                        "Unable to serialize ReduceValueMerger",
+                    ))
+                }
+            })
+            .collect();
+        state.serialize_field("message_fields", &serializable_message_fields?)?;
+
+        // Convert Instant to duration from UNIX_EPOCH for serialization
+        let duration_from_epoch = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_err(|e| serde::ser::Error::custom(format!("SystemTime error: {}", e)))?
+            .saturating_sub(self.started_at.elapsed());
+        state.serialize_field("started_at_epoch_secs", &duration_from_epoch.as_secs())?;
+        state.serialize_field(
+            "started_at_epoch_nanos",
+            &duration_from_epoch.subsec_nanos(),
+        )?;
+
+        state.serialize_field("metadata", &self.metadata)?;
+        state.serialize_field("mezmo_metadata", &self.mezmo_metadata)?;
+        state.serialize_field("size_estimate", &self.size_estimate)?;
+        state.serialize_field("events", &self.events)?;
+        state.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ReduceState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use super::merge_strategy::SerializableReduceValueMerger;
+        use std::time::SystemTime;
+
+        #[derive(serde::Deserialize)]
+        struct ReduceStateHelper {
+            fields: HashMap<KeyString, SerializableReduceValueMerger>,
+            message_fields: HashMap<KeyString, SerializableReduceValueMerger>,
+            started_at_epoch_secs: u64,
+            started_at_epoch_nanos: u32,
+            metadata: EventMetadata,
+            mezmo_metadata: MezmoMetadata,
+            size_estimate: usize,
+            events: usize,
+        }
+
+        let helper = ReduceStateHelper::deserialize(deserializer)?;
+
+        // Convert serializable form back to HashMap<KeyString, Box<dyn ReduceValueMerger>>
+        let fields: HashMap<KeyString, Box<dyn ReduceValueMerger>> = helper
+            .fields
+            .into_iter()
+            .map(|(k, v)| (k, v.into_boxed_merger()))
+            .collect();
+
+        let message_fields: HashMap<KeyString, Box<dyn ReduceValueMerger>> = helper
+            .message_fields
+            .into_iter()
+            .map(|(k, v)| (k, v.into_boxed_merger()))
+            .collect();
+
+        // Reconstruct Instant from epoch time
+        let target_time = SystemTime::UNIX_EPOCH
+            + std::time::Duration::new(helper.started_at_epoch_secs, helper.started_at_epoch_nanos);
+        let elapsed_since_target = SystemTime::now()
+            .duration_since(target_time)
+            .unwrap_or_default();
+        let started_at = Instant::now() - elapsed_since_target;
+
+        Ok(ReduceState {
+            fields,
+            message_fields,
+            started_at,
+            metadata: helper.metadata,
+            mezmo_metadata: helper.mezmo_metadata,
+            size_estimate: helper.size_estimate,
+            events: helper.events,
+        })
+    }
+}
+
+impl Clone for ReduceState {
+    fn clone(&self) -> Self {
+        use super::merge_strategy::SerializableReduceValueMerger;
+
+        // Clone the trait objects by converting through serializable form
+        let fields: HashMap<KeyString, Box<dyn ReduceValueMerger>> = self
+            .fields
+            .iter()
+            .filter_map(|(k, v)| {
+                let any_ref = v.as_any();
+                SerializableReduceValueMerger::from_any_ref(any_ref)
+                    .map(|serializable| (k.clone(), serializable.into_boxed_merger()))
+            })
+            .collect();
+
+        let message_fields: HashMap<KeyString, Box<dyn ReduceValueMerger>> = self
+            .message_fields
+            .iter()
+            .filter_map(|(k, v)| {
+                let any_ref = v.as_any();
+                SerializableReduceValueMerger::from_any_ref(any_ref)
+                    .map(|serializable| (k.clone(), serializable.into_boxed_merger()))
+            })
+            .collect();
+
+        ReduceState {
+            fields,
+            message_fields,
+            started_at: self.started_at,
+            metadata: self.metadata.clone(),
+            mezmo_metadata: self.mezmo_metadata.clone(),
+            size_estimate: self.size_estimate,
+            events: self.events,
+        }
+    }
 }
 
 impl ReduceState {
@@ -469,6 +744,9 @@ pub struct MezmoReduce {
     byte_threshold_per_state: usize,
     byte_threshold_all_states: usize,
     max_events: Option<usize>,
+    state_persistence: Option<Arc<dyn PersistenceConnection>>,
+    state_persistence_tick_ms: u64,
+    state_persistence_max_jitter_ms: u64,
 }
 
 impl MezmoReduce {
@@ -531,18 +809,43 @@ impl MezmoReduce {
             }
         }
 
+        let state_persistence_tick_ms = config.state_persistence_tick_ms;
+        let state_persistence_max_jitter_ms = config.state_persistence_max_jitter_ms;
+        let state_persistence: Option<Arc<dyn PersistenceConnection>> =
+            match (&config.state_persistence_base_path, &cx.mezmo_ctx) {
+                (Some(base_path), Some(mezmo_ctx)) => Some(Arc::new(
+                    RocksDBPersistenceConnection::new(base_path, mezmo_ctx)?,
+                )),
+                (_, Some(mezmo_ctx)) => {
+                    debug!(
+                        "MezmoReduce: state persistence not enabled for component {}",
+                        mezmo_ctx.id()
+                    );
+                    None
+                }
+                (_, _) => None,
+            };
+
+        let (reduce_merge_states, date_kinds) = match &state_persistence {
+            Some(state_persistence) => load_initial_state(state_persistence),
+            None => (HashMap::new(), HashMap::new()),
+        };
+
         Ok(MezmoReduce {
             expire_after: config.expire_after_ms,
             flush_period: config.flush_period_ms,
             group_by,
             merge_strategies,
-            reduce_merge_states: HashMap::new(),
+            reduce_merge_states,
             ends_when,
             starts_when,
-            mezmo_metadata: MezmoMetadata::new(date_formats),
+            mezmo_metadata: MezmoMetadata::new(date_formats, date_kinds),
             byte_threshold_per_state,
             byte_threshold_all_states,
             max_events,
+            state_persistence,
+            state_persistence_tick_ms,
+            state_persistence_max_jitter_ms,
         })
     }
 
@@ -734,50 +1037,149 @@ impl MezmoReduce {
             self.push_or_new_reduce_state(event, message_event, discriminant)
         }
     }
+
+    /// Saves the current `data` to persistent storage. This is intended to be called from the
+    /// polling loop on an interval defined by the `state_persistence_tick_ms` field.
+    async fn persist_state(&mut self) {
+        if let Some(state_persistence) = &self.state_persistence {
+            #[allow(clippy::mutable_key_type)]
+            let merge_state = self.reduce_merge_states.clone();
+            let date_kinds_state = self.mezmo_metadata.date_kinds.read().unwrap().clone();
+            let state_persistence = Arc::clone(state_persistence);
+            let handle = tokio::task::spawn_blocking(move || {
+                let state = PersistedState::from_runtime_state(&merge_state, &date_kinds_state);
+                let serialized_state = serde_json::to_string(&state)?;
+                state_persistence.set(STATE_PERSISTENCE_KEY, &serialized_state)
+            })
+            .await;
+
+            match handle {
+                Ok(result) => match result {
+                    Ok(_) => {
+                        // Once persisted, update the status on the finalizers as delivered thus acking the
+                        // original events. RocksDB will provide the durability of the aggregate events.
+                        for reduce in self.reduce_merge_states.values_mut() {
+                            reduce
+                                .metadata
+                                .take_finalizers()
+                                .update_status(vector_lib::event::EventStatus::Delivered);
+                        }
+
+                        debug!("MezmoReduce: state persisted");
+                    }
+                    Err(err) => {
+                        error!("MezmoReduce: failed to persist state: {}", err);
+                    }
+                },
+                Err(err) => {
+                    error!("MezmoReduce: failed to execute persistence task: {}", err)
+                }
+            }
+        }
+    }
 }
 
 impl TaskTransform<Event> for MezmoReduce {
     fn transform(
-        self: Box<Self>,
+        mut self: Box<Self>,
         mut input_rx: Pin<Box<dyn Stream<Item = Event> + Send>>,
     ) -> Pin<Box<dyn Stream<Item = Event> + Send>>
     where
         Self: 'static,
     {
-        let mut me = self;
-
-        let poll_period = me.flush_period;
-
+        let poll_period = self.flush_period;
         let mut flush_stream = tokio::time::interval(poll_period);
+        let mut state_persistence_interval =
+            tokio::time::interval(Duration::from_millis(self.state_persistence_tick_ms));
+
+        let flush_on_shutdown = match &self.state_persistence {
+            Some(_) => {
+                debug!("MezmoReduce: state persistence enabled, state will not flush on shutdown");
+                false
+            }
+            None => {
+                debug!("MezmoReduce: state persistence not enabled, state will flush on shutdown");
+                true
+            }
+        };
 
         Box::pin(
             stream! {
-              loop {
-                let mut output = Vec::new();
-                let done = tokio::select! {
-                    _ = flush_stream.tick() => {
-                      me.flush_into(&mut output);
-                      false
-                    }
-                    maybe_event = input_rx.next() => {
-                      match maybe_event {
-                        None => {
-                          me.flush_all_into(&mut output);
-                          true
+                loop {
+                    let mut output = Vec::new();
+                    let done = tokio::select! {
+                        _ = state_persistence_interval.tick() => {
+                            let jitter = rand::rng().random_range(0..=self.state_persistence_max_jitter_ms);
+                            tokio::time::sleep(Duration::from_millis(jitter)).await;
+                            self.persist_state().await;
+                            false
+                        },
+                        _ = flush_stream.tick() => {
+                            self.flush_into(&mut output);
+                            false
                         }
-                        Some(event) => {
-                          me.transform_one(&mut output, event);
-                          false
+                        maybe_event = input_rx.next() => {
+                            match maybe_event {
+                                None => {
+                                    if flush_on_shutdown {
+                                        self.flush_all_into(&mut output);
+                                    }
+                                    true
+                                }
+                                Some(event) => {
+                                    self.transform_one(&mut output, event);
+                                    false
+                                }
+                            }
                         }
-                      }
+                    };
+
+                    yield stream::iter(output.into_iter());
+
+                    if done {
+                        self.persist_state().await;
+                        break
                     }
-                };
-                yield stream::iter(output.into_iter());
-                if done { break }
-              }
+                }
             }
             .flatten(),
         )
+    }
+}
+
+// Handles loading initial state from persistent storage, returning an appropriate
+// default value if the state is not found or cannot be deserialized.
+#[allow(clippy::borrowed_box)]
+fn load_initial_state(
+    state_persistence: &Arc<dyn PersistenceConnection>,
+) -> (HashMap<Discriminant, ReduceState>, HashMap<String, String>) {
+    match state_persistence.get(STATE_PERSISTENCE_KEY) {
+        Ok(state) => match state {
+            Some(state) => match serde_json::from_str::<PersistedState>(&state) {
+                Ok(persisted_state) => {
+                    debug!("MezmoReduce: existing state found");
+                    persisted_state.to_runtime_state()
+                }
+                Err(err) => {
+                    error!(
+                        "Failed to deserialize state from persistence: {}, component_id",
+                        err
+                    );
+                    (HashMap::new(), HashMap::new())
+                }
+            },
+            None => {
+                debug!("MezmoReduce: no existing state found");
+                (HashMap::new(), HashMap::new())
+            }
+        },
+        Err(err) => {
+            error!(
+                "Failed to load state from persistence: {}, component_id",
+                err
+            );
+            (HashMap::new(), HashMap::new())
+        }
     }
 }
 
@@ -845,18 +1247,70 @@ pub fn get_root_property_name_from_path(
 mod test {
     use super::*;
     use crate::event::{LogEvent, Value};
+    use crate::mezmo::persistence::RocksDBPersistenceConnection;
     use crate::test_util::components::assert_transform_compliance;
     use crate::transforms::test::create_topology;
     use assay::assay;
     use chrono::{Duration, Utc};
     use futures_util::FutureExt;
+    use mezmo::MezmoContext;
     use serde_json::json;
+    use std::sync::Arc;
+    use tempfile::tempdir;
     use tokio::sync::mpsc;
     use tokio::time::sleep;
     use tokio_stream::wrappers::ReceiverStream;
     use vector_lib::btreemap;
     use vector_lib::config::log_schema;
     use vector_lib::finalization::{BatchNotifier, BatchStatus, EventFinalizer, EventFinalizers};
+
+    fn test_mezmo_context() -> MezmoContext {
+        MezmoContext::try_from(format!(
+            "v1:mezmo-reduce:transform:component_id:pipeline_id:{}",
+            uuid::Uuid::new_v4()
+        ))
+        .unwrap()
+    }
+
+    async fn create_test_reduce_with_persistence() -> (MezmoReduce, tempfile::TempDir) {
+        let temp_dir = tempdir().expect("Could not create temp dir");
+        let state_persistence_base_path = temp_dir.path().to_str().unwrap();
+
+        let config_str = format!(
+            r#"
+                expire_after_ms = 30000
+                flush_period_ms = 10000
+                group_by = ["request_id"]
+                state_persistence_base_path = "{}"
+                state_persistence_tick_ms = 100
+
+                [merge_strategies]
+                counter = "sum"
+                message = "concat"
+                "#,
+            state_persistence_base_path
+        );
+
+        let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
+        let mezmo_ctx = test_mezmo_context();
+
+        let ctx = TransformContext {
+            mezmo_ctx: Some(mezmo_ctx),
+            ..Default::default()
+        };
+        let reduce = MezmoReduce::new(&reduce_config, &ctx).unwrap();
+
+        (reduce, temp_dir)
+    }
+
+    fn create_test_event(request_id: &str, counter: i64, message: &str) -> Event {
+        let mut log_event = LogEvent::default();
+        log_event.insert("request_id", request_id);
+        log_event.insert("message.counter", counter);
+        log_event.insert("message.message", message);
+        log_event.insert("message.timestamp", Utc::now());
+        Event::Log(log_event)
+    }
 
     #[test]
     fn generate_config() {
@@ -2609,6 +3063,504 @@ max_events = 3
             assert_eq!(
                 result, expected,
                 "Failed item: {desc}, expected: {expected:?}",
+            );
+        }
+    }
+
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
+    async fn test_persist_state_saves_to_rocksdb() {
+        let (mut reduce, _temp_dir) = create_test_reduce_with_persistence().await;
+
+        // Add some events to create state
+        let events = vec![
+            create_test_event("req-1", 10, "first"),
+            create_test_event("req-1", 20, "second"),
+            create_test_event("req-2", 5, "other"),
+        ];
+
+        for event in events {
+            let discriminant =
+                Discriminant::from_log_event(event.as_log(), &["request_id".to_string()]);
+            let log_event = event.into_log();
+            reduce.push_or_new_reduce_state(log_event.clone(), log_event, discriminant);
+        }
+
+        // Verify we have state before persistence
+        assert_eq!(reduce.reduce_merge_states.len(), 2);
+
+        // Persist the state
+        reduce.persist_state().await;
+
+        // Verify state was written to RocksDB
+        if let Some(state_persistence) = &reduce.state_persistence {
+            let stored_data = state_persistence.get(STATE_PERSISTENCE_KEY).unwrap();
+            assert!(stored_data.is_some());
+
+            // Deserialize and verify the stored state
+            let stored_state: PersistedState = serde_json::from_str(&stored_data.unwrap()).unwrap();
+
+            assert_eq!(stored_state.merge_state.len(), 2);
+            // Check that we have discriminants that contain the expected request IDs
+            let has_req1 = stored_state.merge_state.iter().any(|(values, _)| {
+                values.iter().any(|opt_val| {
+                    if let Some(val) = opt_val {
+                        val.to_string_lossy().contains("req-1")
+                    } else {
+                        false
+                    }
+                })
+            });
+            let has_req2 = stored_state.merge_state.iter().any(|(values, _)| {
+                values.iter().any(|opt_val| {
+                    if let Some(val) = opt_val {
+                        val.to_string_lossy().contains("req-2")
+                    } else {
+                        false
+                    }
+                })
+            });
+            assert!(has_req1);
+            assert!(has_req2);
+        } else {
+            panic!("State persistence should be configured");
+        }
+    }
+
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
+    async fn test_load_initial_state_from_rocksdb() {
+        let temp_dir = tempdir().expect("Could not create temp dir");
+        let state_persistence_base_path = temp_dir.path().to_str().unwrap();
+
+        // Store mezmo_ctx to reuse for the second instance
+        let mezmo_ctx = {
+            // Create the first instance with the same base path
+            let config_str = format!(
+                r#"
+                    expire_after_ms = 30000
+                    flush_period_ms = 10000
+                    group_by = ["request_id"]
+                    state_persistence_base_path = "{}"
+                    state_persistence_tick_ms = 100
+
+                    [merge_strategies]
+                    counter = "sum"
+                    message = "concat"
+                    "#,
+                state_persistence_base_path
+            );
+
+            let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
+            let mezmo_ctx = test_mezmo_context();
+            let ctx = TransformContext {
+                mezmo_ctx: Some(mezmo_ctx.clone()),
+                ..Default::default()
+            };
+            let mut reduce = MezmoReduce::new(&reduce_config, &ctx).unwrap();
+
+            // Add some events
+            let events = vec![
+                create_test_event("req-1", 15, "initial"),
+                create_test_event("req-2", 25, "another"),
+            ];
+
+            for event in events {
+                let discriminant =
+                    Discriminant::from_log_event(event.as_log(), &["request_id".to_string()]);
+                let log_event = event.into_log();
+                reduce.push_or_new_reduce_state(log_event.clone(), log_event, discriminant);
+            }
+
+            // Add a custom date kind for testing
+            reduce.mezmo_metadata.save_date_kind("timestamp", "integer");
+
+            // Persist the state
+            reduce.persist_state().await;
+
+            // Verify persistence completed by checking the database directly
+            if let Some(state_persistence) = &reduce.state_persistence {
+                let stored_data = state_persistence.get(STATE_PERSISTENCE_KEY).unwrap();
+                assert!(stored_data.is_some(), "State was not persisted");
+            }
+
+            mezmo_ctx
+        };
+
+        // Now create a new instance that should load the persisted state
+        let config_str = format!(
+            r#"
+                expire_after_ms = 30000
+                flush_period_ms = 10000
+                group_by = ["request_id"]
+                state_persistence_base_path = "{}"
+                state_persistence_tick_ms = 100
+
+                [merge_strategies]
+                counter = "sum"
+                message = "concat"
+                "#,
+            state_persistence_base_path
+        );
+
+        let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
+        let context = TransformContext {
+            mezmo_ctx: Some(mezmo_ctx),
+            ..Default::default()
+        };
+        let new_reduce = MezmoReduce::new(&reduce_config, &context).unwrap();
+
+        // Verify the state was loaded
+        assert_eq!(new_reduce.reduce_merge_states.len(), 2);
+
+        // Verify date kinds were loaded
+        let loaded_date_kind = new_reduce.mezmo_metadata.get_date_kind("timestamp");
+        assert_eq!(loaded_date_kind, "integer");
+
+        // Verify the discriminants match what we expect
+        let discriminants: Vec<String> = new_reduce
+            .reduce_merge_states
+            .keys()
+            .map(|d| d.to_string())
+            .collect();
+
+        assert!(discriminants.iter().any(|d| d.contains("req-1")));
+        assert!(discriminants.iter().any(|d| d.contains("req-2")));
+    }
+
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
+    async fn test_load_initial_state_handles_missing_data() {
+        let temp_dir = tempdir().expect("Could not create temp dir");
+        let state_persistence_base_path = temp_dir.path().to_str().unwrap();
+
+        // Create a MezmoReduce instance pointing to an empty RocksDB
+        let config_str = format!(
+            r#"
+                expire_after_ms = 30000
+                group_by = ["request_id"]
+                state_persistence_base_path = "{}"
+                "#,
+            state_persistence_base_path
+        );
+
+        let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
+        let mezmo_ctx = test_mezmo_context();
+
+        let ctx = TransformContext {
+            mezmo_ctx: Some(mezmo_ctx),
+            ..Default::default()
+        };
+        let reduce = MezmoReduce::new(&reduce_config, &ctx).unwrap();
+
+        // Should have empty state when no persisted data exists
+        assert_eq!(reduce.reduce_merge_states.len(), 0);
+    }
+
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
+    async fn test_load_initial_state_handles_corrupted_data() {
+        let temp_dir = tempdir().expect("Could not create temp dir");
+        let state_persistence_base_path = temp_dir.path().to_str().unwrap();
+        let mezmo_ctx = test_mezmo_context();
+
+        // First, write corrupted data to RocksDB
+        {
+            let db_path = format!("{}/reduce", state_persistence_base_path);
+            let state_persistence =
+                Arc::new(RocksDBPersistenceConnection::new(&db_path, &mezmo_ctx).unwrap());
+
+            // Write invalid JSON
+            let _ = state_persistence.set(STATE_PERSISTENCE_KEY, "invalid json data");
+        }
+
+        // Now try to create a MezmoReduce instance
+        let config_str = format!(
+            r#"
+                expire_after_ms = 30000
+                group_by = ["request_id"]
+                state_persistence_base_path = "{}"
+                "#,
+            state_persistence_base_path
+        );
+
+        let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
+        let context = TransformContext::default();
+        let reduce = MezmoReduce::new(&reduce_config, &context).unwrap();
+
+        // Should have empty state when corrupted data is encountered
+        assert_eq!(reduce.reduce_merge_states.len(), 0);
+    }
+
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
+    async fn test_periodic_state_persistence() {
+        let (mut reduce, _temp_dir) = create_test_reduce_with_persistence().await;
+
+        // Add some events
+        let events = vec![
+            create_test_event("req-1", 10, "first"),
+            create_test_event("req-1", 20, "second"),
+        ];
+
+        for event in events {
+            let discriminant =
+                Discriminant::from_log_event(event.as_log(), &["request_id".to_string()]);
+            let log_event = event.into_log();
+            reduce.push_or_new_reduce_state(log_event.clone(), log_event, discriminant);
+        }
+
+        // Manually trigger persist_state multiple times to simulate periodic persistence
+        reduce.persist_state().await;
+
+        // Add more state
+        let event = create_test_event("req-2", 5, "additional");
+        let discriminant =
+            Discriminant::from_log_event(event.as_log(), &["request_id".to_string()]);
+        let log_event = event.into_log();
+        reduce.push_or_new_reduce_state(log_event.clone(), log_event, discriminant);
+
+        // Persist again
+        reduce.persist_state().await;
+
+        // Verify final state was persisted
+        if let Some(state_persistence) = &reduce.state_persistence {
+            let stored_data = state_persistence.get(STATE_PERSISTENCE_KEY).unwrap();
+            assert!(stored_data.is_some());
+
+            let stored_state: PersistedState = serde_json::from_str(&stored_data.unwrap()).unwrap();
+
+            // Should have both discriminants
+            assert_eq!(stored_state.merge_state.len(), 2);
+        }
+    }
+
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
+    async fn test_combined_state_serialization() {
+        // Test the PersistedState structure directly
+        #[allow(clippy::mutable_key_type)]
+        let mut merge_state = HashMap::new();
+        let mut date_kinds_state = HashMap::new();
+
+        // Create a mock ReduceState (this is simplified for testing)
+        let test_event = create_test_event("test", 1, "msg");
+        let discriminant =
+            Discriminant::from_log_event(test_event.as_log(), &["request_id".to_string()]);
+
+        let strategies = IndexMap::new();
+        let mezmo_metadata = MezmoMetadata::new(HashMap::new(), HashMap::new());
+        let reduce_state = ReduceState::new(
+            test_event.as_log().clone(),
+            test_event.into_log(),
+            &strategies,
+            mezmo_metadata,
+            &[KeyString::from("request_id")],
+        );
+
+        merge_state.insert(discriminant, reduce_state);
+        date_kinds_state.insert("timestamp".to_string(), "integer".to_string());
+
+        let combined_state = PersistedState::from_runtime_state(&merge_state, &date_kinds_state);
+
+        // Test serialization
+        let serialized = serde_json::to_string(&combined_state).unwrap();
+        assert!(serialized.contains("merge_state"));
+        assert!(serialized.contains("date_kinds_state"));
+
+        // Test deserialization
+        let deserialized: PersistedState = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.merge_state.len(), 1);
+        assert_eq!(deserialized.date_kinds_state.len(), 1);
+        assert_eq!(
+            deserialized.date_kinds_state.get("timestamp").unwrap(),
+            "integer"
+        );
+    }
+
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
+    async fn test_state_persistence_with_different_merge_strategies() {
+        let temp_dir = tempdir().expect("Could not create temp dir");
+        let state_persistence_base_path = temp_dir.path().to_str().unwrap();
+
+        // Create shared mezmo_ctx for both instances
+        let mezmo_ctx = test_mezmo_context();
+
+        let mut reduce = {
+            let config_str = format!(
+                r#"
+                    expire_after_ms = 30000
+                    flush_period_ms = 10000
+                    group_by = ["request_id"]
+                    state_persistence_base_path = "{}"
+                    state_persistence_tick_ms = 100
+
+                    [merge_strategies]
+                    counter = "sum"
+                    message = "concat"
+                    "#,
+                state_persistence_base_path
+            );
+
+            let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
+            let ctx = TransformContext {
+                mezmo_ctx: Some(mezmo_ctx.clone()),
+                ..Default::default()
+            };
+            MezmoReduce::new(&reduce_config, &ctx).unwrap()
+        };
+
+        // Create events that will exercise different merge strategies
+        let mut event1 = LogEvent::default();
+        event1.insert("request_id", "req-1");
+        event1.insert("message.counter", 10); // sum strategy
+        event1.insert("message.message", "first"); // concat strategy
+
+        let mut event2 = LogEvent::default();
+        event2.insert("request_id", "req-1");
+        event2.insert("message.counter", 15); // sum strategy
+        event2.insert("message.message", "second"); // concat strategy
+
+        let events = vec![Event::Log(event1), Event::Log(event2)];
+
+        for event in events {
+            let discriminant =
+                Discriminant::from_log_event(event.as_log(), &["request_id".to_string()]);
+            let log_event = event.into_log();
+            reduce.push_or_new_reduce_state(log_event.clone(), log_event, discriminant);
+        }
+
+        // Persist the state
+        reduce.persist_state().await;
+
+        // Verify persistence completed by checking the database directly
+        if let Some(state_persistence) = &reduce.state_persistence {
+            let stored_data = state_persistence.get(STATE_PERSISTENCE_KEY).unwrap();
+            assert!(stored_data.is_some(), "State was not persisted");
+        }
+
+        // Load state into new instance
+        let config_str = format!(
+            r#"
+                expire_after_ms = 30000
+                group_by = ["request_id"]
+                state_persistence_base_path = "{}"
+
+                [merge_strategies]
+                counter = "sum"
+                message = "concat"
+                "#,
+            state_persistence_base_path
+        );
+
+        let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
+        let context = TransformContext {
+            mezmo_ctx: Some(mezmo_ctx),
+            ..Default::default()
+        };
+        let new_reduce = MezmoReduce::new(&reduce_config, &context).unwrap();
+
+        // Verify state was loaded with correct merge strategies
+        assert_eq!(new_reduce.reduce_merge_states.len(), 1);
+
+        // The state should contain the merged values from both events
+        let state = new_reduce.reduce_merge_states.values().next().unwrap();
+        assert!(state
+            .message_fields
+            .contains_key(&KeyString::from("request_id")));
+        assert!(state
+            .message_fields
+            .contains_key(&KeyString::from("message")));
+    }
+
+    #[tokio::test]
+    async fn test_discriminant_serialization_roundtrip() {
+        // Create a HashMap with Discriminant keys
+        #[allow(clippy::mutable_key_type)]
+        let mut merge_state = HashMap::new();
+        let mut date_kinds_state = HashMap::new();
+
+        // Create discriminants with different value types
+        let discriminant1 = Discriminant::from_values(vec![
+            Some(Value::Bytes("req-1".into())),
+            Some(Value::Integer(123)),
+        ]);
+        let discriminant2 =
+            Discriminant::from_values(vec![Some(Value::Bytes("req-2".into())), None]);
+        let discriminant3 = Discriminant::from_values(vec![
+            Some(Value::Boolean(true)),
+            Some(Value::Float(ordered_float::NotNan::new(45.67).unwrap())),
+        ]);
+
+        // Create test reduce states
+        let test_event = create_test_event("test", 1, "msg");
+        let strategies = IndexMap::new();
+        let mezmo_metadata = MezmoMetadata::new(HashMap::new(), HashMap::new());
+
+        let reduce_state1 = ReduceState::new(
+            test_event.as_log().clone(),
+            test_event.clone().into_log(),
+            &strategies,
+            mezmo_metadata.clone(),
+            &[KeyString::from("request_id")],
+        );
+
+        let reduce_state2 = ReduceState::new(
+            test_event.as_log().clone(),
+            test_event.clone().into_log(),
+            &strategies,
+            mezmo_metadata.clone(),
+            &[KeyString::from("request_id")],
+        );
+
+        let reduce_state3 = ReduceState::new(
+            test_event.as_log().clone(),
+            test_event.into_log(),
+            &strategies,
+            mezmo_metadata,
+            &[KeyString::from("request_id")],
+        );
+
+        merge_state.insert(discriminant1.clone(), reduce_state1);
+        merge_state.insert(discriminant2.clone(), reduce_state2);
+        merge_state.insert(discriminant3.clone(), reduce_state3);
+
+        date_kinds_state.insert("timestamp".to_string(), "integer".to_string());
+
+        // Convert to serializable format
+        let persisted_state = PersistedState::from_runtime_state(&merge_state, &date_kinds_state);
+
+        // Test serialization
+        let serialized = serde_json::to_string(&persisted_state).unwrap();
+
+        // Verify JSON structure is valid
+        assert!(serialized.contains("merge_state"));
+        assert!(serialized.contains("date_kinds_state"));
+
+        // Test deserialization
+        let deserialized: PersistedState = serde_json::from_str(&serialized).unwrap();
+
+        // Convert back to runtime format
+        let (restored_merge_state, restored_date_kinds_state) = deserialized.to_runtime_state();
+
+        // Verify all discriminants were restored correctly
+        assert_eq!(restored_merge_state.len(), 3);
+        assert_eq!(restored_date_kinds_state.len(), 1);
+
+        // Check that discriminants are equivalent (they should be equal due to PartialEq impl)
+        assert!(restored_merge_state.contains_key(&discriminant1));
+        assert!(restored_merge_state.contains_key(&discriminant2));
+        assert!(restored_merge_state.contains_key(&discriminant3));
+
+        // Verify date kinds state
+        assert_eq!(
+            restored_date_kinds_state.get("timestamp").unwrap(),
+            "integer"
+        );
+
+        // Verify discriminant values are correctly preserved
+        for original_discriminant in merge_state.keys() {
+            let found = restored_merge_state
+                .keys()
+                .any(|restored_discriminant| restored_discriminant == original_discriminant);
+            assert!(
+                found,
+                "Discriminant not found after roundtrip: {:?}",
+                original_discriminant
             );
         }
     }
