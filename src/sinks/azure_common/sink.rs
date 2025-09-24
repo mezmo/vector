@@ -1,24 +1,25 @@
 use std::fmt;
 
 use crate::sinks::{prelude::*, util::partitioner::KeyPartitioner};
+use vector_lib::{event::Event, partition::Partitioner};
 
 // MEZMO: added dependency for s3-sink file consolidation
 use crate::sinks::azure_blob::file_consolidator_async::FileConsolidatorAsync;
 
-pub struct AzureBlobSink<Svc, RB> {
+pub struct AzureBlobSink<Svc, RB, P = KeyPartitioner> {
     service: Svc,
     request_builder: RB,
-    partitioner: KeyPartitioner,
+    partitioner: P,
     batcher_settings: BatcherSettings,
     // MEZMO: added property for azure-blob-sink file consolidation
     file_consolidator: Option<FileConsolidatorAsync>,
 }
 
-impl<Svc, RB> AzureBlobSink<Svc, RB> {
+impl<Svc, RB, P> AzureBlobSink<Svc, RB, P> {
     pub const fn new(
         service: Svc,
         request_builder: RB,
-        partitioner: KeyPartitioner,
+        partitioner: P,
         batcher_settings: BatcherSettings,
         file_consolidator: Option<FileConsolidatorAsync>,
     ) -> Self {
@@ -32,7 +33,7 @@ impl<Svc, RB> AzureBlobSink<Svc, RB> {
     }
 }
 
-impl<Svc, RB> AzureBlobSink<Svc, RB>
+impl<Svc, RB, P> AzureBlobSink<Svc, RB, P>
 where
     Svc: Service<RB::Request> + Send + 'static,
     Svc::Future: Send + 'static,
@@ -41,6 +42,9 @@ where
     RB: RequestBuilder<(String, Vec<Event>)> + Send + Sync + 'static,
     RB::Error: fmt::Display + Send,
     RB::Request: Finalizable + MetaDescriptive + Send,
+    P: Partitioner<Item = Event, Key = Option<String>> + Unpin + Send,
+    P::Key: Eq + std::hash::Hash + Clone,
+    P::Item: ByteSizeOf,
 {
     async fn run_inner(self: Box<Self>, input: BoxStream<'_, Event>) -> Result<(), ()> {
         let partitioner = self.partitioner;
@@ -85,7 +89,7 @@ where
 }
 
 #[async_trait]
-impl<Svc, RB> StreamSink<Event> for AzureBlobSink<Svc, RB>
+impl<Svc, RB, P> StreamSink<Event> for AzureBlobSink<Svc, RB, P>
 where
     Svc: Service<RB::Request> + Send + 'static,
     Svc::Future: Send + 'static,
@@ -94,6 +98,9 @@ where
     RB: RequestBuilder<(String, Vec<Event>)> + Send + Sync + 'static,
     RB::Error: fmt::Display + Send,
     RB::Request: Finalizable + MetaDescriptive + Send,
+    P: Partitioner<Item = Event, Key = Option<String>> + Unpin + Send,
+    P::Key: Eq + std::hash::Hash + Clone,
+    P::Item: ByteSizeOf,
 {
     async fn run(mut self: Box<Self>, input: BoxStream<'_, Event>) -> Result<(), ()> {
         self.run_inner(input).await

@@ -288,7 +288,7 @@ impl GcsSinkConfig {
         let protocol = get_http_scheme_from_uri(&base_url.parse::<Uri>().unwrap());
 
         let svc = ServiceBuilder::new()
-            .settings(request, GcsRetryLogic)
+            .settings(request, GcsRetryLogic::default())
             .service(MezmoLoggingService::new(
                 GcsService::new(client, base_url, auth),
                 cx.mezmo_ctx.clone(),

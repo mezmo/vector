@@ -6,11 +6,42 @@ use bytes::{Buf, Bytes};
 use futures::{future::BoxFuture, Sink};
 use headers::HeaderName;
 use http::{header, HeaderValue, Request, Response, StatusCode};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OrderedHeaderName(HeaderName);
+
+impl OrderedHeaderName {
+    pub const fn new(header_name: HeaderName) -> Self {
+        Self(header_name)
+    }
+
+    pub const fn inner(&self) -> &HeaderName {
+        &self.0
+    }
+}
+
+impl From<HeaderName> for OrderedHeaderName {
+    fn from(header_name: HeaderName) -> Self {
+        Self(header_name)
+    }
+}
+
+impl Ord for OrderedHeaderName {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.as_str().cmp(other.0.as_str())
+    }
+}
+
+impl PartialOrd for OrderedHeaderName {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 use hyper::{body, Body};
-use indexmap::IndexMap;
 use pin_project::pin_project;
 use snafu::{ResultExt, Snafu};
 use std::{
+    collections::BTreeMap,
     fmt,
     future::Future,
     hash::Hash,
@@ -44,6 +75,7 @@ use crate::{
     internal_events::{EndpointBytesSent, SinkRequestBuildError},
     mezmo::user_trace::MezmoHttpBatchLoggingService,
     sinks::prelude::*,
+    template::Template,
 };
 
 pub trait HttpEventEncoder<Output> {
@@ -79,12 +111,14 @@ pub trait HttpSink: Send + Sync + 'static {
 ///
 /// Note: This has been deprecated, please do not use when creating new Sinks.
 #[pin_project]
-pub struct BatchedHttpSink<T, B, RL = HttpRetryLogic>
+pub struct BatchedHttpSink<T, B, RL = HttpRetryLogic<<B as Batch>::Output>>
 where
     B: Batch,
-    B::Output: ByteSizeOf + Clone + Send + 'static,
+    B::Output: ByteSizeOf + Clone + Sync + Send + 'static,
     T: HttpSink<Input = B::Input, Output = B::Output>,
-    RL: RetryLogic<Response = http::Response<Bytes>> + Send + 'static,
+    RL: RetryLogic<Request = <B as Batch>::Output, Response = http::Response<Bytes>>
+        + Send
+        + 'static,
 {
     sink: Arc<T>,
     #[pin]
@@ -106,7 +140,7 @@ where
 impl<T, B> BatchedHttpSink<T, B>
 where
     B: Batch,
-    B::Output: ByteSizeOf + Clone + Send + 'static,
+    B::Output: ByteSizeOf + Clone + Sync + Send + 'static,
     T: HttpSink<Input = B::Input, Output = B::Output>,
 {
     pub fn new(
@@ -120,7 +154,7 @@ where
         Self::with_logic(
             sink,
             batch,
-            HttpRetryLogic,
+            HttpRetryLogic::default(),
             request_settings,
             batch_timeout,
             client,
@@ -132,8 +166,10 @@ where
 impl<T, B, RL> BatchedHttpSink<T, B, RL>
 where
     B: Batch,
-    B::Output: ByteSizeOf + Clone + Send + 'static,
-    RL: RetryLogic<Response = http::Response<Bytes>, Error = HttpError> + Send + 'static,
+    B::Output: ByteSizeOf + Clone + Sync + Send + 'static,
+    RL: RetryLogic<Request = B::Output, Response = http::Response<Bytes>, Error = HttpError>
+        + Send
+        + 'static,
     T: HttpSink<Input = B::Input, Output = B::Output>,
 {
     pub fn with_logic(
@@ -172,9 +208,11 @@ where
 impl<T, B, RL> Sink<Event> for BatchedHttpSink<T, B, RL>
 where
     B: Batch,
-    B::Output: ByteSizeOf + Clone + Send + 'static,
+    B::Output: ByteSizeOf + Clone + Sync + Send + 'static,
     T: HttpSink<Input = B::Input, Output = B::Output>,
-    RL: RetryLogic<Response = http::Response<Bytes>> + Send + 'static,
+    RL: RetryLogic<Request = <B as Batch>::Output, Response = http::Response<Bytes>>
+        + Send
+        + 'static,
 {
     type Error = crate::Error;
 
@@ -228,14 +266,14 @@ where
 
 /// Note: This has been deprecated, please do not use when creating new Sinks.
 #[pin_project]
-pub struct PartitionHttpSink<T, B, K, RL = HttpRetryLogic>
+pub struct PartitionHttpSink<T, B, K, RL = HttpRetryLogic<<B as Batch>::Output>>
 where
     B: Batch,
-    B::Output: ByteSizeOf + Clone + Send + 'static,
+    B::Output: ByteSizeOf + Clone + Sync + Send + 'static,
     B::Input: Partition<K>,
     K: Hash + Eq + Clone + Send + 'static,
     T: HttpSink<Input = B::Input, Output = B::Output>,
-    RL: RetryLogic<Response = http::Response<Bytes>> + Send + 'static,
+    RL: RetryLogic<Request = B::Output, Response = http::Response<Bytes>> + Send + 'static,
 {
     sink: Arc<T>,
     #[pin]
@@ -252,10 +290,10 @@ where
     slot: Option<EncodedEvent<B::Input>>,
 }
 
-impl<T, B, K> PartitionHttpSink<T, B, K, HttpRetryLogic>
+impl<T, B, K> PartitionHttpSink<T, B, K, HttpRetryLogic<<B as Batch>::Output>>
 where
     B: Batch,
-    B::Output: ByteSizeOf + Clone + Send + 'static,
+    B::Output: ByteSizeOf + Clone + Sync + Send + 'static,
     B::Input: Partition<K>,
     K: Hash + Eq + Clone + Send + 'static,
     T: HttpSink<Input = B::Input, Output = B::Output>,
@@ -271,7 +309,7 @@ where
         Self::with_retry_logic(
             sink,
             batch,
-            HttpRetryLogic,
+            HttpRetryLogic::default(),
             request_settings,
             batch_timeout,
             client,
@@ -283,11 +321,13 @@ where
 impl<T, B, K, RL> PartitionHttpSink<T, B, K, RL>
 where
     B: Batch,
-    B::Output: ByteSizeOf + Clone + Send + 'static,
+    B::Output: ByteSizeOf + Clone + Sync + Send + 'static,
     B::Input: Partition<K>,
     K: Hash + Eq + Clone + Send + 'static,
     T: HttpSink<Input = B::Input, Output = B::Output>,
-    RL: RetryLogic<Response = http::Response<Bytes>, Error = HttpError> + Send + 'static,
+    RL: RetryLogic<Request = B::Output, Response = http::Response<Bytes>, Error = HttpError>
+        + Send
+        + 'static,
 {
     pub fn with_retry_logic(
         sink: T,
@@ -332,11 +372,11 @@ where
 impl<T, B, K, RL> Sink<Event> for PartitionHttpSink<T, B, K, RL>
 where
     B: Batch,
-    B::Output: ByteSizeOf + Clone + Send + 'static,
+    B::Output: ByteSizeOf + Clone + Sync + Send + 'static,
     B::Input: Partition<K>,
     K: Hash + Eq + Clone + Send + 'static,
     T: HttpSink<Input = B::Input, Output = B::Output>,
-    RL: RetryLogic<Response = http::Response<Bytes>> + Send + 'static,
+    RL: RetryLogic<Request = B::Output, Response = http::Response<Bytes>> + Send + 'static,
 {
     type Error = crate::Error;
 
@@ -530,18 +570,28 @@ impl<T: fmt::Debug> sink::Response for http::Response<T> {
     }
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct HttpRetryLogic;
+#[derive(Debug, Clone)]
+pub struct HttpRetryLogic<Req> {
+    request: PhantomData<Req>,
+}
+impl<Req> Default for HttpRetryLogic<Req> {
+    fn default() -> Self {
+        Self {
+            request: PhantomData,
+        }
+    }
+}
 
-impl RetryLogic for HttpRetryLogic {
+impl<Req: Clone + Send + Sync + 'static> RetryLogic for HttpRetryLogic<Req> {
     type Error = HttpError;
+    type Request = Req;
     type Response = hyper::Response<Bytes>;
 
     fn is_retriable_error(&self, _error: &Self::Error) -> bool {
         true
     }
 
-    fn should_retry_response(&self, response: &Self::Response) -> RetryAction {
+    fn should_retry_response(&self, response: &Self::Response) -> RetryAction<Self::Request> {
         let status = response.status();
 
         match status {
@@ -554,7 +604,7 @@ impl RetryLogic for HttpRetryLogic {
                 format!("{}: {}", status, String::from_utf8_lossy(response.body())).into(),
             ),
             _ if status.is_success() => RetryAction::Successful,
-            _ => RetryAction::DontRetry(format!("response status: {}", status).into()),
+            _ => RetryAction::DontRetry(format!("response status: {status}").into()),
         }
     }
 }
@@ -562,37 +612,42 @@ impl RetryLogic for HttpRetryLogic {
 /// A more generic version of `HttpRetryLogic` that accepts anything that can be converted
 /// to a status code
 #[derive(Debug)]
-pub struct HttpStatusRetryLogic<F, T> {
+pub struct HttpStatusRetryLogic<F, Req, Res> {
     func: F,
-    request: PhantomData<T>,
+    request: PhantomData<Req>,
+    response: PhantomData<Res>,
 }
 
-impl<F, T> HttpStatusRetryLogic<F, T>
+impl<F, Req, Res> HttpStatusRetryLogic<F, Req, Res>
 where
-    F: Fn(&T) -> StatusCode + Clone + Send + Sync + 'static,
-    T: Send + Sync + 'static,
+    F: Fn(&Res) -> StatusCode + Clone + Send + Sync + 'static,
+    Req: Send + Sync + 'static,
+    Res: Send + Sync + 'static,
 {
-    pub const fn new(func: F) -> HttpStatusRetryLogic<F, T> {
+    pub const fn new(func: F) -> HttpStatusRetryLogic<F, Req, Res> {
         HttpStatusRetryLogic {
             func,
             request: PhantomData,
+            response: PhantomData,
         }
     }
 }
 
-impl<F, T> RetryLogic for HttpStatusRetryLogic<F, T>
+impl<F, Req, Res> RetryLogic for HttpStatusRetryLogic<F, Req, Res>
 where
-    F: Fn(&T) -> StatusCode + Clone + Send + Sync + 'static,
-    T: Send + Sync + 'static,
+    F: Fn(&Res) -> StatusCode + Clone + Send + Sync + 'static,
+    Req: Send + Sync + 'static,
+    Res: Send + Sync + 'static,
 {
     type Error = HttpError;
-    type Response = T;
+    type Request = Req;
+    type Response = Res;
 
     fn is_retriable_error(&self, _error: &Self::Error) -> bool {
         true
     }
 
-    fn should_retry_response(&self, response: &T) -> RetryAction {
+    fn should_retry_response(&self, response: &Res) -> RetryAction<Req> {
         let status = (self.func)(response);
 
         match status {
@@ -602,15 +657,15 @@ where
                 RetryAction::DontRetry("endpoint not implemented".into())
             }
             _ if status.is_server_error() => {
-                RetryAction::Retry(format!("Http Status: {}", status).into())
+                RetryAction::Retry(format!("Http Status: {status}").into())
             }
             _ if status.is_success() => RetryAction::Successful,
-            _ => RetryAction::DontRetry(format!("Http status: {}", status).into()),
+            _ => RetryAction::DontRetry(format!("Http status: {status}").into()),
         }
     }
 }
 
-impl<F, T> Clone for HttpStatusRetryLogic<F, T>
+impl<F, Req, Res> Clone for HttpStatusRetryLogic<F, Req, Res>
 where
     F: Clone,
 {
@@ -618,6 +673,7 @@ where
         Self {
             func: self.func.clone(),
             request: PhantomData,
+            response: PhantomData,
         }
     }
 }
@@ -632,25 +688,48 @@ pub struct RequestConfig {
     /// Additional HTTP headers to add to every HTTP request.
     #[serde(default)]
     #[configurable(metadata(
-        docs::additional_props_description = "An HTTP request header and it's value."
+        docs::additional_props_description = "An HTTP request header and its value. Both header names and values support templating with event data."
     ))]
     #[configurable(metadata(docs::examples = "headers_examples()"))]
-    pub headers: IndexMap<String, String>,
+    pub headers: BTreeMap<String, String>,
 }
 
-fn headers_examples() -> IndexMap<String, String> {
-    IndexMap::<_, _>::from_iter([
-        ("Accept".to_owned(), "text/plain".to_owned()),
-        ("X-My-Custom-Header".to_owned(), "A-Value".to_owned()),
-    ])
+fn headers_examples() -> BTreeMap<String, String> {
+    btreemap! {
+        "Accept" => "text/plain",
+        "X-My-Custom-Header" => "A-Value",
+        "X-Event-Level" => "{{level}}",
+        "X-Event-Timestamp" => "{{timestamp}}",
+    }
 }
 
 impl RequestConfig {
-    pub fn add_old_option(&mut self, headers: Option<IndexMap<String, String>>) {
+    pub fn add_old_option(&mut self, headers: Option<BTreeMap<String, String>>) {
         if let Some(headers) = headers {
             warn!("Option `headers` has been deprecated. Use `request.headers` instead.");
             self.headers.extend(headers);
         }
+    }
+
+    pub fn split_headers(&self) -> (BTreeMap<String, String>, BTreeMap<String, Template>) {
+        let mut static_headers = BTreeMap::new();
+        let mut template_headers = BTreeMap::new();
+
+        for (name, value) in &self.headers {
+            match Template::try_from(value.as_str()) {
+                Ok(template) if !template.is_dynamic() => {
+                    static_headers.insert(name.clone(), value.clone());
+                }
+                Ok(template) => {
+                    template_headers.insert(name.clone(), template);
+                }
+                Err(_) => {
+                    static_headers.insert(name.clone(), value.clone());
+                }
+            }
+        }
+
+        (static_headers, template_headers)
     }
 }
 
@@ -669,23 +748,23 @@ pub enum HeaderValidationError {
 }
 
 pub fn validate_headers(
-    headers: &IndexMap<String, String>,
-) -> crate::Result<IndexMap<HeaderName, HeaderValue>> {
-    let mut validated_headers = IndexMap::new();
+    headers: &BTreeMap<String, String>,
+) -> crate::Result<BTreeMap<OrderedHeaderName, HeaderValue>> {
+    let mut validated_headers = BTreeMap::new();
     for (name, value) in headers {
         let name = HeaderName::from_bytes(name.as_bytes())
             .with_context(|_| InvalidHeaderNameSnafu { name })?;
         let value = HeaderValue::from_bytes(value.as_bytes())
             .with_context(|_| InvalidHeaderValueSnafu { value })?;
 
-        validated_headers.insert(name, value);
+        validated_headers.insert(name.into(), value);
     }
 
     Ok(validated_headers)
 }
 
 /// Request type for use in the `Service` implementation of HTTP stream sinks.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct HttpRequest<T: Send> {
     payload: Bytes,
     finalizers: EventFinalizers,
@@ -768,8 +847,9 @@ impl DriverResponse for HttpResponse {
 }
 
 /// Creates a `RetryLogic` for use with `HttpResponse`.
-pub fn http_response_retry_logic() -> HttpStatusRetryLogic<
+pub fn http_response_retry_logic<Request: Clone + Send + Sync + 'static>() -> HttpStatusRetryLogic<
     impl Fn(&HttpResponse) -> StatusCode + Clone + Send + Sync + 'static,
+    Request,
     HttpResponse,
 > {
     HttpStatusRetryLogic::new(|req: &HttpResponse| req.http_response.status())
@@ -885,22 +965,13 @@ impl UserLoggingResponse for HttpResponse {
         if status.is_success() {
             match status {
                 StatusCode::MULTI_STATUS => Some(
-                    format!(
-                        "Partial error returned from destination with status code: {}",
-                        status
-                    )
-                    .into(),
+                    format!("Partial error returned from destination with status code: {status}",)
+                        .into(),
                 ),
                 _ => None,
             }
         } else {
-            Some(
-                format!(
-                    "Error returned from destination with status code: {}",
-                    status
-                )
-                .into(),
-            )
+            Some(format!("Error returned from destination with status code: {status}",).into())
         }
     }
 
@@ -914,7 +985,7 @@ impl UserLoggingResponse for HttpResponse {
 impl UserLoggingError for crate::Error {
     fn log_msg(&self) -> Option<Value> {
         let msg = match self.downcast_ref::<HttpError>() {
-            Some(err) => Value::from(format!("{}", err)),
+            Some(err) => Value::from(format!("{err}")),
             None => Value::from("Request failed".to_string()),
         };
         Some(msg)
@@ -936,7 +1007,7 @@ mod test {
 
     #[test]
     fn util_http_retry_logic() {
-        let logic = HttpRetryLogic;
+        let logic = HttpRetryLogic::<()>::default();
 
         let response_408 = Response::builder().status(408).body(Bytes::new()).unwrap();
         let response_429 = Response::builder().status(429).body(Bytes::new()).unwrap();
@@ -982,7 +1053,7 @@ mod test {
                 async move {
                     let mut body = hyper::body::aggregate(req.into_body())
                         .await
-                        .map_err(|error| format!("error: {}", error))?;
+                        .map_err(|error| format!("error: {error}"))?;
                     let string = String::from_utf8(body.copy_to_bytes(body.remaining()).to_vec())
                         .map_err(|_| "Wasn't UTF-8".to_string())?;
                     tx.try_send(string).map_err(|_| "Send error".to_string())?;
@@ -996,14 +1067,14 @@ mod test {
 
         tokio::spawn(async move {
             if let Err(error) = Server::bind(&addr).serve(new_service).await {
-                eprintln!("Server error: {}", error);
+                eprintln!("Server error: {error}");
             }
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         service.call(request).await.unwrap();
 
-        let (body, _rest) = rx.into_future().await;
+        let (body, _rest) = StreamExt::into_future(rx).await;
         assert_eq!(body.unwrap(), "hello");
     }
 }

@@ -67,7 +67,7 @@ async fn elasticsearch_mezmo_message_reshaping_happens() {
     flush(common).await.unwrap();
 
     let response = reqwest::Client::new()
-        .get(format!("{}/{}/_search", base_url, index))
+        .get(format!("{base_url}/{index}/_search"))
         .json(&json!({
             "query": { "query_string": { "query": "*" } }
         }))
@@ -151,7 +151,7 @@ async fn elasticsearch_mezmo_message_reshaping_does_not_happen() {
     flush(common).await.unwrap();
 
     let response = reqwest::Client::new()
-        .get(format!("{}/{}/_search", base_url, index))
+        .get(format!("{base_url}/{index}/_search"))
         .json(&json!({
             "query": { "query_string": { "query": "*" } }
         }))

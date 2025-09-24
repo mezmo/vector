@@ -115,6 +115,62 @@ pub struct ClickhouseConfig {
         skip_serializing_if = "crate::serde::is_default"
     )]
     pub acknowledgements: AcknowledgementsConfig,
+
+    #[configurable(derived)]
+    #[serde(default)]
+    pub query_settings: QuerySettingsConfig,
+}
+
+/// Query settings for the `clickhouse` sink.
+#[configurable_component]
+#[derive(Clone, Copy, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct QuerySettingsConfig {
+    /// Async insert-related settings.
+    #[serde(default)]
+    pub async_insert_settings: AsyncInsertSettingsConfig,
+}
+
+/// Async insert related settings for the `clickhouse` sink.
+#[configurable_component]
+#[derive(Clone, Copy, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AsyncInsertSettingsConfig {
+    /// Sets `async_insert`, allowing ClickHouse to queue the inserted data and later flush to table in the background.
+    ///
+    /// If left unspecified, use the default provided by the `ClickHouse` server.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+
+    /// Sets `wait_for`, allowing ClickHouse to wait for processing of asynchronous insertion.
+    ///
+    /// If left unspecified, use the default provided by the `ClickHouse` server.
+    #[serde(default)]
+    pub wait_for_processing: Option<bool>,
+
+    /// Sets 'wait_for_processing_timeout`, to control the timeout for waiting for processing asynchronous insertion.
+    ///
+    /// If left unspecified, use the default provided by the `ClickHouse` server.
+    #[serde(default)]
+    pub wait_for_processing_timeout: Option<u64>,
+
+    /// Sets `async_insert_deduplicate`, allowing ClickHouse to perform deduplication when inserting blocks in the replicated table.
+    ///
+    /// If left unspecified, use the default provided by the `ClickHouse` server.
+    #[serde(default)]
+    pub deduplicate: Option<bool>,
+
+    /// Sets `async_insert_max_data_size`, the maximum size in bytes of unparsed data collected per query before being inserted.
+    ///
+    /// If left unspecified, use the default provided by the `ClickHouse` server.
+    #[serde(default)]
+    pub max_data_size: Option<u64>,
+
+    /// Sets `async_insert_max_query_number`, the maximum number of insert queries before being inserted
+    ///
+    /// If left unspecified, use the default provided by the `ClickHouse` server.
+    #[serde(default)]
+    pub max_query_number: Option<u64>,
 }
 
 impl_generate_config_from_default!(ClickhouseConfig);
@@ -138,6 +194,7 @@ impl SinkConfig for ClickhouseConfig {
             date_time_best_effort: self.date_time_best_effort,
             insert_random_shard: self.insert_random_shard,
             compression: self.compression,
+            query_settings: self.query_settings,
         };
 
         let service: HttpService<ClickhouseServiceRequestBuilder, PartitionKey> =
@@ -218,8 +275,7 @@ async fn healthcheck(
 
     if status.is_client_error() || status.is_server_error() {
         let msg = Value::from(format!(
-            "Error returned from destination with status code: {}",
-            status
+            "Error returned from destination with status code: {status}",
         ));
         user_log_error!(cx.mezmo_ctx, msg);
     }

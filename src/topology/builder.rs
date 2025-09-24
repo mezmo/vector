@@ -8,6 +8,7 @@ use std::{
 
 use futures::{stream::FuturesOrdered, FutureExt, StreamExt, TryStreamExt};
 use futures_util::stream::FuturesUnordered;
+use metrics::gauge;
 use stream_cancel::{StreamExt as StreamCancelExt, Trigger, Tripwire};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::{select, sync::mpsc, sync::oneshot, time::timeout};
@@ -52,7 +53,7 @@ use crate::{
     spawn_named,
     topology::task::TaskError,
     transforms::{SyncTransform, TaskTransform, Transform, TransformOutputs, TransformOutputsBuf},
-    utilization::wrap,
+    utilization::{wrap, UtilizationComponentSender, UtilizationEmitter},
     SourceSender,
 };
 use mezmo::MezmoContext;
@@ -87,6 +88,7 @@ struct Builder<'a> {
     healthchecks: HashMap<ComponentKey, Task>,
     detach_triggers: HashMap<ComponentKey, Trigger>,
     extra_context: ExtraContext,
+    utilization_emitter: UtilizationEmitter,
 }
 
 impl<'a> Builder<'a> {
@@ -120,6 +122,7 @@ impl<'a> Builder<'a> {
             healthchecks: HashMap::new(),
             detach_triggers: HashMap::new(),
             extra_context,
+            utilization_emitter: UtilizationEmitter::new(),
         }
     }
 
@@ -143,6 +146,7 @@ impl<'a> Builder<'a> {
                 healthchecks: self.healthchecks,
                 shutdown_coordinator: self.shutdown_coordinator,
                 detach_triggers: self.detach_triggers,
+                utilization_emitter: Some(self.utilization_emitter),
             })
         } else {
             Err(self.errors)
@@ -185,7 +189,7 @@ impl<'a> Builder<'a> {
                     Ok(table) => table,
                     Err(error) => {
                         self.errors
-                            .push(format!("Enrichment Table \"{}\": {}", name, error));
+                            .push(format!("Enrichment Table \"{name}\": {error}"));
                         continue;
                     }
                 };
@@ -202,7 +206,8 @@ impl<'a> Builder<'a> {
                                 // Just report the error and continue.
                                 error!(message = "Unable to add index to reloaded enrichment table.",
                                     table = ?name.to_string(),
-                                    %error);
+                                    %error,
+                                    internal_log_rate_limit = true);
                                 continue 'tables;
                             }
                         }
@@ -370,7 +375,7 @@ impl<'a> Builder<'a> {
             let source = source.inner.build(context).await;
             let server = match source {
                 Err(error) => {
-                    self.errors.push(format!("Source \"{}\": {}", key, error));
+                    self.errors.push(format!("Source \"{key}\": {error}"));
                     continue;
                 }
                 Ok(server) => server,
@@ -521,8 +526,7 @@ impl<'a> Builder<'a> {
                 .await
             {
                 Err(error) => {
-                    self.errors
-                        .push(format!("Transform \"{}\": {}", key, error));
+                    self.errors.push(format!("Transform \"{key}\": {error}"));
                     continue;
                 }
                 Ok(transform) => transform,
@@ -539,7 +543,13 @@ impl<'a> Builder<'a> {
 
             let (transform_task, transform_outputs) = {
                 let _span = span.enter();
-                build_transform(transform, node, input_rx, usage_tracker)
+                build_transform(
+                    transform,
+                    node,
+                    input_rx,
+                    &mut self.utilization_emitter,
+                    usage_tracker,
+                )
             };
 
             self.outputs.extend(transform_outputs);
@@ -595,28 +605,30 @@ impl<'a> Builder<'a> {
                 self.errors.append(&mut err);
             };
 
-            let (tx, rx) = if let Some(buffer) = self.buffers.remove(key) {
-                buffer
-            } else {
-                let buffer_type = match sink.buffer.stages().first().expect("cant ever be empty") {
-                    BufferType::Memory { .. } => "memory",
-                    BufferType::DiskV2 { .. } => "disk",
-                };
-                let buffer_span = error_span!("sink", buffer_type);
-                let buffer = sink
-                    .buffer
-                    .build(
-                        self.config.global.data_dir.clone(),
-                        key.to_string(),
-                        buffer_span,
-                    )
-                    .await;
-                match buffer {
-                    Err(error) => {
-                        self.errors.push(format!("Sink \"{}\": {}", key, error));
-                        continue;
+            let (tx, rx) = match self.buffers.remove(key) {
+                Some(buffer) => buffer,
+                _ => {
+                    let buffer_type =
+                        match sink.buffer.stages().first().expect("cant ever be empty") {
+                            BufferType::Memory { .. } => "memory",
+                            BufferType::DiskV2 { .. } => "disk",
+                        };
+                    let buffer_span = error_span!("sink", buffer_type);
+                    let buffer = sink
+                        .buffer
+                        .build(
+                            self.config.global.data_dir.clone(),
+                            key.to_string(),
+                            buffer_span,
+                        )
+                        .await;
+                    match buffer {
+                        Err(error) => {
+                            self.errors.push(format!("Sink \"{key}\": {error}"));
+                            continue;
+                        }
+                        Ok((tx, rx)) => (tx, Arc::new(Mutex::new(Some(rx.into_stream())))),
                     }
-                    Ok((tx, rx)) => (tx, Arc::new(Mutex::new(Some(rx.into_stream())))),
                 }
             };
 
@@ -635,7 +647,7 @@ impl<'a> Builder<'a> {
 
             let (sink, healthcheck) = match sink.inner.build(cx).await {
                 Err(error) => {
-                    self.errors.push(format!("Sink \"{}\": {}", key, error));
+                    self.errors.push(format!("Sink \"{key}\": {error}"));
                     continue;
                 }
                 Ok(built) => built,
@@ -645,6 +657,10 @@ impl<'a> Builder<'a> {
             let metrics_tx = self.metrics_tx.clone();
             let sink_name = key.id().to_string();
 
+            let utilization_sender = self
+                .utilization_emitter
+                .add_component(key.clone(), gauge!("utilization"));
+            let component_key = key.clone();
             let sink = async move {
                 debug!("Sink starting.");
 
@@ -660,7 +676,7 @@ impl<'a> Builder<'a> {
                     .take()
                     .expect("Task started but input has been taken.");
 
-                let mut rx = wrap(rx);
+                let mut rx = wrap(utilization_sender, component_key.clone(), rx);
                 let usage_tracker =
                     get_component_usage_tracker(&sink_name.parse().ok(), &metrics_tx.clone());
 
@@ -737,6 +753,55 @@ impl<'a> Builder<'a> {
     }
 }
 
+pub async fn reload_enrichment_tables(config: &Config) {
+    let mut enrichment_tables = HashMap::new();
+    // Build enrichment tables
+    'tables: for (name, table_outer) in config.enrichment_tables.iter() {
+        let table_name = name.to_string();
+        if ENRICHMENT_TABLES.needs_reload(&table_name) {
+            let indexes = Some(ENRICHMENT_TABLES.index_fields(&table_name));
+
+            let mut table = match table_outer.inner.build(&config.global).await {
+                Ok(table) => table,
+                Err(error) => {
+                    error!(
+                        internal_log_rate_limit = true,
+                        "Enrichment table \"{name}\" reload failed: {error}",
+                    );
+                    continue;
+                }
+            };
+
+            if let Some(indexes) = indexes {
+                for (case, index) in indexes {
+                    match table
+                        .add_index(case, &index.iter().map(|s| s.as_ref()).collect::<Vec<_>>())
+                    {
+                        Ok(_) => (),
+                        Err(error) => {
+                            // If there is an error adding an index we do not want to use the reloaded
+                            // data, the previously loaded data will still need to be used.
+                            // Just report the error and continue.
+                            error!(
+                                internal_log_rate_limit = true,
+                                message = "Unable to add index to reloaded enrichment table.",
+                                table = ?name.to_string(),
+                                %error
+                            );
+                            continue 'tables;
+                        }
+                    }
+                }
+            }
+
+            enrichment_tables.insert(table_name, table);
+        }
+    }
+
+    ENRICHMENT_TABLES.load(enrichment_tables);
+    ENRICHMENT_TABLES.finish_load();
+}
+
 pub struct TopologyPieces {
     pub(super) inputs: HashMap<ComponentKey, (BufferSender<EventArray>, Inputs<OutputId>)>,
     pub(crate) outputs: HashMap<ComponentKey, HashMap<Option<String>, fanout::ControlChannel>>,
@@ -745,6 +810,7 @@ pub struct TopologyPieces {
     pub(super) healthchecks: HashMap<ComponentKey, Task>,
     pub(crate) shutdown_coordinator: SourceShutdownCoordinator,
     pub(crate) detach_triggers: HashMap<ComponentKey, Trigger>,
+    pub(crate) utilization_emitter: Option<UtilizationEmitter>,
 }
 
 impl TopologyPieces {
@@ -825,12 +891,21 @@ fn build_transform(
     transform: Transform,
     node: TransformNode,
     input_rx: BufferReceiver<EventArray>,
+    utilization_emitter: &mut UtilizationEmitter,
     usage_tracker: Box<dyn OutputUsageTracker>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
     match transform {
         // TODO: avoid the double boxing for function transforms here
-        Transform::Function(t) => build_sync_transform(Box::new(t), node, input_rx, usage_tracker),
-        Transform::Synchronous(t) => build_sync_transform(t, node, input_rx, usage_tracker),
+        Transform::Function(t) => build_sync_transform(
+            Box::new(t),
+            node,
+            input_rx,
+            utilization_emitter,
+            usage_tracker,
+        ),
+        Transform::Synchronous(t) => {
+            build_sync_transform(t, node, input_rx, utilization_emitter, usage_tracker)
+        }
         Transform::Task(t) => build_task_transform(
             t,
             input_rx,
@@ -838,6 +913,7 @@ fn build_transform(
             node.typetag,
             &node.key,
             &node.outputs,
+            utilization_emitter,
             usage_tracker,
         ),
     }
@@ -847,14 +923,17 @@ fn build_sync_transform(
     t: Box<dyn SyncTransform>,
     node: TransformNode,
     input_rx: BufferReceiver<EventArray>,
+    utilization_emitter: &mut UtilizationEmitter,
     usage_tracker: Box<dyn OutputUsageTracker>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
     let t = MezmoSyncTransformTrace::maybe_wrap(node.key.clone(), t);
     let (outputs, controls) = TransformOutputs::new(node.outputs, &node.key);
 
+    let sender = utilization_emitter.add_component(node.key.clone(), gauge!("utilization"));
     let runner = Runner::new(
         t,
         input_rx,
+        sender,
         node.input_details.data_type(),
         outputs,
         usage_tracker,
@@ -898,8 +977,7 @@ struct Runner {
     input_rx: Option<BufferReceiver<EventArray>>,
     input_type: DataType,
     outputs: TransformOutputs,
-    timer: crate::utilization::Timer,
-    last_report: Instant,
+    timer_tx: UtilizationComponentSender,
     usage_tracker: Box<dyn OutputUsageTracker>,
     events_received: Registered<EventsReceived>,
 }
@@ -908,6 +986,7 @@ impl Runner {
     fn new(
         transform: Box<dyn SyncTransform>,
         input_rx: BufferReceiver<EventArray>,
+        timer_tx: UtilizationComponentSender,
         input_type: DataType,
         outputs: TransformOutputs,
         usage_tracker: Box<dyn OutputUsageTracker>,
@@ -917,19 +996,14 @@ impl Runner {
             input_rx: Some(input_rx),
             input_type,
             outputs,
-            timer: crate::utilization::Timer::new(),
-            last_report: Instant::now(),
+            timer_tx,
             usage_tracker,
             events_received: register!(EventsReceived),
         }
     }
 
     fn on_events_received(&mut self, events: &EventArray) {
-        let stopped = self.timer.stop_wait();
-        if stopped.duration_since(self.last_report).as_secs() >= 5 {
-            self.timer.report();
-            self.last_report = stopped;
-        }
+        self.timer_tx.try_send_stop_wait();
 
         self.events_received.emit(CountByteSize(
             events.len(),
@@ -938,7 +1012,7 @@ impl Runner {
     }
 
     async fn send_outputs(&mut self, outputs_buf: &mut TransformOutputsBuf) -> crate::Result<()> {
-        self.timer.start_wait();
+        self.timer_tx.try_send_start_wait();
         self.outputs.send(outputs_buf, &*self.usage_tracker).await
     }
 
@@ -955,7 +1029,7 @@ impl Runner {
             .into_stream()
             .filter(move |events| ready(filter_events_type(events, self.input_type)));
 
-        self.timer.start_wait();
+        self.timer_tx.try_send_start_wait();
         while let Some(events) = input_rx.next().await {
             self.on_events_received(&events);
             self.transform.transform_all(events, &mut outputs_buf);
@@ -981,7 +1055,7 @@ impl Runner {
         let mut in_flight = FuturesOrdered::new();
         let mut shutting_down = false;
 
-        self.timer.start_wait();
+        self.timer_tx.try_send_start_wait();
         loop {
             tokio::select! {
                 biased;
@@ -1036,6 +1110,7 @@ impl Runner {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_task_transform(
     t: Box<dyn TaskTransform<EventArray>>,
     input_rx: BufferReceiver<EventArray>,
@@ -1043,12 +1118,14 @@ fn build_task_transform(
     typetag: &str,
     key: &ComponentKey,
     outputs: &[TransformOutput],
+    utilization_emitter: &mut UtilizationEmitter,
     usage_tracker: Box<dyn OutputUsageTracker>,
 ) -> (Task, HashMap<OutputId, fanout::ControlChannel>) {
     let t = MezmoTaskTransformTrace::maybe_wrap(key.clone(), t);
     let (mut fanout, control) = Fanout::new();
 
-    let input_rx = crate::utilization::wrap(input_rx.into_stream());
+    let sender = utilization_emitter.add_component(key.clone(), gauge!("utilization"));
+    let input_rx = wrap(sender, key.clone(), input_rx.into_stream());
 
     let events_received = register!(EventsReceived);
     let filtered = input_rx

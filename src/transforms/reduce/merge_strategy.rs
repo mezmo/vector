@@ -408,7 +408,7 @@ impl ReduceValueMerger for TimestampWindowMerger {
     }
 
     fn insert_into(self: Box<Self>, k: KeyString, v: &mut LogEvent) -> Result<(), String> {
-        v.insert(format!("{}_end", k).as_str(), Value::Timestamp(self.latest));
+        v.insert(format!("{k}_end").as_str(), Value::Timestamp(self.latest));
         v.insert(k.as_str(), Value::Timestamp(self.started));
         Ok(())
     }
@@ -950,21 +950,24 @@ mod test {
         );
 
         let v = merge(34_i64.into(), 43_i64.into(), &MergeStrategy::FlatUnique).unwrap();
-        if let Value::Array(v) = v.clone() {
-            let v: Vec<_> = v
-                .into_iter()
-                .map(|i| {
-                    if let Value::Integer(i) = i {
-                        i
-                    } else {
-                        panic!("Bad value");
-                    }
-                })
-                .collect();
-            assert_eq!(v.iter().filter(|i| **i == 34i64).count(), 1);
-            assert_eq!(v.iter().filter(|i| **i == 43i64).count(), 1);
-        } else {
-            panic!("Not array");
+        match v.clone() {
+            Value::Array(v) => {
+                let v: Vec<_> = v
+                    .into_iter()
+                    .map(|i| {
+                        if let Value::Integer(i) = i {
+                            i
+                        } else {
+                            panic!("Bad value");
+                        }
+                    })
+                    .collect();
+                assert_eq!(v.iter().filter(|i| **i == 34i64).count(), 1);
+                assert_eq!(v.iter().filter(|i| **i == 43i64).count(), 1);
+            }
+            _ => {
+                panic!("Not array");
+            }
         }
         let v = merge(v, 34_i32.into(), &MergeStrategy::FlatUnique).unwrap();
         if let Value::Array(v) = v {

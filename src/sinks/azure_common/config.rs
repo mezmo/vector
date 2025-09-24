@@ -62,6 +62,7 @@ pub struct AzureBlobRetryLogic;
 
 impl RetryLogic for AzureBlobRetryLogic {
     type Error = HttpError;
+    type Request = AzureBlobRequest;
     type Response = AzureBlobResponse;
 
     fn is_retriable_error(&self, error: &Self::Error) -> bool {

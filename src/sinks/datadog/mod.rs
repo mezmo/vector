@@ -172,15 +172,14 @@ async fn build_healthcheck_future(
     let request = Request::get(validate_endpoint)
         .header("DD-API-KEY", api_key)
         .body(hyper::Body::empty())
-        .unwrap();
+        .map_err(|e| format!("Failed to make HTTP(S) request: {e:?}"))?;
 
     let response = client.send(request).await?;
     let status = response.status();
 
     if status.is_client_error() || status.is_server_error() {
         let msg = Value::from(format!(
-            "Error returned from destination with status code: {}",
-            status
+            "Error returned from destination with status code: {status}",
         ));
         user_log_error!(cx.mezmo_ctx, msg);
     }

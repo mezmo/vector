@@ -445,7 +445,7 @@ mod tests {
             ),
         ];
         for (fmt, expected) in cases {
-            let config: String = format!(r#"timestamp_format = "{}""#, fmt);
+            let config: String = format!(r#"timestamp_format = "{fmt}""#);
             let transformer: Transformer = toml::from_str(&config).unwrap();
             let mut event = base.clone();
             transformer.transform(&mut event);
@@ -626,9 +626,9 @@ mod tests {
         let mut log_event = LogEvent::default();
         let message_key = log_schema().message_key().unwrap().to_string();
 
-        log_event.insert(format!("{}.one", message_key).as_str(), 1);
-        log_event.insert(format!("{}.two", message_key).as_str(), 2);
-        log_event.insert(format!("{}.three.four", message_key).as_str(), 4);
+        log_event.insert(format!("{message_key}.one").as_str(), 1);
+        log_event.insert(format!("{message_key}.two").as_str(), 2);
+        log_event.insert(format!("{message_key}.three.four").as_str(), 4);
 
         let mut event = Event::from(log_event);
         transformer.transform(&mut event);

@@ -23,6 +23,7 @@ impl Table for MockStateTable {
         _case: Case,
         _conditions: &'a [Condition<'a>],
         select: Option<&'a [String]>,
+        _wildcard: Option<&Value>,
         _index: Option<IndexHandle>,
     ) -> Result<BTreeMap<KeyString, Value>, String> {
         let state = self.state.lock().unwrap();
@@ -47,6 +48,7 @@ impl Table for MockStateTable {
         _case: Case,
         _condition: &'a [Condition<'a>],
         _select: Option<&'a [String]>,
+        _wildcard: Option<&Value>,
         _index: Option<IndexHandle>,
     ) -> Result<Vec<BTreeMap<KeyString, Value>>, String> {
         unimplemented!()

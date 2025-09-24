@@ -15,8 +15,7 @@ const ACCOUNT_ID: &str = "bea71e55-a1ec-4e5f-a5c0-c0e10b1a571c";
 
 fn test_mezmo_context() -> MezmoContext {
     MezmoContext::try_from(format!(
-        "v1:aggregate-v2:transform:component_id:pipeline_id:{}",
-        ACCOUNT_ID
+        "v1:aggregate-v2:transform:component_id:pipeline_id:{ACCOUNT_ID}",
     ))
     .unwrap()
 }

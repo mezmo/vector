@@ -22,6 +22,7 @@ use vector_lib::configurable::configurable_component;
 use vector_lib::sensitive_string::SensitiveString;
 use vector_lib::tls::{TlsConfig, TlsSettings};
 
+use super::service::SumoLogicApiRequest;
 use super::service::SumoLogicApiResponse;
 use super::sink::SumoLogicSinkError;
 use super::{encoding::SumoLogicEncoder, service::SumoLogicService, sink::SumoLogicSink};
@@ -35,6 +36,7 @@ pub struct SumoLogicRetry;
 impl RetryLogic for SumoLogicRetry {
     type Error = SumoLogicSinkError;
     type Response = SumoLogicApiResponse;
+    type Request = SumoLogicApiRequest;
 
     fn is_retriable_error(&self, _error: &Self::Error) -> bool {
         false

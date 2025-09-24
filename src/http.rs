@@ -112,7 +112,7 @@ where
         let client = client_builder.build(proxy_connector.clone());
 
         let version = crate::get_version();
-        let user_agent = HeaderValue::from_str(&format!("Mezmo/{}", version))
+        let user_agent = HeaderValue::from_str(&format!("Mezmo/{version}"))
             .expect("Invalid header value for version!");
 
         Ok(HttpClient {
@@ -284,7 +284,7 @@ impl<B> fmt::Debug for HttpClient<B> {
 pub enum Auth {
     /// Basic authentication.
     ///
-    /// The username and password are concatenated and encoded via [base64][base64].
+    /// The username and password are concatenated and encoded using [base64][base64].
     ///
     /// [base64]: https://en.wikipedia.org/wiki/Base64
     Basic {
@@ -370,7 +370,7 @@ pub fn get_http_scheme_from_uri(uri: &Uri) -> &'static str {
         // it also supports arbitrary schemes, which is where we bomb out down here, since we can't generate a static
         // string for an arbitrary input string... and anything other than "http" and "https" makes no sense for an HTTP
         // client anyways.
-        s => panic!("invalid URI scheme for HTTP client: {}", s),
+        s => panic!("invalid URI scheme for HTTP client: {s}"),
     })
 }
 
@@ -909,13 +909,13 @@ mod tests {
 
         // Responses generated before the client's max connection age has elapsed do not
         // include a `Connection: close` header in the response.
-        let req = Request::get(format!("http://{}/", addr))
+        let req = Request::get(format!("http://{addr}/"))
             .body(Body::empty())
             .unwrap();
         let response = client.send(req).await.unwrap();
         assert_eq!(response.headers().get("Connection"), None);
 
-        let req = Request::get(format!("http://{}/", addr))
+        let req = Request::get(format!("http://{addr}/"))
             .body(Body::empty())
             .unwrap();
         let response = client.send(req).await.unwrap();
@@ -924,7 +924,7 @@ mod tests {
         // The first response generated after the client's max connection age has elapsed should
         // include the `Connection: close` header.
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let req = Request::get(format!("http://{}/", addr))
+        let req = Request::get(format!("http://{addr}/"))
             .body(Body::empty())
             .unwrap();
         let response = client.send(req).await.unwrap();
@@ -936,7 +936,7 @@ mod tests {
         // The next request should establish a new connection.
         // Importantly, this also confirms that each connection has its own independent
         // connection age timer.
-        let req = Request::get(format!("http://{}/", addr))
+        let req = Request::get(format!("http://{addr}/"))
             .body(Body::empty())
             .unwrap();
         let response = client.send(req).await.unwrap();

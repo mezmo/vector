@@ -97,9 +97,9 @@ mod tests {
         let message_key = log_schema().message_key().unwrap().to_string();
         let message_key_path = log_schema().message_key_target_path().unwrap();
 
-        event.insert(format!("{}.one", message_key).as_str(), 1);
-        event.insert(format!("{}.two", message_key).as_str(), 2);
-        event.insert(format!("{}.three.four", message_key).as_str(), 4);
+        event.insert(format!("{message_key}.one").as_str(), 1);
+        event.insert(format!("{message_key}.two").as_str(), 2);
+        event.insert(format!("{message_key}.three.four").as_str(), 4);
 
         reshape_log_event_by_message(&mut event);
 
@@ -126,8 +126,8 @@ mod tests {
 
         event.insert("trash1", "nope");
         event.insert("trash2", true);
-        event.insert(format!("{}.one", message_key).as_str(), 1);
-        event.insert(format!("{}.two", message_key).as_str(), 2);
+        event.insert(format!("{message_key}.one").as_str(), 1);
+        event.insert(format!("{message_key}.two").as_str(), 2);
 
         reshape_log_event_by_message(&mut event);
 

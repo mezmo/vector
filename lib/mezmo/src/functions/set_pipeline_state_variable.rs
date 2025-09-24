@@ -128,6 +128,7 @@ impl FunctionExpression for SetPipelineStateVariableFn {
             Case::Sensitive, // unused
             &conditions,
             Some(&[name.clone()]),
+            None, // wildcards aren't used
             None, // indexes aren't used
         ) {
             Ok(data) => {
@@ -179,8 +180,7 @@ mod tests {
         let pipeline_id = Uuid::new_v4();
         let account_id = Uuid::new_v4();
         MezmoContext::try_from(format!(
-            "v1:js-script:transform:component_id:{}:{}",
-            pipeline_id, account_id
+            "v1:js-script:transform:component_id:{pipeline_id}:{account_id}",
         ))
         .unwrap()
     }

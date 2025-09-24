@@ -168,8 +168,7 @@ impl Service<OpentelemetryApiRequest> for OpentelemetryService {
                     )))
                 }
                 Err(error) => Err(OpentelemetrySinkError::new(&format!(
-                    "HTTP request error: {}",
-                    error
+                    "HTTP request error: {error}",
                 ))),
             }
         })

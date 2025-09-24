@@ -49,7 +49,7 @@ pub enum StateVariablesDBError {
 }
 
 fn get_cache_key(account_id: &str, pipeline_id: &str) -> String {
-    format!("{}:{}", account_id, pipeline_id)
+    format!("{account_id}:{pipeline_id}")
 }
 
 async fn fetch_states_from_db(
@@ -250,6 +250,7 @@ impl Table for StateVariables {
         _: Case,
         conditions: &'a [Condition<'a>],
         select: Option<&'a [String]>,
+        _: Option<&Value>,
         _: Option<IndexHandle>,
     ) -> Result<BTreeMap<KeyString, Value>, String> {
         let param_names = self.gather_query_parameters(conditions)?;
@@ -263,6 +264,7 @@ impl Table for StateVariables {
         _case: Case,
         _condition: &'a [Condition<'a>],
         _select: Option<&'a [String]>,
+        _wildcard: Option<&Value>,
         _index: Option<IndexHandle>,
     ) -> Result<Vec<BTreeMap<KeyString, Value>>, String> {
         // This can be implemented if/when we look up variables for all pipelines of an account

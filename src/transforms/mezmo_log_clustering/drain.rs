@@ -129,7 +129,7 @@ impl<'a> Display for LogCluster<'a> {
             if !first {
                 write!(f, " ")?;
             }
-            write!(f, "{ }", token)?;
+            write!(f, "{token}")?;
             first = false;
         }
         Ok(())
@@ -169,7 +169,7 @@ impl<'a> Display for Token<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Token::Wildcard => write!(f, "<*>"),
-            Token::Value(value) => write!(f, "{}", value),
+            Token::Value(value) => write!(f, "{value}"),
         }
     }
 }
@@ -549,7 +549,7 @@ mod tests {
         );
         for (line, expected) in lines.iter().zip(expected.iter()) {
             let (group, _) = parser.add_log_line(line, None);
-            let actual = format!("{}", group);
+            let actual = format!("{group}");
             assert_eq!(expected.to_string(), actual);
         }
     }
@@ -583,7 +583,7 @@ mod tests {
         .max_node_depth(4);
         for (line, expected) in lines.iter().zip(expected.iter()) {
             let (group, _) = parser.add_log_line(line, None);
-            let actual = format!("{}", group);
+            let actual = format!("{group}");
             assert_eq!(expected.to_string(), actual);
         }
     }
@@ -611,7 +611,7 @@ mod tests {
 
         for (line, expected) in lines.iter().zip(expected.iter()) {
             let (group, _) = parser.add_log_line(line, None);
-            let actual = format!("{}", group);
+            let actual = format!("{group}");
             assert_eq!(expected.0.to_string(), actual);
             assert_eq!(expected.1, group.id);
         }
@@ -653,7 +653,7 @@ mod tests {
         let mut cluster_map = HashMap::<usize, HashSet<String>>::new();
         for (line, expected) in lines.iter().zip(expected.iter()) {
             let (group, _) = parser.add_log_line(line, None);
-            let actual = format!("{}", group);
+            let actual = format!("{group}");
             assert_eq!(expected.to_string(), actual);
             let gen_ids = cluster_map.entry(group.id).or_default();
             gen_ids.insert(group.cluster_id());
@@ -682,7 +682,7 @@ mod tests {
 
         for line in lines.iter() {
             let (group, _) = parser.add_log_line(line, None);
-            let _actual = format!("{}", group);
+            let _actual = format!("{group}");
         }
         let root = parser.first_level.get(&4).unwrap();
         let first_wildcard = root.children.get(&Token::Wildcard).unwrap();

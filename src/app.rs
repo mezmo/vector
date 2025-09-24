@@ -16,7 +16,6 @@ use tokio::sync::{broadcast::error::RecvError, MutexGuard};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use vector_lib::usage_metrics::{start_publishing_metrics, UsageMetrics};
 
-use crate::extra_context::ExtraContext;
 #[cfg(feature = "api")]
 use crate::{api, internal_events::ApiStarted};
 use crate::{
@@ -34,6 +33,7 @@ use crate::{
     },
     trace,
 };
+use crate::{config::ComponentType, extra_context::ExtraContext};
 
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -568,6 +568,15 @@ async fn handle_signal(
 
             reload_config_from_result(topology_controller, new_config, None).await
         }
+        Ok(SignalTo::ReloadEnrichmentTables) => {
+            let topology_controller = topology_controller.lock().await;
+
+            topology_controller
+                .topology
+                .reload_enrichment_tables()
+                .await;
+            None
+        }
         Err(RecvError::Lagged(amt)) => {
             warn!("Overflow, dropped {} signals.", amt);
             None
@@ -728,15 +737,31 @@ pub async fn load_configs(
     if let Some(watcher_conf) = watcher_conf {
         for (name, transform) in config.transforms() {
             let files = transform.inner.files_to_watch();
-            let component_config =
-                ComponentConfig::new(files.into_iter().cloned().collect(), name.clone());
+            let component_config = ComponentConfig::new(
+                files.into_iter().cloned().collect(),
+                name.clone(),
+                ComponentType::Transform,
+            );
             watched_component_paths.push(component_config);
         }
 
         for (name, sink) in config.sinks() {
             let files = sink.inner.files_to_watch();
-            let component_config =
-                ComponentConfig::new(files.into_iter().cloned().collect(), name.clone());
+            let component_config = ComponentConfig::new(
+                files.into_iter().cloned().collect(),
+                name.clone(),
+                ComponentType::Sink,
+            );
+            watched_component_paths.push(component_config);
+        }
+
+        for (name, table) in config.enrichment_tables() {
+            let files = table.inner.files_to_watch();
+            let component_config = ComponentConfig::new(
+                files.into_iter().cloned().collect(),
+                name.clone(),
+                ComponentType::EnrichmentTable,
+            );
             watched_component_paths.push(component_config);
         }
 
@@ -783,7 +808,10 @@ pub fn init_logging(color: bool, format: LogFormat, log_level: &str, rate: u64) 
     };
 
     trace::init(color, json, &level, rate);
-    debug!(message = "Internal log rate limit configured.",);
+    debug!(
+        message = "Internal log rate limit configured.",
+        internal_log_rate_secs = rate,
+    );
     info!(message = "Log level is enabled.", level = ?level);
 }
 
