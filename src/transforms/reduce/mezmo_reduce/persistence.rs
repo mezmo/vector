@@ -150,7 +150,7 @@ impl Serialize for ReduceState {
         // Convert Instant to duration from UNIX_EPOCH for serialization
         let duration_from_epoch = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map_err(|e| serde::ser::Error::custom(format!("SystemTime error: {}", e)))?
+            .map_err(|err| serde::ser::Error::custom(format!("SystemTime error: {err}")))?
             .saturating_sub(self.started_at.elapsed());
         state.serialize_field("started_at_epoch_secs", &duration_from_epoch.as_secs())?;
         state.serialize_field(
@@ -351,14 +351,13 @@ mod tests {
                 expire_after_ms = 30000
                 flush_period_ms = 10000
                 group_by = ["request_id"]
-                state_persistence_base_path = "{}"
+                state_persistence_base_path = "{state_persistence_base_path}"
                 state_persistence_tick_ms = 100
 
                 [merge_strategies]
                 counter = "sum"
                 message = "concat"
-                "#,
-            state_persistence_base_path
+            "#
         );
 
         let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
@@ -454,14 +453,13 @@ mod tests {
                     expire_after_ms = 30000
                     flush_period_ms = 10000
                     group_by = ["request_id"]
-                    state_persistence_base_path = "{}"
+                    state_persistence_base_path = "{state_persistence_base_path}"
                     state_persistence_tick_ms = 100
 
                     [merge_strategies]
                     counter = "sum"
                     message = "concat"
-                    "#,
-                state_persistence_base_path
+                "#
             );
 
             let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
@@ -506,14 +504,13 @@ mod tests {
                 expire_after_ms = 30000
                 flush_period_ms = 10000
                 group_by = ["request_id"]
-                state_persistence_base_path = "{}"
+                state_persistence_base_path = "{state_persistence_base_path}"
                 state_persistence_tick_ms = 100
 
                 [merge_strategies]
                 counter = "sum"
                 message = "concat"
-                "#,
-            state_persistence_base_path
+            "#
         );
 
         let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
@@ -551,9 +548,8 @@ mod tests {
             r#"
                 expire_after_ms = 30000
                 group_by = ["request_id"]
-                state_persistence_base_path = "{}"
-                "#,
-            state_persistence_base_path
+                state_persistence_base_path = "{state_persistence_base_path}"
+            "#
         );
 
         let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
@@ -577,7 +573,7 @@ mod tests {
 
         // First, write corrupted data to RocksDB
         {
-            let db_path = format!("{}/reduce", state_persistence_base_path);
+            let db_path = format!("{state_persistence_base_path}/reduce");
             let state_persistence =
                 Arc::new(RocksDBPersistenceConnection::new(&db_path, &mezmo_ctx).unwrap());
 
@@ -590,9 +586,8 @@ mod tests {
             r#"
                 expire_after_ms = 30000
                 group_by = ["request_id"]
-                state_persistence_base_path = "{}"
-                "#,
-            state_persistence_base_path
+                state_persistence_base_path = "{state_persistence_base_path}"
+            "#
         );
 
         let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
@@ -701,14 +696,13 @@ mod tests {
                     expire_after_ms = 30000
                     flush_period_ms = 10000
                     group_by = ["request_id"]
-                    state_persistence_base_path = "{}"
+                    state_persistence_base_path = "{state_persistence_base_path}"
                     state_persistence_tick_ms = 100
 
                     [merge_strategies]
                     counter = "sum"
                     message = "concat"
-                    "#,
-                state_persistence_base_path
+                "#
             );
 
             let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
@@ -753,13 +747,12 @@ mod tests {
             r#"
                 expire_after_ms = 30000
                 group_by = ["request_id"]
-                state_persistence_base_path = "{}"
+                state_persistence_base_path = "{state_persistence_base_path}"
 
                 [merge_strategies]
                 counter = "sum"
                 message = "concat"
-                "#,
-            state_persistence_base_path
+            "#
         );
 
         let reduce_config = toml::from_str::<MezmoReduceConfig>(&config_str).unwrap();
@@ -874,8 +867,7 @@ mod tests {
                 .any(|restored_discriminant| restored_discriminant == original_discriminant);
             assert!(
                 found,
-                "Discriminant not found after roundtrip: {:?}",
-                original_discriminant
+                "Discriminant not found after roundtrip: {original_discriminant:?}"
             );
         }
     }
