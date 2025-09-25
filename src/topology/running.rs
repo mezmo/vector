@@ -7,11 +7,10 @@ use std::{
 };
 
 use super::{
-    builder,
-    builder::TopologyPieces,
+    builder::{self, reload_enrichment_tables, TopologyPieces},
     fanout::{ControlChannel, ControlMessage},
     handle_errors, retain, take_healthchecks,
-    task::TaskOutput,
+    task::{Task, TaskOutput},
     BuiltBuffer, TaskHandle,
 };
 use crate::{
@@ -23,15 +22,17 @@ use crate::{
     spawn_named,
 };
 use futures::{future, Future, FutureExt};
+use stream_cancel::Trigger;
 use tokio::{
     sync::{mpsc, watch},
     time::{interval, sleep_until, Duration, Instant},
 };
 use tracing::Instrument;
-use vector_lib::buffers::topology::channel::BufferSender;
 use vector_lib::tap::topology::{TapOutput, TapResource, WatchRx, WatchTx};
 use vector_lib::trigger::DisabledTrigger;
-use vector_lib::usage_metrics::UsageMetrics;
+use vector_lib::{
+    buffers::topology::channel::BufferSender, shutdown::ShutdownSignal, usage_metrics::UsageMetrics,
+};
 
 pub type ShutdownErrorReceiver = mpsc::UnboundedReceiver<ShutdownError>;
 
@@ -50,6 +51,9 @@ pub struct RunningTopology {
     watch: (WatchTx, WatchRx),
     pub(crate) running: Arc<AtomicBool>,
     graceful_shutdown_duration: Option<Duration>,
+    utilization_task: Option<TaskHandle>,
+    utilization_task_shutdown_trigger: Option<Trigger>,
+    pending_reload: Option<HashSet<ComponentKey>>,
 }
 
 impl RunningTopology {
@@ -68,12 +72,24 @@ impl RunningTopology {
             running: Arc::new(AtomicBool::new(true)),
             graceful_shutdown_duration: config.graceful_shutdown_duration,
             config,
+            utilization_task: None,
+            utilization_task_shutdown_trigger: None,
+            pending_reload: None,
         }
     }
 
     /// Gets the configuration that represents this running topology.
     pub const fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// Adds a set of component keys to the pending reload set if one exists. Otherwise, it
+    /// initializes the pending reload set.
+    pub fn extend_reload_set(&mut self, new_set: HashSet<ComponentKey>) {
+        match &mut self.pending_reload {
+            None => self.pending_reload = Some(new_set.clone()),
+            Some(existing) => existing.extend(new_set),
+        }
     }
 
     /// Creates a subscription to topology changes.
@@ -117,13 +133,19 @@ impl RunningTopology {
         // pump in self.tasks, and the other for source in self.source_tasks.
         let mut check_handles = HashMap::<ComponentKey, Vec<_>>::new();
 
+        let map_closure = |_result| ();
+
         // We need to give some time to the sources to gracefully shutdown, so
         // we will merge them with other tasks.
         for (key, task) in self.tasks.into_iter().chain(self.source_tasks.into_iter()) {
-            let task = task.map(|_result| ()).shared();
+            let task = task.map(map_closure).shared();
 
             wait_handles.push(task.clone());
             check_handles.entry(key).or_default().push(task);
+        }
+
+        if let Some(utilization_task) = self.utilization_task {
+            wait_handles.push(utilization_task.map(map_closure).shared());
         }
 
         // If we reach this, we will forcefully shutdown the sources. If None, we will never force shutdown.
@@ -202,6 +224,9 @@ impl RunningTopology {
 
         // Now kick off the shutdown process by shutting down the sources.
         let source_shutdown_complete = self.shutdown_coordinator.shutdown_all(deadline);
+        if let Some(trigger) = self.utilization_task_shutdown_trigger {
+            trigger.cancel();
+        }
 
         futures::future::join(source_shutdown_complete, shutdown_complete_future).map(|_| ())
     }
@@ -258,7 +283,11 @@ impl RunningTopology {
         // spawning the new version of the component.
         //
         // We also shutdown any component that is simply being removed entirely.
-        let diff = ConfigDiff::new(&self.config, &new_config);
+        let diff = if let Some(components) = &self.pending_reload {
+            ConfigDiff::new(&self.config, &new_config, components.clone())
+        } else {
+            ConfigDiff::new(&self.config, &new_config, HashSet::new())
+        };
         let buffers = self
             .shutdown_diff(&diff, &new_config, components_to_reload)
             .await;
@@ -331,6 +360,11 @@ impl RunningTopology {
         error!("Failed to restore old configuration.");
 
         Err(())
+    }
+
+    /// Attempts to reload enrichment tables.
+    pub(crate) async fn reload_enrichment_tables(&self) {
+        reload_enrichment_tables(&self.config).await;
     }
 
     pub(crate) async fn run_healthchecks(
@@ -515,6 +549,9 @@ impl RunningTopology {
             .to_change
             .iter()
             .filter(|&key| {
+                if diff.components_to_reload.contains(key) {
+                    return false;
+                }
                 self.config.sink(key).map(|s| s.buffer.clone()).or_else(|| {
                     self.config
                         .enrichment_table(key)
@@ -1239,6 +1276,10 @@ impl RunningTopology {
             return None;
         }
 
+        let mut utilization_emitter = pieces
+            .utilization_emitter
+            .take()
+            .expect("Topology is missing the utilization metric emitter!");
         let mut running_topology = Self::new(config, abort_tx);
 
         if !running_topology
@@ -1249,6 +1290,23 @@ impl RunningTopology {
         }
         running_topology.connect_diff(&diff, &mut pieces).await;
         running_topology.spawn_diff(&diff, pieces);
+
+        let (utilization_task_shutdown_trigger, utilization_shutdown_signal, _) =
+            ShutdownSignal::new_wired();
+        running_topology.utilization_task_shutdown_trigger =
+            Some(utilization_task_shutdown_trigger);
+        running_topology.utilization_task = Some(tokio::spawn(Task::new(
+            "utilization_heartbeat".into(),
+            "",
+            async move {
+                utilization_emitter
+                    .run_utilization(utilization_shutdown_signal)
+                    .await;
+                // TODO: new task output type for this? Or handle this task in a completely
+                // different way
+                Ok(TaskOutput::Healthcheck)
+            },
+        )));
 
         Some((running_topology, abort_rx))
     }

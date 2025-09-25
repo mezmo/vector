@@ -1,4 +1,5 @@
 use crate::{
+    common::backoff::ExponentialBackoff,
     conditions::{AnyCondition, Condition},
     config::TransformContext,
     event::Event,
@@ -7,7 +8,6 @@ use crate::{
         MezmoThrottleDistributedEventChecked, MezmoThrottleDistributedEventThrottled,
         TemplateRenderingError,
     },
-    sinks::util::retries::ExponentialBackoff,
     transforms::TaskTransform,
 };
 use async_stream::stream;
@@ -79,7 +79,7 @@ impl MezmoThrottleDistributed {
         );
 
         match self.config.key_prefix {
-            Some(ref prefix) => format!("{}:{}", prefix, key),
+            Some(ref prefix) => format!("{prefix}:{key}"),
             None => key,
         }
     }
@@ -98,7 +98,7 @@ impl MezmoThrottleDistributed {
         );
 
         match self.config.key_prefix {
-            Some(ref prefix) => format!("{}:{}", prefix, key),
+            Some(ref prefix) => format!("{prefix}:{key}"),
             None => key,
         }
     }

@@ -22,14 +22,12 @@ async fn build_sink(extra_config: &str) -> (std::net::SocketAddr, crate::sinks::
 
     let config = format!(
         r#"
-                uri = "http://{addr}/frames"
+                uri = "http://{in_addr}/frames"
                 compression = "gzip"
                 framing.method = "newline_delimited"
                 encoding.codec = "json"
-                {extras}
+                {extra_config}
             "#,
-        addr = in_addr,
-        extras = extra_config,
     );
     let config: HttpSinkConfig = toml::from_str(&config).unwrap();
 
@@ -45,14 +43,12 @@ async fn build_text_encoding_sink(
     let in_addr = next_addr();
     let config = format!(
         r#"
-            uri = "http://{addr}/frames"
+            uri = "http://{in_addr}/frames"
             compression = "gzip"
             framing.method = "newline_delimited"
             encoding.codec = "text"
-            {extras}
+            {extra_config}
         "#,
-        addr = in_addr,
-        extras = extra_config
     );
     let config: HttpSinkConfig = toml::from_str(&config).unwrap();
     let cx = SinkContext::default();

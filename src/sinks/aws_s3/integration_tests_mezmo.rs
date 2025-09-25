@@ -684,7 +684,7 @@ async fn s3_file_consolidation_compressed_files() {
             assert_eq!(files[2].size, 85);
             assert_eq!(files[2].key, "/compressed-files/file_3.log");
         }
-        Err(err) => panic!("Retrieving files should not error: {}", err),
+        Err(err) => panic!("Retrieving files should not error: {err}"),
     };
 
     let fcp = FileConsolidationProcessor::new(
@@ -735,7 +735,7 @@ async fn s3_file_consolidation_multiple_consolidated_files() {
 
         let mezmo_pipeline_s3_type_ndjson_tags =
             generate_tags("mezmo_pipeline_s3_type".to_string(), output_type.clone());
-        let filename = format!("{}_generated.log", i);
+        let filename = format!("{i}_generated.log");
         put_file(
             filename,
             Bytes::from(five_hundred_kb.to_vec()),
@@ -765,7 +765,7 @@ async fn s3_file_consolidation_multiple_consolidated_files() {
                 assert_eq!(file.size, 500000);
             }
         }
-        Err(err) => panic!("Retrieving files should not error: {}", err),
+        Err(err) => panic!("Retrieving files should not error: {err}"),
     };
 
     let fcp = FileConsolidationProcessor::new(
@@ -825,7 +825,7 @@ async fn s3_file_consolidation_large_files() {
 
         let mezmo_pipeline_s3_type_text_tags =
             generate_tags("mezmo_pipeline_s3_type".to_string(), output_format.clone());
-        let filename = format!("{}_generated.log", i);
+        let filename = format!("{i}_generated.log");
         put_file(
             filename,
             Bytes::from(five_hundred_kb.to_vec()),
@@ -933,7 +933,7 @@ async fn s3_file_consolidation_lots_of_10mb_files() {
 
         let mezmo_pipeline_s3_type_text_tags =
             generate_tags("mezmo_pipeline_s3_type".to_string(), output_format.clone());
-        let filename = format!("10MB_{}_generated.log", i);
+        let filename = format!("10MB_{i}_generated.log");
         put_file(
             filename,
             Bytes::from(ten_megs_uncompressed.to_vec()),
@@ -995,8 +995,8 @@ async fn s3_file_consolidation_large_amount_of_files() {
         let mezmo_pipeline_s3_type_ndjson_tags =
             generate_tags("mezmo_pipeline_s3_type".to_string(), output_format.clone());
 
-        let filename = format!("{}.log", n);
-        let data = Bytes::from(format!("This is the content of {}.log", n));
+        let filename = format!("{n}.log");
+        let data = Bytes::from(format!("This is the content of {n}.log"));
 
         put_file(
             filename,
@@ -1022,7 +1022,7 @@ async fn s3_file_consolidation_large_amount_of_files() {
         Ok(files) => {
             assert_eq!(files.len(), 1005);
         }
-        Err(err) => panic!("Retrieving files should not error: {}", err),
+        Err(err) => panic!("Retrieving files should not error: {err}"),
     };
 }
 
@@ -1098,6 +1098,7 @@ fn json_config(bucket: &str, batch_size: usize) -> S3SinkConfig {
         file_consolidation_config: Default::default(),
         timezone: Default::default(),
         force_path_style: true,
+        retry_strategy: Default::default(),
     }
 }
 

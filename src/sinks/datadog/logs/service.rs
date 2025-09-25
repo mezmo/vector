@@ -5,13 +5,12 @@ use std::{
 
 use bytes::Bytes;
 use futures::future::BoxFuture;
-use headers::HeaderName;
 use http::{
     header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE},
     HeaderValue, Request, Uri,
 };
 use hyper::Body;
-use indexmap::IndexMap;
+use std::collections::BTreeMap;
 use tower::Service;
 use tracing::Instrument;
 use vector_lib::event::{EventFinalizers, EventStatus, Finalizable};
@@ -22,7 +21,10 @@ use crate::{
     http::HttpClient,
     mezmo::user_trace::UserLoggingResponse,
     sinks::util::{retries::RetryLogic, Compression},
-    sinks::{datadog::DatadogApiError, util::http::validate_headers},
+    sinks::{
+        datadog::DatadogApiError,
+        util::http::{validate_headers, OrderedHeaderName},
+    },
 };
 
 #[derive(Debug, Default, Clone)]
@@ -30,6 +32,7 @@ pub struct LogApiRetry;
 
 impl RetryLogic for LogApiRetry {
     type Error = DatadogApiError;
+    type Request = LogApiRequest;
     type Response = LogApiResponse;
 
     fn is_retriable_error(&self, error: &Self::Error) -> bool {
@@ -95,26 +98,26 @@ impl UserLoggingResponse for LogApiResponse {}
 pub struct LogApiService {
     client: HttpClient,
     uri: Uri,
-    user_provided_headers: IndexMap<HeaderName, HeaderValue>,
-    dd_evp_headers: IndexMap<HeaderName, HeaderValue>,
+    user_provided_headers: BTreeMap<OrderedHeaderName, HeaderValue>,
+    dd_evp_headers: BTreeMap<OrderedHeaderName, HeaderValue>,
 }
 
 impl LogApiService {
     pub fn new(
         client: HttpClient,
         uri: Uri,
-        headers: IndexMap<String, String>,
+        headers: BTreeMap<String, String>,
         dd_evp_origin: String,
     ) -> crate::Result<Self> {
         let user_provided_headers = validate_headers(&headers)?;
 
-        let dd_evp_headers = &[
+        let dd_evp_headers: BTreeMap<String, String> = [
             ("DD-EVP-ORIGIN".to_string(), dd_evp_origin),
             ("DD-EVP-ORIGIN-VERSION".to_string(), crate::get_version()),
         ]
         .into_iter()
         .collect();
-        let dd_evp_headers = validate_headers(dd_evp_headers)?;
+        let dd_evp_headers = validate_headers(&dd_evp_headers)?;
 
         Ok(Self {
             client,
@@ -157,11 +160,11 @@ impl Service<LogApiRequest> for LogApiService {
         if let Some(headers) = http_request.headers_mut() {
             for (name, value) in &self.user_provided_headers {
                 // Replace rather than append to any existing header values
-                headers.insert(name, value.clone());
+                headers.insert(name.inner(), value.clone());
             }
             // Set DD EVP headers last so that they cannot be overridden.
             for (name, value) in &self.dd_evp_headers {
-                headers.insert(name, value.clone());
+                headers.insert(name.inner(), value.clone());
             }
         }
 

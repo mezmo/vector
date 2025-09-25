@@ -1,38 +1,41 @@
 use std::error::Error;
 use std::fmt::Debug;
 
-use futures::channel::mpsc::TrySendError;
 use metrics::{counter, gauge};
-use tokio_tungstenite::tungstenite::Message;
 use vector_lib::internal_event::InternalEvent;
 
 use vector_lib::internal_event::{error_stage, error_type};
 
 #[derive(Debug)]
-pub struct WsListenerConnectionEstablished {
+pub struct WebSocketListenerConnectionEstablished {
     pub client_count: usize,
     pub extra_tags: Vec<(String, String)>,
 }
 
-impl InternalEvent for WsListenerConnectionEstablished {
+impl InternalEvent for WebSocketListenerConnectionEstablished {
     fn emit(self) {
-        debug!(message = "Websocket client connected. Client count: {self.client_count}");
+        debug!(
+            message = format!(
+                "Websocket client connected. Client count: {}",
+                self.client_count
+            )
+        );
         counter!("connection_established_total", &self.extra_tags).increment(1);
         gauge!("active_clients", &self.extra_tags).set(self.client_count as f64);
     }
 
     fn name(&self) -> Option<&'static str> {
-        Some("WsListenerConnectionEstablished")
+        Some("WebSocketListenerConnectionEstablished")
     }
 }
 
 #[derive(Debug)]
-pub struct WsListenerConnectionFailedError {
+pub struct WebSocketListenerConnectionFailedError {
     pub error: Box<dyn Error>,
     pub extra_tags: Vec<(String, String)>,
 }
 
-impl InternalEvent for WsListenerConnectionFailedError {
+impl InternalEvent for WebSocketListenerConnectionFailedError {
     fn emit(self) {
         error!(
             message = "WebSocket connection failed.",
@@ -62,29 +65,34 @@ impl InternalEvent for WsListenerConnectionFailedError {
 }
 
 #[derive(Debug)]
-pub struct WsListenerConnectionShutdown {
+pub struct WebSocketListenerConnectionShutdown {
     pub client_count: usize,
     pub extra_tags: Vec<(String, String)>,
 }
 
-impl InternalEvent for WsListenerConnectionShutdown {
+impl InternalEvent for WebSocketListenerConnectionShutdown {
     fn emit(self) {
-        info!(message = "Client connection closed. Client count: {self.client_count}.");
+        info!(
+            message = format!(
+                "Client connection closed. Client count: {}.",
+                self.client_count
+            )
+        );
         counter!("connection_shutdown_total", &self.extra_tags).increment(1);
         gauge!("active_clients", &self.extra_tags).set(self.client_count as f64);
     }
 
     fn name(&self) -> Option<&'static str> {
-        Some("WsListenerConnectionShutdown")
+        Some("WebSocketListenerConnectionShutdown")
     }
 }
 
 #[derive(Debug)]
-pub struct WsListenerSendError {
-    pub error: TrySendError<Message>,
+pub struct WebSocketListenerSendError {
+    pub error: Box<dyn Error>,
 }
 
-impl InternalEvent for WsListenerSendError {
+impl InternalEvent for WebSocketListenerSendError {
     fn emit(self) {
         error!(
             message = "WebSocket message send error.",
@@ -109,12 +117,12 @@ impl InternalEvent for WsListenerSendError {
 }
 
 #[derive(Debug)]
-pub struct WsListenerMessageSent {
+pub struct WebSocketListenerMessageSent {
     pub message_size: usize,
     pub extra_tags: Vec<(String, String)>,
 }
 
-impl InternalEvent for WsListenerMessageSent {
+impl InternalEvent for WebSocketListenerMessageSent {
     fn emit(self) {
         counter!("websocket_messages_sent_total", &self.extra_tags).increment(1);
         counter!("websocket_bytes_sent_total", &self.extra_tags)
@@ -122,6 +130,6 @@ impl InternalEvent for WsListenerMessageSent {
     }
 
     fn name(&self) -> Option<&'static str> {
-        Some("WsListenerMessageSent")
+        Some("WebSocketListenerMessageSent")
     }
 }

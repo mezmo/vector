@@ -243,7 +243,7 @@ async fn fetch_tasks(
     let r = resp
         .json::<TaskFetchResponse>()
         .await
-        .map_err(|e| format!("JSON deserialization error - {:?}", e))?;
+        .map_err(|e| format!("JSON deserialization error - {e:?}"))?;
 
     Ok(r.data)
 }
@@ -287,7 +287,7 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
 
     // For the MVP, we only support a single pod at a time
     // In the future, we should query the K8s API to get the deployment pods
-    let url = Url::parse(&format!("ws://{}/graphql", addr)).expect("Couldn't parse API URL.");
+    let url = Url::parse(&format!("ws://{addr}/graphql")).expect("Couldn't parse API URL.");
 
     let component_id = task
         .task_parameters
@@ -304,7 +304,7 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
 
     let subscription_client = connect_subscription_client(url)
         .await
-        .map_err(|e| format!("Couldn't connect to Vector API via WebSockets: {}", e))?;
+        .map_err(|e| format!("Couldn't connect to Vector API via WebSockets: {e}"))?;
 
     tokio::pin! {
         let stream = subscription_client.output_events_by_component_id_patterns_subscription(

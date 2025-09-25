@@ -84,6 +84,7 @@ impl FunctionExpression for GetPipelineStateVariableFn {
             Case::Sensitive, // unused
             &conditions,
             Some(&[name.to_string()]),
+            None, // wildcards aren't used
             None, // indexes aren't used
         ) {
             Ok(data) => {

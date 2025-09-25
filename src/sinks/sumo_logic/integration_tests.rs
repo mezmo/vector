@@ -28,11 +28,11 @@ async fn test_sumo_sink_endpoint() {
 
     let (sink, _) = config.build(cx).await.unwrap();
     let (batch, receiver) = BatchNotifier::new_with_receiver();
-    let generator = |index| format!("sumo logic test log index {}", index);
+    let generator = |index| format!("sumo logic test log index {index}");
     let (messages, events) = generate_lines_with_stream(generator, 3, Some(batch));
 
     for (index, message) in messages.iter().enumerate() {
-        assert_eq!(&format!("sumo logic test log index {}", index), message);
+        assert_eq!(&format!("sumo logic test log index {index}"), message);
     }
 
     run_and_assert_sink_compliance(sink, events, &SINK_TAGS).await;

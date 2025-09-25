@@ -21,10 +21,13 @@ use crate::{
     event::{EventFinalizers, EventStatus, Finalizable},
     http::HttpClient,
     mezmo::user_trace::MezmoHttpBatchLoggingService,
-    sinks::util::{
-        auth::Auth,
-        http::{HttpBatchService, RequestConfig},
-        Compression, ElementCount,
+    sinks::{
+        elasticsearch::{encoder::ProcessedEvent, request_builder::ElasticsearchRequestBuilder},
+        util::{
+            auth::Auth,
+            http::{HttpBatchService, RequestConfig},
+            Compression, ElementCount,
+        },
     },
 };
 
@@ -35,6 +38,8 @@ pub struct ElasticsearchRequest {
     pub batch_size: usize,
     pub events_byte_size: JsonSize,
     pub metadata: RequestMetadata,
+    pub original_events: Vec<ProcessedEvent>, //store original_events for reconstruct request when retrying
+    pub elasticsearch_request_builder: ElasticsearchRequestBuilder,
 }
 
 impl ByteSizeOf for ElasticsearchRequest {

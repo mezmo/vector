@@ -3,6 +3,7 @@ use std::mem::size_of;
 
 use bytes::{Bytes, BytesMut};
 use chrono::{DateTime, Utc};
+use dyn_clone::DynClone;
 use ordered_float::NotNan;
 use vector_lib::configurable::configurable_component;
 
@@ -407,7 +408,7 @@ impl ReduceValueMerger for TimestampWindowMerger {
     }
 
     fn insert_into(self: Box<Self>, k: KeyString, v: &mut LogEvent) -> Result<(), String> {
-        v.insert(format!("{}_end", k).as_str(), Value::Timestamp(self.latest));
+        v.insert(format!("{k}_end").as_str(), Value::Timestamp(self.latest));
         v.insert(k.as_str(), Value::Timestamp(self.started));
         Ok(())
     }
@@ -625,11 +626,13 @@ impl ReduceValueMerger for MinNumberMerger {
     }
 }
 
-pub trait ReduceValueMerger: std::fmt::Debug + Send + Sync {
+pub trait ReduceValueMerger: std::fmt::Debug + Send + Sync + DynClone {
     fn add(&mut self, v: Value) -> Result<(), String>;
     fn insert_into(self: Box<Self>, k: KeyString, v: &mut LogEvent) -> Result<(), String>;
     fn size_estimate(&self) -> usize;
 }
+
+dyn_clone::clone_trait_object!(ReduceValueMerger);
 
 impl From<Value> for Box<dyn ReduceValueMerger> {
     fn from(v: Value) -> Self {
@@ -947,21 +950,24 @@ mod test {
         );
 
         let v = merge(34_i64.into(), 43_i64.into(), &MergeStrategy::FlatUnique).unwrap();
-        if let Value::Array(v) = v.clone() {
-            let v: Vec<_> = v
-                .into_iter()
-                .map(|i| {
-                    if let Value::Integer(i) = i {
-                        i
-                    } else {
-                        panic!("Bad value");
-                    }
-                })
-                .collect();
-            assert_eq!(v.iter().filter(|i| **i == 34i64).count(), 1);
-            assert_eq!(v.iter().filter(|i| **i == 43i64).count(), 1);
-        } else {
-            panic!("Not array");
+        match v.clone() {
+            Value::Array(v) => {
+                let v: Vec<_> = v
+                    .into_iter()
+                    .map(|i| {
+                        if let Value::Integer(i) = i {
+                            i
+                        } else {
+                            panic!("Bad value");
+                        }
+                    })
+                    .collect();
+                assert_eq!(v.iter().filter(|i| **i == 34i64).count(), 1);
+                assert_eq!(v.iter().filter(|i| **i == 43i64).count(), 1);
+            }
+            _ => {
+                panic!("Not array");
+            }
         }
         let v = merge(v, 34_i32.into(), &MergeStrategy::FlatUnique).unwrap();
         if let Value::Array(v) = v {

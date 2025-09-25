@@ -9,7 +9,7 @@ use url::Url;
 use vector_lib::configurable::configurable_component;
 
 use crate::{
-    config::{self, provider::ProviderConfig, ProxyConfig},
+    config::{self, provider::ProviderConfig, Format, ProxyConfig},
     http::HttpClient,
     signal,
     tls::{TlsConfig, TlsSettings},
@@ -59,6 +59,10 @@ pub struct HttpConfig {
     #[configurable(derived)]
     #[serde(default, skip_serializing_if = "crate::serde::is_default")]
     proxy: ProxyConfig,
+
+    /// Which config format expected to be loaded
+    #[configurable(derived)]
+    config_format: Format,
 }
 
 impl Default for HttpConfig {
@@ -69,6 +73,7 @@ impl Default for HttpConfig {
             poll_interval_secs: 30,
             tls_options: None,
             proxy: Default::default(),
+            config_format: Format::default(),
         }
     }
 }
@@ -146,15 +151,17 @@ async fn http_request_to_config_builder(
     headers: &IndexMap<String, String>,
     payload: &Option<String>,
     proxy: &ProxyConfig,
+    config_format: &Format,
 ) -> BuildResult {
     let config_str = http_request(url, tls_options, headers, payload, proxy)
         .await
         .map_err(|e| vec![e])?;
 
-    config::load(config_str.chunk(), crate::config::format::Format::Toml)
+    config::load(config_str.chunk(), *config_format)
 }
 
 /// Polls the HTTP endpoint after/every `poll_interval_secs`, returning a stream of `ConfigBuilder`.
+#[allow(clippy::too_many_arguments)]
 fn poll_http(
     poll_interval_secs: u64,
     url: Url,
@@ -162,6 +169,7 @@ fn poll_http(
     headers: IndexMap<String, String>,
     mut heartbeat: Option<serde_json::Value>,
     proxy: ProxyConfig,
+    config_format: Format,
     mut loaded_config_hash: String,
 ) -> impl Stream<Item = signal::SignalTo> {
     let start_time = time::Instant::now();
@@ -172,7 +180,7 @@ fn poll_http(
         loop {
             interval.tick().await;
             let uptime_sec = start_time.elapsed().as_secs();
-            match http_request_to_config_builder(&url, tls_options.as_ref(), &headers, &get_current_heartbeat_payload(&mut heartbeat, uptime_sec), &proxy).await {
+            match http_request_to_config_builder(&url, tls_options.as_ref(), &headers, &get_current_heartbeat_payload(&mut heartbeat, uptime_sec), &proxy, &config_format).await {
                 Ok(config_builder) => {
                     let current_hash = config_builder.sha256_hash();
                     // Make sure we only send the reload signal when the config changed
@@ -206,6 +214,7 @@ impl ProviderConfig for HttpConfig {
         let tls_options = self.tls_options.take();
         let poll_interval_secs = self.poll_interval_secs;
         let request = self.request.clone();
+        let config_format = self.config_format;
 
         let mut heartbeat = match request.payload {
             Some(p) => match serde_json::from_str::<serde_json::Value>(p.as_str()) {
@@ -234,6 +243,7 @@ impl ProviderConfig for HttpConfig {
             &request.headers,
             &get_current_heartbeat_payload(&mut heartbeat, 0),
             &proxy,
+            &config_format,
         )
         .await?;
 
@@ -245,6 +255,7 @@ impl ProviderConfig for HttpConfig {
             request.headers.clone(),
             heartbeat,
             proxy.clone(),
+            config_format,
             config_builder.sha256_hash(),
         ));
 

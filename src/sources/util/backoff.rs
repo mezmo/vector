@@ -20,7 +20,7 @@ impl Backoff {
     }
 
     /// Resets the internal state to the base delay.
-    pub fn reset(&mut self) {
+    pub const fn reset(&mut self) {
         self.step = 0;
     }
 

@@ -1,9 +1,9 @@
+use crate::common::backoff::ExponentialBackoff;
 use crate::internal_events::{
     MezmoAggregateDistributedEventRecorded, MezmoAggregateDistributedFlushFailed,
     MezmoAggregateDistributedFlushed, MezmoAggregateDistributedRecordFailed,
     MezmoAggregateDistributedRecordRetried,
 };
-use crate::sinks::util::retries::ExponentialBackoff;
 use async_stream::stream;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
@@ -193,7 +193,7 @@ impl MezmoAggregateDistributed {
         );
 
         match self.config.key_prefix {
-            Some(ref prefix) => format!("{}:{}", prefix, key),
+            Some(ref prefix) => format!("{prefix}:{key}"),
             None => key,
         }
     }
@@ -214,7 +214,7 @@ impl MezmoAggregateDistributed {
         );
 
         match self.config.key_prefix {
-            Some(ref prefix) => format!("{}:{}", prefix, key),
+            Some(ref prefix) => format!("{prefix}:{key}"),
             None => key,
         }
     }

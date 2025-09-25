@@ -64,6 +64,8 @@ pub mod mezmo_pipeline_state_variable_change;
 pub mod mezmo_user_logs;
 #[cfg(feature = "sources-mongodb_metrics")]
 pub mod mongodb_metrics;
+#[cfg(feature = "sources-mqtt")]
+pub mod mqtt;
 #[cfg(feature = "sources-nats")]
 pub mod nats;
 #[cfg(feature = "sources-nginx_metrics")]
@@ -94,6 +96,8 @@ pub mod statsd;
 pub mod syslog;
 #[cfg(feature = "sources-vector")]
 pub mod vector;
+#[cfg(feature = "sources-websocket")]
+pub mod websocket;
 
 pub mod util;
 
