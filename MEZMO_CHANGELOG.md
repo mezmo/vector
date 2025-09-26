@@ -1,3 +1,25 @@
+# [10.4.0](https://github.com/answerbook/vector/compare/v10.3.0...v10.4.0) (2025-09-26)
+
+
+### Chores
+
+* **build**: update build image to use mirror [9e53954](https://github.com/answerbook/vector/commit/9e5395427e126eea22c5d489e24f402be64569f4) - Mike Del Tito [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359)
+
+
+### Code Refactoring
+
+* **mezmo_reduce**: break out persistence and related items [7bdac6c](https://github.com/answerbook/vector/commit/7bdac6c7714960d264ca783c97a524eec2874fd9) - Mike Del Tito [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359)
+
+
+### Features
+
+* **transforms**: add persistence to mezmo_reduce [91b072c](https://github.com/answerbook/vector/commit/91b072ce7b5883f402054d4403ec8ebff7801e3e) - Mike Del Tito [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359)
+
+
+### Miscellaneous
+
+* Merge pull request #702 from answerbook/mdeltito/LOG-22359 [0c672e0](https://github.com/answerbook/vector/commit/0c672e0ef2805438f77d1df8c8012ce4b4ceba1b) - GitHub [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359)
+
 # [10.3.0](https://github.com/answerbook/vector/compare/v10.2.1...v10.3.0) (2025-09-25)
 
 
