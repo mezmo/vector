@@ -441,7 +441,7 @@ mod test {
     }
 
     fn line_generator(index: usize) -> String {
-        format!("opentelemetry test log index {}", index)
+        format!("opentelemetry test log index {index}")
     }
 
     fn event_generator(index: usize) -> Event {
@@ -687,7 +687,7 @@ mod test {
 
         for (index, message) in messages.iter().enumerate() {
             assert_eq!(
-                Value::from(format!("opentelemetry test log index {}", index)),
+                Value::from(format!("opentelemetry test log index {index}")),
                 message.clone().into_log().get_message().unwrap().to_owned()
             );
         }

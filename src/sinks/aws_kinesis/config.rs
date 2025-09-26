@@ -102,7 +102,7 @@ where
     RR: Record + Record<T = R> + Clone + Send + Sync + Unpin + 'static,
     E: Send + 'static,
     SdkError<<C as SendRecord>::E>: UserLoggingError,
-    RT: RetryLogic<Response = KinesisResponse> + Default,
+    RT: RetryLogic<Request = BatchKinesisRequest<RR>, Response = KinesisResponse> + Default,
 {
     let request_limits = config.request.into_settings();
 

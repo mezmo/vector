@@ -1338,7 +1338,7 @@ mod tests {
         // Swap out the host so we can force send it
         // to our local server
         let endpoint = UriSerde {
-            uri: format!("http://{}", addr).parse::<http::Uri>().unwrap(),
+            uri: format!("http://{addr}").parse::<http::Uri>().unwrap(),
             auth: None,
         };
         config.endpoint = endpoint;
@@ -1401,7 +1401,7 @@ mod tests {
                 let (p, _) = hosts
                     .iter()
                     .enumerate()
-                    .find(|(_, host)| query.contains(&format!("hostname={}", host)))
+                    .find(|(_, host)| query.contains(&format!("hostname={host}")))
                     .expect("invalid hostname");
                 let lines = &partitions[p];
 

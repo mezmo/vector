@@ -599,7 +599,7 @@ impl HttpSource for SimpleHttpSource {
                     // handling is needed here
                     return Err(ErrorMessage::new(
                         StatusCode::BAD_REQUEST,
-                        format!("Failed decoding body: {}", error),
+                        format!("Failed decoding body: {error}"),
                     ));
                 }
             }
@@ -724,7 +724,7 @@ mod tests {
 
     async fn send(address: SocketAddr, body: &str) -> u16 {
         reqwest::Client::new()
-            .post(format!("http://{}/", address))
+            .post(format!("http://{address}/"))
             .body(body.to_owned())
             .send()
             .await
@@ -735,7 +735,7 @@ mod tests {
 
     async fn send_with_headers(address: SocketAddr, body: &str, headers: HeaderMap) -> u16 {
         reqwest::Client::new()
-            .post(format!("http://{}/", address))
+            .post(format!("http://{address}/"))
             .headers(headers)
             .body(body.to_owned())
             .send()
@@ -747,7 +747,7 @@ mod tests {
 
     async fn send_with_query(address: SocketAddr, body: &str, query: &str) -> u16 {
         reqwest::Client::new()
-            .post(format!("http://{}?{}", address, query))
+            .post(format!("http://{address}?{query}"))
             .body(body.to_owned())
             .send()
             .await
@@ -758,7 +758,7 @@ mod tests {
 
     async fn send_with_path(address: SocketAddr, body: &str, path: &str) -> u16 {
         reqwest::Client::new()
-            .post(format!("http://{}{}", address, path))
+            .post(format!("http://{address}{path}"))
             .body(body.to_owned())
             .send()
             .await

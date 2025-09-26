@@ -38,27 +38,19 @@ async fn init_db_pool() -> crate::Result<String> {
     let client = mezmo::postgres::db_connection(&conn_str)
         .await
         .map_err(|e| {
-            format!(
-                "There was an error connecting to usage metrics db for log clustering: {:?}",
-                e
-            )
+            format!("There was an error connecting to usage metrics db for log clustering: {e:?}")
         })?;
 
     // Check that the queries are valid on init
     client
         .prepare_cached(INSERT_USAGE_QUERY)
         .await
-        .map_err(|e| {
-            format!(
-                "There was an error preparing log clustering usage query: {:?}",
-                e
-            )
-        })?;
+        .map_err(|e| format!("There was an error preparing log clustering usage query: {e:?}"))?;
 
     client
         .prepare_cached(INSERT_LOG_CLUSTER_QUERY)
         .await
-        .map_err(|e| format!("There was an error preparing log clusters query: {:?}", e))?;
+        .map_err(|e| format!("There was an error preparing log clusters query: {e:?}"))?;
 
     Ok(conn_str)
 }

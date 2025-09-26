@@ -1,3 +1,5 @@
+use crate::config::{ComponentConfig, ComponentType};
+use std::collections::HashMap;
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -6,8 +8,6 @@ use std::{
     sync::mpsc::{channel, Receiver},
     thread,
 };
-
-use crate::config::ComponentConfig;
 
 use notify::{recommended_watcher, EventKind, RecursiveMode};
 
@@ -61,7 +61,7 @@ impl Watcher {
     }
 }
 
-/// Sends a ReloadFromDisk on config_path changes.
+/// Sends a ReloadFromDisk or ReloadEnrichmentTables on config_path changes.
 /// Accumulates file changes until no change for given duration has occurred.
 /// Has best effort guarantee of detecting all file changes from the end of
 /// this function until the main thread stops.
@@ -103,7 +103,7 @@ pub fn spawn_thread<'a>(
 
                     debug!(message = "Consumed file change events for delay.", delay = ?delay);
 
-                    let component_keys: Vec<_> = component_configs
+                    let changed_components: HashMap<_, _> = component_configs
                         .clone()
                         .into_iter()
                         .flat_map(|p| p.contains(&event.paths))
@@ -119,15 +119,32 @@ pub fn spawn_thread<'a>(
                     debug!(message = "Reloaded paths.");
 
                     info!("Configuration file changed.");
-                    if !component_keys.is_empty() {
-                        info!("Component {:?} configuration changed.", component_keys);
-                        _ = signal_tx.send(crate::signal::SignalTo::ReloadComponents(component_keys)).map_err(|error| {
-                            error!(message = "Unable to reload component configuration. Restart Vector to reload it.", cause = %error)
-                        });
+                    if !changed_components.is_empty() {
+                        info!(
+                            internal_log_rate_limit = true,
+                            "Component {:?} configuration changed.",
+                            changed_components.keys()
+                        );
+                        if changed_components
+                            .iter()
+                            .all(|(_, t)| *t == ComponentType::EnrichmentTable)
+                        {
+                            info!(
+                                internal_log_rate_limit = true,
+                                "Only enrichment tables have changed."
+                            );
+                            _ = signal_tx.send(crate::signal::SignalTo::ReloadEnrichmentTables).map_err(|error| {
+                                error!(message = "Unable to reload enrichment tables.", cause = %error, internal_log_rate_limit = true)
+                            });
+                        } else {
+                            _ = signal_tx.send(crate::signal::SignalTo::ReloadComponents(changed_components.into_keys().collect())).map_err(|error| {
+                                error!(message = "Unable to reload component configuration. Restart Vector to reload it.", cause = %error, internal_log_rate_limit = true)
+                            });
+                        }
                     } else {
                         _ = signal_tx.send(crate::signal::SignalTo::ReloadFromDisk)
                             .map_err(|error| {
-                                error!(message = "Unable to reload configuration file. Restart Vector to reload it.", cause = %error)
+                                error!(message = "Unable to reload configuration file. Restart Vector to reload it.", cause = %error, internal_log_rate_limit = true)
                             });
                     }
                 } else {
@@ -188,32 +205,22 @@ mod tests {
         signal::SignalRx,
         test_util::{temp_dir, temp_file, trace_init},
     };
-    use std::{fs::File, io::Write, time::Duration};
+    use std::{collections::HashSet, fs::File, io::Write, time::Duration};
     use tokio::sync::broadcast;
 
-    async fn test(file: &mut File, timeout: Duration, mut receiver: SignalRx) -> bool {
-        file.write_all(&[0]).unwrap();
-        file.sync_all().unwrap();
-
-        matches!(
-            tokio::time::timeout(timeout, receiver.recv()).await,
-            Ok(Ok(crate::signal::SignalTo::ReloadFromDisk))
-        )
-    }
-
-    async fn test_component_reload(
+    async fn test_signal(
         file: &mut File,
-        expected_component: &ComponentKey,
+        expected_signal: crate::signal::SignalTo,
         timeout: Duration,
         mut receiver: SignalRx,
     ) -> bool {
         file.write_all(&[0]).unwrap();
         file.sync_all().unwrap();
 
-        matches!(
-            tokio::time::timeout(timeout, receiver.recv()).await,
-            Ok(Ok(crate::signal::SignalTo::ReloadComponents(components))) if components.contains(expected_component)
-        )
+        match tokio::time::timeout(timeout, receiver.recv()).await {
+            Ok(Ok(signal)) => signal == expected_signal,
+            _ => false,
+        }
     }
 
     #[tokio::test]
@@ -232,8 +239,11 @@ mod tests {
             .iter()
             .map(|file| File::create(file).unwrap())
             .collect();
-        let component_config =
-            ComponentConfig::new(component_file_path.clone(), http_component.clone());
+        let component_config = ComponentConfig::new(
+            component_file_path.clone(),
+            http_component.clone(),
+            ComponentType::Sink,
+        );
 
         let (signal_tx, signal_rx) = broadcast::channel(128);
         spawn_thread(
@@ -248,9 +258,11 @@ mod tests {
         let signal_rx = signal_rx.resubscribe();
         let signal_rx2 = signal_rx.resubscribe();
 
-        if !test_component_reload(
+        if !test_signal(
             &mut component_files[0],
-            &http_component,
+            crate::signal::SignalTo::ReloadComponents(HashSet::from_iter(vec![
+                http_component.clone()
+            ])),
             delay * 5,
             signal_rx,
         )
@@ -259,9 +271,11 @@ mod tests {
             panic!("Test timed out");
         }
 
-        if !test_component_reload(
+        if !test_signal(
             &mut component_files[1],
-            &http_component,
+            crate::signal::SignalTo::ReloadComponents(HashSet::from_iter(vec![
+                http_component.clone()
+            ])),
             delay * 5,
             signal_rx2,
         )
@@ -285,7 +299,14 @@ mod tests {
         let (signal_tx, signal_rx) = broadcast::channel(128);
         spawn_thread(watcher_conf, signal_tx, &[dir], vec![], delay).unwrap();
 
-        if !test(&mut file, delay * 5, signal_rx).await {
+        if !test_signal(
+            &mut file,
+            crate::signal::SignalTo::ReloadFromDisk,
+            delay * 5,
+            signal_rx,
+        )
+        .await
+        {
             panic!("Test timed out");
         }
     }
@@ -302,7 +323,14 @@ mod tests {
         let (signal_tx, signal_rx) = broadcast::channel(128);
         spawn_thread(watcher_conf, signal_tx, &[file_path], vec![], delay).unwrap();
 
-        if !test(&mut file, delay * 5, signal_rx).await {
+        if !test_signal(
+            &mut file,
+            crate::signal::SignalTo::ReloadFromDisk,
+            delay * 5,
+            signal_rx,
+        )
+        .await
+        {
             panic!("Test timed out");
         }
     }
@@ -323,7 +351,14 @@ mod tests {
         let (signal_tx, signal_rx) = broadcast::channel(128);
         spawn_thread(watcher_conf, signal_tx, &[sym_file], vec![], delay).unwrap();
 
-        if !test(&mut file, delay * 5, signal_rx).await {
+        if !test_signal(
+            &mut file,
+            crate::signal::SignalTo::ReloadFromDisk,
+            delay * 5,
+            signal_rx,
+        )
+        .await
+        {
             panic!("Test timed out");
         }
     }
@@ -344,7 +379,14 @@ mod tests {
         let (signal_tx, signal_rx) = broadcast::channel(128);
         spawn_thread(watcher_conf, signal_tx, &[sub_dir], vec![], delay).unwrap();
 
-        if !test(&mut file, delay * 5, signal_rx).await {
+        if !test_signal(
+            &mut file,
+            crate::signal::SignalTo::ReloadFromDisk,
+            delay * 5,
+            signal_rx,
+        )
+        .await
+        {
             panic!("Test timed out");
         }
     }

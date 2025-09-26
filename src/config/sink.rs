@@ -1,9 +1,11 @@
 use mezmo::MezmoContext;
 use std::cell::RefCell;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use dyn_clone::DynClone;
 use serde::Serialize;
+use serde_with::serde_as;
 use std::path::PathBuf;
 use vector_lib::buffers::{BufferConfig, BufferType};
 use vector_lib::configurable::attributes::CustomAttribute;
@@ -36,8 +38,10 @@ impl Configurable for BoxedSink {
         metadata
     }
 
-    fn generate_schema(gen: &RefCell<SchemaGenerator>) -> Result<SchemaObject, GenerateError> {
-        vector_lib::configurable::component::SinkDescription::generate_schemas(gen)
+    fn generate_schema(
+        generator: &RefCell<SchemaGenerator>,
+    ) -> Result<SchemaObject, GenerateError> {
+        vector_lib::configurable::component::SinkDescription::generate_schemas(generator)
     }
 }
 
@@ -165,12 +169,21 @@ where
 }
 
 /// Healthcheck configuration.
+#[serde_as]
 #[configurable_component]
 #[derive(Clone, Debug)]
 #[serde(default)]
 pub struct SinkHealthcheckOptions {
     /// Whether or not to check the health of the sink when Vector starts up.
     pub enabled: bool,
+
+    /// Timeout duration for healthcheck in seconds.
+    #[serde_as(as = "serde_with::DurationSecondsWithFrac<f64>")]
+    #[serde(
+        default = "default_healthcheck_timeout",
+        skip_serializing_if = "is_default_healthcheck_timeout"
+    )]
+    pub timeout: Duration,
 
     /// The full URI to make HTTP healthcheck requests to.
     ///
@@ -180,26 +193,38 @@ pub struct SinkHealthcheckOptions {
     pub uri: Option<UriSerde>,
 }
 
+const fn default_healthcheck_timeout() -> Duration {
+    Duration::from_secs(10)
+}
+
+fn is_default_healthcheck_timeout(timeout: &Duration) -> bool {
+    timeout == &default_healthcheck_timeout()
+}
+
 impl Default for SinkHealthcheckOptions {
     fn default() -> Self {
         Self {
             enabled: true,
             uri: None,
+            timeout: default_healthcheck_timeout(),
         }
     }
 }
 
 impl From<bool> for SinkHealthcheckOptions {
     fn from(enabled: bool) -> Self {
-        Self { enabled, uri: None }
+        Self {
+            enabled,
+            ..Default::default()
+        }
     }
 }
 
 impl From<UriSerde> for SinkHealthcheckOptions {
     fn from(uri: UriSerde) -> Self {
         Self {
-            enabled: true,
             uri: Some(uri),
+            ..Default::default()
         }
     }
 }
@@ -244,7 +269,7 @@ pub trait SinkConfig: DynClone + NamedComponent + core::fmt::Debug + Send + Sync
 
 dyn_clone::clone_trait_object!(SinkConfig);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SinkContext {
     pub healthcheck: SinkHealthcheckOptions,
     pub globals: GlobalOptions,

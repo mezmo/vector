@@ -144,10 +144,12 @@ mod template;
 mod throttle;
 mod udp;
 mod unix;
-#[cfg(feature = "sinks-websocket")]
+#[cfg(any(feature = "sources-websocket", feature = "sinks-websocket"))]
 mod websocket;
 #[cfg(feature = "sinks-websocket-server")]
 mod websocket_server;
+#[cfg(feature = "transforms-window")]
+mod window;
 
 #[cfg(any(
     feature = "sources-file",
@@ -156,6 +158,11 @@ mod websocket_server;
 ))]
 mod file;
 mod windows;
+
+#[cfg(any(feature = "transforms-log_to_metric", feature = "sinks-loki"))]
+mod expansion;
+#[cfg(any(feature = "transforms-log_to_metric", feature = "sinks-loki"))]
+pub use self::expansion::*;
 
 #[cfg(feature = "sources-mongodb_metrics")]
 pub(crate) use mongodb_metrics::*;
@@ -289,10 +296,12 @@ pub(crate) use self::tag_cardinality_limit::*;
 pub(crate) use self::throttle::*;
 #[cfg(unix)]
 pub(crate) use self::unix::*;
-#[cfg(feature = "sinks-websocket")]
+#[cfg(any(feature = "sources-websocket", feature = "sinks-websocket"))]
 pub(crate) use self::websocket::*;
 #[cfg(feature = "sinks-websocket-server")]
 pub(crate) use self::websocket_server::*;
+#[cfg(feature = "transforms-window")]
+pub(crate) use self::window::*;
 #[cfg(windows)]
 pub(crate) use self::windows::*;
 pub use self::{

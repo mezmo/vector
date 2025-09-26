@@ -110,7 +110,7 @@ impl<'a> FileConsolidationProcessor<'a> {
                         format!("{}/", dir.clone())
                     };
 
-                    new_file_key = format!("{}merged_{}.log", newfile_dir, time_since_epoch);
+                    new_file_key = format!("{newfile_dir}merged_{time_since_epoch}.log");
 
                     info!(
                         "container={}, Determining if merge file already exists, file={}",

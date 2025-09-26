@@ -73,7 +73,7 @@ static WORD_TO_UCUM: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::n
 });
 
 static WORD_TO_UCUM_INVERT: LazyLock<HashMap<&'static str, &'static str>> =
-    LazyLock::new(|| WORD_TO_UCUM.iter().map(|(_, v)| (*v, *v)).collect());
+    LazyLock::new(|| WORD_TO_UCUM.values().map(|v| (*v, *v)).collect());
 
 static PER_WORD_TO_UCUM: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
     vec![
@@ -90,7 +90,7 @@ static PER_WORD_TO_UCUM: LazyLock<HashMap<&'static str, &'static str>> = LazyLoc
 });
 
 static PER_WORD_TO_UCUM_INVERT: LazyLock<HashMap<&'static str, &'static str>> =
-    LazyLock::new(|| PER_WORD_TO_UCUM.iter().map(|(_, v)| (*v, *v)).collect());
+    LazyLock::new(|| PER_WORD_TO_UCUM.values().map(|v| (*v, *v)).collect());
 
 fn get_property<'a>(
     root: &'a BTreeMap<KeyString, Value>,
@@ -98,10 +98,10 @@ fn get_property<'a>(
 ) -> Result<&'a Value, OpentelemetrySinkError> {
     match root.get(property_name) {
         None => Err(OpentelemetrySinkError::new(
-            format!("FieldNotFound field: {}", property_name).as_str(),
+            format!("FieldNotFound field: {property_name}").as_str(),
         )),
         Some(Value::Null) => Err(OpentelemetrySinkError::new(
-            format!("FieldBadValue field: {} is Null", property_name).as_str(),
+            format!("FieldBadValue field: {property_name} is Null").as_str(),
         )),
         Some(value) => Ok(value),
     }
@@ -126,12 +126,12 @@ fn parse_float(value: &Value, field_name: &str) -> Result<f64, OpentelemetrySink
                 Ok(*v as f64)
             } else {
                 Err(OpentelemetrySinkError::new(
-                    format!("NumberTruncation field: {} is Null", field_name).as_str(),
+                    format!("NumberTruncation field: {field_name} is Null").as_str(),
                 ))
             }
         }
         _ => Err(OpentelemetrySinkError::new(
-            format!("FieldInvalidType field: {}", field_name).as_str(),
+            format!("FieldInvalidType field: {field_name}").as_str(),
         )),
     }
 }
@@ -139,7 +139,7 @@ fn parse_float(value: &Value, field_name: &str) -> Result<f64, OpentelemetrySink
 fn parse_u64(value: &Value, field_name: &str) -> Result<u64, OpentelemetrySinkError> {
     let val = value.as_integer().ok_or_else(|| {
         OpentelemetrySinkError::new(
-            format!("FieldInvalidType field: {} is no integer", field_name).as_str(),
+            format!("FieldInvalidType field: {field_name} is no integer").as_str(),
         )
     })?;
 
@@ -147,7 +147,7 @@ fn parse_u64(value: &Value, field_name: &str) -> Result<u64, OpentelemetrySinkEr
         // Internally represented as a i64, any negative value overflows
         // field: name.into()
         return Err(OpentelemetrySinkError::new(
-            format!("ParseIntOverflow field: {} is less than 0", field_name).as_str(),
+            format!("ParseIntOverflow field: {field_name} is less than 0").as_str(),
         ));
     }
 
@@ -1370,7 +1370,7 @@ mod test {
         for event in generate_events(generator, gen_settings.len()) {
             match OpentelemetryMetricsModel::try_from((event.clone(), &config)) {
                 Ok(m) => metrics.push(m),
-                Err(err) => panic!("Metric event cannot be converted to a model: {:#?}", err),
+                Err(err) => panic!("Metric event cannot be converted to a model: {err:#?}"),
             }
         }
 
@@ -1454,7 +1454,7 @@ mod test {
         for event in generate_events(generator, gen_settings.len()) {
             match OpentelemetryMetricsModel::try_from((event.clone(), &config)) {
                 Ok(m) => metrics.push(m),
-                Err(err) => panic!("Metric event cannot be converted to a model: {:#?}", err),
+                Err(err) => panic!("Metric event cannot be converted to a model: {err:#?}"),
             }
         }
 
@@ -1540,7 +1540,7 @@ mod test {
         for event in generate_events(generator, gen_settings.len()) {
             match OpentelemetryMetricsModel::try_from((event.clone(), &config)) {
                 Ok(m) => metrics.push(m),
-                Err(err) => panic!("Metric event cannot be converted to a model: {:#?}", err),
+                Err(err) => panic!("Metric event cannot be converted to a model: {err:#?}"),
             }
         }
 
@@ -1607,7 +1607,7 @@ mod test {
         for event in generate_events(generator, gen_settings.len()) {
             match OpentelemetryMetricsModel::try_from((event.clone(), &config)) {
                 Ok(m) => metrics.push(m),
-                Err(err) => panic!("Metric event cannot be converted to a model: {:#?}", err),
+                Err(err) => panic!("Metric event cannot be converted to a model: {err:#?}"),
             }
         }
 
@@ -1680,7 +1680,7 @@ mod test {
         for event in generate_events(generator, gen_settings.len()) {
             match OpentelemetryMetricsModel::try_from((event.clone(), &config)) {
                 Ok(m) => metrics.push(m),
-                Err(err) => panic!("Metric event cannot be converted to a model: {:#?}", err),
+                Err(err) => panic!("Metric event cannot be converted to a model: {err:#?}"),
             }
         }
 
@@ -1779,7 +1779,7 @@ mod test {
         for event in generate_events(generator, gen_settings.len()) {
             match OpentelemetryMetricsModel::try_from((event.clone(), &config)) {
                 Ok(m) => metrics.push(m),
-                Err(err) => panic!("Metric event cannot be converted to a model: {:#?}", err),
+                Err(err) => panic!("Metric event cannot be converted to a model: {err:#?}"),
             }
         }
 
@@ -1894,7 +1894,7 @@ mod test {
         for event in generate_events(generator, gen_settings.len()) {
             match OpentelemetryMetricsModel::try_from((event.clone(), &config)) {
                 Ok(m) => metrics.push(m),
-                Err(err) => panic!("Metric event cannot be converted to a model: {:#?}", err),
+                Err(err) => panic!("Metric event cannot be converted to a model: {err:#?}"),
             }
         }
 
@@ -1966,7 +1966,7 @@ mod test {
         for event in generate_events(generator, gen_settings.len()) {
             match OpentelemetryMetricsModel::try_from((event.clone(), &config)) {
                 Ok(m) => metrics.push(m),
-                Err(err) => panic!("Metric event cannot be converted to a model: {:#?}", err),
+                Err(err) => panic!("Metric event cannot be converted to a model: {err:#?}"),
             }
         }
 

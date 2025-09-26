@@ -66,7 +66,7 @@ async fn writer_error_when_record_is_over_the_limit() {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "Needs investigation"]
 async fn writer_waits_when_buffer_is_full() {
     let assertion_registry = install_tracing_helpers();
     let fut = with_temp_dir(|dir| {
@@ -290,7 +290,7 @@ async fn writer_rolls_data_files_when_the_limit_is_exceeded() {
     .await;
 }
 
-#[cfg_attr(not(ignored_upstream_flakey), ignore)]
+#[cfg_attr(not(ignored_upstream_flakey), ignore = "flaky test")]
 #[tokio::test]
 async fn writer_rolls_data_files_when_the_limit_is_exceeded_after_reload() {
     let _a = install_tracing_helpers();

@@ -16,7 +16,6 @@ use tokio::sync::{broadcast::error::RecvError, MutexGuard};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use vector_lib::usage_metrics::{start_publishing_metrics, UsageMetrics};
 
-use crate::extra_context::ExtraContext;
 #[cfg(feature = "api")]
 use crate::{api, internal_events::ApiStarted};
 use crate::{
@@ -34,6 +33,7 @@ use crate::{
     },
     trace,
 };
+use crate::{config::ComponentType, extra_context::ExtraContext};
 
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -417,8 +417,11 @@ async fn handle_signal(
     allow_empty_config: bool,
 ) -> Option<SignalTo> {
     match signal {
-        Ok(SignalTo::ReloadComponents(component_keys)) => {
+        Ok(SignalTo::ReloadComponents(components_to_reload)) => {
             let mut topology_controller = topology_controller.lock().await;
+            topology_controller
+                .topology
+                .extend_reload_set(components_to_reload.clone());
 
             // Reload paths
             if let Some(paths) = config::process_paths(config_paths) {
@@ -436,7 +439,13 @@ async fn handle_signal(
             reload_config_from_result(
                 topology_controller,
                 new_config,
-                Some(component_keys.iter().map(AsRef::as_ref).collect()),
+                Some(
+                    components_to_reload
+                        .clone()
+                        .iter()
+                        .map(AsRef::as_ref)
+                        .collect(),
+                ),
             )
             .await
         }
@@ -558,6 +567,15 @@ async fn handle_signal(
             .await;
 
             reload_config_from_result(topology_controller, new_config, None).await
+        }
+        Ok(SignalTo::ReloadEnrichmentTables) => {
+            let topology_controller = topology_controller.lock().await;
+
+            topology_controller
+                .topology
+                .reload_enrichment_tables()
+                .await;
+            None
         }
         Err(RecvError::Lagged(amt)) => {
             warn!("Overflow, dropped {} signals.", amt);
@@ -717,16 +735,43 @@ pub async fn load_configs(
     let mut watched_component_paths = Vec::new();
 
     if let Some(watcher_conf) = watcher_conf {
+        for (name, transform) in config.transforms() {
+            let files = transform.inner.files_to_watch();
+            let component_config = ComponentConfig::new(
+                files.into_iter().cloned().collect(),
+                name.clone(),
+                ComponentType::Transform,
+            );
+            watched_component_paths.push(component_config);
+        }
+
         for (name, sink) in config.sinks() {
             let files = sink.inner.files_to_watch();
-            let component_config =
-                ComponentConfig::new(files.into_iter().cloned().collect(), name.clone());
+            let component_config = ComponentConfig::new(
+                files.into_iter().cloned().collect(),
+                name.clone(),
+                ComponentType::Sink,
+            );
+            watched_component_paths.push(component_config);
+        }
+
+        for (name, table) in config.enrichment_tables() {
+            let files = table.inner.files_to_watch();
+            let component_config = ComponentConfig::new(
+                files.into_iter().cloned().collect(),
+                name.clone(),
+                ComponentType::EnrichmentTable,
+            );
             watched_component_paths.push(component_config);
         }
 
         info!(
             message = "Starting watcher.",
             paths = ?watched_paths
+        );
+        info!(
+            message = "Components to watch.",
+            paths = ?watched_component_paths
         );
 
         // Start listening for config changes.

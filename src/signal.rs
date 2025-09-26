@@ -1,6 +1,7 @@
 #![allow(missing_docs)]
 
 use snafu::Snafu;
+use std::collections::HashSet;
 use tokio::{runtime::Runtime, sync::broadcast};
 use tokio_stream::{Stream, StreamExt};
 
@@ -15,18 +16,37 @@ pub type SignalRx = broadcast::Receiver<SignalTo>;
 #[allow(clippy::large_enum_variant)] // discovered during Rust upgrade to 1.57; just allowing for now since we did previously
 pub enum SignalTo {
     /// Signal to reload given components.
-    ReloadComponents(Vec<ComponentKey>),
+    ReloadComponents(HashSet<ComponentKey>),
     /// Signal to reload config from a string.
     ReloadFromConfigBuilder(ConfigBuilder),
     /// Signal to reload config from the filesystem.
     ReloadFromDisk,
+    /// Signal to reload all enrichment tables.
+    ReloadEnrichmentTables,
     /// Signal to shutdown process.
     Shutdown(Option<ShutdownError>),
     /// Shutdown process immediately.
     Quit,
 }
 
-#[derive(Clone, Debug, Snafu)]
+impl PartialEq for SignalTo {
+    fn eq(&self, other: &Self) -> bool {
+        use SignalTo::*;
+
+        match (self, other) {
+            (ReloadComponents(a), ReloadComponents(b)) => a == b,
+            // TODO: This will require a lot of plumbing but ultimately we can derive equality for config builders.
+            (ReloadFromConfigBuilder(_), ReloadFromConfigBuilder(_)) => true,
+            (ReloadFromDisk, ReloadFromDisk) => true,
+            (ReloadEnrichmentTables, ReloadEnrichmentTables) => true,
+            (Shutdown(a), Shutdown(b)) => a == b,
+            (Quit, Quit) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Snafu, PartialEq, Eq)]
 pub enum ShutdownError {
     // For future work: It would be nice if we could keep the actual errors in here, but
     // `crate::Error` doesn't implement `Clone`, and adding `DynClone` for errors is tricky.
@@ -156,7 +176,7 @@ impl SignalHandler {
 
 /// Signals from OS/user.
 #[cfg(unix)]
-fn os_signals(runtime: &Runtime) -> impl Stream<Item = SignalTo> {
+fn os_signals(runtime: &Runtime) -> impl Stream<Item = SignalTo> + use<> {
     use tokio::signal::unix::{signal, SignalKind};
 
     // The `signal` function must be run within the context of a Tokio runtime.

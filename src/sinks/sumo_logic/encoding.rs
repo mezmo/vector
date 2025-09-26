@@ -40,8 +40,7 @@ fn to_json<T: Serialize>(model: &T) -> Result<Vec<u8>, SumoLogicSinkError> {
             Ok(json)
         }
         Err(error) => Err(SumoLogicSinkError::new(&format!(
-            "Failed generating JSON: {}",
-            error
+            "Failed generating JSON: {error}",
         ))),
     }
 }

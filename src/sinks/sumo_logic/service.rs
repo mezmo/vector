@@ -128,8 +128,7 @@ impl Service<SumoLogicApiRequest> for SumoLogicService {
                     events_byte_size,
                 }),
                 Err(error) => Err(SumoLogicSinkError::new(&format!(
-                    "HTTP request error: {}",
-                    error
+                    "HTTP request error: {error}",
                 ))),
             }
         })

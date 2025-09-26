@@ -56,6 +56,8 @@ pub mod throttle;
 pub mod trace_head_sample;
 #[cfg(feature = "transforms-trace_tail_sample")]
 pub mod trace_tail_sample;
+#[cfg(feature = "transforms-window")]
+pub mod window;
 
 pub use vector_lib::transform::{
     FunctionTransform, OutputBuffer, SyncTransform, TaskTransform, Transform, TransformOutputs,

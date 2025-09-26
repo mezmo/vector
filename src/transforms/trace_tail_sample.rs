@@ -97,7 +97,7 @@ impl TransformConfig for TraceTailSampleConfig {
         let mezmo_ctx = context.mezmo_ctx.clone().unwrap();
         let sample_path = "trace_tail_sample".to_owned();
         let base_path = if let Some(p) = self.state_persistence_base_path.clone() {
-            format!("{}/{}", p, sample_path)
+            format!("{p}/{sample_path}")
         } else {
             sample_path
         };
@@ -190,10 +190,7 @@ impl TraceTailSample {
 
     fn get_cache_value<T: FromStr>(&mut self, key: &str) -> Option<T> {
         match self.persistence.get(key) {
-            Ok(Some(value)) => match value.parse::<T>() {
-                Ok(x) => Some(x),
-                Err(_) => None,
-            },
+            Ok(Some(value)) => value.parse::<T>().ok(),
             Ok(None) => None,
             Err(e) => {
                 error!(
@@ -277,7 +274,7 @@ impl TraceTailSample {
     fn get_message_field_value(&mut self, message: &Value, field: &str) -> Option<String> {
         if let Some(Value::Bytes(b)) = message.get(field) {
             let field_value = String::from_utf8_lossy(b);
-            if field_value.len() > 0 {
+            if !field_value.is_empty() {
                 return Some(field_value.to_string());
             }
         }
@@ -415,6 +412,7 @@ mod test {
         .unwrap()
     }
 
+    #[allow(warnings)]
     fn test_connection(
         mezmo_ctx: MezmoContext,
         ttl_secs: u64,
@@ -511,7 +509,7 @@ mod test {
                 Transform::Function(_) => {}
                 _ => panic!("Expected a Function transform"),
             },
-            Err(e) => panic!("Failed to generate config: {}", e),
+            Err(e) => panic!("Failed to generate config: {e}"),
         }
     }
 
@@ -528,7 +526,7 @@ mod test {
         let mut output = OutputBuffer::default();
         sampler.transform(&mut output, event1.into());
 
-        assert!(output.is_empty(), "Expected no events: {:?}", output);
+        assert!(output.is_empty(), "Expected no events: {output:?}");
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
@@ -546,7 +544,7 @@ mod test {
         let mut output = OutputBuffer::default();
         sampler.transform(&mut output, event1.into());
 
-        assert!(output.is_empty(), "Expected no events: {:?}", output);
+        assert!(output.is_empty(), "Expected no events: {output:?}");
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
@@ -576,7 +574,7 @@ mod test {
         let mut output = OutputBuffer::default();
         sampler.transform(&mut output, event1.into());
 
-        assert!(output.is_empty(), "Expected no events: {:?}", output);
+        assert!(output.is_empty(), "Expected no events: {output:?}");
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
@@ -845,6 +843,7 @@ mod test {
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
     #[test]
     fn vector_restart_continue_rate() {
+        #[allow(deprecated)]
         let base_dir = tempdir().expect("Could not create temp dir").into_path();
 
         let traceid_1a = Event::Log(LogEvent::from(btreemap! {
@@ -1015,6 +1014,7 @@ mod test {
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
     #[test]
     fn timestamp_is_always_present() {
+        #[allow(deprecated)]
         let base_dir = tempdir().expect("Could not create temp dir").into_path();
 
         let traceid_1a = Event::Log(LogEvent::from(btreemap! {

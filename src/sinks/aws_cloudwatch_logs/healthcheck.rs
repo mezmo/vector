@@ -50,7 +50,7 @@ pub async fn healthcheck(
                             expected: expected_group_name,
                             name,
                         };
-                        user_log_error!(cx.mezmo_ctx, Value::from(format!("{}", err)));
+                        user_log_error!(cx.mezmo_ctx, Value::from(format!("{err}")));
                         Err(err.into())
                     }
                 } else {
@@ -79,7 +79,7 @@ pub async fn healthcheck(
         },
         Err(source) => {
             let err = HealthcheckError::DescribeLogGroupsFailed { source };
-            user_log_error!(cx.mezmo_ctx, Value::from(format!("{}", err)));
+            user_log_error!(cx.mezmo_ctx, Value::from(format!("{err}")));
             Err(err.into())
         }
     }

@@ -232,6 +232,7 @@ async fn throttle_buckets() {
 
 #[assay(env = [("POD_NAME", "vector-test0-0")])]
 async fn with_initial_state() {
+    #[allow(deprecated)]
     let tmp_path = tempdir().expect("Could not create temp dir").into_path();
     let state_persistence_base_path = tmp_path.to_str().unwrap();
 

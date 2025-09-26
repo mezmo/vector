@@ -440,6 +440,7 @@ async fn s3_flush_on_exhaustion() {
             file_consolidation_config: Default::default(),
             timezone: Default::default(),
             force_path_style: true,
+            retry_strategy: Default::default(),
         }
     };
     let prefix = config.key_prefix.clone();
@@ -532,6 +533,7 @@ fn config(bucket: &str, batch_size: usize) -> S3SinkConfig {
         file_consolidation_config: Default::default(), //MEZMO: new property for s3-sink file consolidation
         timezone: Default::default(),
         force_path_style: true,
+        retry_strategy: Default::default(),
     }
 }
 
@@ -562,9 +564,9 @@ pub async fn create_bucket(bucket: &str, object_lock_enabled: bool) {
         Err(err) => match err {
             SdkError::ServiceError(inner) => match &inner.err() {
                 CreateBucketError::BucketAlreadyOwnedByYou(_) => {}
-                err => panic!("Failed to create bucket: {:?}", err),
+                err => panic!("Failed to create bucket: {err:?}"),
             },
-            err => panic!("Failed to create bucket: {:?}", err),
+            err => panic!("Failed to create bucket: {err:?}"),
         },
     }
 }

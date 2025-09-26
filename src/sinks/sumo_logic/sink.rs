@@ -68,7 +68,7 @@ impl std::error::Error for SumoLogicSinkError {
 
 impl From<SumoLogicSinkError> for std::io::Error {
     fn from(error: SumoLogicSinkError) -> Self {
-        Self::new(std::io::ErrorKind::Other, error)
+        Self::other(error)
     }
 }
 
