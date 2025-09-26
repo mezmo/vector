@@ -25,7 +25,7 @@ pub enum ContextIdentifier {
 impl Display for ContextIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ContextIdentifier::Value { id } => write!(f, "{}", id),
+            ContextIdentifier::Value { id } => write!(f, "{id}"),
             ContextIdentifier::Shared => write!(f, "shared"),
         }
     }
@@ -229,8 +229,7 @@ mod tests {
             let res = MezmoContext::try_from(case.to_owned());
             assert!(
                 matches!(res, Err(ContextParseError::NotUserIdentifier { id: _ })),
-                "{} was not rejected as NotUserIdentifier",
-                case
+                "{case} was not rejected as NotUserIdentifier",
             );
         }
     }

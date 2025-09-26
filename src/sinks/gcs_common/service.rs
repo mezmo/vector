@@ -117,11 +117,8 @@ impl UserLoggingResponse for GcsResponse {
                 let status = response.status();
                 if status.is_client_error() || status.is_server_error() {
                     Some(
-                        format!(
-                            "Error returned from destination with status code: {}",
-                            status
-                        )
-                        .into(),
+                        format!("Error returned from destination with status code: {status}",)
+                            .into(),
                     )
                 } else {
                     None

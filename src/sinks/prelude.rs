@@ -43,7 +43,7 @@ pub use crate::{
         },
         Healthcheck, HealthcheckError,
     },
-    template::{Template, TemplateParseError},
+    template::{Template, TemplateParseError, UnsignedIntTemplate},
     tls::TlsConfig,
 };
 pub use mezmo::{user_log_error, user_trace::MezmoUserLog, MezmoContext};

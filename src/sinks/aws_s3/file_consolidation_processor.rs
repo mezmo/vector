@@ -113,7 +113,7 @@ impl<'a> FileConsolidationProcessor<'a> {
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
                         .as_secs();
-                    new_file_key = format!("{}merged_{}.log", newfile_dir, time_since_epoch);
+                    new_file_key = format!("{newfile_dir}merged_{time_since_epoch}.log");
 
                     match self
                         .s3_client
@@ -729,7 +729,7 @@ async fn download_bytes(client: &S3Client, bucket: String, key: String) -> Resul
         Err(e) => {
             return Err(Error::NotFound(
                 aws_sdk_s3::types::error::NotFound::builder()
-                    .message(format!("{}", e))
+                    .message(format!("{e}"))
                     .build(),
             ))
         }

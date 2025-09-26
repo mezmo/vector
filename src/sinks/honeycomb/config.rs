@@ -179,8 +179,7 @@ async fn healthcheck(
 
     if status.is_client_error() || status.is_server_error() {
         let msg = Value::from(format!(
-            "Error returned from destination with status code: {}",
-            status
+            "Error returned from destination with status code: {status}",
         ));
         user_log_error!(cx.mezmo_ctx, msg);
     }
@@ -204,10 +203,6 @@ async fn healthcheck(
     } else {
         let body = String::from_utf8_lossy(&body[..]);
 
-        Err(format!(
-            "Server returned unexpected error status: {} body: {}",
-            status, body
-        )
-        .into())
+        Err(format!("Server returned unexpected error status: {status} body: {body}").into())
     }
 }

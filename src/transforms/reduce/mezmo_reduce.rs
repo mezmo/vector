@@ -372,7 +372,7 @@ impl ReduceState {
         let message_obj = log_event.get_mut("message").unwrap();
 
         for (date_prop, format) in date_formats.iter() {
-            let end_prop = format!("{}_end", date_prop);
+            let end_prop = format!("{date_prop}_end");
             let start_str = date_prop.as_str();
             let end_str = end_prop.as_str();
 
@@ -2608,8 +2608,7 @@ max_events = 3
             let result = get_root_property_name_from_path(&input, desc, error_when_nested);
             assert_eq!(
                 result, expected,
-                "Failed item: {}, expected: {:?}",
-                desc, expected
+                "Failed item: {desc}, expected: {expected:?}",
             );
         }
     }

@@ -1,10 +1,4 @@
-use std::{
-    borrow::BorrowMut,
-    collections::HashMap,
-    io::{Error, ErrorKind},
-    path::PathBuf,
-    process::ExitStatus,
-};
+use std::{borrow::BorrowMut, collections::HashMap, io::Error, path::PathBuf, process::ExitStatus};
 
 use chrono::Utc;
 use futures::StreamExt;
@@ -555,9 +549,10 @@ impl ExecInner for CommandExecInner {
 
         // Optionally include stderr
         if self.config.include_stderr {
-            let stderr = child.stderr.take().ok_or_else(|| {
-                Error::new(ErrorKind::Other, "Unable to take stderr of spawned process")
-            })?;
+            let stderr = child
+                .stderr
+                .take()
+                .ok_or_else(|| Error::other("Unable to take stderr of spawned process"))?;
 
             // Create stderr async reader
             let stderr_reader = BufReader::new(stderr);
@@ -565,9 +560,10 @@ impl ExecInner for CommandExecInner {
             spawn_reader_thread(stderr_reader, self.decoder.clone(), STDERR, sender.clone());
         }
 
-        let stdout = child.stdout.take().ok_or_else(|| {
-            Error::new(ErrorKind::Other, "Unable to take stdout of spawned process")
-        })?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::other("Unable to take stdout of spawned process"))?;
 
         // Create stdout async reader
         let stdout_reader = BufReader::new(stdout);
@@ -737,10 +733,9 @@ fn maybe_compile_vrl_script(
     );
     match result {
         Ok((program, _, _)) => Ok(Some(program)),
-        Err(err) => Err(Error::new(
-            ErrorKind::Other,
-            format!("Error compiling VRL program. Reason: {}", err),
-        )),
+        Err(err) => Err(Error::other(format!(
+            "Error compiling VRL program. Reason: {err}"
+        ))),
     }
 }
 

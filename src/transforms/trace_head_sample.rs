@@ -77,7 +77,7 @@ impl TransformConfig for TraceHeadSampleConfig {
         let mezmo_ctx = context.mezmo_ctx.clone().unwrap();
         let sample_path = "trace_head_sample".to_owned();
         let base_path = if let Some(p) = self.state_persistence_base_path.clone() {
-            format!("{}/{}", p, sample_path)
+            format!("{p}/{sample_path}")
         } else {
             sample_path
         };
@@ -145,10 +145,7 @@ impl TraceHeadSample {
 
     fn get_value<T: FromStr>(&mut self, key: &str) -> Option<T> {
         match self.persistence.get(key) {
-            Ok(Some(value)) => match value.parse::<T>() {
-                Ok(x) => Some(x),
-                Err(_) => None,
-            },
+            Ok(Some(value)) => value.parse::<T>().ok(),
             Ok(None) => None,
             Err(e) => {
                 error!(
@@ -256,6 +253,7 @@ mod test {
         .unwrap()
     }
 
+    #[allow(warnings)]
     fn test_connection(
         mezmo_ctx: MezmoContext,
         ttl_secs: u64,
@@ -337,7 +335,7 @@ mod test {
         let config = TraceHeadSampleConfig::default();
         match config.build(&ctx).await {
             Ok(_) => {}
-            Err(e) => panic!("Failed to generate config: {}", e),
+            Err(e) => panic!("Failed to generate config: {e}"),
         }
     }
 
@@ -354,7 +352,7 @@ mod test {
         let mut output = OutputBuffer::default();
         sampler.transform(&mut output, event1.into());
 
-        assert!(output.is_empty(), "Expected no events: {:?}", output);
+        assert!(output.is_empty(), "Expected no events: {output:?}");
         assert_eq!(sampler.count, 0, "No event counted");
     }
 
@@ -373,7 +371,7 @@ mod test {
         let mut output = OutputBuffer::default();
         sampler.transform(&mut output, event1.into());
 
-        assert!(output.is_empty(), "Expected no events: {:?}", output);
+        assert!(output.is_empty(), "Expected no events: {output:?}");
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
@@ -402,7 +400,7 @@ mod test {
         let mut output = OutputBuffer::default();
         sampler.transform(&mut output, event1.into());
 
-        assert!(output.is_empty(), "Expected no events: {:?}", output);
+        assert!(output.is_empty(), "Expected no events: {output:?}");
         assert_eq!(sampler.count, 0, "No event counted");
     }
 
@@ -602,6 +600,7 @@ mod test {
             state_persistence_base_path: Some("/data/component-state".to_owned()),
         };
         let test_ctx = test_ctx();
+        #[allow(deprecated)]
         let base_dir = tempdir().expect("Could not create temp dir").into_path();
         let connection = test_connection(test_ctx.clone(), config.ttl_secs, Some(base_dir.clone()));
         let mut sampler = TraceHeadSample::new(config.clone(), test_ctx.clone(), connection);

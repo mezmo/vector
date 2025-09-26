@@ -428,7 +428,7 @@ where
                 }
                 .into(),
             );
-        };
+        }
 
         if let Some(tags) = self.tags {
             values.insert("tags".into(), tags.tags().to_value());

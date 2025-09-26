@@ -372,7 +372,7 @@ impl MezmoLogClustering {
 
             // Send the full cluster information only when it was added/changed
             if group_status != LogClusterStatus::None {
-                info.template = Some(format!("{}", group));
+                info.template = Some(format!("{group}"));
                 info.annotation_set = log.as_map().and_then(get_annotations);
             }
 
@@ -390,7 +390,7 @@ impl MezmoLogClustering {
                 "match_count".into(),
                 Value::Integer(group.match_count() as i64),
             );
-            cluster.insert("template".into(), Value::Bytes(format!("{}", group).into()));
+            cluster.insert("template".into(), Value::Bytes(format!("{group}").into()));
 
             log.insert(
                 field_name.expect("to be set for annotate case").as_str(),

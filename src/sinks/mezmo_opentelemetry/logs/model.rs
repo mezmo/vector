@@ -185,7 +185,7 @@ mod test {
     use opentelemetry_sdk::Resource;
 
     fn line_generator(index: usize) -> String {
-        format!("opentelemetry test log index {}", index)
+        format!("opentelemetry test log index {index}")
     }
 
     fn event_generator(index: usize) -> Event {
@@ -291,7 +291,7 @@ mod test {
         for event in generate_events(generator, 1) {
             match OpentelemetryLogsModel::try_from(event.clone()) {
                 Ok(m) => logs.push(m),
-                Err(err) => panic!("Log event cannot be converted to a model: {:#?}", err),
+                Err(err) => panic!("Log event cannot be converted to a model: {err:#?}"),
             }
         }
 

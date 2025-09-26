@@ -81,7 +81,7 @@ impl std::error::Error for OpentelemetrySinkError {
 
 impl From<OpentelemetrySinkError> for std::io::Error {
     fn from(error: OpentelemetrySinkError) -> Self {
-        Self::new(std::io::ErrorKind::Other, error)
+        Self::other(error)
     }
 }
 

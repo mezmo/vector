@@ -16,11 +16,13 @@ use crate::{
 use async_trait::async_trait;
 use http::{header::AUTHORIZATION, uri::InvalidUri, HeaderName, HeaderValue, Uri};
 use indexmap::IndexMap;
+use std::collections::BTreeMap;
 use tower::ServiceBuilder;
 use vector_lib::configurable::configurable_component;
 use vector_lib::tls::{TlsConfig, TlsSettings};
 
 use super::models::OpentelemetryModelType;
+use super::service::OpentelemetryApiRequest;
 use super::service::OpentelemetryApiResponse;
 use super::sink::OpentelemetrySinkError;
 use super::{
@@ -36,6 +38,7 @@ pub struct OpentelemetryRetry;
 impl RetryLogic for OpentelemetryRetry {
     type Error = OpentelemetrySinkError;
     type Response = OpentelemetryApiResponse;
+    type Request = OpentelemetryApiRequest;
 
     fn is_retriable_error(&self, _error: &Self::Error) -> bool {
         false
@@ -136,7 +139,7 @@ impl TryFrom<&OpentelemetrySinkConfig> for OpentelemetryEndpoint {
         }
 
         let query: Cow<str> = match uri.query() {
-            Some(q) => Cow::Owned(format!("?{}", q)),
+            Some(q) => Cow::Owned(format!("?{q}")),
             None => Cow::Borrowed(""),
         };
 
@@ -318,16 +321,24 @@ pub(crate) async fn healthcheck() -> crate::Result<()> {
 }
 
 fn validate_headers(
-    headers: &IndexMap<String, String>,
+    headers: &BTreeMap<String, String>,
     configures_auth: bool,
 ) -> crate::Result<IndexMap<HeaderName, HeaderValue>> {
+    // util returns BTreeMap<OrderedHeaderName, HeaderValue>
     let headers = crate::sinks::util::http::validate_headers(headers)?;
 
     for name in headers.keys() {
-        if configures_auth && name == AUTHORIZATION {
+        let header_name = name.clone();
+        let fmted_name = format!("{header_name:?}");
+        if configures_auth && *fmted_name == AUTHORIZATION {
             return Err("Authorization header can not be used with defined auth options".into());
         }
     }
+
+    let headers: IndexMap<HeaderName, HeaderValue> = headers
+        .into_iter()
+        .map(|(k, v)| (k.inner().clone(), v))
+        .collect();
 
     Ok(headers)
 }
