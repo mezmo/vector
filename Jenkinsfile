@@ -4,7 +4,7 @@ def WORKSPACE_PATH = "/tmp/workspace/${env.BUILD_TAG.replace('%2F', '/')}"
 def DEFAULT_BRANCH = "master"
 def PROJECT_NAME = "vector"
 def CURRENT_BRANCH = currentBranch()
-def DOCKER_REPO = "docker.io/mezmohq"
+def DOCKER_REPO = "docker.io/mezmo"
 
 def slugify(str) {
   def s = str.toLowerCase()
