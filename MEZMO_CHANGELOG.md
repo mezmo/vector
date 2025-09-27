@@ -1,5 +1,22 @@
 ## Changelog
 
+## [6.3.1](https://github.com/mezmo/vector/compare/v6.3.0...v6.3.1) (2025-09-27)
+
+
+### Bug Fixes
+
+* **fetch_tasks**: do not send content type on get request [475cc07](https://github.com/mezmo/vector/commit/475cc078ff7a1eddf05002b70a678bab02f2b316) - Phil Ciampini [LOG-22372](https://logdna.atlassian.net/browse/LOG-22372)
+
+
+### Chores
+
+* **build**: update docker org for image publishing [027bf5f](https://github.com/mezmo/vector/commit/027bf5f310b951894860755c5a2880e445c8bad9) - Phil Ciampini [LOG-22293](https://logdna.atlassian.net/browse/LOG-22293)
+
+
+### Miscellaneous
+
+* Merge pull request #33 from mezmo/pciampini/LOG-22372 [ba90cd5](https://github.com/mezmo/vector/commit/ba90cd5555f094c97a4db02ca498514719ae7ae8) - GitHub [LOG-22372](https://logdna.atlassian.net/browse/LOG-22372)
+
 # [6.3.0](https://github.com/mezmo/vector/compare/v6.2.0...v6.3.0) (2025-09-26)
 
 
