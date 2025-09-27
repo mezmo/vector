@@ -3,7 +3,7 @@ use futures_util::StreamExt;
 use rand::Rng;
 use reqwest::{
     header::{self, HeaderValue},
-    Client,
+    Client, Method,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -209,13 +209,21 @@ impl FromStr for TaskType {
     }
 }
 
-fn get_headers(auth_token: &str) -> header::HeaderMap {
+fn gen_headers(auth_token: &str, method: Method) -> header::HeaderMap {
     let mut headers = header::HeaderMap::new();
     headers.insert(header::USER_AGENT, HeaderValue::from_static("Mezmo Pulse"));
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/json"),
-    );
+    match method {
+        Method::POST => {
+            headers.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
+        }
+        _ => {
+            // we only care about post vs get, can alter this if we need to
+            // add more headers for different request method types
+        }
+    }
     headers.insert(
         header::AUTHORIZATION,
         HeaderValue::from_str(&format!("Token {auth_token}")).unwrap(),
@@ -231,7 +239,7 @@ async fn fetch_tasks(
 ) -> Result<Vec<Task>, Err> {
     let resp = client
         .get(endpoint_url)
-        .headers(get_headers(auth_token))
+        .headers(gen_headers(auth_token, Method::GET))
         .send()
         .await
         .map_err(|e| format!("Connection error: {e}"))?;
@@ -260,7 +268,7 @@ async fn post_task_results(
     let resp = client
         .post(&endpoint_url)
         .json(&results.to_json())
-        .headers(get_headers(auth_token))
+        .headers(gen_headers(auth_token, Method::POST))
         .send()
         .await
         .map_err(|e| format!("Connection error: {e}"))?;
@@ -384,7 +392,7 @@ mod tests {
     use assay::assay;
 
     use httptest::{
-        matchers::{all_of, json_decoded, request},
+        matchers::{all_of, contains, json_decoded, lowercase, not, request},
         responders::{json_encoded, status_code},
         Expectation, Server,
     };
@@ -396,22 +404,33 @@ mod tests {
         let post_path = "/fake/post/:task_id/url";
         let server = Server::run();
         server.expect(
-            Expectation::matching(all_of![request::method("GET"), request::path(get_path),])
-                .times(1)
-                .respond_with(json_encoded(json!({
-                    "data": [{
-                        "task_id": "task1",
-                        "task_type": "tap",
-                        "age_secs": 1,
-                        "task_parameters": {"component_id": "comp1", "limit": 1, "timeout_ms": 1000},
-                    }]
-                }))),
+            Expectation::matching(all_of![
+                request::method("GET"),
+                request::path(get_path),
+                not(request::headers(contains((
+                    lowercase("content-type"),
+                    lowercase("application/json")
+                )))),
+            ])
+            .times(1)
+            .respond_with(json_encoded(json!({
+                "data": [{
+                    "task_id": "task1",
+                    "task_type": "tap",
+                    "age_secs": 1,
+                    "task_parameters": {"component_id": "comp1", "limit": 1, "timeout_ms": 1000},
+                }]
+            }))),
         );
 
         server.expect(
             Expectation::matching(all_of![
                 request::method("POST"),
                 request::path("/fake/post/task1/url"),
+                request::headers(contains((
+                    lowercase("content-type"),
+                    lowercase("application/json")
+                ))),
                 request::body(json_decoded(|v: &serde_json::Value| -> bool {
                     if let Some(errors) = v["errors"].as_array() {
                         // API is not enabled in the test so the graphQL query should fail
@@ -438,27 +457,38 @@ mod tests {
         let post_path = "/fake/post/:task_id/url";
         let server = Server::run();
         server.expect(
-            Expectation::matching(all_of![request::method("GET"), request::path(get_path),])
-                .times(1)
-                .respond_with(json_encoded(json!({
-                    "data": [{
-                        "task_id": "task1",
-                        "task_type": "tap",
-                        "age_secs": 1,
-                        "task_parameters": {
-                            "component_id": "comp1",
-                            "limit": 1,
-                            "timeout_ms": 1000,
-                            "filter": ".message == \"hello\""
-                        },
-                    }]
-                }))),
+            Expectation::matching(all_of![
+                request::method("GET"),
+                request::path(get_path),
+                not(request::headers(contains((
+                    lowercase("content-type"),
+                    lowercase("application/json")
+                )))),
+            ])
+            .times(1)
+            .respond_with(json_encoded(json!({
+                "data": [{
+                    "task_id": "task1",
+                    "task_type": "tap",
+                    "age_secs": 1,
+                    "task_parameters": {
+                        "component_id": "comp1",
+                        "limit": 1,
+                        "timeout_ms": 1000,
+                        "filter": ".message == \"hello\""
+                    },
+                }]
+            }))),
         );
 
         server.expect(
             Expectation::matching(all_of![
                 request::method("POST"),
                 request::path("/fake/post/task1/url"),
+                request::headers(contains((
+                    lowercase("content-type"),
+                    lowercase("application/json")
+                ))),
             ])
             .times(1)
             .respond_with(status_code(200)),
@@ -482,11 +512,18 @@ mod tests {
         let get_path = "/fake/get/url";
         let server = Server::run();
         server.expect(
-            Expectation::matching(all_of![request::method("GET"), request::path(get_path),])
-                .times(1)
-                .respond_with(json_encoded(json!({
-                    "data": []
-                }))),
+            Expectation::matching(all_of![
+                request::method("GET"),
+                request::path(get_path),
+                not(request::headers(contains((
+                    lowercase("content-type"),
+                    lowercase("application/json")
+                )))),
+            ])
+            .times(1)
+            .respond_with(json_encoded(json!({
+                "data": []
+            }))),
         );
 
         let get_url = format!("http://{}{}", server.addr(), get_path);
