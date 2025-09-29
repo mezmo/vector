@@ -920,6 +920,7 @@ sinks-logs-mezmo = [
   "sinks-vector",
   "sinks-postgresql",
   "sinks-mezmo_opentelemetry",
+  "sinks-opentelemetry", # MEZMO: use upstream OTEL sink for public
 ]
 sinks-metrics = [
   "sinks-appsignal",

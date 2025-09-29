@@ -45,6 +45,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends systemd gdb \
 
 COPY --from=release-builder /build/target/release/vector /usr/local/bin/vector
 RUN mkdir -p /var/lib/vector
+RUN mkdir -p /etc/protobuf_descs
+COPY distribution/docker/mezmo/opentelemetry-proto.desc /etc/protobuf_descs/opentelemetry-proto.desc
 
 RUN ["gdb", "--version"]
 RUN ["vector", "--version"]
