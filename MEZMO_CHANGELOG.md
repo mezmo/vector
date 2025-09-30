@@ -1,5 +1,17 @@
 ## Changelog
 
+## [6.3.2](https://github.com/mezmo/vector/compare/v6.3.1...v6.3.2) (2025-09-30)
+
+
+### Bug Fixes
+
+* **opentelemetry**: update public configuration to upstream [62ebd3c](https://github.com/mezmo/vector/commit/62ebd3c65de558068aea24e7407618d1ac09b1f6) - Phil Ciampini [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294)
+
+
+### Miscellaneous
+
+* Merge pull request #34 from mezmo/pciampini/LOG-22294 [5ee7f6c](https://github.com/mezmo/vector/commit/5ee7f6c41f82be0deaabb19cb46780cf6f2c5188) - GitHub [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294)
+
 ## [6.3.1](https://github.com/mezmo/vector/compare/v6.3.0...v6.3.1) (2025-09-27)
 
 
