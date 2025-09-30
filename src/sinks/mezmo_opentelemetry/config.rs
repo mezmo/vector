@@ -173,7 +173,7 @@ impl TryFrom<&OpentelemetrySinkConfig> for OpentelemetryEndpoint {
 }
 
 /// Configuration for the `opentelemetry_logs` sink.
-#[configurable_component(sink("opentelemetry"))]
+#[configurable_component(sink("mezmo_opentelemetry"))]
 #[derive(Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct OpentelemetrySinkConfig {
@@ -242,7 +242,7 @@ pub struct OpentelemetryMetricConfig {
 }
 
 #[async_trait]
-#[typetag::serde(name = "opentelemetry")]
+#[typetag::serde(name = "mezmo_opentelemetry")]
 impl SinkConfig for OpentelemetrySinkConfig {
     async fn build(&self, ctx: SinkContext) -> crate::Result<(VectorSink, Healthcheck)> {
         let endpoint = OpentelemetryEndpoint::try_from(self)?;
