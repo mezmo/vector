@@ -1,3 +1,18 @@
+## [10.4.1](https://github.com/answerbook/vector/compare/v10.4.0...v10.4.1) (2025-09-30)
+
+
+### Bug Fixes
+
+* **build**: update commit message [10038e1](https://github.com/answerbook/vector/commit/10038e1e42cb8a9a7297ea662b5465ec9a807775) - Phil Ciampini [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294)
+
+
+### Miscellaneous
+
+* Merge pull request #705 from answerbook/pciampini/LOG-22294 [6b19a93](https://github.com/answerbook/vector/commit/6b19a93c9d5beb341d376c2893c77df0a566bd87) - GitHub [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294)
+* Merge pull request #704 from answerbook/pciampini/LOG-22294 [5c13da2](https://github.com/answerbook/vector/commit/5c13da26a8a1a89b67b37439f33796c32f2126b2) - GitHub [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294)
+* Merge pull request #34 from mezmo/pciampini/LOG-22294 [fbc1f81](https://github.com/answerbook/vector/commit/fbc1f8199762e3e18a04c26928fe2a1eee80b5be) - Phil Ciampini [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294)
+* Merge pull request #33 from mezmo/pciampini/LOG-22372 [e85fb2f](https://github.com/answerbook/vector/commit/e85fb2fc910cecfe9ae1b1aa3beaee265c7b3b24) - Phil Ciampini [LOG-22372](https://logdna.atlassian.net/browse/LOG-22372)
+
 # [10.4.0](https://github.com/answerbook/vector/compare/v10.3.0...v10.4.0) (2025-09-26)
 
 
