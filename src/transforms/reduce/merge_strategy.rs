@@ -5,6 +5,7 @@ use bytes::{Bytes, BytesMut};
 use chrono::{DateTime, Utc};
 use dyn_clone::DynClone;
 use ordered_float::NotNan;
+use serde::{Deserialize, Serialize};
 use vector_lib::configurable::configurable_component;
 
 use crate::event::{KeyString, LogEvent, Value};
@@ -55,8 +56,8 @@ pub enum MergeStrategy {
     FlatUnique,
 }
 
-#[derive(Debug, Clone)]
-struct DiscardMerger {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscardMerger {
     v: Value,
     size_estimate: usize,
 }
@@ -81,10 +82,14 @@ impl ReduceValueMerger for DiscardMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
-struct RetainMerger {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetainMerger {
     v: Value,
     size_estimate: usize,
 }
@@ -114,10 +119,14 @@ impl ReduceValueMerger for RetainMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
-struct ConcatMerger {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConcatMerger {
     v: BytesMut,
     join_by: Option<Vec<u8>>,
     size_estimate: usize,
@@ -163,10 +172,14 @@ impl ReduceValueMerger for ConcatMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
-struct ConcatArrayMerger {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConcatArrayMerger {
     v: Vec<Value>,
     size_estimate: usize,
 }
@@ -198,10 +211,14 @@ impl ReduceValueMerger for ConcatArrayMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
-struct ArrayMerger {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArrayMerger {
     v: Vec<Value>,
     size_estimate: usize,
 }
@@ -231,10 +248,14 @@ impl ReduceValueMerger for ArrayMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
-struct LongestArrayMerger {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LongestArrayMerger {
     v: Vec<Value>,
     size_estimate: usize,
 }
@@ -270,10 +291,14 @@ impl ReduceValueMerger for LongestArrayMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
-struct ShortestArrayMerger {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShortestArrayMerger {
     v: Vec<Value>,
     size_estimate: usize,
 }
@@ -309,12 +334,74 @@ impl ReduceValueMerger for ShortestArrayMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
-struct FlatUniqueMerger {
+#[allow(clippy::mutable_key_type)]
+#[derive(Debug, Clone, Serialize)]
+pub struct FlatUniqueMerger {
     v: HashSet<Value>,
     size_estimate: usize,
+}
+
+// Manual Deserialize implementation to work around clippy mutable_key_type warning
+impl<'de> serde::Deserialize<'de> for FlatUniqueMerger {
+    #[allow(clippy::mutable_key_type)]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::{self, MapAccess, Visitor};
+        use std::fmt;
+
+        struct FlatUniqueMergerVisitor;
+
+        impl<'de> Visitor<'de> for FlatUniqueMergerVisitor {
+            type Value = FlatUniqueMerger;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct FlatUniqueMerger")
+            }
+
+            #[allow(clippy::mutable_key_type)]
+            fn visit_map<V>(self, mut map: V) -> Result<FlatUniqueMerger, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut v = None;
+                let mut size_estimate = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        "v" => {
+                            if v.is_some() {
+                                return Err(de::Error::duplicate_field("v"));
+                            }
+                            v = Some(map.next_value()?);
+                        }
+                        "size_estimate" => {
+                            if size_estimate.is_some() {
+                                return Err(de::Error::duplicate_field("size_estimate"));
+                            }
+                            size_estimate = Some(map.next_value()?);
+                        }
+                        _ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                let v = v.ok_or_else(|| de::Error::missing_field("v"))?;
+                let size_estimate =
+                    size_estimate.ok_or_else(|| de::Error::missing_field("size_estimate"))?;
+                Ok(FlatUniqueMerger { v, size_estimate })
+            }
+        }
+
+        const FIELDS: &[&str] = &["v", "size_estimate"];
+        deserializer.deserialize_struct("FlatUniqueMerger", FIELDS, FlatUniqueMergerVisitor)
+    }
 }
 
 #[allow(clippy::mutable_key_type)] // false positive due to bytes::Bytes
@@ -375,10 +462,14 @@ impl ReduceValueMerger for FlatUniqueMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
-struct TimestampWindowMerger {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimestampWindowMerger {
     started: DateTime<Utc>,
     latest: DateTime<Utc>,
     size_estimate: usize,
@@ -416,9 +507,13 @@ impl ReduceValueMerger for TimestampWindowMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 enum NumberMergerValue {
     Int(i64),
     Float(NotNan<f64>),
@@ -436,8 +531,8 @@ impl From<NotNan<f64>> for NumberMergerValue {
     }
 }
 
-#[derive(Debug, Clone)]
-struct AddNumbersMerger {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddNumbersMerger {
     v: NumberMergerValue,
     size_estimate: usize,
 }
@@ -488,10 +583,14 @@ impl ReduceValueMerger for AddNumbersMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
-struct MaxNumberMerger {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaxNumberMerger {
     v: NumberMergerValue,
     size_estimate: usize,
 }
@@ -556,10 +655,14 @@ impl ReduceValueMerger for MaxNumberMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
-#[derive(Debug, Clone)]
-struct MinNumberMerger {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MinNumberMerger {
     v: NumberMergerValue,
     size_estimate: usize,
 }
@@ -624,12 +727,176 @@ impl ReduceValueMerger for MinNumberMerger {
     fn size_estimate(&self) -> usize {
         self.size_estimate
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 pub trait ReduceValueMerger: std::fmt::Debug + Send + Sync + DynClone {
     fn add(&mut self, v: Value) -> Result<(), String>;
     fn insert_into(self: Box<Self>, k: KeyString, v: &mut LogEvent) -> Result<(), String>;
     fn size_estimate(&self) -> usize;
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
+/// Serializable wrapper for ReduceValueMerger trait objects
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SerializableReduceValueMerger {
+    Discard(DiscardMerger),
+    Retain(RetainMerger),
+    Concat(ConcatMerger),
+    ConcatArray(ConcatArrayMerger),
+    Array(ArrayMerger),
+    LongestArray(LongestArrayMerger),
+    ShortestArray(ShortestArrayMerger),
+    FlatUnique(FlatUniqueMerger),
+    TimestampWindow(TimestampWindowMerger),
+    AddNumbers(AddNumbersMerger),
+    MaxNumber(MaxNumberMerger),
+    MinNumber(MinNumberMerger),
+}
+
+impl SerializableReduceValueMerger {
+    /// Convert to boxed trait object
+    pub fn into_boxed_merger(self) -> Box<dyn ReduceValueMerger> {
+        match self {
+            SerializableReduceValueMerger::Discard(m) => Box::new(m),
+            SerializableReduceValueMerger::Retain(m) => Box::new(m),
+            SerializableReduceValueMerger::Concat(m) => Box::new(m),
+            SerializableReduceValueMerger::ConcatArray(m) => Box::new(m),
+            SerializableReduceValueMerger::Array(m) => Box::new(m),
+            SerializableReduceValueMerger::LongestArray(m) => Box::new(m),
+            SerializableReduceValueMerger::ShortestArray(m) => Box::new(m),
+            SerializableReduceValueMerger::FlatUnique(m) => Box::new(m),
+            SerializableReduceValueMerger::TimestampWindow(m) => Box::new(m),
+            SerializableReduceValueMerger::AddNumbers(m) => Box::new(m),
+            SerializableReduceValueMerger::MaxNumber(m) => Box::new(m),
+            SerializableReduceValueMerger::MinNumber(m) => Box::new(m),
+        }
+    }
+
+    /// Convert from boxed trait object
+    pub fn from_boxed_merger(merger: Box<dyn ReduceValueMerger>) -> Option<Self> {
+        // Use the as_any method for downcasting
+        let any_ref = merger.as_any();
+
+        if let Some(m) = any_ref.downcast_ref::<DiscardMerger>() {
+            Some(SerializableReduceValueMerger::Discard(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<RetainMerger>() {
+            Some(SerializableReduceValueMerger::Retain(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<ConcatMerger>() {
+            Some(SerializableReduceValueMerger::Concat(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<ConcatArrayMerger>() {
+            Some(SerializableReduceValueMerger::ConcatArray(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<ArrayMerger>() {
+            Some(SerializableReduceValueMerger::Array(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<LongestArrayMerger>() {
+            Some(SerializableReduceValueMerger::LongestArray(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<ShortestArrayMerger>() {
+            Some(SerializableReduceValueMerger::ShortestArray(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<FlatUniqueMerger>() {
+            Some(SerializableReduceValueMerger::FlatUnique(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<TimestampWindowMerger>() {
+            Some(SerializableReduceValueMerger::TimestampWindow(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<AddNumbersMerger>() {
+            Some(SerializableReduceValueMerger::AddNumbers(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<MaxNumberMerger>() {
+            Some(SerializableReduceValueMerger::MaxNumber(m.clone()))
+        } else {
+            any_ref
+                .downcast_ref::<MinNumberMerger>()
+                .map(|m| SerializableReduceValueMerger::MinNumber(m.clone()))
+        }
+    }
+
+    /// Convert from Any reference (for easier downcasting)
+    pub fn from_any_ref(any_ref: &dyn std::any::Any) -> Option<Self> {
+        if let Some(m) = any_ref.downcast_ref::<DiscardMerger>() {
+            Some(SerializableReduceValueMerger::Discard(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<RetainMerger>() {
+            Some(SerializableReduceValueMerger::Retain(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<ConcatMerger>() {
+            Some(SerializableReduceValueMerger::Concat(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<ConcatArrayMerger>() {
+            Some(SerializableReduceValueMerger::ConcatArray(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<ArrayMerger>() {
+            Some(SerializableReduceValueMerger::Array(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<LongestArrayMerger>() {
+            Some(SerializableReduceValueMerger::LongestArray(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<ShortestArrayMerger>() {
+            Some(SerializableReduceValueMerger::ShortestArray(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<FlatUniqueMerger>() {
+            Some(SerializableReduceValueMerger::FlatUnique(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<TimestampWindowMerger>() {
+            Some(SerializableReduceValueMerger::TimestampWindow(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<AddNumbersMerger>() {
+            Some(SerializableReduceValueMerger::AddNumbers(m.clone()))
+        } else if let Some(m) = any_ref.downcast_ref::<MaxNumberMerger>() {
+            Some(SerializableReduceValueMerger::MaxNumber(m.clone()))
+        } else {
+            any_ref
+                .downcast_ref::<MinNumberMerger>()
+                .map(|m| SerializableReduceValueMerger::MinNumber(m.clone()))
+        }
+    }
+}
+
+impl ReduceValueMerger for SerializableReduceValueMerger {
+    fn add(&mut self, v: Value) -> Result<(), String> {
+        match self {
+            SerializableReduceValueMerger::Discard(m) => m.add(v),
+            SerializableReduceValueMerger::Retain(m) => m.add(v),
+            SerializableReduceValueMerger::Concat(m) => m.add(v),
+            SerializableReduceValueMerger::ConcatArray(m) => m.add(v),
+            SerializableReduceValueMerger::Array(m) => m.add(v),
+            SerializableReduceValueMerger::LongestArray(m) => m.add(v),
+            SerializableReduceValueMerger::ShortestArray(m) => m.add(v),
+            SerializableReduceValueMerger::FlatUnique(m) => m.add(v),
+            SerializableReduceValueMerger::TimestampWindow(m) => m.add(v),
+            SerializableReduceValueMerger::AddNumbers(m) => m.add(v),
+            SerializableReduceValueMerger::MaxNumber(m) => m.add(v),
+            SerializableReduceValueMerger::MinNumber(m) => m.add(v),
+        }
+    }
+
+    fn insert_into(self: Box<Self>, k: KeyString, v: &mut LogEvent) -> Result<(), String> {
+        match *self {
+            SerializableReduceValueMerger::Discard(m) => Box::new(m).insert_into(k, v),
+            SerializableReduceValueMerger::Retain(m) => Box::new(m).insert_into(k, v),
+            SerializableReduceValueMerger::Concat(m) => Box::new(m).insert_into(k, v),
+            SerializableReduceValueMerger::ConcatArray(m) => Box::new(m).insert_into(k, v),
+            SerializableReduceValueMerger::Array(m) => Box::new(m).insert_into(k, v),
+            SerializableReduceValueMerger::LongestArray(m) => Box::new(m).insert_into(k, v),
+            SerializableReduceValueMerger::ShortestArray(m) => Box::new(m).insert_into(k, v),
+            SerializableReduceValueMerger::FlatUnique(m) => Box::new(m).insert_into(k, v),
+            SerializableReduceValueMerger::TimestampWindow(m) => Box::new(m).insert_into(k, v),
+            SerializableReduceValueMerger::AddNumbers(m) => Box::new(m).insert_into(k, v),
+            SerializableReduceValueMerger::MaxNumber(m) => Box::new(m).insert_into(k, v),
+            SerializableReduceValueMerger::MinNumber(m) => Box::new(m).insert_into(k, v),
+        }
+    }
+
+    fn size_estimate(&self) -> usize {
+        match self {
+            SerializableReduceValueMerger::Discard(m) => m.size_estimate(),
+            SerializableReduceValueMerger::Retain(m) => m.size_estimate(),
+            SerializableReduceValueMerger::Concat(m) => m.size_estimate(),
+            SerializableReduceValueMerger::ConcatArray(m) => m.size_estimate(),
+            SerializableReduceValueMerger::Array(m) => m.size_estimate(),
+            SerializableReduceValueMerger::LongestArray(m) => m.size_estimate(),
+            SerializableReduceValueMerger::ShortestArray(m) => m.size_estimate(),
+            SerializableReduceValueMerger::FlatUnique(m) => m.size_estimate(),
+            SerializableReduceValueMerger::TimestampWindow(m) => m.size_estimate(),
+            SerializableReduceValueMerger::AddNumbers(m) => m.size_estimate(),
+            SerializableReduceValueMerger::MaxNumber(m) => m.size_estimate(),
+            SerializableReduceValueMerger::MinNumber(m) => m.size_estimate(),
+        }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 dyn_clone::clone_trait_object!(ReduceValueMerger);

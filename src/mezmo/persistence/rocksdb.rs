@@ -401,26 +401,23 @@ mod tests {
 
         let base_path = tempdir()
             .expect("Could not create temp dir")
-            .into_path()
+            .keep()
             .join("exists-but-not-writable");
 
         assert!(
             !base_path.exists(),
-            "test prereq failed: {:?} reported as already existing",
-            base_path
+            "test prereq failed: {base_path:?} reported as already existing"
         );
 
         DirBuilder::new().mode(0o000).create(&base_path).unwrap();
 
         assert!(
             base_path.exists(),
-            "test preqreq failed: failed to create {:?}",
-            base_path
+            "test preqreq failed: failed to create {base_path:?}"
         );
         assert!(
             base_path.metadata().unwrap().permissions().readonly(),
-            "test prereq failed: {:?} is not read only",
-            base_path
+            "test prereq failed: {base_path:?} is not read only"
         );
 
         let ctx = test_mezmo_context();
