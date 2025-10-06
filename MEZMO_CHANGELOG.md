@@ -1,5 +1,46 @@
 ## Changelog
 
+# [6.4.0](https://github.com/mezmo/vector/compare/v6.3.2...v6.4.0) (2025-10-06)
+
+
+### Bug Fixes
+
+* **build**: update commit message [10038e1](https://github.com/mezmo/vector/commit/10038e1e42cb8a9a7297ea662b5465ec9a807775) - Phil Ciampini [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294)
+* **reshape**: use default mezmo reshape [4a5ce8e](https://github.com/mezmo/vector/commit/4a5ce8eaad71a5f0abf16c10e5e8c9332b74dce0) - Phil Ciampini [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+
+
+### Chores
+
+* **build**: update build image to use mirror [9e53954](https://github.com/mezmo/vector/commit/9e5395427e126eea22c5d489e24f402be64569f4) - Mike Del Tito [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359)
+* **release**: 10.4.0 [skip ci] [d841d2e](https://github.com/mezmo/vector/commit/d841d2ecd304bb0ae8f7f82b37572623955fe7ed) - LogDNA Bot [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359) [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359) [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359) [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359) [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359) [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359) [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359) [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359) [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359)
+* **release**: 10.4.1 [skip ci] [68b18ac](https://github.com/mezmo/vector/commit/68b18ac426f7e0617bfdd2a0bc0a693d25b251cc) - LogDNA Bot [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294) [LOG-22372](https://logdna.atlassian.net/browse/LOG-22372) [LOG-22372](https://logdna.atlassian.net/browse/LOG-22372) [LOG-22372](https://logdna.atlassian.net/browse/LOG-22372)
+* **release**: 10.5.0 [skip ci] [e1393ef](https://github.com/mezmo/vector/commit/e1393efd65f5538417426e45d3d30753b6fb21e0) - LogDNA Bot [LOG-22388](https://logdna.atlassian.net/browse/LOG-22388) [LOG-22388](https://logdna.atlassian.net/browse/LOG-22388)
+* **release**: 10.5.1 [skip ci] [11d2487](https://github.com/mezmo/vector/commit/11d248726954a97a341c6951a9f5dc6787b8975b) - LogDNA Bot [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403) [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403) [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403) [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403) [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+
+
+### Code Refactoring
+
+* **mezmo_reduce**: break out persistence and related items [7bdac6c](https://github.com/mezmo/vector/commit/7bdac6c7714960d264ca783c97a524eec2874fd9) - Mike Del Tito [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359)
+
+
+### Features
+
+* **transforms**: add persistence to mezmo_reduce [91b072c](https://github.com/mezmo/vector/commit/91b072ce7b5883f402054d4403ec8ebff7801e3e) - Mike Del Tito [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359)
+* **vrl**: Bump VRL version (#706) [ba24dba](https://github.com/mezmo/vector/commit/ba24dba1bc1ed99cf186498b15d354f86471f7ff) - GitHub [LOG-22388](https://logdna.atlassian.net/browse/LOG-22388)
+
+
+### Miscellaneous
+
+* Merge pull request #35 from mezmo/pciampini/LOG-22403 [9fc8e6a](https://github.com/mezmo/vector/commit/9fc8e6a78e0ea31530926c0a4684d0df6217d770) - GitHub [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+* Merge upstream tag 'v10.5.1' [014dbd5](https://github.com/mezmo/vector/commit/014dbd5b5b41cd88f8c98e19e1bb882da9b0df30) - Phil Ciampini
+* Merge upstream tag 'v10.5.0' [39717ce](https://github.com/mezmo/vector/commit/39717ce81868faf41b41345d24ee0ef3c4e6010c) - Phil Ciampini
+* Merge pull request #707 from answerbook/pciampini/LOG-22403 [427bd23](https://github.com/mezmo/vector/commit/427bd239f0ab9b8e7310c3a5047b45e5cf57a9c2) - GitHub [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+* Merge pull request #705 from answerbook/pciampini/LOG-22294 [6b19a93](https://github.com/mezmo/vector/commit/6b19a93c9d5beb341d376c2893c77df0a566bd87) - GitHub [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294)
+* Merge pull request #704 from answerbook/pciampini/LOG-22294 [5c13da2](https://github.com/mezmo/vector/commit/5c13da26a8a1a89b67b37439f33796c32f2126b2) - GitHub [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294)
+* Merge pull request #34 from mezmo/pciampini/LOG-22294 [fbc1f81](https://github.com/mezmo/vector/commit/fbc1f8199762e3e18a04c26928fe2a1eee80b5be) - Phil Ciampini [LOG-22294](https://logdna.atlassian.net/browse/LOG-22294)
+* Merge pull request #33 from mezmo/pciampini/LOG-22372 [e85fb2f](https://github.com/mezmo/vector/commit/e85fb2fc910cecfe9ae1b1aa3beaee265c7b3b24) - Phil Ciampini [LOG-22372](https://logdna.atlassian.net/browse/LOG-22372)
+* Merge pull request #702 from answerbook/mdeltito/LOG-22359 [0c672e0](https://github.com/mezmo/vector/commit/0c672e0ef2805438f77d1df8c8012ce4b4ceba1b) - GitHub [LOG-22359](https://logdna.atlassian.net/browse/LOG-22359)
+
 ## [6.3.2](https://github.com/mezmo/vector/compare/v6.3.1...v6.3.2) (2025-09-30)
 
 
