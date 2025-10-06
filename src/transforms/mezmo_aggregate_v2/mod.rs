@@ -530,7 +530,7 @@ impl TaskTransform<Event> for MezmoAggregateV2 {
             let mut flush_deadline = get_new_deadline(self.flush_tick_ms);
             let mut state_persistence_interval = tokio::time::interval(Duration::from_millis(self.state_persistence_tick_ms));
 
-            let mut output:Vec<Event> = Vec::new();
+            let mut output: Vec<Event> = Vec::new();
             let mut done = false;
 
             let flush_on_shutdown = match &self.state_persistence {

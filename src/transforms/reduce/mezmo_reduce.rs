@@ -4,6 +4,7 @@
 // to return date fields in the same format as originally received. For example, an epoch field
 // can be an integer or a string, and it will match the output type based on the incoming data.
 
+use rand::Rng;
 use std::collections::BTreeMap;
 use std::{
     collections::{hash_map, HashMap},
@@ -15,11 +16,13 @@ use std::{
 };
 
 pub use super::merge_strategy::*;
+use crate::event::{KeyString, Value};
 use crate::{
     conditions::{AnyCondition, Condition},
     config::{DataType, Input, TransformConfig, TransformContext},
     event::{discriminant::Discriminant, Event, EventMetadata, LogEvent},
     internal_events::ReduceStaleEventFlushed,
+    mezmo::persistence::{PersistenceConnection, RocksDBPersistenceConnection},
     transforms::{TaskTransform, Transform},
 };
 use async_stream::stream;
@@ -27,14 +30,14 @@ use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use futures::{stream, Stream, StreamExt};
 use indexmap::IndexMap;
 use serde_with::serde_as;
-use vector_lib::config::{log_schema, OutputId, TransformOutput};
+use vector_lib::config::{log_schema, LogNamespace, OutputId, TransformOutput};
 use vector_lib::configurable::configurable_component;
 use vector_lib::lookup::lookup_v2::{parse_target_path, OwnedSegment};
 use vector_lib::lookup::owned_value_path;
 use vector_lib::schema::Definition;
 
-use crate::event::{KeyString, Value};
-use vector_lib::config::LogNamespace;
+mod persistence;
+use persistence::{load_initial_state, persist_runtime_state, PersistedState};
 
 /// Configuration for the `mezmo_reduce` transform.
 #[serde_as]
@@ -105,6 +108,41 @@ pub struct MezmoReduceConfig {
     /// be used to parse them. This eventually will translate Value::Bytes into a Value::Timestamp
     #[serde(default)]
     pub date_formats: HashMap<String, String>,
+
+    /// Sets the base path for the persistence connection.
+    /// NOTE: Leaving this value empty will disable state persistence.
+    #[serde(default = "default_state_persistence_base_path")]
+    pub(super) state_persistence_base_path: Option<String>,
+
+    /// Set how often the state of this transform will be persisted to the [PersistenceConnection]
+    /// storage backend.
+    #[serde(default = "default_state_persistence_tick_ms")]
+    pub(super) state_persistence_tick_ms: u64,
+
+    /// The maximum amount of jitter (ms) to add to the `state_persistence_tick_ms`
+    /// flush interval.
+    #[serde(default = "default_state_persistence_max_jitter_ms")]
+    pub(super) state_persistence_max_jitter_ms: u64,
+}
+
+const fn default_expire_after_ms() -> Duration {
+    Duration::from_millis(30000)
+}
+
+const fn default_flush_period_ms() -> Duration {
+    Duration::from_millis(1000)
+}
+
+const fn default_state_persistence_base_path() -> Option<String> {
+    None
+}
+
+const fn default_state_persistence_tick_ms() -> u64 {
+    30000
+}
+
+const fn default_state_persistence_max_jitter_ms() -> u64 {
+    750
 }
 
 #[derive(Debug, Clone)]
@@ -118,7 +156,7 @@ struct MezmoMetadata {
 }
 
 impl MezmoMetadata {
-    fn new(date_formats: HashMap<String, String>) -> Self {
+    fn new(date_formats: HashMap<String, String>, date_kinds: HashMap<String, String>) -> Self {
         let date_formats = date_formats
             .into_iter()
             .map(|(k, v)| {
@@ -131,7 +169,7 @@ impl MezmoMetadata {
 
         Self {
             date_formats,
-            date_kinds: Arc::new(RwLock::new(HashMap::new())),
+            date_kinds: Arc::new(RwLock::new(date_kinds)),
         }
     }
 
@@ -149,6 +187,7 @@ impl MezmoMetadata {
                 return; // no need to do anything else
             }
         } // Drops read lock
+
         let mut map = self
             .date_kinds
             .write()
@@ -156,14 +195,6 @@ impl MezmoMetadata {
 
         map.insert(date_prop.to_owned(), kind.to_owned());
     }
-}
-
-const fn default_expire_after_ms() -> Duration {
-    Duration::from_millis(30000)
-}
-
-const fn default_flush_period_ms() -> Duration {
-    Duration::from_millis(1000)
 }
 
 const REDUCE_BYTE_THRESHOLD_PER_STATE_DEFAULT: usize = 100 * 1024; // 100K
@@ -469,6 +500,9 @@ pub struct MezmoReduce {
     byte_threshold_per_state: usize,
     byte_threshold_all_states: usize,
     max_events: Option<usize>,
+    state_persistence: Option<Arc<dyn PersistenceConnection>>,
+    state_persistence_tick_ms: u64,
+    state_persistence_max_jitter_ms: u64,
 }
 
 impl MezmoReduce {
@@ -531,18 +565,43 @@ impl MezmoReduce {
             }
         }
 
+        let state_persistence_tick_ms = config.state_persistence_tick_ms;
+        let state_persistence_max_jitter_ms = config.state_persistence_max_jitter_ms;
+        let state_persistence: Option<Arc<dyn PersistenceConnection>> =
+            match (&config.state_persistence_base_path, &cx.mezmo_ctx) {
+                (Some(base_path), Some(mezmo_ctx)) => Some(Arc::new(
+                    RocksDBPersistenceConnection::new(base_path, mezmo_ctx)?,
+                )),
+                (_, Some(mezmo_ctx)) => {
+                    debug!(
+                        "MezmoReduce: state persistence not enabled for component {}",
+                        mezmo_ctx.id()
+                    );
+                    None
+                }
+                (_, _) => None,
+            };
+
+        let (reduce_merge_states, date_kinds) = match &state_persistence {
+            Some(state_persistence) => load_initial_state(state_persistence),
+            None => (HashMap::new(), HashMap::new()),
+        };
+
         Ok(MezmoReduce {
             expire_after: config.expire_after_ms,
             flush_period: config.flush_period_ms,
             group_by,
             merge_strategies,
-            reduce_merge_states: HashMap::new(),
+            reduce_merge_states,
             ends_when,
             starts_when,
-            mezmo_metadata: MezmoMetadata::new(date_formats),
+            mezmo_metadata: MezmoMetadata::new(date_formats, date_kinds),
             byte_threshold_per_state,
             byte_threshold_all_states,
             max_events,
+            state_persistence,
+            state_persistence_tick_ms,
+            state_persistence_max_jitter_ms,
         })
     }
 
@@ -734,47 +793,98 @@ impl MezmoReduce {
             self.push_or_new_reduce_state(event, message_event, discriminant)
         }
     }
+
+    /// Saves the current `data` to persistent storage. This is intended to be called from the
+    /// polling loop on an interval defined by the `state_persistence_tick_ms` field.
+    async fn persist_state(&mut self) {
+        if let Some(state_persistence) = &self.state_persistence {
+            let state = PersistedState::from_runtime_state(
+                &self.reduce_merge_states,
+                &self.mezmo_metadata.date_kinds.read().unwrap(),
+            );
+            match persist_runtime_state(state, state_persistence).await {
+                Ok(_) => {
+                    // Once persisted, update the status on the finalizers as delivered thus acking the
+                    // original events. RocksDB will provide the durability of the aggregate events.
+                    for reduce in self.reduce_merge_states.values_mut() {
+                        reduce
+                            .metadata
+                            .take_finalizers()
+                            .update_status(vector_lib::event::EventStatus::Delivered);
+                    }
+
+                    debug!("MezmoReduce: persisted state successfully");
+                }
+                Err(err) => {
+                    error!("MezmoReduce: Failed to persist state: {}", err);
+                }
+            }
+        }
+    }
 }
 
 impl TaskTransform<Event> for MezmoReduce {
     fn transform(
-        self: Box<Self>,
+        mut self: Box<Self>,
         mut input_rx: Pin<Box<dyn Stream<Item = Event> + Send>>,
     ) -> Pin<Box<dyn Stream<Item = Event> + Send>>
     where
         Self: 'static,
     {
-        let mut me = self;
-
-        let poll_period = me.flush_period;
-
+        let poll_period = self.flush_period;
         let mut flush_stream = tokio::time::interval(poll_period);
+        let mut state_persistence_interval =
+            tokio::time::interval(Duration::from_millis(self.state_persistence_tick_ms));
+
+        let flush_on_shutdown = match &self.state_persistence {
+            Some(_) => {
+                debug!("MezmoReduce: state persistence enabled, state will not flush on shutdown");
+                false
+            }
+            None => {
+                debug!("MezmoReduce: state persistence not enabled, state will flush on shutdown");
+                true
+            }
+        };
 
         Box::pin(
             stream! {
-              loop {
-                let mut output = Vec::new();
-                let done = tokio::select! {
-                    _ = flush_stream.tick() => {
-                      me.flush_into(&mut output);
-                      false
-                    }
-                    maybe_event = input_rx.next() => {
-                      match maybe_event {
-                        None => {
-                          me.flush_all_into(&mut output);
-                          true
+                loop {
+                    let mut output = Vec::new();
+                    let done = tokio::select! {
+                        _ = state_persistence_interval.tick() => {
+                            let jitter = rand::rng().random_range(0..=self.state_persistence_max_jitter_ms);
+                            tokio::time::sleep(Duration::from_millis(jitter)).await;
+                            self.persist_state().await;
+                            false
+                        },
+                        _ = flush_stream.tick() => {
+                            self.flush_into(&mut output);
+                            false
                         }
-                        Some(event) => {
-                          me.transform_one(&mut output, event);
-                          false
+                        maybe_event = input_rx.next() => {
+                            match maybe_event {
+                                None => {
+                                    if flush_on_shutdown {
+                                        self.flush_all_into(&mut output);
+                                    }
+                                    true
+                                }
+                                Some(event) => {
+                                    self.transform_one(&mut output, event);
+                                    false
+                                }
+                            }
                         }
-                      }
+                    };
+
+                    yield stream::iter(output.into_iter());
+
+                    if done {
+                        self.persist_state().await;
+                        break
                     }
-                };
-                yield stream::iter(output.into_iter());
-                if done { break }
-              }
+                }
             }
             .flatten(),
         )

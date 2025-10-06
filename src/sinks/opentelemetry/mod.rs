@@ -35,7 +35,7 @@ impl Default for Protocol {
             encoding: EncodingConfigWithFraming::new(
                 Some(FramingConfig::NewlineDelimited),
                 SerializerConfig::Json(JsonSerializerConfig::default()),
-                Transformer::default(),
+                Transformer::new_with_mezmo_reshape(Transformer::default(), None),
             ),
             uri: Default::default(),
             method: HttpMethod::Post,
