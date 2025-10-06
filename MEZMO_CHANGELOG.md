@@ -1,3 +1,15 @@
+## [10.5.1](https://github.com/answerbook/vector/compare/v10.5.0...v10.5.1) (2025-10-06)
+
+
+### Bug Fixes
+
+* **reshape**: use default mezmo reshape [4a5ce8e](https://github.com/answerbook/vector/commit/4a5ce8eaad71a5f0abf16c10e5e8c9332b74dce0) - Phil Ciampini [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+
+
+### Miscellaneous
+
+* Merge pull request #707 from answerbook/pciampini/LOG-22403 [427bd23](https://github.com/answerbook/vector/commit/427bd239f0ab9b8e7310c3a5047b45e5cf57a9c2) - GitHub [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+
 # [10.5.0](https://github.com/answerbook/vector/compare/v10.4.1...v10.5.0) (2025-10-01)
 
 
