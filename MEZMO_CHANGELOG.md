@@ -1,5 +1,17 @@
 ## Changelog
 
+## [6.4.1](https://github.com/mezmo/vector/compare/v6.4.0...v6.4.1) (2025-10-07)
+
+
+### Bug Fixes
+
+* **reshape**: add protobuf for mezmo reshape transformer [52020d3](https://github.com/mezmo/vector/commit/52020d352c5b5e72d976866f7de05d4aa6575b84) - Phil Ciampini [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+
+
+### Miscellaneous
+
+* Merge pull request #36 from mezmo/pciampini/LOG-22403 [4873514](https://github.com/mezmo/vector/commit/487351405b7eac9de6f65990c52cf09f6cb28171) - GitHub [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+
 # [6.4.0](https://github.com/mezmo/vector/compare/v6.3.2...v6.4.0) (2025-10-06)
 
 
