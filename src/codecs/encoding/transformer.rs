@@ -91,6 +91,7 @@ impl Transformer {
     /// Creates a new `Transformer` with custom Mezmo reshape logic.
     /// The env var must be set to "1", and the encoding must be JSON or ndjson. If there is no
     /// Serializer used, we will default to doing the reshape.
+    /// - LOG-22403 - added Protobuf serializer for vector-native OpenTelemetry Sink
     pub fn new_with_mezmo_reshape(
         transformer: Transformer,
         serializer: Option<&Serializer>,
@@ -104,7 +105,7 @@ impl Transformer {
             (false, _) => false,
             (true, Some(serializer)) => match serializer {
                 // For now, only explicit json and ndjson encodings are supported. May need to add more later.
-                Serializer::Json(_) | Serializer::NativeJson(_) => true,
+                Serializer::Json(_) | Serializer::NativeJson(_) | Serializer::Protobuf(_) => true,
                 _ => false,
             },
             // Lack of a serializer means we should reshape, ie things like elasticsearch don't use one
