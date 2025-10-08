@@ -468,6 +468,10 @@ async fn parse_message(
     let topic = msg.topic.clone();
     let producer_name = msg.payload.metadata.producer_name.clone();
 
+    let sequence_id = msg.payload.metadata.sequence_id;
+    let message_ledger_id = msg.message_id.id.ledger_id;
+    let message_entry_id = msg.message_id.id.entry_id;
+
     let mut headers_map = ObjectMap::new();
     for kv in &msg.metadata().properties {
         headers_map.insert(
@@ -521,6 +525,31 @@ async fn parse_message(
                             );
 
                             log.insert("headers", headers_map.clone());
+
+                            // mezmo additions
+                            log_namespace.insert_source_metadata(
+                                PulsarSourceConfig::NAME,
+                                log,
+                                Some(LegacyKey::InsertIfEmpty(path!("sequence_id"))),
+                                path!("sequence_id"),
+                                sequence_id,
+                            );
+
+                            log_namespace.insert_source_metadata(
+                                PulsarSourceConfig::NAME,
+                                log,
+                                Some(LegacyKey::InsertIfEmpty(path!("message_ledger_id"))),
+                                path!("message_ledger_id"),
+                                message_ledger_id,
+                            );
+
+                            log_namespace.insert_source_metadata(
+                                PulsarSourceConfig::NAME,
+                                log,
+                                Some(LegacyKey::InsertIfEmpty(path!("message_entry_id"))),
+                                path!("message_entry_id"),
+                                message_entry_id,
+                            );
                         }
                         event
                     });
