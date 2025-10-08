@@ -1,3 +1,15 @@
+## [10.5.2](https://github.com/answerbook/vector/compare/v10.5.1...v10.5.2) (2025-10-08)
+
+
+### Bug Fixes
+
+* **reshape**: add protobuf for mezmo reshape transformer [7aa1a02](https://github.com/answerbook/vector/commit/7aa1a024f768aaf47d2f199b3c3c250a784b8356) - Phil Ciampini [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+
+
+### Miscellaneous
+
+* Merge pull request #708 from answerbook/pciampini/LOG-22403 [a25dc40](https://github.com/answerbook/vector/commit/a25dc400c8d5bc68a8292daa5567f908b669e1d1) - GitHub [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+
 ## [10.5.1](https://github.com/answerbook/vector/compare/v10.5.0...v10.5.1) (2025-10-06)
 
 
