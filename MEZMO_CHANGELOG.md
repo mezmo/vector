@@ -1,3 +1,15 @@
+## [10.5.3](https://github.com/answerbook/vector/compare/v10.5.2...v10.5.3) (2025-10-08)
+
+
+### Bug Fixes
+
+* **pulsar**: include extra source metadata [8cdb46b](https://github.com/answerbook/vector/commit/8cdb46b4f7d9c0e275c6cd3d5644c4f9761e8f20) - dominic-mcallister-logdna [LOG-22342](https://logdna.atlassian.net/browse/LOG-22342)
+
+
+### Miscellaneous
+
+* Merge pull request #709 from answerbook/dominic/LOG-22342 [b831361](https://github.com/answerbook/vector/commit/b831361fa2d5dc8d31a8edaa20d31f562f490745) - GitHub [LOG-22342](https://logdna.atlassian.net/browse/LOG-22342)
+
 ## [10.5.2](https://github.com/answerbook/vector/compare/v10.5.1...v10.5.2) (2025-10-08)
 
 
