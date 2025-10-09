@@ -1,3 +1,10 @@
+# [10.6.0](https://github.com/answerbook/vector/compare/v10.5.3...v10.6.0) (2025-10-09)
+
+
+### Features
+
+* **sources**: `pulsar` source should auto-detect new partitions [08fc182](https://github.com/answerbook/vector/commit/08fc1822c44b8729f2393452bc603e4bff8f2094) - Darin Spivey [LOG-22427](https://logdna.atlassian.net/browse/LOG-22427)
+
 ## [10.5.3](https://github.com/answerbook/vector/compare/v10.5.2...v10.5.3) (2025-10-08)
 
 
