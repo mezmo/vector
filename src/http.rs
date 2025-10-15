@@ -1,4 +1,5 @@
 #![allow(missing_docs)]
+use crate::mezmo_env_config;
 use futures::future::BoxFuture;
 use headers::{Authorization, HeaderMapExt};
 use http::{
@@ -112,7 +113,8 @@ where
         let client = client_builder.build(proxy_connector.clone());
 
         let version = crate::get_version();
-        let user_agent = HeaderValue::from_str(&format!("Mezmo/{version}"))
+        let user_agent = mezmo_env_config!("MEZMO_HTTP_USER_AGENT", "Mezmo".to_string());
+        let user_agent = HeaderValue::from_str(&format!("{user_agent}/{version}"))
             .expect("Invalid header value for version!");
 
         Ok(HttpClient {
