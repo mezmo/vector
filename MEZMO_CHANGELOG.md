@@ -1,5 +1,17 @@
 ## Changelog
 
+## [6.4.2](https://github.com/mezmo/vector/compare/v6.4.1...v6.4.2) (2025-10-16)
+
+
+### Bug Fixes
+
+* **user-agent**: update default user-agent [cdecde9](https://github.com/mezmo/vector/commit/cdecde95b261f3c5b0a628017b470b5c38ec5aaa) - Phil Ciampini [LOG-22457](https://logdna.atlassian.net/browse/LOG-22457)
+
+
+### Miscellaneous
+
+* Merge pull request #37 from mezmo/pciampini/LOG-22457 [13ea442](https://github.com/mezmo/vector/commit/13ea44248239e6135747732d9ee68ade901d6100) - GitHub [LOG-22457](https://logdna.atlassian.net/browse/LOG-22457)
+
 ## [6.4.1](https://github.com/mezmo/vector/compare/v6.4.0...v6.4.1) (2025-10-07)
 
 
