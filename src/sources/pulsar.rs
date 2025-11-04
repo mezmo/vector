@@ -11,6 +11,7 @@ use pulsar::{
     message::proto::MessageIdData,
     Authentication, Consumer, Pulsar, SubType, TokioExecutor,
 };
+use regex::Regex;
 use std::path::Path;
 use tokio_util::codec::FramedRead;
 
@@ -43,10 +44,13 @@ use crate::{
     internal_events::{
         PulsarErrorEvent, PulsarErrorEventData, PulsarErrorEventType, StreamClosedError,
     },
+    mezmo_env_config,
     serde::default_false,
+    serde::default_true,
     serde::{bool_or_struct, default_decoding, default_framing_message_based},
     SourceSender,
 };
+use std::sync::LazyLock;
 
 /// Configuration for the `pulsar` source.
 #[configurable_component(source("pulsar", "Collect logs from Apache Pulsar."))]
@@ -134,6 +138,21 @@ pub struct PulsarSourceConfig {
     #[configurable(derived)]
     #[serde(default)]
     tls: Option<TlsOptions>,
+
+    /// If using partitioned topics, this enables auto-detection of newly-added partitions
+    /// in the consumer. That functionality requires that only 1 topic to be passed into this config.
+    #[configurable(derived)]
+    #[serde(default = "default_true")]
+    partitioned_topic_auto_discovery: bool,
+
+    /// How often to search for new partitioned topics.
+    #[configurable(metadata(docs::examples = "10"))]
+    #[serde(default = "default_topic_refresh_secs")]
+    topic_refresh_secs: u8,
+}
+
+fn default_topic_refresh_secs() -> u8 {
+    mezmo_env_config!("MEZMO_PULSAR_TOPIC_REFRESH_SECS", 30)
 }
 
 /// Specify the subscription type for the consumer
@@ -279,6 +298,10 @@ struct FinalizerEntry {
 
 impl_generate_config_from_default!(PulsarSourceConfig);
 
+static TOPIC_PARSE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:\w+://)?(?P<tenant>[^/]+)/(?P<namespace>[^/]+)/(?P<topic>.+)").unwrap()
+});
+
 #[async_trait::async_trait]
 #[typetag::serde(name = "pulsar")]
 impl SourceConfig for PulsarSourceConfig {
@@ -375,7 +398,6 @@ impl PulsarSourceConfig {
 
         let mut consumer_builder: pulsar::ConsumerBuilder<TokioExecutor> = pulsar
             .consumer()
-            .with_topics(&self.topics)
             .with_subscription_type(self.subscription_type.into())
             .with_options(pulsar::consumer::ConsumerOptions {
                 priority_level: self.priority_level,
@@ -399,6 +421,41 @@ impl PulsarSourceConfig {
         }
         if let Some(subscription_name) = &self.subscription_name {
             consumer_builder = consumer_builder.with_subscription(subscription_name);
+        }
+
+        // Mezmo: Use regex subscription so that newly-added topic partitions are automatically detected.
+        // If multiple topics are specified, regex cannot be used, o fall back to a static topic list.
+        if self.partitioned_topic_auto_discovery && self.topics.len() == 1 {
+            let topic = &self.topics[0];
+
+            let captures = TOPIC_PARSE_REGEX.captures(topic).ok_or_else(|| {
+                format!(
+                    "Topic must be in the format [protocol://]tenant/namespace/topic: '{topic}'"
+                )
+            })?;
+            let tenant = captures.name("tenant").unwrap().as_str();
+            let namespace = captures.name("namespace").unwrap().as_str();
+
+            let topic_regex_str = format!("{}.*", regex::escape(topic));
+            let consumer_topic_regex = Regex::new(&topic_regex_str)
+                .map_err(|err| format!("Invalid topic regex '{topic_regex_str}': {err}"))?;
+
+            consumer_builder = consumer_builder
+                .with_lookup_namespace(format!("{tenant}/{namespace}"))
+                .with_topic_regex(consumer_topic_regex)
+                .with_topic_refresh(std::time::Duration::from_secs(
+                    self.topic_refresh_secs.into(),
+                ));
+            debug!(
+                "Using topic regex '{}' with refresh every {} seconds",
+                topic, self.topic_refresh_secs
+            );
+        } else {
+            debug!(
+                "Using multiple topics subscription with no partition auto-discovery: {:?}",
+                self.topics
+            );
+            consumer_builder = consumer_builder.with_topics(&self.topics);
         }
 
         let consumer = consumer_builder.build::<String>().await?;
@@ -468,6 +525,10 @@ async fn parse_message(
     let topic = msg.topic.clone();
     let producer_name = msg.payload.metadata.producer_name.clone();
 
+    let sequence_id = msg.payload.metadata.sequence_id;
+    let message_ledger_id = msg.message_id.id.ledger_id;
+    let message_entry_id = msg.message_id.id.entry_id;
+
     let mut headers_map = ObjectMap::new();
     for kv in &msg.metadata().properties {
         headers_map.insert(
@@ -521,6 +582,31 @@ async fn parse_message(
                             );
 
                             log.insert("headers", headers_map.clone());
+
+                            // mezmo additions
+                            log_namespace.insert_source_metadata(
+                                PulsarSourceConfig::NAME,
+                                log,
+                                Some(LegacyKey::InsertIfEmpty(path!("sequence_id"))),
+                                path!("sequence_id"),
+                                sequence_id,
+                            );
+
+                            log_namespace.insert_source_metadata(
+                                PulsarSourceConfig::NAME,
+                                log,
+                                Some(LegacyKey::InsertIfEmpty(path!("message_ledger_id"))),
+                                path!("message_ledger_id"),
+                                message_ledger_id,
+                            );
+
+                            log_namespace.insert_source_metadata(
+                                PulsarSourceConfig::NAME,
+                                log,
+                                Some(LegacyKey::InsertIfEmpty(path!("message_entry_id"))),
+                                path!("message_entry_id"),
+                                message_entry_id,
+                            );
                         }
                         event
                     });
@@ -756,6 +842,8 @@ mod integration_tests {
             log_namespace: None,
             broker_redelivery_enabled: true,
             tls: tls.clone(),
+            partitioned_topic_auto_discovery: false,
+            topic_refresh_secs: 30,
         };
         let mut builder = Pulsar::<TokioExecutor>::builder(&cnf.endpoint, TokioExecutor);
         if let Some(options) = &tls {
@@ -822,5 +910,319 @@ mod integration_tests {
             expected_headers.insert(key_str.into(), Value::from(value_str));
         }
         assert_eq!(events[0].as_log()["headers"], Value::from(expected_headers));
+    }
+
+    #[tokio::test]
+    async fn test_partitioned_topic_auto_discovery_enabled_single_topic() {
+        trace_init();
+
+        let topic = format!("persistent://public/default/test-{}", random_string(10));
+        let cnf = PulsarSourceConfig {
+            endpoint: pulsar_address("pulsar", 6650),
+            topics: vec![topic.clone()],
+            consumer_name: None,
+            subscription_name: None,
+            priority_level: None,
+            batch_size: None,
+            auth: None,
+            dead_letter_queue_policy: None,
+            subscription_type: SubscriptionType::default(),
+            consumer_position: ConsumerPosition::default(),
+            framing: FramingConfig::Bytes,
+            decoding: DeserializerConfig::Bytes,
+            acknowledgements: false.into(),
+            log_namespace: None,
+            broker_redelivery_enabled: true,
+            tls: None,
+            partitioned_topic_auto_discovery: true,
+            topic_refresh_secs: 10,
+        };
+
+        // Should succeed with valid topic format
+        let consumer = cnf.create_consumer().await;
+        assert!(
+            consumer.is_ok(),
+            "Consumer creation should succeed with valid topic format"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_partitioned_topic_auto_discovery_enabled_but_multiple_topics() {
+        trace_init();
+
+        let topic1 = format!("persistent://public/default/test-{}", random_string(10));
+        let topic2 = format!("persistent://public/default/test-{}", random_string(10));
+        let cnf = PulsarSourceConfig {
+            endpoint: pulsar_address("pulsar", 6650),
+            topics: vec![topic1, topic2],
+            consumer_name: None,
+            subscription_name: None,
+            priority_level: None,
+            batch_size: None,
+            auth: None,
+            dead_letter_queue_policy: None,
+            subscription_type: SubscriptionType::default(),
+            consumer_position: ConsumerPosition::default(),
+            framing: FramingConfig::Bytes,
+            decoding: DeserializerConfig::Bytes,
+            acknowledgements: false.into(),
+            log_namespace: None,
+            broker_redelivery_enabled: true,
+            tls: None,
+            partitioned_topic_auto_discovery: true,
+            topic_refresh_secs: 15,
+        };
+
+        // Should succeed but fall back to static topic list (no regex)
+        let consumer = cnf.create_consumer().await;
+        assert!(
+            consumer.is_ok(),
+            "Consumer creation should succeed with multiple topics"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_partitioned_topic_auto_discovery_disabled() {
+        trace_init();
+
+        let topic = format!("persistent://public/default/test-{}", random_string(10));
+        let cnf = PulsarSourceConfig {
+            endpoint: pulsar_address("pulsar", 6650),
+            topics: vec![topic.clone()],
+            consumer_name: None,
+            subscription_name: None,
+            priority_level: None,
+            batch_size: None,
+            auth: None,
+            dead_letter_queue_policy: None,
+            subscription_type: SubscriptionType::default(),
+            consumer_position: ConsumerPosition::default(),
+            framing: FramingConfig::Bytes,
+            decoding: DeserializerConfig::Bytes,
+            acknowledgements: false.into(),
+            log_namespace: None,
+            broker_redelivery_enabled: true,
+            tls: None,
+            partitioned_topic_auto_discovery: false,
+            topic_refresh_secs: 20,
+        };
+
+        // Should succeed using static topic list
+        let consumer = cnf.create_consumer().await;
+        assert!(
+            consumer.is_ok(),
+            "Consumer creation should succeed with auto-discovery disabled"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_topic_parsing_error_invalid_format() {
+        trace_init();
+
+        let invalid_topic = "invalid-topic-format";
+        let cnf = PulsarSourceConfig {
+            endpoint: pulsar_address("pulsar", 6650),
+            topics: vec![invalid_topic.to_string()],
+            consumer_name: None,
+            subscription_name: None,
+            priority_level: None,
+            batch_size: None,
+            auth: None,
+            dead_letter_queue_policy: None,
+            subscription_type: SubscriptionType::default(),
+            consumer_position: ConsumerPosition::default(),
+            framing: FramingConfig::Bytes,
+            decoding: DeserializerConfig::Bytes,
+            acknowledgements: false.into(),
+            log_namespace: None,
+            broker_redelivery_enabled: true,
+            tls: None,
+            partitioned_topic_auto_discovery: true,
+            topic_refresh_secs: 30,
+        };
+
+        let consumer_result = cnf.create_consumer().await;
+        assert!(
+            consumer_result.is_err(),
+            "Consumer creation should fail with invalid topic format"
+        );
+
+        match consumer_result {
+            Err(error) => {
+                let error_msg = format!("{error}");
+                assert_eq!(
+                    error_msg,
+                    "Topic must be in the format [protocol://]tenant/namespace/topic: 'invalid-topic-format'",
+                    "Error should mention topic parsing failure: {error_msg}",
+                );
+            }
+            Ok(_) => panic!("Expected error but got success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_topic_parsing_error_empty_tenant() {
+        trace_init();
+
+        let invalid_topic = "persistent:///default/topic";
+        let cnf = PulsarSourceConfig {
+            endpoint: pulsar_address("pulsar", 6650),
+            topics: vec![invalid_topic.to_string()],
+            consumer_name: None,
+            subscription_name: None,
+            priority_level: None,
+            batch_size: None,
+            auth: None,
+            dead_letter_queue_policy: None,
+            subscription_type: SubscriptionType::default(),
+            consumer_position: ConsumerPosition::default(),
+            framing: FramingConfig::Bytes,
+            decoding: DeserializerConfig::Bytes,
+            acknowledgements: false.into(),
+            log_namespace: None,
+            broker_redelivery_enabled: true,
+            tls: None,
+            partitioned_topic_auto_discovery: true,
+            topic_refresh_secs: 30,
+        };
+
+        let consumer_result = cnf.create_consumer().await;
+        assert!(
+            consumer_result.is_err(),
+            "Consumer creation should fail with a tenant error"
+        );
+
+        match consumer_result {
+            Err(error) => {
+                let error_msg = format!("{error}");
+                assert_eq!(
+                    error_msg, "Topic must be in the format [protocol://]tenant/namespace/topic: 'persistent:///default/topic'",
+                    "Error should mention topic parsing failure: {error_msg}",
+                );
+            }
+            Ok(_) => panic!("Expected error but got success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_topic_parsing_error_empty_namespace() {
+        trace_init();
+
+        let invalid_topic = "persistent://public//topic";
+        let cnf = PulsarSourceConfig {
+            endpoint: pulsar_address("pulsar", 6650),
+            topics: vec![invalid_topic.to_string()],
+            consumer_name: None,
+            subscription_name: None,
+            priority_level: None,
+            batch_size: None,
+            auth: None,
+            dead_letter_queue_policy: None,
+            subscription_type: SubscriptionType::default(),
+            consumer_position: ConsumerPosition::default(),
+            framing: FramingConfig::Bytes,
+            decoding: DeserializerConfig::Bytes,
+            acknowledgements: false.into(),
+            log_namespace: None,
+            broker_redelivery_enabled: true,
+            tls: None,
+            partitioned_topic_auto_discovery: true,
+            topic_refresh_secs: 30,
+        };
+
+        let consumer_result = cnf.create_consumer().await;
+        assert!(
+            consumer_result.is_err(),
+            "Consumer creation should fail with a namespace error"
+        );
+
+        match consumer_result {
+            Err(error) => {
+                let error_msg = format!("{error}");
+                assert_eq!(
+                    error_msg, "Topic must be in the format [protocol://]tenant/namespace/topic: 'persistent://public//topic'",
+                    "Error should mention topic parsing failure: {error_msg}",
+                );
+            }
+            Ok(_) => panic!("Expected error but got success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_topic_refresh_secs_variations() {
+        trace_init();
+
+        let topic = format!("persistent://public/default/test-{}", random_string(10));
+
+        // Test different topic_refresh_secs values
+        for refresh_secs in [1, 5, 30, 60, 255] {
+            let cnf = PulsarSourceConfig {
+                endpoint: pulsar_address("pulsar", 6650),
+                topics: vec![topic.clone()],
+                consumer_name: None,
+                subscription_name: None,
+                priority_level: None,
+                batch_size: None,
+                auth: None,
+                dead_letter_queue_policy: None,
+                subscription_type: SubscriptionType::default(),
+                consumer_position: ConsumerPosition::default(),
+                framing: FramingConfig::Bytes,
+                decoding: DeserializerConfig::Bytes,
+                acknowledgements: false.into(),
+                log_namespace: None,
+                broker_redelivery_enabled: true,
+                tls: None,
+                partitioned_topic_auto_discovery: true,
+                topic_refresh_secs: refresh_secs,
+            };
+
+            let consumer = cnf.create_consumer().await;
+            assert!(
+                consumer.is_ok(),
+                "Consumer creation should succeed with topic_refresh_secs={refresh_secs}",
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_topic_formats_with_auto_discovery() {
+        trace_init();
+
+        // Test various valid topic formats
+        let test_cases = vec![
+            "persistent://public/default/test-persistent-topic",
+            "non-persistent://public/default/non-persistent-topic",
+            "public/default/simple-topic", // without protocol
+        ];
+
+        for topic in test_cases {
+            let cnf = PulsarSourceConfig {
+                endpoint: pulsar_address("pulsar", 6650),
+                topics: vec![topic.to_string()],
+                consumer_name: None,
+                subscription_name: None,
+                priority_level: None,
+                batch_size: None,
+                auth: None,
+                dead_letter_queue_policy: None,
+                subscription_type: SubscriptionType::default(),
+                consumer_position: ConsumerPosition::default(),
+                framing: FramingConfig::Bytes,
+                decoding: DeserializerConfig::Bytes,
+                acknowledgements: false.into(),
+                log_namespace: None,
+                broker_redelivery_enabled: true,
+                tls: None,
+                partitioned_topic_auto_discovery: true,
+                topic_refresh_secs: 30,
+            };
+
+            let consumer = cnf.create_consumer().await;
+            assert!(
+                consumer.is_ok(),
+                "Consumer creation should succeed with topic format: {topic}",
+            );
+        }
     }
 }
