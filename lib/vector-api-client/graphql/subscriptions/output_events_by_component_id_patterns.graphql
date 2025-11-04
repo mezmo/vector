@@ -24,6 +24,8 @@ subscription OutputEventsByComponentIdPatternsSubscription(
             componentType
             componentKind
             string(encoding: $encoding)
+            mezmo_message: json(field: ".message")
+            mezmo_metadata: json(field: ".metadata")
         }
         ... on EventNotification {
             message

@@ -366,7 +366,8 @@ async fn tap(task: &Task, config: &config::api::Options) -> Result<TaskResult, E
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::Trace(ev) => {
                                     result.push(HashMap::from([
                                         ("type".to_string(), "Trace".to_string()),
-                                        ("message".to_string(), ev.string.clone()),
+                                        ("message".to_string(), ev.mezmo_message.clone().unwrap_or_default()),
+                                        ("metadata".to_string(), ev.mezmo_metadata.clone().unwrap_or_default()),
                                     ]));
                                 },
                                 OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns::EventNotification(ev) => {
