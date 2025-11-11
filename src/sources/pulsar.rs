@@ -46,7 +46,6 @@ use crate::{
     },
     mezmo_env_config,
     serde::default_false,
-    serde::default_true,
     serde::{bool_or_struct, default_decoding, default_framing_message_based},
     SourceSender,
 };
@@ -142,7 +141,7 @@ pub struct PulsarSourceConfig {
     /// If using partitioned topics, this enables auto-detection of newly-added partitions
     /// in the consumer. That functionality requires that only 1 topic to be passed into this config.
     #[configurable(derived)]
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     partitioned_topic_auto_discovery: bool,
 
     /// How often to search for new partitioned topics.
