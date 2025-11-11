@@ -9,10 +9,11 @@ use pulsar::{
     authentication::oauth2::{OAuth2Authentication, OAuth2Params},
     consumer::{InitialPosition, Message},
     message::proto::MessageIdData,
-    Authentication, Consumer, Pulsar, SubType, TokioExecutor,
+    Authentication, ConnectionRetryOptions, Consumer, Pulsar, SubType, TokioExecutor,
 };
 use regex::Regex;
 use std::path::Path;
+use std::time::Duration;
 use tokio_util::codec::FramedRead;
 
 use vector_lib::{
@@ -148,6 +149,10 @@ pub struct PulsarSourceConfig {
     #[configurable(metadata(docs::examples = "10"))]
     #[serde(default = "default_topic_refresh_secs")]
     topic_refresh_secs: u8,
+
+    #[configurable(derived)]
+    #[serde(default)]
+    connection_retry_options: Option<PulsarConnectionRetryOptions>,
 }
 
 fn default_topic_refresh_secs() -> u8 {
@@ -289,6 +294,31 @@ pub struct TlsOptions {
     pub verify_hostname: Option<bool>,
 }
 
+#[configurable_component]
+#[configurable(description = "Connection retry options for the pulsar client.")]
+#[derive(Clone, Debug)]
+pub struct PulsarConnectionRetryOptions {
+    /// Minimum delay between connection retries
+    #[configurable(metadata(docs::type_unit = "milliseconds"))]
+    #[configurable(metadata(docs::examples = 10))]
+    pub min_backoff_ms: Option<u64>,
+    /// Maximum delay between reconnection retries
+    #[configurable(metadata(docs::type_unit = "seconds"))]
+    #[configurable(metadata(docs::examples = 30))]
+    pub max_backoff_secs: Option<u64>,
+    /// Maximum number of connection retries
+    #[configurable(metadata(docs::examples = 12))]
+    pub max_retries: Option<u32>,
+    /// Time limit to establish a connection
+    #[configurable(metadata(docs::type_unit = "seconds"))]
+    #[configurable(metadata(docs::examples = 30))]
+    pub connection_timeout_secs: Option<u64>,
+    /// Keep-alive interval for each broker connection
+    #[configurable(metadata(docs::type_unit = "seconds"))]
+    #[configurable(metadata(docs::examples = 60))]
+    pub keep_alive_secs: Option<u64>,
+}
+
 #[derive(Debug)]
 struct FinalizerEntry {
     topic: String,
@@ -368,6 +398,45 @@ impl PulsarSourceConfig {
         &self,
     ) -> crate::Result<pulsar::consumer::Consumer<String, TokioExecutor>> {
         let mut builder = Pulsar::builder(&self.endpoint, TokioExecutor);
+
+        let default_retry_options = ConnectionRetryOptions {
+            // Use an infinite number of retries by default so that Vector doesn't
+            // stop processing this source.
+            max_retries: u32::MAX,
+            ..ConnectionRetryOptions::default()
+        };
+        let retry_options =
+            self.connection_retry_options
+                .as_ref()
+                .map_or(default_retry_options.clone(), |opts| {
+                    ConnectionRetryOptions {
+                        min_backoff: opts
+                            .min_backoff_ms
+                            .map_or(default_retry_options.min_backoff, |ms| {
+                                Duration::from_millis(ms)
+                            }),
+                        max_backoff: opts
+                            .max_backoff_secs
+                            .map_or(default_retry_options.max_backoff, |secs| {
+                                Duration::from_secs(secs)
+                            }),
+                        max_retries: opts
+                            .max_retries
+                            .unwrap_or(default_retry_options.max_retries),
+                        connection_timeout: opts
+                            .connection_timeout_secs
+                            .map_or(default_retry_options.connection_timeout, |secs| {
+                                Duration::from_secs(secs)
+                            }),
+                        keep_alive: opts
+                            .keep_alive_secs
+                            .map_or(default_retry_options.keep_alive, |secs| {
+                                Duration::from_secs(secs)
+                            }),
+                    }
+                });
+
+        builder = builder.with_connection_retry_options(retry_options);
 
         if let Some(auth) = &self.auth {
             builder = match auth {
@@ -730,11 +799,100 @@ async fn handle_ack(
 
 #[cfg(test)]
 mod tests {
+
     use crate::sources::pulsar::PulsarSourceConfig;
 
     #[test]
     fn generate_config() {
         crate::test_util::test_generate_config::<PulsarSourceConfig>();
+    }
+
+    fn config_from_str(config_str: &str) -> PulsarSourceConfig {
+        let full_config = format!(
+            r#"
+            endpoint = "pulsar://127.0.0.1:6650"
+            subscription_name = "test-subscription"
+            topics = ["test-topic"]
+            {config_str}
+        "#
+        );
+        toml::from_str(&full_config).unwrap()
+    }
+
+    #[test]
+    fn parse_connection_retry_options_full() {
+        let config = config_from_str(
+            r#"
+            [connection_retry_options]
+            min_backoff_ms = 20
+            max_backoff_secs = 25
+            max_retries = 50
+            connection_timeout_secs = 59
+            keep_alive_secs = 58
+        "#,
+        );
+
+        let opts = config.connection_retry_options.unwrap();
+        assert_eq!(opts.min_backoff_ms, Some(20));
+        assert_eq!(opts.max_backoff_secs, Some(25));
+        assert_eq!(opts.max_retries, Some(50));
+        assert_eq!(opts.connection_timeout_secs, Some(59));
+        assert_eq!(opts.keep_alive_secs, Some(58));
+    }
+
+    #[test]
+    fn parse_connection_retry_options_partial() {
+        let config = config_from_str(
+            r#"
+            [connection_retry_options]
+            max_retries = 5
+            connection_timeout_secs = 55
+        "#,
+        );
+
+        let opts = config.connection_retry_options.unwrap();
+        assert_eq!(opts.min_backoff_ms, None);
+        assert_eq!(opts.max_backoff_secs, None);
+        assert_eq!(opts.max_retries, Some(5));
+        assert_eq!(opts.connection_timeout_secs, Some(55));
+        assert_eq!(opts.keep_alive_secs, None);
+    }
+
+    #[test]
+    fn parse_connection_retry_options_empty() {
+        let config = config_from_str(
+            r#"
+            [connection_retry_options]
+        "#,
+        );
+
+        let opts = config.connection_retry_options.unwrap();
+        assert_eq!(
+            opts.min_backoff_ms, None,
+            "Expected min_backoff_ms to be None"
+        );
+        assert_eq!(
+            opts.max_backoff_secs, None,
+            "Expected max_backoff_secs to be None"
+        );
+        assert_eq!(opts.max_retries, None, "Expected max_retries to be None");
+        assert_eq!(
+            opts.connection_timeout_secs, None,
+            "Expected connection_timeout_secs to be None"
+        );
+        assert_eq!(
+            opts.keep_alive_secs, None,
+            "Expected keep_alive_secs to be None"
+        );
+    }
+
+    #[test]
+    fn no_connection_retry_options_is_none() {
+        let config = config_from_str("");
+        assert!(
+            config.connection_retry_options.is_none(),
+            "Expected connection_retry_options to be None when not in config"
+        );
     }
 }
 
@@ -843,6 +1001,7 @@ mod integration_tests {
             tls: tls.clone(),
             partitioned_topic_auto_discovery: false,
             topic_refresh_secs: 30,
+            connection_retry_options: None,
         };
         let mut builder = Pulsar::<TokioExecutor>::builder(&cnf.endpoint, TokioExecutor);
         if let Some(options) = &tls {
@@ -935,6 +1094,7 @@ mod integration_tests {
             tls: None,
             partitioned_topic_auto_discovery: true,
             topic_refresh_secs: 10,
+            connection_retry_options: None,
         };
 
         // Should succeed with valid topic format
@@ -970,6 +1130,7 @@ mod integration_tests {
             tls: None,
             partitioned_topic_auto_discovery: true,
             topic_refresh_secs: 15,
+            connection_retry_options: None,
         };
 
         // Should succeed but fall back to static topic list (no regex)
@@ -1004,6 +1165,7 @@ mod integration_tests {
             tls: None,
             partitioned_topic_auto_discovery: false,
             topic_refresh_secs: 20,
+            connection_retry_options: None,
         };
 
         // Should succeed using static topic list
@@ -1038,6 +1200,7 @@ mod integration_tests {
             tls: None,
             partitioned_topic_auto_discovery: true,
             topic_refresh_secs: 30,
+            connection_retry_options: None,
         };
 
         let consumer_result = cnf.create_consumer().await;
@@ -1083,6 +1246,7 @@ mod integration_tests {
             tls: None,
             partitioned_topic_auto_discovery: true,
             topic_refresh_secs: 30,
+            connection_retry_options: None,
         };
 
         let consumer_result = cnf.create_consumer().await;
@@ -1127,6 +1291,7 @@ mod integration_tests {
             tls: None,
             partitioned_topic_auto_discovery: true,
             topic_refresh_secs: 30,
+            connection_retry_options: None,
         };
 
         let consumer_result = cnf.create_consumer().await;
@@ -1174,6 +1339,7 @@ mod integration_tests {
                 tls: None,
                 partitioned_topic_auto_discovery: true,
                 topic_refresh_secs: refresh_secs,
+                connection_retry_options: None,
             };
 
             let consumer = cnf.create_consumer().await;
@@ -1215,6 +1381,7 @@ mod integration_tests {
                 tls: None,
                 partitioned_topic_auto_discovery: true,
                 topic_refresh_secs: 30,
+                connection_retry_options: None,
             };
 
             let consumer = cnf.create_consumer().await;
