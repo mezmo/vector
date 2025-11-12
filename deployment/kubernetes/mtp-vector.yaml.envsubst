@@ -224,7 +224,7 @@ spec:
           spec:
             containers:
               - name: vector
-                image: "us.gcr.io/logdna-k8s/vector:${APP_VERSION}"
+                image: "us-docker.pkg.dev/logdna-k8s/docker-mirror/mezmo/vector:${APP_VERSION}"
                 imagePullPolicy: IfNotPresent
                 env:
                 - name: PARTITION_NAME

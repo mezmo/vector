@@ -234,6 +234,8 @@ pipeline {
           )
         }
         sh './release-tool clean'
+        sh './release-tool build'
+        sh './release-tool publish'
       }
     }
   }
