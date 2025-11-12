@@ -1,5 +1,36 @@
 ## Changelog
 
+# [6.5.0](https://github.com/mezmo/vector/compare/v6.4.2...v6.5.0) (2025-11-12)
+
+
+### Bug Fixes
+
+* **pulsar**: include extra source metadata [8cdb46b](https://github.com/mezmo/vector/commit/8cdb46b4f7d9c0e275c6cd3d5644c4f9761e8f20) - dominic-mcallister-logdna [LOG-22342](https://logdna.atlassian.net/browse/LOG-22342)
+* **reshape**: add protobuf for mezmo reshape transformer [7aa1a02](https://github.com/mezmo/vector/commit/7aa1a024f768aaf47d2f199b3c3c250a784b8356) - Phil Ciampini [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+
+
+### Chores
+
+* **pulsar**: `partitioned_topic_auto_discovery` should be `false` [2d82065](https://github.com/mezmo/vector/commit/2d82065aa5f1b9e37b8e58ffe042615da9534245) - Darin Spivey [LOG-22542](https://logdna.atlassian.net/browse/LOG-22542)
+* **release**: 10.5.2 [skip ci] [4a7aa88](https://github.com/mezmo/vector/commit/4a7aa88a6ee247dd62f442c7419ebad7b58ae7ea) - LogDNA Bot [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403) [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403) [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403) [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403) [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+* **release**: 10.5.3 [skip ci] [e78e17e](https://github.com/mezmo/vector/commit/e78e17e89a5fb18154630c1459e4c7492cbd1f3f) - LogDNA Bot [LOG-22342](https://logdna.atlassian.net/browse/LOG-22342) [LOG-22342](https://logdna.atlassian.net/browse/LOG-22342) [LOG-22342](https://logdna.atlassian.net/browse/LOG-22342) [LOG-22342](https://logdna.atlassian.net/browse/LOG-22342) [LOG-22342](https://logdna.atlassian.net/browse/LOG-22342)
+* **release**: 10.6.0 [skip ci] [fb92e5b](https://github.com/mezmo/vector/commit/fb92e5be28177d631f474bd6c2bc67e2caef2ad5) - LogDNA Bot [LOG-22427](https://logdna.atlassian.net/browse/LOG-22427) [LOG-22427](https://logdna.atlassian.net/browse/LOG-22427)
+* **release**: 10.7.0 [skip ci] [20f061d](https://github.com/mezmo/vector/commit/20f061d4f85771111176acf97d947f7872ce60c7) - LogDNA Bot [LOG-22542](https://logdna.atlassian.net/browse/LOG-22542) [LOG-22542](https://logdna.atlassian.net/browse/LOG-22542) [LOG-22575](https://logdna.atlassian.net/browse/LOG-22575) [LOG-22575](https://logdna.atlassian.net/browse/LOG-22575)
+
+
+### Features
+
+* **sources**: `pulsar` source should auto-detect new partitions [08fc182](https://github.com/mezmo/vector/commit/08fc1822c44b8729f2393452bc603e4bff8f2094) - Darin Spivey [LOG-22427](https://logdna.atlassian.net/browse/LOG-22427)
+* **sources**: Pulsar source should accept connection retry options [7cce4d8](https://github.com/mezmo/vector/commit/7cce4d8d31285dbbc3a9325c2b0df15ca04498f7) - Darin Spivey [LOG-22575](https://logdna.atlassian.net/browse/LOG-22575)
+
+
+### Miscellaneous
+
+* Merge pull request #39 from mezmo/pciampini/LOG-22611 [f6b9978](https://github.com/mezmo/vector/commit/f6b99785665ea4e2ecd2f41022cbb48c7248fff2) - GitHub [LOG-22611](https://logdna.atlassian.net/browse/LOG-22611)
+* Merge upstream tag 'v10.7.0' [897ce4a](https://github.com/mezmo/vector/commit/897ce4a5c5a9bb7ac6df4d0fddba9407174ef9cb) - Phil Ciampini
+* Merge pull request #709 from answerbook/dominic/LOG-22342 [b831361](https://github.com/mezmo/vector/commit/b831361fa2d5dc8d31a8edaa20d31f562f490745) - GitHub [LOG-22342](https://logdna.atlassian.net/browse/LOG-22342)
+* Merge pull request #708 from answerbook/pciampini/LOG-22403 [a25dc40](https://github.com/mezmo/vector/commit/a25dc400c8d5bc68a8292daa5567f908b669e1d1) - GitHub [LOG-22403](https://logdna.atlassian.net/browse/LOG-22403)
+
 ## [6.4.2](https://github.com/mezmo/vector/compare/v6.4.1...v6.4.2) (2025-10-16)
 
 
