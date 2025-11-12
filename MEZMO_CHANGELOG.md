@@ -1,3 +1,15 @@
+# [10.7.0](https://github.com/answerbook/vector/compare/v10.6.0...v10.7.0) (2025-11-12)
+
+
+### Chores
+
+* **pulsar**: `partitioned_topic_auto_discovery` should be `false` [2d82065](https://github.com/answerbook/vector/commit/2d82065aa5f1b9e37b8e58ffe042615da9534245) - Darin Spivey [LOG-22542](https://logdna.atlassian.net/browse/LOG-22542)
+
+
+### Features
+
+* **sources**: Pulsar source should accept connection retry options [7cce4d8](https://github.com/answerbook/vector/commit/7cce4d8d31285dbbc3a9325c2b0df15ca04498f7) - Darin Spivey [LOG-22575](https://logdna.atlassian.net/browse/LOG-22575)
+
 # [10.6.0](https://github.com/answerbook/vector/compare/v10.5.3...v10.6.0) (2025-10-09)
 
 
