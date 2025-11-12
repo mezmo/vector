@@ -1,5 +1,17 @@
 ## Changelog
 
+## [6.5.1](https://github.com/mezmo/vector/compare/v6.5.0...v6.5.1) (2025-11-12)
+
+
+### Chores
+
+* **internal**: update internal deployment mechanisms [9426a6b](https://github.com/mezmo/vector/commit/9426a6b0f806c79dc3302eb3042002b69f44deb1) - Phil Ciampini [LOG-22611](https://logdna.atlassian.net/browse/LOG-22611)
+
+
+### Miscellaneous
+
+* Merge pull request #40 from mezmo/pciampini/LOG-22611 [281a7fd](https://github.com/mezmo/vector/commit/281a7fd46ef96a4dca72c6a9b150c94b33369993) - GitHub [LOG-22611](https://logdna.atlassian.net/browse/LOG-22611)
+
 # [6.5.0](https://github.com/mezmo/vector/compare/v6.4.2...v6.5.0) (2025-11-12)
 
 
