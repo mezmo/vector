@@ -1,5 +1,12 @@
 ## Changelog
 
+## [6.5.2](https://github.com/mezmo/vector/compare/v6.5.1...v6.5.2) (2025-12-02)
+
+
+### Bug Fixes
+
+* **pulsar**: Upgrade pulsar 6.5.0 and patch tokio-util [b98a9f8](https://github.com/mezmo/vector/commit/b98a9f8edc9be5ec5a765576d47fe3c04e92ec55) - Darin Spivey [LOG-22655](https://logdna.atlassian.net/browse/LOG-22655)
+
 ## [6.5.1](https://github.com/mezmo/vector/compare/v6.5.0...v6.5.1) (2025-11-12)
 
 
