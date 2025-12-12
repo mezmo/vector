@@ -549,27 +549,46 @@ async fn pulsar_source(
     let pulsar_error_events = register!(PulsarErrorEvent);
 
     loop {
-        tokio::select! {
+        let msg_result = tokio::select! {
             _ = &mut shutdown => break,
             entry = ack_stream.next() => {
                 if let Some((status, entry)) = entry {
                     handle_ack(&mut consumer, status, entry, &pulsar_error_events, broker_redelivery_enabled).await;
                 }
+                continue;
             },
-            Some(maybe_message) = consumer.next() => {
-                match maybe_message {
-                    Ok(msg) => {
-                        bytes_received.emit(ByteSize(msg.payload.data.len()));
-                        parse_message(msg, &decoder, &finalizer, &mut out, &mut consumer, log_namespace, &events_received, &pulsar_error_events).await;
-                    }
-                    Err(error) => {
-                        pulsar_error_events.emit(PulsarErrorEventData{
-                            msg: error.to_string(),
-                            error_type:PulsarErrorEventType::Read,
-                        });
-                    }
-                }
+            msg_result = consumer.next() => {
+                msg_result
             },
+        };
+
+        match msg_result {
+            Some(Ok(msg)) => {
+                bytes_received.emit(ByteSize(msg.payload.data.len()));
+                parse_message(
+                    msg,
+                    &decoder,
+                    &finalizer,
+                    &mut out,
+                    &mut consumer,
+                    log_namespace,
+                    &events_received,
+                    &pulsar_error_events,
+                )
+                .await;
+            }
+
+            Some(Err(e)) => {
+                pulsar_error_events.emit(PulsarErrorEventData {
+                    msg: e.to_string(),
+                    error_type: PulsarErrorEventType::Read,
+                });
+                error!("Error reading message from pulsar: {e}");
+            }
+
+            None => {
+                debug!("Pulsar consumer stream ended");
+            }
         }
     }
 
