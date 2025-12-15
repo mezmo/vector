@@ -492,9 +492,26 @@ impl PulsarSourceConfig {
         }
 
         // Mezmo: Use regex subscription so that newly-added topic partitions are automatically detected.
-        // If multiple topics are specified, regex cannot be used, o fall back to a static topic list.
+        // If multiple topics are specified, regex cannot be used, so fall back to a static topic list.
         if self.partitioned_topic_auto_discovery && self.topics.len() == 1 {
             let topic = &self.topics[0];
+            let mut producer_builder = pulsar.producer().with_topic(topic.clone());
+
+            if let Some(consumer_name) = &self.consumer_name {
+                producer_builder = producer_builder.with_name(format!("prime-{consumer_name}"));
+            }
+
+            // If auto-topic-creation is on, this will make all partitions such that the regex
+            // subscription will immediately see them rather than have to wait for another publisher
+            // to create them. In that time, data can be lost since we're starting at `Latest`.
+            match producer_builder.build().await {
+                Ok(_) => {
+                    debug!("Successfully created producer to prime {topic}.");
+                }
+                Err(err) => {
+                    error!("Failed to create producer to prime {topic}: {err}");
+                }
+            }
 
             let captures = TOPIC_PARSE_REGEX.captures(topic).ok_or_else(|| {
                 format!(
