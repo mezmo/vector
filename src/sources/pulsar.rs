@@ -399,42 +399,34 @@ impl PulsarSourceConfig {
     ) -> crate::Result<pulsar::consumer::Consumer<String, TokioExecutor>> {
         let mut builder = Pulsar::builder(&self.endpoint, TokioExecutor);
 
-        let default_retry_options = ConnectionRetryOptions {
+        let mut retry_options = ConnectionRetryOptions {
             // Use an infinite number of retries by default so that Vector doesn't
             // stop processing this source.
             max_retries: u32::MAX,
+            // Broker-side keepalives are 30-60s. Make this shorter to ensure it stays alive.
+            keep_alive: Duration::from_secs(20),
             ..ConnectionRetryOptions::default()
         };
-        let retry_options =
-            self.connection_retry_options
-                .as_ref()
-                .map_or(default_retry_options.clone(), |opts| {
-                    ConnectionRetryOptions {
-                        min_backoff: opts
-                            .min_backoff_ms
-                            .map_or(default_retry_options.min_backoff, |ms| {
-                                Duration::from_millis(ms)
-                            }),
-                        max_backoff: opts
-                            .max_backoff_secs
-                            .map_or(default_retry_options.max_backoff, |secs| {
-                                Duration::from_secs(secs)
-                            }),
-                        max_retries: opts
-                            .max_retries
-                            .unwrap_or(default_retry_options.max_retries),
-                        connection_timeout: opts
-                            .connection_timeout_secs
-                            .map_or(default_retry_options.connection_timeout, |secs| {
-                                Duration::from_secs(secs)
-                            }),
-                        keep_alive: opts
-                            .keep_alive_secs
-                            .map_or(default_retry_options.keep_alive, |secs| {
-                                Duration::from_secs(secs)
-                            }),
-                    }
-                });
+
+        if let Some(opts) = &self.connection_retry_options {
+            if let Some(ms) = opts.min_backoff_ms {
+                retry_options.min_backoff = Duration::from_millis(ms);
+            }
+            if let Some(secs) = opts.max_backoff_secs {
+                retry_options.max_backoff = Duration::from_secs(secs);
+            }
+            if let Some(retries) = opts.max_retries {
+                retry_options.max_retries = retries;
+            }
+            if let Some(secs) = opts.connection_timeout_secs {
+                retry_options.connection_timeout = Duration::from_secs(secs);
+            }
+            if let Some(secs) = opts.keep_alive_secs {
+                retry_options.keep_alive = Duration::from_secs(secs);
+            }
+        }
+
+        debug!("Creating pulsar consumer with options: {:?}", retry_options);
 
         builder = builder.with_connection_retry_options(retry_options);
 
