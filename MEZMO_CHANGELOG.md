@@ -1,5 +1,23 @@
 ## Changelog
 
+# [6.6.0](https://github.com/mezmo/vector/compare/v6.5.2...v6.6.0) (2025-12-19)
+
+
+### Bug Fixes
+
+* **sources**: pulsar improperly handling retry options [3412319](https://github.com/mezmo/vector/commit/3412319bdecbfdeefd3311dccc6af4cfbee1e911) - Darin Spivey [LOG-22768](https://logdna.atlassian.net/browse/LOG-22768)
+* **sources**: Reorganize pulsar tokio::select block [d6e8d95](https://github.com/mezmo/vector/commit/d6e8d954574d0de337e48afb77702aa72814d00d) - Darin Spivey [LOG-22768](https://logdna.atlassian.net/browse/LOG-22768)
+
+
+### Chores
+
+* **deps**: Bump to pulsar-rs fork to fix connection issue [645c274](https://github.com/mezmo/vector/commit/645c2749e103790cd15bbb2c9b956e5aeee2c8a0) - Darin Spivey [LOG-22768](https://logdna.atlassian.net/browse/LOG-22768)
+
+
+### Features
+
+* **sources**: Create a pulsar producer to create partitioned topics [dbecbda](https://github.com/mezmo/vector/commit/dbecbdaac6ad3c3265692f7b1a7a3f4e81ef0c54) - Darin Spivey [LOG-22768](https://logdna.atlassian.net/browse/LOG-22768)
+
 ## [6.5.2](https://github.com/mezmo/vector/compare/v6.5.1...v6.5.2) (2025-12-02)
 
 
