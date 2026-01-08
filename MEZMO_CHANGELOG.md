@@ -1,5 +1,12 @@
 ## Changelog
 
+## [6.6.1](https://github.com/mezmo/vector/compare/v6.6.0...v6.6.1) (2026-01-08)
+
+
+### Chores
+
+* **ci**: Use normal jenkins workers [457f234](https://github.com/mezmo/vector/commit/457f2346f4d3a7bf21da03c0934289154c21554b) - Jon Moses [LOG-99999](https://logdna.atlassian.net/browse/LOG-99999)
+
 # [6.6.0](https://github.com/mezmo/vector/compare/v6.5.2...v6.6.0) (2025-12-19)
 
 
