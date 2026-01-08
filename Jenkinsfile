@@ -32,7 +32,7 @@ def NPMRC = [
 pipeline {
   agent {
     node {
-      label "rust-x86_64"
+      label "ec2-fleet"
       customWorkspace(WORKSPACE_PATH)
     }
   }
