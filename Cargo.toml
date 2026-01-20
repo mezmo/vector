@@ -644,6 +644,7 @@ sources-logs = [
 ]
 sources-logs-mezmo = [
   "sources-aws_s3",
+  "sources-datadog_agent",
   "sources-demo_logs",
   "sources-mezmo_demo_logs",
   "sources-exec",
