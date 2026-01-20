@@ -1,5 +1,17 @@
 ## Changelog
 
+## [6.6.2](https://github.com/mezmo/vector/compare/v6.6.1...v6.6.2) (2026-01-20)
+
+
+### Bug Fixes
+
+* **datadog**: enable datadog source for edge [6aded67](https://github.com/mezmo/vector/commit/6aded677aac24ba89c8c7ede0a6a9d5c9db05ab2) - Phil Ciampini [LOG-22955](https://logdna.atlassian.net/browse/LOG-22955)
+
+
+### Miscellaneous
+
+* Merge pull request #45 from mezmo/pciampini/LOG-22955 [ce2e210](https://github.com/mezmo/vector/commit/ce2e210bbab66d78c43b0c933e1bd45211716cd9) - GitHub [LOG-22955](https://logdna.atlassian.net/browse/LOG-22955)
+
 ## [6.6.1](https://github.com/mezmo/vector/compare/v6.6.0...v6.6.1) (2026-01-08)
 
 
