@@ -1,5 +1,12 @@
 ## Changelog
 
+## [6.6.5](https://github.com/mezmo/vector/compare/v6.6.4...v6.6.5) (2026-01-21)
+
+
+### Bug Fixes
+
+* **ci**: Release commit has the wrong regex [3707bf2](https://github.com/mezmo/vector/commit/3707bf2e02fe782ddffcd821a927dcc5fea08008) - Darin Spivey [LOG-22978](https://logdna.atlassian.net/browse/LOG-22978)
+
 ## [6.6.4](https://github.com/mezmo/vector/compare/v6.6.3...v6.6.4) (2026-01-21)
 
 
