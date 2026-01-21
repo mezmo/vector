@@ -6,13 +6,6 @@ def PROJECT_NAME = "vector"
 def CURRENT_BRANCH = currentBranch()
 def DOCKER_REPO = "docker.io/mezmo"
 
-def slugify(str) {
-  def s = str.toLowerCase()
-  s = s.replaceAll(/[^a-z0-9\s-\/]/, "").replaceAll(/\s+/, " ").trim()
-  s = s.replaceAll(/[\/\s]/, '-').replaceAll(/-{2,}/, '-')
-  s
-}
-
 def BRANCH_BUILD = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
 
 def CREDS = [
@@ -28,6 +21,8 @@ def CREDS = [
 def NPMRC = [
     configFile(fileId: 'npmrc', variable: 'NPM_CONFIG_USERCONFIG')
 ]
+
+def RELEASE_COMMIT_TITLE = /release: \d{4}-\d{2}-\d{2}, Version \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/
 
 pipeline {
   agent {
@@ -85,7 +80,7 @@ pipeline {
       // Do not run the stages on a release commit, unless it's for a sanity build.
       when {
         anyOf {
-          expression { !(env.TOP_COMMIT ==~ /^chore\(release\): \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/) }
+          expression { !(env.TOP_COMMIT ==~ RELEASE_COMMIT_TITLE) }
           environment name: 'SANITY_BUILD', value: 'true'
         }
       }
@@ -211,7 +206,7 @@ pipeline {
       when {
         allOf {
           branch DEFAULT_BRANCH
-          expression { env.TOP_COMMIT ==~ /^release: \d{4}-\d{2}-\d{2}, Version \d+\.\d+\.\d+ \[skip ci\] by LogDNA Bot$/ }
+          expression { env.TOP_COMMIT ==~ RELEASE_COMMIT_TITLE }
           not {
             environment name: 'SANITY_BUILD', value: 'true'
           }
