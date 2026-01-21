@@ -1,5 +1,12 @@
 ## Changelog
 
+## [6.6.4](https://github.com/mezmo/vector/compare/v6.6.3...v6.6.4) (2026-01-21)
+
+
+### Chores
+
+* **deps**: Bump to include fixes for `pulsar-rs` [65405e9](https://github.com/mezmo/vector/commit/65405e9a55aae215c7c8b0b9a2f7d1be1a0bfe8a) - Darin Spivey [LOG-22978](https://logdna.atlassian.net/browse/LOG-22978)
+
 ## [6.6.3](https://github.com/mezmo/vector/compare/v6.6.2...v6.6.3) (2026-01-21)
 
 
