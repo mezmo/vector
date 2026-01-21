@@ -1,5 +1,17 @@
 ## Changelog
 
+## [6.6.3](https://github.com/mezmo/vector/compare/v6.6.2...v6.6.3) (2026-01-21)
+
+
+### Bug Fixes
+
+* **datadog**: add traces sink to mezmo build [bc505ed](https://github.com/mezmo/vector/commit/bc505ed6c882f7094e891b6d55cf50837105c4c9) - Phil Ciampini [LOG-22956](https://logdna.atlassian.net/browse/LOG-22956)
+
+
+### Miscellaneous
+
+* Merge pull request #46 from mezmo/pciampini/LOG-22956 [ea21578](https://github.com/mezmo/vector/commit/ea21578813c19c4ee62fe6473c4867408065e0f3) - GitHub [LOG-22956](https://logdna.atlassian.net/browse/LOG-22956)
+
 ## [6.6.2](https://github.com/mezmo/vector/compare/v6.6.1...v6.6.2) (2026-01-20)
 
 
