@@ -905,6 +905,7 @@ sinks-logs-mezmo = [
   "sinks-console",
   "sinks-clickhouse",
   "sinks-datadog_logs",
+  "sinks-datadog_traces",
   "sinks-elasticsearch",
   "sinks-file",
   "sinks-gcp",
