@@ -90,6 +90,8 @@ mod mezmo_aggregate;
 #[cfg(feature = "transforms-mezmo_aggregate_distributed")]
 mod mezmo_aggregate_distributed;
 pub mod mezmo_config;
+#[cfg(feature = "transforms-mezmo_datadog_agent_parser")]
+mod mezmo_datadog_agent_parser;
 #[cfg(feature = "transforms-mezmo_log_clustering")]
 pub(crate) mod mezmo_log_clustering;
 #[cfg(any(
@@ -255,6 +257,8 @@ pub(crate) use self::metric_to_log::*;
 pub(crate) use self::mezmo_aggregate::*;
 #[cfg(feature = "transforms-mezmo_aggregate_distributed")]
 pub(crate) use self::mezmo_aggregate_distributed::*;
+#[cfg(feature = "transforms-mezmo_datadog_agent_parser")]
+pub(crate) use self::mezmo_datadog_agent_parser::*;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 pub(crate) use self::mezmo_tag_cardinality_limit::*;
 #[cfg(feature = "transforms-mezmo_throttle_distributed")]
