@@ -9,6 +9,10 @@ use crate::{
     internal_events::MezmoDatadogAgentParserError,
 };
 
+use logs::DatadogLogEvent;
+use metrics::{DatadogMetricEvent, DatadogSketchEvent};
+use traces::DatadogTraceEvent;
+
 mod common;
 mod config;
 mod logs;
@@ -60,7 +64,34 @@ impl MezmoDatadogAgentParser {
             .map(Cow::into_owned)
     }
 
-    pub fn strip_fields(&self, event: &mut Event) {
+    fn handle_transform_event<T>(
+        &self,
+        event: Event,
+        output: &mut vector_lib::transform::TransformOutputsBuf,
+        output_name: &'static str,
+        event_type_name: &'static str,
+    ) where
+        T: TransformDatadogEvent,
+    {
+        match T::transform(event, self) {
+            Ok(events) => {
+                for event in events {
+                    output.push(Some(output_name), event);
+                }
+            }
+            Err(err) => {
+                emit!(MezmoDatadogAgentParserError {
+                    error: &err.message,
+                    event_type: Some(event_type_name)
+                });
+                if self.reroute_unmatched {
+                    output.push(Some(UNMATCHED_OUTPUT), *err.input);
+                }
+            }
+        }
+    }
+
+    pub(super) fn strip_fields(&self, event: &mut Event) {
         if let Some(log) = event.maybe_as_log_mut() {
             if self.strip_event_type {
                 log.remove(&self.event_type_path.0);
@@ -71,7 +102,7 @@ impl MezmoDatadogAgentParser {
         }
     }
 
-    pub fn build_events_from_messages(
+    pub(super) fn build_events_from_payloads(
         &self,
         mut event: Event,
         payloads: Vec<(ObjectMap, Option<Value>)>,
@@ -82,18 +113,25 @@ impl MezmoDatadogAgentParser {
 
         self.strip_fields(&mut event);
 
+        // Reduce the cost of cloning the event for each payload item
+        event.maybe_as_log_mut().and_then(|log| {
+            log_schema()
+                .message_key_target_path()
+                .and_then(|path| log.remove(path))
+        });
+
         payloads
             .into_iter()
             .map(|payload| {
                 let mut new_event = event.clone();
-                insert_message(&mut new_event, payload)?;
+                insert_payload(&mut new_event, payload)?;
                 Ok(new_event)
             })
             .collect()
     }
 }
 
-fn insert_message(event: &mut Event, payload: (ObjectMap, Option<Value>)) -> Result<(), String> {
+fn insert_payload(event: &mut Event, payload: (ObjectMap, Option<Value>)) -> Result<(), String> {
     let log = event
         .maybe_as_log_mut()
         .ok_or_else(|| "Event is not a log".to_string())?;
@@ -122,60 +160,31 @@ impl SyncTransform for MezmoDatadogAgentParser {
 
         match event_type.as_deref() {
             Some(t) if t == self.event_type_values.log => {
-                let mut event = event;
-                match logs::transform_log(&mut event, self) {
-                    Ok(()) => output.push(Some(LOGS_OUTPUT), event),
-                    Err(err) => {
-                        emit!(MezmoDatadogAgentParserError {
-                            error: &err,
-                            event_type: Some("log"),
-                        });
-                        if self.reroute_unmatched {
-                            output.push(Some(UNMATCHED_OUTPUT), event);
-                        }
-                    }
-                }
+                self.handle_transform_event::<DatadogLogEvent>(event, output, LOGS_OUTPUT, "log");
             }
             Some(t) if t == self.event_type_values.metric => {
-                match metrics::transform_metric(event, self) {
-                    Ok(events) => {
-                        for event in events {
-                            output.push(Some(METRICS_OUTPUT), event);
-                        }
-                    }
-                    Err(err) => {
-                        emit!(MezmoDatadogAgentParserError {
-                            error: &err,
-                            event_type: Some("metric"),
-                        });
-                    }
-                }
+                self.handle_transform_event::<DatadogMetricEvent>(
+                    event,
+                    output,
+                    METRICS_OUTPUT,
+                    "metric",
+                );
             }
             Some(t) if t == self.event_type_values.sketch => {
-                match metrics::transform_sketch(event, self) {
-                    Ok(events) => {
-                        for event in events {
-                            output.push(Some(METRICS_OUTPUT), event);
-                        }
-                    }
-                    Err(err) => {
-                        emit!(MezmoDatadogAgentParserError {
-                            error: &err,
-                            event_type: Some("sketch"),
-                        });
-                    }
-                }
+                self.handle_transform_event::<DatadogSketchEvent>(
+                    event,
+                    output,
+                    METRICS_OUTPUT,
+                    "sketch",
+                );
             }
             Some(t) if t == self.event_type_values.trace => {
-                match traces::transform_trace(event, self) {
-                    Ok(event) => output.push(Some(TRACES_OUTPUT), event),
-                    Err(err) => {
-                        emit!(MezmoDatadogAgentParserError {
-                            error: &err,
-                            event_type: Some("trace"),
-                        });
-                    }
-                }
+                self.handle_transform_event::<DatadogTraceEvent>(
+                    event,
+                    output,
+                    TRACES_OUTPUT,
+                    "trace",
+                );
             }
             _ => {
                 if self.reroute_unmatched {
@@ -184,6 +193,29 @@ impl SyncTransform for MezmoDatadogAgentParser {
             }
         }
     }
+}
+
+#[derive(Debug)]
+pub(super) struct TransformError {
+    message: String,
+    // Reduce memory used by Result enums using this error
+    input: Box<Event>,
+}
+
+impl TransformError {
+    fn from(input: Event, message: &str) -> Self {
+        Self {
+            input: Box::new(input),
+            message: message.to_string(),
+        }
+    }
+}
+
+trait TransformDatadogEvent {
+    fn transform(
+        event: Event,
+        parser: &MezmoDatadogAgentParser,
+    ) -> Result<Vec<Event>, TransformError>;
 }
 
 #[cfg(test)]
@@ -302,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn build_events_from_messages_sets_message_and_timestamp() {
+    fn build_events_from_payloads_sets_message_and_timestamp() {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
@@ -320,7 +352,7 @@ mod tests {
         second.insert("message".into(), Value::from("second"));
 
         let results = parser
-            .build_events_from_messages(
+            .build_events_from_payloads(
                 event,
                 vec![
                     (first, Some(timestamp.clone())),

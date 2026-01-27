@@ -7,6 +7,7 @@ use crate::event::{LogEvent, ObjectMap, Value};
 pub enum TimestampUnit {
     Seconds,
     Milliseconds,
+    Nanoseconds,
 }
 
 pub fn get_message_object(log: &LogEvent) -> Result<&ObjectMap, String> {
@@ -42,10 +43,21 @@ pub fn get_message_object_mut(log: &mut LogEvent) -> Result<&mut ObjectMap, Stri
 pub fn parse_timestamp(value: &Value, unit: TimestampUnit) -> Option<chrono::DateTime<Utc>> {
     match value {
         Value::Timestamp(timestamp) => Some(*timestamp),
-        Value::Integer(value) => match unit {
-            TimestampUnit::Seconds => Utc.timestamp_opt(*value, 0).single(),
-            TimestampUnit::Milliseconds => Utc.timestamp_millis_opt(*value).single(),
-        },
+        Value::Integer(value) => {
+            let (seconds, nanoseconds) = match unit {
+                TimestampUnit::Seconds => (*value, None),
+                TimestampUnit::Milliseconds => (
+                    value.div_euclid(1000),
+                    (value.rem_euclid(1000) as u32).checked_mul(1_000_000),
+                ),
+                TimestampUnit::Nanoseconds => (
+                    value.div_euclid(1_000_000_000),
+                    Some(value.rem_euclid(1_000_000_000) as u32),
+                ),
+            };
+            let nanoseconds = nanoseconds.unwrap_or_default();
+            Utc.timestamp_opt(seconds, nanoseconds).single()
+        }
         Value::Float(value) => {
             let value = value.into_inner();
             if !value.is_finite() {
@@ -54,6 +66,7 @@ pub fn parse_timestamp(value: &Value, unit: TimestampUnit) -> Option<chrono::Dat
             let seconds = match unit {
                 TimestampUnit::Seconds => value,
                 TimestampUnit::Milliseconds => value / 1000.0,
+                TimestampUnit::Nanoseconds => value / 1_000_000_000.0,
             };
             let (seconds, nanos) = split_float_seconds(seconds)?;
             Utc.timestamp_opt(seconds, nanos).single()
@@ -68,17 +81,23 @@ fn split_float_seconds(value: f64) -> Option<(i64, u32)> {
         return None;
     }
 
-    let secs = value.floor();
-    let fract = value - secs;
-    let mut nanos = (fract * 1_000_000_000.0).round();
+    // trunc handles negative values better than floor. -1.4 is -1, not -2
+    let mut secs = value.trunc();
+    let mut fractional_secs = value - secs;
 
-    // Handle rounding overflow (e.g., 0.9999999999 rounding up to 1s)
-    let secs = if nanos >= 1_000_000_000.0 {
-        nanos -= 1_000_000_000.0;
-        secs + 1.0
-    } else {
-        secs
-    };
+    if fractional_secs < 0.0 {
+        fractional_secs += 1.0;
+        secs -= 1.0;
+    }
+    let mut nanoseconds = (fractional_secs * 1_000_000_000.0).round();
 
-    Some((secs as i64, nanos as u32))
+    if nanoseconds >= 1_000_000_000.0 {
+        nanoseconds -= 1_000_000_000.0;
+        secs += 1.0;
+    }
+
+    if secs < i64::MIN as f64 || secs > i64::MAX as f64 {
+        return None;
+    }
+    Some((secs as i64, nanoseconds as u32))
 }

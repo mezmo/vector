@@ -2,45 +2,55 @@ use crate::config::log_schema;
 use crate::event::{Event, MaybeAsLogMut, Value};
 use bytes::Bytes;
 
-use super::common::{get_message_object, get_message_object_mut, parse_timestamp, TimestampUnit};
-use super::MezmoDatadogAgentParser;
+use super::common::{get_message_object_mut, parse_timestamp, TimestampUnit};
+use super::{MezmoDatadogAgentParser, TransformDatadogEvent, TransformError};
 
-/// See: https://github.com/DataDog/agent-payload/blob/master/proto/logs/agent_logs_payload.proto
-/// The log timestamp is in milliseconds, not seconds
-pub fn transform_log(event: &mut Event, parser: &MezmoDatadogAgentParser) -> Result<(), String> {
-    let log = event
-        .maybe_as_log_mut()
-        .ok_or_else(|| "Event is not a log".to_string())?;
+pub(super) struct DatadogLogEvent;
 
-    let parsed_timestamp = {
-        let message_obj = get_message_object(log)?;
-        message_obj
-            .get("timestamp")
-            .and_then(|value| parse_timestamp(value, TimestampUnit::Milliseconds))
-    };
+impl TransformDatadogEvent for DatadogLogEvent {
+    /// See: https://github.com/DataDog/agent-payload/blob/master/proto/logs/agent_logs_payload.proto
+    /// The log timestamp is in milliseconds, not seconds
+    fn transform(
+        mut event: Event,
+        parser: &MezmoDatadogAgentParser,
+    ) -> Result<Vec<Event>, TransformError> {
+        let log_result = event
+            .maybe_as_log_mut()
+            .ok_or_else(|| "Event is not a log".to_string());
 
-    let parsed_ddtags = {
-        let message_obj = get_message_object(log)?;
-        message_obj
+        let log = match log_result {
+            Ok(log) => log,
+            Err(msg) => return Err(TransformError::from(event, &msg)),
+        };
+
+        let message_obj = match get_message_object_mut(log) {
+            Ok(message_obj) => message_obj,
+            Err(msg) => return Err(TransformError::from(event, &msg)),
+        };
+
+        let parsed_ddtags = message_obj
             .get("ddtags")
             .and_then(|value| value.as_bytes())
-            .map(parse_ddtags)
-    };
+            .map(parse_ddtags);
 
-    if let Some(parsed_ddtags) = parsed_ddtags {
-        let message_obj = get_message_object_mut(log)?;
-        message_obj.insert("ddtags".into(), parsed_ddtags);
-    }
-
-    if let Some(parsed) = parsed_timestamp {
-        if let Some(timestamp_path) = log_schema().timestamp_key_target_path() {
-            log.insert(timestamp_path, parsed);
+        if let Some(parsed_ddtags) = parsed_ddtags {
+            message_obj.insert("ddtags".into(), parsed_ddtags);
         }
+
+        let parsed_timestamp = message_obj
+            .get("timestamp")
+            .and_then(|value| parse_timestamp(value, TimestampUnit::Milliseconds));
+
+        if let Some(parsed) = parsed_timestamp {
+            if let Some(timestamp_path) = log_schema().timestamp_key_target_path() {
+                log.insert(timestamp_path, parsed);
+            }
+        };
+
+        parser.strip_fields(&mut event);
+
+        Ok(vec![event])
     }
-
-    parser.strip_fields(event);
-
-    Ok(())
 }
 
 // Mirrors the Datadog agent source parse_ddtags implementation.
@@ -66,13 +76,13 @@ mod tests {
     use bytes::Bytes;
     use chrono::{TimeZone, Utc};
 
+    use super::super::TransformDatadogEvent;
+    use super::DatadogLogEvent;
     use crate::config::log_schema;
     use crate::event::{Event, EventMetadata, KeyString, LogEvent, Value};
     use crate::transforms::mezmo_datadog_agent_parser::{
         MezmoDatadogAgentParser, MezmoDatadogAgentParserConfig,
     };
-
-    use super::transform_log;
 
     fn build_event(message: BTreeMap<KeyString, Value>) -> Event {
         Event::Log(LogEvent::from_map(
@@ -100,10 +110,12 @@ mod tests {
         );
         message.insert("status".into(), Value::Bytes(Bytes::from_static(b"info")));
 
-        let mut event = build_event(message);
+        let event = build_event(message);
         let parser = MezmoDatadogAgentParser::new(&MezmoDatadogAgentParserConfig::default());
 
-        transform_log(&mut event, &parser).expect("transform should succeed");
+        let mut results =
+            DatadogLogEvent::transform(event, &parser).expect("transform should succeed");
+        let event = results.pop().expect("transformed event");
 
         let log = event.as_log();
         let ts_path = log_schema()
@@ -148,10 +160,12 @@ mod tests {
             Value::Bytes(Bytes::from_static(b"not-a-ts")),
         );
 
-        let mut event = build_event(message);
+        let event = build_event(message);
         let parser = MezmoDatadogAgentParser::new(&MezmoDatadogAgentParserConfig::default());
 
-        transform_log(&mut event, &parser).expect("transform should succeed");
+        let mut results =
+            DatadogLogEvent::transform(event, &parser).expect("transform should succeed");
+        let event = results.pop().expect("transformed event");
 
         let log = event.as_log();
         let ts_path = log_schema()

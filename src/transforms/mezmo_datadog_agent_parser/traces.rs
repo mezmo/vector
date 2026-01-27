@@ -1,46 +1,61 @@
-use chrono::{TimeZone, Utc};
 use ordered_float::NotNan;
 
 use crate::config::log_schema;
 use crate::event::{Event, MaybeAsLogMut, ObjectMap, Value};
 use crate::internal_events::MezmoDatadogAgentParserInvalidItem;
+use crate::transforms::mezmo_datadog_agent_parser::common::{parse_timestamp, TimestampUnit};
 
 use super::common::get_message_object;
-use super::MezmoDatadogAgentParser;
+use super::{MezmoDatadogAgentParser, TransformDatadogEvent, TransformError};
 
-pub fn transform_trace(
-    mut event: Event,
-    parser: &MezmoDatadogAgentParser,
-) -> Result<Event, String> {
-    let version = parser
-        .get_payload_version(&event)
-        .unwrap_or_else(|| "v2".to_string());
+pub(super) struct DatadogTraceEvent;
 
-    let log = event
-        .maybe_as_log_mut()
-        .ok_or_else(|| "Event is not a log".to_string())?;
+impl TransformDatadogEvent for DatadogTraceEvent {
+    fn transform(
+        mut event: Event,
+        parser: &MezmoDatadogAgentParser,
+    ) -> Result<Vec<Event>, TransformError> {
+        let version = parser
+            .get_payload_version(&event)
+            .unwrap_or_else(|| "v2".to_string());
 
-    let output_message = {
-        let message_obj = get_message_object(log)?;
+        let log_result = event
+            .maybe_as_log_mut()
+            .ok_or_else(|| "Event is not a log".to_string());
 
-        let mut msg = match version.as_str() {
-            "v1" => transform_trace_v1(message_obj)?,
-            "v2" => transform_tracer_payload(message_obj),
-            _ => return Err(format!("Unsupported payload version: {version}")),
+        let log = match log_result {
+            Ok(log) => log,
+            Err(msg) => return Err(TransformError::from(event, &msg)),
+        };
+        let message_obj = match get_message_object(log) {
+            Ok(message_obj) => message_obj,
+            Err(msg) => return Err(TransformError::from(event, &msg)),
         };
 
-        msg.insert("payload_version".into(), Value::from(version.clone()));
-        msg
-    };
+        let result = match version.as_str() {
+            "v1" => transform_trace_v1(message_obj),
+            "v2" => transform_tracer_payload(message_obj),
+            _ => {
+                return Err(TransformError::from(
+                    event,
+                    &format!("Unsupported payload version: {version}"),
+                ))
+            }
+        };
+        let mut message = match result {
+            Ok(message) => message,
+            Err(msg) => return Err(TransformError::from(event, &msg)),
+        };
+        message.insert("payload_version".into(), Value::from(version.clone()));
 
-    log.insert(
-        log_schema().message_key_target_path().unwrap(),
-        Value::Object(output_message),
-    );
+        log.insert(
+            log_schema().message_key_target_path().unwrap(),
+            Value::Object(message),
+        );
+        parser.strip_fields(&mut event);
 
-    parser.strip_fields(&mut event);
-
-    Ok(event)
+        Ok(vec![event])
+    }
 }
 
 fn transform_trace_v1(message: &ObjectMap) -> Result<ObjectMap, String> {
@@ -123,7 +138,7 @@ fn transform_transaction(input: &ObjectMap) -> ObjectMap {
 }
 
 /// TracerPayload: https://github.com/DataDog/datadog-agent/blob/main/pkg/proto/datadog/trace/tracer_payload.proto
-fn transform_tracer_payload(input: &ObjectMap) -> ObjectMap {
+fn transform_tracer_payload(input: &ObjectMap) -> Result<ObjectMap, String> {
     let mut output = ObjectMap::new();
 
     copy_string(input, "hostName", &mut output, "host");
@@ -167,7 +182,7 @@ fn transform_tracer_payload(input: &ObjectMap) -> ObjectMap {
         .collect();
 
     output.insert("spans".into(), Value::Array(spans));
-    output
+    Ok(output)
 }
 
 fn process_chunk(chunk: &ObjectMap, payload_tags: Option<&ObjectMap>) -> Vec<Value> {
@@ -292,8 +307,12 @@ fn copy_i64(src: &ObjectMap, src_key: &str, dst: &mut ObjectMap, dst_key: &str) 
 }
 
 fn copy_timestamp_nanos(src: &ObjectMap, src_key: &str, dst: &mut ObjectMap, dst_key: &str) {
-    if let Some(nanos) = src.get(src_key).and_then(Value::as_integer) {
-        dst.insert(dst_key.into(), Value::Timestamp(Utc.timestamp_nanos(nanos)));
+    let src_timestamp = src
+        .get(src_key)
+        .and_then(|v| parse_timestamp(v, TimestampUnit::Nanoseconds));
+
+    if let Some(timestamp) = src_timestamp {
+        dst.insert(dst_key.into(), Value::from(timestamp));
     }
 }
 
@@ -384,12 +403,14 @@ fn value_to_f64(value: &Value) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::TransformDatadogEvent;
     use super::*;
     use crate::event::LogEvent;
     use crate::transforms::mezmo_datadog_agent_parser::{
         MezmoDatadogAgentParser, MezmoDatadogAgentParserConfig,
     };
     use bytes::Bytes;
+    use chrono::{TimeZone, Utc};
 
     fn build_event(message: Value) -> Event {
         let mut log = LogEvent::default();
@@ -429,7 +450,8 @@ mod tests {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
-        let result = transform_trace(event, &parser).unwrap();
+        let mut results = DatadogTraceEvent::transform(event, &parser).unwrap();
+        let result = results.pop().expect("transformed event");
         let log = result.as_log();
         let message = log
             .get(log_schema().message_key_target_path().unwrap())
@@ -503,7 +525,8 @@ mod tests {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
-        let result = transform_trace(event, &parser).unwrap();
+        let mut results = DatadogTraceEvent::transform(event, &parser).unwrap();
+        let result = results.pop().expect("transformed event");
         let log = result.as_log();
         let message = log
             .get(log_schema().message_key_target_path().unwrap())
@@ -579,7 +602,8 @@ mod tests {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
-        let result = transform_trace(event, &parser).unwrap();
+        let mut results = DatadogTraceEvent::transform(event, &parser).unwrap();
+        let result = results.pop().expect("transformed event");
         let log = result.as_log();
         let message = log
             .get(log_schema().message_key_target_path().unwrap())

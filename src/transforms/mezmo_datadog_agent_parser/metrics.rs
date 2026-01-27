@@ -3,52 +3,81 @@ use crate::config::log_schema;
 use crate::event::{Event, MaybeAsLogMut, MetricKind, ObjectMap, Value};
 
 use super::common::{get_message_object, parse_timestamp, TimestampUnit};
-use super::MezmoDatadogAgentParser;
+use super::{MezmoDatadogAgentParser, TransformDatadogEvent, TransformError};
 
-/// Transform a metric event into the normalized MezmoMetric log format.
-///
-/// The incoming event is a log event with the metric data in `.message`.
-/// The payload version determines whether this is a v1 or v2 series metric.
-/// Metrics data is intercepted and decoded in Kong with each item in the series
-/// field emitted as a separate event
-/// See: https://github.com/answerbook/pipeline-gateway-kong/blob/6fefc73374b32996b4bbb5ab1052eb2e6e6d3293/kong/plugins/pipeline-routing/lib/datadog.lua#L157
-pub fn transform_metric(
-    mut event: Event,
-    parser: &MezmoDatadogAgentParser,
-) -> Result<Vec<Event>, String> {
-    let version = parser
-        .get_payload_version(&event)
-        .unwrap_or_else(|| "v2".to_string());
+pub(super) struct DatadogMetricEvent;
 
-    let message_obj = {
-        let log = event
+impl TransformDatadogEvent for DatadogMetricEvent {
+    /// Transform a metric event into the normalized MezmoMetric log format.
+    ///
+    /// The incoming event is a log event with the metric data in `.message`.
+    /// The payload version determines whether this is a v1 or v2 series metric.
+    /// Metrics data is intercepted and decoded in Kong with each item in the series
+    /// field emitted as a separate event
+    /// See: https://github.com/answerbook/pipeline-gateway-kong/blob/6fefc73374b32996b4bbb5ab1052eb2e6e6d3293/kong/plugins/pipeline-routing/lib/datadog.lua#L157
+    fn transform(
+        mut event: Event,
+        parser: &MezmoDatadogAgentParser,
+    ) -> Result<Vec<Event>, TransformError> {
+        let version = parser
+            .get_payload_version(&event)
+            .unwrap_or_else(|| "v2".to_string());
+
+        let log_result = event
             .maybe_as_log_mut()
-            .ok_or_else(|| "Event is not a log".to_string())?;
-        get_message_object(log)?.clone()
-    };
+            .ok_or_else(|| "Event is not a log".to_string());
 
-    let output_messages = match version.as_str() {
-        "v1" => transform_series_v1(&message_obj)?,
-        "v2" => transform_series_v2(&message_obj)?,
-        _ => transform_series_v2(&message_obj)?,
-    };
+        let log = match log_result {
+            Ok(log) => log,
+            Err(msg) => return Err(TransformError::from(event, &msg)),
+        };
 
-    parser.build_events_from_messages(event, output_messages)
+        let message_obj = match get_message_object(log) {
+            Ok(message_obj) => message_obj,
+            Err(msg) => return Err(TransformError::from(event, &msg)),
+        };
+
+        let output_messages = match version.as_str() {
+            "v1" => transform_series_v1(message_obj),
+            _ => transform_series_v2(message_obj),
+        }
+        .map_err(|msg| TransformError::from(event.clone(), &msg))?;
+
+        parser
+            .build_events_from_payloads(event.clone(), output_messages)
+            .map_err(|msg| TransformError::from(event, &msg))
+    }
 }
 
-/// Transform a sketch event into the normalized MezmoMetric log format.
-pub fn transform_sketch(
-    mut event: Event,
-    parser: &MezmoDatadogAgentParser,
-) -> Result<Vec<Event>, String> {
-    let message_obj = {
-        let log = event
-            .maybe_as_log_mut()
-            .ok_or_else(|| "Event is not a log".to_string())?;
-        get_message_object(log)?.clone()
-    };
+pub(super) struct DatadogSketchEvent;
 
-    parser.build_events_from_messages(event, transform_sketch_payload(&message_obj)?)
+impl TransformDatadogEvent for DatadogSketchEvent {
+    /// Transform a sketch event into the normalized MezmoMetric log format.
+    fn transform(
+        mut event: Event,
+        parser: &MezmoDatadogAgentParser,
+    ) -> Result<Vec<Event>, TransformError> {
+        let log_result = event
+            .maybe_as_log_mut()
+            .ok_or_else(|| "Event is not a log".to_string());
+
+        let log = match log_result {
+            Ok(log) => log,
+            Err(msg) => return Err(TransformError::from(event, &msg)),
+        };
+        let message_obj = match get_message_object(log) {
+            Ok(message_obj) => message_obj,
+            Err(msg) => return Err(TransformError::from(event, &msg)),
+        };
+
+        let sketch_metrics = match transform_sketch_payload(message_obj) {
+            Ok(sketches) => sketches,
+            Err(msg) => return Err(TransformError::from(event, &msg)),
+        };
+        parser
+            .build_events_from_payloads(event.clone(), sketch_metrics)
+            .map_err(|msg| TransformError::from(event, &msg))
+    }
 }
 
 /// Transforms Datadog series v1 metrics (/api/v1/series)
@@ -77,6 +106,12 @@ fn transform_series_v1(message: &ObjectMap) -> Result<Vec<(ObjectMap, Option<Val
         .unwrap_or_default();
 
     insert_source_type_name(message, &mut tags);
+
+    let tags = if !tags.is_empty() {
+        Some(Value::Object(tags))
+    } else {
+        None
+    };
 
     let (namespace, name) = namespace_name_from_dd_metric(&metric_name);
 
@@ -109,8 +144,8 @@ fn transform_series_v1(message: &ObjectMap) -> Result<Vec<(ObjectMap, Option<Val
         output.insert("kind".into(), Value::from(metric_kind_as_str(metric_kind)));
         output.insert("type".into(), Value::from(metric_type.as_metric_kind_str()));
 
-        if !tags.is_empty() {
-            output.insert("tags".into(), Value::Object(tags.clone()));
+        if let Some(ref tags) = tags {
+            output.insert("tags".into(), tags.clone());
         }
 
         let interval = match metric_type {
@@ -135,11 +170,11 @@ fn transform_series_v1(message: &ObjectMap) -> Result<Vec<(ObjectMap, Option<Val
             }
         };
 
-        let mut time_obj = ObjectMap::new();
         if let Some(interval) = interval {
+            let mut time_obj = ObjectMap::new();
             time_obj.insert("interval_ms".into(), Value::from(interval * 1000));
+            output.insert("time".into(), Value::Object(time_obj));
         }
-        output.insert("time".into(), Value::Object(time_obj));
 
         if let Some(host) = message.get("host") {
             output.insert("host".into(), host.clone());
@@ -180,6 +215,12 @@ fn transform_series_v2(message: &ObjectMap) -> Result<Vec<(ObjectMap, Option<Val
     tags.extend(resource_tags);
     insert_source_type_name(message, &mut tags);
 
+    let tags = if !tags.is_empty() {
+        Some(Value::Object(tags))
+    } else {
+        None
+    };
+
     let (namespace, name) = namespace_name_from_dd_metric(&metric_name);
 
     let interval = message
@@ -212,8 +253,8 @@ fn transform_series_v2(message: &ObjectMap) -> Result<Vec<(ObjectMap, Option<Val
         output.insert("kind".into(), Value::from(metric_kind_as_str(metric_kind)));
         output.insert("type".into(), Value::from(metric_type.as_metric_kind_str()));
 
-        if !tags.is_empty() {
-            output.insert("tags".into(), Value::Object(tags.clone()));
+        if let Some(ref tags) = tags {
+            output.insert("tags".into(), tags.clone());
         }
 
         let interval = match metric_type {
@@ -236,11 +277,11 @@ fn transform_series_v2(message: &ObjectMap) -> Result<Vec<(ObjectMap, Option<Val
             }
         };
 
-        let mut time_obj = ObjectMap::new();
         if let Some(interval) = interval {
+            let mut time_obj = ObjectMap::new();
             time_obj.insert("interval_ms".into(), Value::from(interval * 1000));
+            output.insert("time".into(), Value::Object(time_obj));
         }
-        output.insert("time".into(), Value::Object(time_obj));
 
         if let Some(host) = host_from_resource.as_ref() {
             output.insert("host".into(), host.clone());
@@ -271,6 +312,11 @@ fn transform_sketch_payload(
         .unwrap_or_default();
 
     insert_sketch_host_tag(message, &mut tags);
+    let tags = if !tags.is_empty() {
+        Some(Value::Object(tags))
+    } else {
+        None
+    };
 
     let (namespace, metric_name) = namespace_name_from_dd_metric(&metric_name);
 
@@ -294,8 +340,8 @@ fn transform_sketch_payload(
             Value::from(metric_kind_as_str(MetricKind::Incremental)),
         );
 
-        if !tags.is_empty() {
-            output.insert("tags".into(), Value::Object(tags.clone()));
+        if let Some(ref tags) = tags {
+            output.insert("tags".into(), tags.clone());
         }
 
         output.insert("type".into(), Value::from("sketch"));
@@ -475,6 +521,7 @@ fn namespace_name_from_dd_metric(dd_metric_name: &str) -> (Option<&str>, &str) {
 
 #[cfg(test)]
 mod tests {
+    use super::super::TransformDatadogEvent;
     use super::*;
     use crate::event::LogEvent;
     use crate::transforms::mezmo_datadog_agent_parser::{
@@ -525,7 +572,7 @@ mod tests {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
-        let results = transform_metric(event, &parser).unwrap();
+        let results = DatadogMetricEvent::transform(event, &parser).unwrap();
         assert_eq!(results.len(), 2);
 
         let log = results[0].as_log();
@@ -588,7 +635,7 @@ mod tests {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
-        let results = transform_metric(event, &parser).unwrap();
+        let results = DatadogMetricEvent::transform(event, &parser).unwrap();
         assert_eq!(results.len(), 2);
 
         let log = results[0].as_log();
@@ -678,7 +725,7 @@ mod tests {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
-        let results = transform_metric(event, &parser).unwrap();
+        let results = DatadogMetricEvent::transform(event, &parser).unwrap();
         let log = results[0].as_log();
         let message = log
             .get(log_schema().message_key_target_path().unwrap())
@@ -720,7 +767,7 @@ mod tests {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
-        let results = transform_metric(event, &parser).unwrap();
+        let results = DatadogMetricEvent::transform(event, &parser).unwrap();
         let message = results[0]
             .as_log()
             .get(log_schema().message_key_target_path().unwrap())
@@ -753,7 +800,7 @@ mod tests {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
-        let results = transform_metric(event, &parser).unwrap();
+        let results = DatadogMetricEvent::transform(event, &parser).unwrap();
         let log = results[0].as_log();
         let message = log
             .get(log_schema().message_key_target_path().unwrap())
@@ -785,7 +832,7 @@ mod tests {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
-        let results = transform_metric(event, &parser).unwrap();
+        let results = DatadogMetricEvent::transform(event, &parser).unwrap();
         let log = results[0].as_log();
         let message = log
             .get(log_schema().message_key_target_path().unwrap())
@@ -793,8 +840,7 @@ mod tests {
             .as_object()
             .unwrap();
 
-        let time_obj = message.get("time").unwrap().as_object().unwrap();
-        assert!(time_obj.get("interval_ms").is_none());
+        assert!(message.get("time").is_none());
     }
 
     #[test]
@@ -824,7 +870,7 @@ mod tests {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
-        let results = transform_sketch(event, &parser).unwrap();
+        let results = DatadogSketchEvent::transform(event, &parser).unwrap();
         assert_eq!(results.len(), 1);
 
         let message = results[0]
@@ -889,7 +935,7 @@ mod tests {
         let config = MezmoDatadogAgentParserConfig::default();
         let parser = MezmoDatadogAgentParser::new(&config);
 
-        let results = transform_sketch(event, &parser).unwrap();
+        let results = DatadogSketchEvent::transform(event, &parser).unwrap();
         assert_eq!(results.len(), 1);
 
         let log = results[0].as_log();
