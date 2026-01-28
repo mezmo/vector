@@ -1,5 +1,17 @@
 ## Changelog
 
+## [6.8.1](https://github.com/mezmo/vector/compare/v6.8.0...v6.8.1) (2026-01-28)
+
+
+### Bug Fixes
+
+* **log_to_metric**: enable default transform for DD [3078af7](https://github.com/mezmo/vector/commit/3078af73de98f55ee410a5f440db595917f30d9d) - Phil Ciampini [LOG-23039](https://logdna.atlassian.net/browse/LOG-23039)
+
+
+### Miscellaneous
+
+* Merge pull request #52 from mezmo/pciampini/LOG-23039 [89ddd79](https://github.com/mezmo/vector/commit/89ddd798b5d701c7a135ed3919f4a700fbb07b78) - GitHub [LOG-23039](https://logdna.atlassian.net/browse/LOG-23039)
+
 # [6.8.0](https://github.com/mezmo/vector/compare/v6.7.0...v6.8.0) (2026-01-28)
 
 
