@@ -796,6 +796,7 @@ transforms-metrics-mezmo = [
   "transforms-remap",
   "transforms-throttle",
   "transforms-aggregate",
+  "transforms-log_to_metric",
   "transforms-mezmo_aggregate_v2",
   "transforms-mezmo_aggregate_distributed",
   "transforms-mezmo_aggregate",
