@@ -1,5 +1,23 @@
 ## Changelog
 
+# [6.7.0](https://github.com/mezmo/vector/compare/v6.6.5...v6.7.0) (2026-01-28)
+
+
+### Code Refactoring
+
+* Address pull request feedback [2348d29](https://github.com/mezmo/vector/commit/2348d29be4361db8d6ffc31cb70fe87160d458a8) - Kwabena Boadu [LOG-22997](https://logdna.atlassian.net/browse/LOG-22997)
+
+
+### Features
+
+* Add parse_log_tags and split_metric_namespace flags [6b1e115](https://github.com/mezmo/vector/commit/6b1e11520e62507f000fc46fc1e17080383db592) - Kwabena Boadu [LOG-22997](https://logdna.atlassian.net/browse/LOG-22997)
+* **mezmo_datadog_agent_parser**: Create MezmoDatadogAgentParser [36ebe26](https://github.com/mezmo/vector/commit/36ebe261a0506b270c9dfd862d353982f029a46e) - Kwabena Boadu [LOG-22997](https://logdna.atlassian.net/browse/LOG-22997)
+
+
+### Miscellaneous
+
+* Merge pull request #49 from mezmo/biblicalph/LOG-22997 [4eefdd2](https://github.com/mezmo/vector/commit/4eefdd296e2bb2a26c214d625abbf0ef92debe5e) - GitHub [LOG-22997](https://logdna.atlassian.net/browse/LOG-22997)
+
 ## [6.6.5](https://github.com/mezmo/vector/compare/v6.6.4...v6.6.5) (2026-01-21)
 
 
