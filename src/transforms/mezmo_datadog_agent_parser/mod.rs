@@ -122,52 +122,40 @@ impl MezmoDatadogAgentParser {
         &self,
         mut event: Event,
         payloads: Vec<(ObjectMap, Option<Value>)>,
-    ) -> Result<Vec<Event>, String> {
+    ) -> Result<Vec<Event>, (String, Box<Event>)> {
         if payloads.is_empty() {
             return Ok(Vec::new());
         }
 
+        let Some(message_path) = log_schema().message_key_target_path() else {
+            return Err(("Missing message key".into(), Box::new(event)));
+        };
+
+        if event.maybe_as_log().is_none() {
+            return Err(("Event is not a log".into(), Box::new(event)));
+        };
+
         self.strip_fields(&mut event);
+        event.as_mut_log().remove(message_path);
 
-        // Reduce the cost of cloning the event for each payload item
-        event.maybe_as_log_mut().and_then(|log| {
-            log_schema()
-                .message_key_target_path()
-                .and_then(|path| log.remove(path))
-        });
+        let mut results: Vec<Event> = Vec::with_capacity(payloads.len() + 1);
+        for payload in payloads {
+            let mut new_event = event.clone();
+            let log = new_event.as_mut_log();
+            let (message, timestamp) = payload;
+            log.insert(message_path, Value::Object(message));
 
-        payloads
-            .into_iter()
-            .map(|payload| {
-                let mut new_event = event.clone();
-                insert_payload(&mut new_event, payload)?;
-                Ok(new_event)
-            })
-            .collect()
-    }
-}
+            if let Some(timestamp) = timestamp {
+                if let Some(timestamp_path) = log_schema().timestamp_key_target_path() {
+                    log.insert(timestamp_path, timestamp);
+                }
+            }
 
-fn insert_payload(event: &mut Event, payload: (ObjectMap, Option<Value>)) -> Result<(), String> {
-    let log = event
-        .maybe_as_log_mut()
-        .ok_or_else(|| "Event is not a log".to_string())?;
-
-    let (message, timestamp) = payload;
-
-    log.insert(
-        log_schema()
-            .message_key_target_path()
-            .ok_or_else(|| "Missing message key".to_string())?,
-        Value::Object(message),
-    );
-
-    if let Some(timestamp) = timestamp {
-        if let Some(timestamp_path) = log_schema().timestamp_key_target_path() {
-            log.insert(timestamp_path, timestamp);
+            results.push(new_event);
         }
-    }
 
-    Ok(())
+        Ok(results)
+    }
 }
 
 impl SyncTransform for MezmoDatadogAgentParser {
