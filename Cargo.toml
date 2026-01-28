@@ -769,6 +769,7 @@ transforms-logs = [
 transforms-logs-mezmo = [
   "transforms-dedupe",
   "transforms-filter",
+  "transforms-mezmo_datadog_agent_parser",
   "transforms-mezmo_reduce",
   "transforms-remap",
   "transforms-route",
@@ -818,6 +819,7 @@ transforms-metric_to_log = []
 transforms-reduce = ["transforms-impl-reduce"]
 transforms-mezmo_reduce = ["transforms-reduce"] # depends on the upstream version for merge_strategies
 transforms-mezmo_aggregate = []
+transforms-mezmo_datadog_agent_parser = []
 transforms-mezmo_log_to_metric = []
 transforms-mezmo_log_clustering = ["dep:lru", "dep:blake2", "dep:base64", "dep:tokio-postgres"]
 transforms-mezmo_log_classification = ["dep:grok"]
