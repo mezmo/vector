@@ -7,6 +7,7 @@ use crate::{
         },
         KeyString, LogEvent, StatisticKind, Value,
     },
+    metrics::AgentDDSketch,
 };
 use chrono::Utc;
 use lookup::PathPrefix;
@@ -77,28 +78,8 @@ fn parse_value(
         "gauge" | "count" => Ok(MetricValue::Gauge {
             value: get_float(value_object, "value")?,
         }),
-        "summary" => {
-            let value_object = get_property(value_object, "value")?
-                .as_object()
-                .ok_or_else(|| TransformError::FieldInvalidType {
-                    field: "value".into(),
-                })?;
-
-            let quantiles: Result<Vec<_>, _> = get_property(value_object, "quantiles")?
-                .as_array()
-                .ok_or_else(|| TransformError::FieldInvalidType {
-                    field: "value.quantiles".into(),
-                })?
-                .iter()
-                .map(parse_quantile)
-                .collect();
-
-            Ok(MetricValue::AggregatedSummary {
-                quantiles: quantiles?,
-                count: get_u64(value_object, "count")?,
-                sum: get_float(value_object, "sum")?,
-            })
-        }
+        "sketch" => build_sketch(value_object),
+        "summary" => build_summary(value_object),
         "histogram" => {
             let value_object = get_property(value_object, "value")?
                 .as_object()
@@ -177,6 +158,89 @@ fn parse_value(
             type_name: other.to_string(),
         }),
     }
+}
+
+fn build_summary(value_object: &BTreeMap<KeyString, Value>) -> Result<MetricValue, TransformError> {
+    let value_object = get_property(value_object, "value")?
+        .as_object()
+        .ok_or_else(|| TransformError::FieldInvalidType {
+            field: "value".into(),
+        })?;
+
+    let quantiles: Result<Vec<_>, _> = get_property(value_object, "quantiles")?
+        .as_array()
+        .ok_or_else(|| TransformError::FieldInvalidType {
+            field: "value.quantiles".into(),
+        })?
+        .iter()
+        .map(parse_quantile)
+        .collect();
+
+    Ok(MetricValue::AggregatedSummary {
+        quantiles: quantiles?,
+        count: get_u64(value_object, "count")?,
+        sum: get_float(value_object, "sum")?,
+    })
+}
+
+fn build_sketch(value: &BTreeMap<KeyString, Value>) -> Result<MetricValue, TransformError> {
+    let sketch = get_property(value, "value")?.as_object().ok_or_else(|| {
+        TransformError::FieldInvalidType {
+            field: "value".into(),
+        }
+    })?;
+    let keys = sketch
+        .get("k")
+        .and_then(Value::as_array)
+        .ok_or_else(|| TransformError::FieldInvalidType {
+            field: "value.k".into(),
+        })?
+        .iter()
+        .map(|val| {
+            val.as_integer()
+                .ok_or_else(|| TransformError::FieldInvalidType {
+                    field: "value.k".into(),
+                })
+                .and_then(|v| {
+                    i16::try_from(v).map_err(|_| TransformError::NumberTruncation {
+                        field: "value.k".into(),
+                    })
+                })
+        })
+        .collect::<Result<Vec<i16>, _>>()?;
+
+    let counts = sketch
+        .get("n")
+        .and_then(Value::as_array)
+        .ok_or_else(|| TransformError::FieldInvalidType {
+            field: "value.n".into(),
+        })?
+        .iter()
+        .map(|val| {
+            val.as_integer()
+                .ok_or_else(|| TransformError::FieldInvalidType {
+                    field: "value.n".into(),
+                })
+                .and_then(|v| {
+                    u16::try_from(v).map_err(|_| TransformError::NumberTruncation {
+                        field: "value.n".into(),
+                    })
+                })
+        })
+        .collect::<Result<Vec<u16>, _>>()?;
+
+    let count = get_u64(sketch, "cnt")?;
+    let count = u32::try_from(count).map_err(|_| TransformError::NumberTruncation {
+        field: "value.cnt".into(),
+    })?;
+    let min = get_float(sketch, "min")?;
+    let max = get_float(sketch, "max")?;
+    let sum = get_float(sketch, "sum")?;
+    let avg = get_float(sketch, "avg")?;
+
+    let sketch = AgentDDSketch::from_raw(count, min, max, sum, avg, &keys, &counts)
+        .unwrap_or_else(AgentDDSketch::with_agent_defaults);
+    Ok(MetricValue::from(sketch))
 }
 
 fn parse_quantile(value: &Value) -> Result<Quantile, TransformError> {
@@ -603,7 +667,7 @@ mod tests {
 
     use vrl::value::{KeyString, Value};
 
-    use crate::event::LogEvent;
+    use crate::event::{metric::MetricSketch, LogEvent};
 
     use super::{from_metric, to_metric};
 
@@ -903,5 +967,57 @@ mod tests {
         let actual = from_metric(&to_metric(&expected).unwrap());
 
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn sketch() {
+        let expected: LogEvent = serde_json::from_str::<BTreeMap<KeyString, Value>>(
+            r#"{
+                "message": {
+                    "name": "sketch-name",
+                    "kind": "incremental",
+                    "namespace": "ns",
+                    "tags": {"k1": "v1"},
+                    "value": {
+                        "type": "sketch",
+                        "value": {
+                            "cnt": 12,
+                            "min": 1.0,
+                            "max": 9.0,
+                            "sum": 15.0,
+                            "avg": 4.5,
+                            "k": [1, 2],
+                            "n": [3, 4]
+                        },
+                        "name": "test_name",
+                        "description": "description",
+                        "attributes": {
+                            "attribute": "value"
+                        }
+                    }
+                }
+            }"#,
+        )
+        .unwrap()
+        .into();
+
+        let metric = to_metric(&expected).unwrap();
+
+        match metric.value() {
+            crate::event::metric::MetricValue::Sketch { sketch } => match sketch {
+                MetricSketch::AgentDDSketch(ddsketch) => {
+                    assert_eq!(ddsketch.count(), 12);
+                    assert_eq!(ddsketch.min(), Some(1.0));
+                    assert_eq!(ddsketch.max(), Some(9.0));
+                    assert_eq!(ddsketch.sum(), Some(15.0));
+                    assert_eq!(ddsketch.avg(), Some(4.5));
+                    let bin_map = ddsketch.bin_map();
+                    let (keys, counts) = bin_map.into_parts();
+                    assert_eq!(keys, vec![1, 2]);
+                    assert_eq!(counts, vec![3, 4]);
+                }
+            },
+            _ => panic!("expected sketch metric value"),
+        }
     }
 }
