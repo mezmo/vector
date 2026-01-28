@@ -3,7 +3,7 @@ use crate::event::{Event, MaybeAsLogMut, Value};
 use bytes::Bytes;
 
 use super::common::{get_message_object_mut, parse_timestamp, TimestampUnit};
-use super::{MezmoDatadogAgentParser, TransformDatadogEvent, TransformError};
+use super::{MezmoDatadogAgentParser, TransformDatadogEvent, TransformDatadogEventError};
 
 pub(super) struct DatadogLogEvent;
 
@@ -13,28 +13,30 @@ impl TransformDatadogEvent for DatadogLogEvent {
     fn transform(
         mut event: Event,
         parser: &MezmoDatadogAgentParser,
-    ) -> Result<Vec<Event>, TransformError> {
+    ) -> Result<Vec<Event>, TransformDatadogEventError> {
         let log_result = event
             .maybe_as_log_mut()
             .ok_or_else(|| "Event is not a log".to_string());
 
         let log = match log_result {
             Ok(log) => log,
-            Err(msg) => return Err(TransformError::from(event, &msg)),
+            Err(msg) => return Err(TransformDatadogEventError::from(event, &msg)),
         };
 
         let message_obj = match get_message_object_mut(log) {
             Ok(message_obj) => message_obj,
-            Err(msg) => return Err(TransformError::from(event, &msg)),
+            Err(msg) => return Err(TransformDatadogEventError::from(event, &msg)),
         };
 
-        let parsed_ddtags = message_obj
-            .get("ddtags")
-            .and_then(|value| value.as_bytes())
-            .map(parse_ddtags);
+        if parser.parse_log_tags {
+            let parsed_ddtags = message_obj
+                .get("ddtags")
+                .and_then(|value| value.as_bytes())
+                .map(parse_ddtags);
 
-        if let Some(parsed_ddtags) = parsed_ddtags {
-            message_obj.insert("ddtags".into(), parsed_ddtags);
+            if let Some(parsed_ddtags) = parsed_ddtags {
+                message_obj.insert("ddtags".into(), parsed_ddtags);
+            }
         }
 
         let parsed_timestamp = message_obj
@@ -111,7 +113,11 @@ mod tests {
         message.insert("status".into(), Value::Bytes(Bytes::from_static(b"info")));
 
         let event = build_event(message);
-        let parser = MezmoDatadogAgentParser::new(&MezmoDatadogAgentParserConfig::default());
+        let config = MezmoDatadogAgentParserConfig {
+            parse_log_tags: true,
+            ..Default::default()
+        };
+        let parser = MezmoDatadogAgentParser::new(&config, None);
 
         let mut results =
             DatadogLogEvent::transform(event, &parser).expect("transform should succeed");
@@ -124,7 +130,7 @@ mod tests {
 
         let message = log
             .get(log_schema().message_key_target_path().expect("message key"))
-            .and_then(|val| val.as_object())
+            .and_then(Value::as_object)
             .expect("message object");
 
         let message_ts = message
@@ -161,7 +167,7 @@ mod tests {
         );
 
         let event = build_event(message);
-        let parser = MezmoDatadogAgentParser::new(&MezmoDatadogAgentParserConfig::default());
+        let parser = MezmoDatadogAgentParser::new(&MezmoDatadogAgentParserConfig::default(), None);
 
         let mut results =
             DatadogLogEvent::transform(event, &parser).expect("transform should succeed");
@@ -172,5 +178,32 @@ mod tests {
             .timestamp_key_target_path()
             .expect("timestamp key");
         assert!(log.get(ts_path).is_none());
+    }
+
+    #[test]
+    fn does_not_parse_tags_when_disabled() {
+        let mut message = BTreeMap::new();
+        message.insert(
+            "ddtags".into(),
+            Value::Bytes(Bytes::from_static(b"env:prod,team:core")),
+        );
+
+        let event = build_event(message);
+        let parser = MezmoDatadogAgentParser::new(&MezmoDatadogAgentParserConfig::default(), None);
+
+        let mut results =
+            DatadogLogEvent::transform(event, &parser).expect("transform should succeed");
+        let event = results.pop().expect("transformed event");
+
+        let message = event
+            .as_log()
+            .get(log_schema().message_key_target_path().expect("message key"))
+            .and_then(Value::as_object)
+            .expect("message object");
+
+        assert_eq!(
+            message.get("ddtags"),
+            Some(&Value::Bytes(Bytes::from_static(b"env:prod,team:core")))
+        );
     }
 }

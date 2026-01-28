@@ -84,6 +84,17 @@ pub struct MezmoDatadogAgentParserConfig {
     #[serde(default = "default_payload_version_path")]
     pub payload_version_path: ConfigTargetPath,
 
+    /// Parse log tag strings into arrays when true.
+    #[serde(default = "crate::serde::default_false")]
+    pub parse_log_tags: bool,
+
+    /// Split metric name into namespace and name when true.
+    ///
+    /// When false, the full metric name is preserved in `name` and `namespace`
+    /// is omitted.
+    #[serde(default = "crate::serde::default_true")]
+    pub split_metric_namespace: bool,
+
     /// Remove the event type field after identifying the event.
     #[serde(default = "crate::serde::default_true")]
     pub strip_event_type: bool,
@@ -103,6 +114,8 @@ impl Default for MezmoDatadogAgentParserConfig {
             event_type_path: default_event_type_path(),
             event_type_values: EventTypeValues::default(),
             payload_version_path: default_payload_version_path(),
+            parse_log_tags: false,
+            split_metric_namespace: true,
             strip_event_type: false,
             strip_payload_version: false,
             reroute_unmatched: true,
@@ -119,8 +132,11 @@ impl GenerateConfig for MezmoDatadogAgentParserConfig {
 #[async_trait::async_trait]
 #[typetag::serde(name = "mezmo_datadog_agent_parser")]
 impl TransformConfig for MezmoDatadogAgentParserConfig {
-    async fn build(&self, _context: &TransformContext) -> crate::Result<Transform> {
-        Ok(Transform::synchronous(MezmoDatadogAgentParser::new(self)))
+    async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
+        Ok(Transform::synchronous(MezmoDatadogAgentParser::new(
+            self,
+            context.mezmo_ctx.clone(),
+        )))
     }
 
     fn input(&self) -> Input {

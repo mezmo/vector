@@ -6,7 +6,7 @@ use crate::internal_events::MezmoDatadogAgentParserInvalidItem;
 use crate::transforms::mezmo_datadog_agent_parser::common::{parse_timestamp, TimestampUnit};
 
 use super::common::get_message_object;
-use super::{MezmoDatadogAgentParser, TransformDatadogEvent, TransformError};
+use super::{MezmoDatadogAgentParser, TransformDatadogEvent, TransformDatadogEventError};
 
 pub(super) struct DatadogTraceEvent;
 
@@ -14,7 +14,7 @@ impl TransformDatadogEvent for DatadogTraceEvent {
     fn transform(
         mut event: Event,
         parser: &MezmoDatadogAgentParser,
-    ) -> Result<Vec<Event>, TransformError> {
+    ) -> Result<Vec<Event>, TransformDatadogEventError> {
         let version = parser
             .get_payload_version(&event)
             .unwrap_or_else(|| "v2".to_string());
@@ -25,18 +25,18 @@ impl TransformDatadogEvent for DatadogTraceEvent {
 
         let log = match log_result {
             Ok(log) => log,
-            Err(msg) => return Err(TransformError::from(event, &msg)),
+            Err(msg) => return Err(TransformDatadogEventError::from(event, &msg)),
         };
         let message_obj = match get_message_object(log) {
             Ok(message_obj) => message_obj,
-            Err(msg) => return Err(TransformError::from(event, &msg)),
+            Err(msg) => return Err(TransformDatadogEventError::from(event, &msg)),
         };
 
         let result = match version.as_str() {
             "v1" => transform_trace_v1(message_obj),
             "v2" => transform_tracer_payload(message_obj),
             _ => {
-                return Err(TransformError::from(
+                return Err(TransformDatadogEventError::from(
                     event,
                     &format!("Unsupported payload version: {version}"),
                 ))
@@ -44,7 +44,7 @@ impl TransformDatadogEvent for DatadogTraceEvent {
         };
         let mut message = match result {
             Ok(message) => message,
-            Err(msg) => return Err(TransformError::from(event, &msg)),
+            Err(msg) => return Err(TransformDatadogEventError::from(event, &msg)),
         };
         message.insert("payload_version".into(), Value::from(version.clone()));
 
@@ -448,7 +448,7 @@ mod tests {
         );
 
         let config = MezmoDatadogAgentParserConfig::default();
-        let parser = MezmoDatadogAgentParser::new(&config);
+        let parser = MezmoDatadogAgentParser::new(&config, None);
 
         let mut results = DatadogTraceEvent::transform(event, &parser).unwrap();
         let result = results.pop().expect("transformed event");
@@ -523,7 +523,7 @@ mod tests {
         );
 
         let config = MezmoDatadogAgentParserConfig::default();
-        let parser = MezmoDatadogAgentParser::new(&config);
+        let parser = MezmoDatadogAgentParser::new(&config, None);
 
         let mut results = DatadogTraceEvent::transform(event, &parser).unwrap();
         let result = results.pop().expect("transformed event");
@@ -600,7 +600,7 @@ mod tests {
         );
 
         let config = MezmoDatadogAgentParserConfig::default();
-        let parser = MezmoDatadogAgentParser::new(&config);
+        let parser = MezmoDatadogAgentParser::new(&config, None);
 
         let mut results = DatadogTraceEvent::transform(event, &parser).unwrap();
         let result = results.pop().expect("transformed event");

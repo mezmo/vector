@@ -15,14 +15,9 @@ pub fn get_message_object(log: &LogEvent) -> Result<&ObjectMap, String> {
         .message_key_target_path()
         .ok_or_else(|| "Missing message key".to_string())?;
 
-    let message = log
-        .get(message_path)
-        .ok_or_else(|| "Missing message field".to_string())?;
-
-    match message {
-        Value::Object(obj) => Ok(obj),
-        _ => Err("Message is not an object".to_string()),
-    }
+    log.get(message_path)
+        .and_then(Value::as_object)
+        .ok_or_else(|| "Message is not an object".to_string())
 }
 
 pub fn get_message_object_mut(log: &mut LogEvent) -> Result<&mut ObjectMap, String> {
@@ -30,14 +25,9 @@ pub fn get_message_object_mut(log: &mut LogEvent) -> Result<&mut ObjectMap, Stri
         .message_key_target_path()
         .ok_or_else(|| "Missing message key".to_string())?;
 
-    let message = log
-        .get_mut(message_path)
-        .ok_or_else(|| "Missing message field".to_string())?;
-
-    match message {
-        Value::Object(obj) => Ok(obj),
-        _ => Err("Message is not an object".to_string()),
-    }
+    log.get_mut(message_path)
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "Message is not an object".to_string())
 }
 
 pub fn parse_timestamp(value: &Value, unit: TimestampUnit) -> Option<chrono::DateTime<Utc>> {
