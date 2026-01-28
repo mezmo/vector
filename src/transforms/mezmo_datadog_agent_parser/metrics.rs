@@ -47,8 +47,8 @@ impl TransformDatadogEvent for DatadogMetricEvent {
         };
 
         parser
-            .build_events_from_payloads(event.clone(), output_messages)
-            .map_err(|msg| TransformDatadogEventError::from(event, &msg))
+            .build_events_from_payloads(event, output_messages)
+            .map_err(|(msg, event)| TransformDatadogEventError::from(*event, &msg))
     }
 }
 
@@ -79,8 +79,8 @@ impl TransformDatadogEvent for DatadogSketchEvent {
                 Err(msg) => return Err(TransformDatadogEventError::from(event, &msg)),
             };
         parser
-            .build_events_from_payloads(event.clone(), sketch_metrics)
-            .map_err(|msg| TransformDatadogEventError::from(event, &msg))
+            .build_events_from_payloads(event, sketch_metrics)
+            .map_err(|(msg, event)| TransformDatadogEventError::from(*event, &msg))
     }
 }
 
@@ -125,7 +125,7 @@ fn transform_series_v1(
     let interval = message
         .get("interval")
         .and_then(Value::as_integer)
-        .map(|i| i as u32)
+        .and_then(|i| u32::try_from(i).ok())
         .unwrap_or(0);
 
     let mut outputs = Vec::new();
@@ -232,7 +232,7 @@ fn transform_series_v2(
     let interval = message
         .get("interval")
         .and_then(Value::as_integer)
-        .map(|i| i as u32)
+        .and_then(|i| u32::try_from(i).ok())
         .unwrap_or(0);
 
     let mut outputs = Vec::new();
