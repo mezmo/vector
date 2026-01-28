@@ -1,5 +1,22 @@
 ## Changelog
 
+# [6.8.0](https://github.com/mezmo/vector/compare/v6.7.0...v6.8.0) (2026-01-28)
+
+
+### Bug Fixes
+
+* **mezmo_datadog_agent_parser**: rework from initial (#50) [c6ead81](https://github.com/mezmo/vector/commit/c6ead81f79a88956b4471692f006b0aae4ed9c72) - GitHub [LOG-22997](https://logdna.atlassian.net/browse/LOG-22997)
+
+
+### Features
+
+* **mezmo_log_to_metric**: Add support for sketch metrics [d88ef3a](https://github.com/mezmo/vector/commit/d88ef3a5054620128dd6b560538dabeb250a22bd) - Kwabena Boadu [LOG-23027](https://logdna.atlassian.net/browse/LOG-23027)
+
+
+### Miscellaneous
+
+* Merge pull request #51 from mezmo/biblicalph/LOG-23027 [4e2575b](https://github.com/mezmo/vector/commit/4e2575bd41b756bbef29a89cd9fa59ab22319513) - GitHub [LOG-23027](https://logdna.atlassian.net/browse/LOG-23027)
+
 # [6.7.0](https://github.com/mezmo/vector/compare/v6.6.5...v6.7.0) (2026-01-28)
 
 
