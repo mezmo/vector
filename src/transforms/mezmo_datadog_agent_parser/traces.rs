@@ -46,12 +46,18 @@ impl TransformDatadogEvent for DatadogTraceEvent {
             Ok(message) => message,
             Err(msg) => return Err(TransformDatadogEventError::from(event, &msg)),
         };
-        message.insert("payload_version".into(), Value::from(version.clone()));
+        message.insert("payload_version".into(), Value::from(version));
 
-        log.insert(
-            log_schema().message_key_target_path().unwrap(),
-            Value::Object(message),
-        );
+        let message_path = match log_schema().message_key_target_path() {
+            Some(path) => path,
+            None => {
+                return Err(TransformDatadogEventError::from(
+                    event,
+                    "Missing message key",
+                ))
+            }
+        };
+        log.insert(message_path, Value::Object(message));
         parser.strip_fields(&mut event);
 
         Ok(vec![event])
