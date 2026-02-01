@@ -36,6 +36,8 @@ pub mod mezmo_log_classification;
 pub mod mezmo_log_clustering;
 #[cfg(feature = "transforms-mezmo_log_to_metric")]
 pub mod mezmo_log_to_metric;
+#[cfg(feature = "transforms-mezmo_log_to_trace")]
+pub mod mezmo_log_to_trace;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 pub mod mezmo_tag_cardinality_limit;
 #[cfg(feature = "transforms-mezmo_throttle")]

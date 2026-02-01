@@ -94,6 +94,8 @@ pub mod mezmo_config;
 mod mezmo_datadog_agent_parser;
 #[cfg(feature = "transforms-mezmo_log_clustering")]
 pub(crate) mod mezmo_log_clustering;
+#[cfg(feature = "transforms-mezmo_log_to_trace")]
+mod mezmo_log_to_trace;
 #[cfg(any(
     feature = "transforms-mezmo_aggregate_v2",
     feature = "transforms-mezmo_throttle",
@@ -259,6 +261,8 @@ pub(crate) use self::mezmo_aggregate::*;
 pub(crate) use self::mezmo_aggregate_distributed::*;
 #[cfg(feature = "transforms-mezmo_datadog_agent_parser")]
 pub(crate) use self::mezmo_datadog_agent_parser::*;
+#[cfg(feature = "transforms-mezmo_log_to_trace")]
+pub(crate) use self::mezmo_log_to_trace::*;
 #[cfg(feature = "transforms-mezmo_tag_cardinality_limit")]
 pub(crate) use self::mezmo_tag_cardinality_limit::*;
 #[cfg(feature = "transforms-mezmo_throttle_distributed")]
