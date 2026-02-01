@@ -777,6 +777,7 @@ transforms-logs-mezmo = [
   "transforms-throttle",
   "transforms-mezmo_log_clustering",
   "transforms-mezmo_log_classification",
+  "transforms-mezmo_log_to_trace",
   "transforms-protobuf_to_log",
   "transforms-trace_head_sample",
   "transforms-trace_tail_sample"
@@ -822,6 +823,7 @@ transforms-mezmo_reduce = ["transforms-reduce"] # depends on the upstream versio
 transforms-mezmo_aggregate = []
 transforms-mezmo_datadog_agent_parser = []
 transforms-mezmo_log_to_metric = []
+transforms-mezmo_log_to_trace = []
 transforms-mezmo_log_clustering = ["dep:lru", "dep:blake2", "dep:base64", "dep:tokio-postgres"]
 transforms-mezmo_log_classification = ["dep:grok"]
 transforms-mezmo_tag_cardinality_limit = ["dep:bloomy", "dep:hashbrown"]
