@@ -325,7 +325,7 @@ mod tests {
             "trace",
             serde_json::json!({
                 "mezmo_payload_version": "v2",
-                "chunks": []
+                "chunks": [{"spans": []}]
             })
             .into(),
         );
