@@ -1,5 +1,27 @@
 ## Changelog
 
+# [6.9.0](https://github.com/mezmo/vector/compare/v6.8.1...v6.9.0) (2026-02-02)
+
+
+### Chores
+
+* **pulsar**: Bump pulsar-rs to latest version [b0638d0](https://github.com/mezmo/vector/commit/b0638d0db54d432f856c15ca7196adf3fbbd09da) - Darin Spivey [LOG-23094](https://logdna.atlassian.net/browse/LOG-23094)
+
+
+### Code Refactoring
+
+* **mezmo_datadog_agent_parser**: Transform event into TraceEvents [9fa6a6d](https://github.com/mezmo/vector/commit/9fa6a6dbea17c83f7804095e14cd9d9febb546b3) - Kwabena Boadu [LOG-23082](https://logdna.atlassian.net/browse/LOG-23082)
+
+
+### Features
+
+* **mezmo_log_to_trace**: Implement mezmo log to trace transform [2e5aac4](https://github.com/mezmo/vector/commit/2e5aac4d1dd1fbafc25cb0bb849d892cd8a619f7) - kwabena [LOG-23083](https://logdna.atlassian.net/browse/LOG-23083)
+
+
+### Miscellaneous
+
+* Merge pull request #53 from mezmo/biblicalph/LOG-23082 [8d857b2](https://github.com/mezmo/vector/commit/8d857b276a91be8aff8961e1b15214ce7856e699) - GitHub [LOG-23082](https://logdna.atlassian.net/browse/LOG-23082)
+
 ## [6.8.1](https://github.com/mezmo/vector/compare/v6.8.0...v6.8.1) (2026-01-28)
 
 
