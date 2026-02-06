@@ -126,11 +126,23 @@ pub struct PulsarSourceConfig {
     #[serde(default)]
     log_namespace: Option<bool>,
 
-    /// If event batch delivery fails (from a bad sink?), Pulsar messages can be nacked, causing redelivery from the broker.
-    /// When `false`, failed event delivery relies on the sink's retry mechanism, but messages will not be resent from the broker
-    /// if retries are exhausted. However, the consumer can still restart from `Earliest` to get all missed messages.
-    /// When `true`, failed delivery nacks the original Pulsar message, and it will constantly be re-consumed by this source.
-    /// Such events will travel through downstream components, which may skew aggregations and other stateful processing.
+    /// If event batch delivery fails (from a bad sink?), Pulsar messages can be nacked using this setting,
+    /// thus causing redelivery from the broker.
+    ///
+    /// When `false`, failed event delivery will retry the failed events based on the sink's builtin retry mechanism.
+    /// If sink retries are exhausted, the message will be acked (dropped) for `BatchStatus::Errored` (500s) or `BatchStatus::Rejected` (400s).
+    /// Since the user has no ability to skip failed messages, the system must make a best effort to deliver, but move on afterwards.
+    /// The consumer can still restart from `Earliest`, manually reset the cursor, or use "replay" to get all missed messages.
+    /// Therefore, data loss is really just perceptual.
+    ///
+    /// When `true`, failed event delivery nacks the original Pulsar message, and it will constantly be re-consumed by this source until successful.
+    /// Such events will travel through downstream components, which may skew aggregations and other stateful processing, but
+    /// it guarantees no message loss even during downstream outages. Use of this feature would be on a per use case basis.
+    ///
+    /// NOTE: When `false`, this mimics Kafka's functionality in a roundabout way. In Kafka, the offset is not moved upon failure.
+    /// However, the first message to succeed will move the offset and implicitly ack everything that came before it. Pulsar tracks
+    /// acking per-message, so avoiding acks creates "ack holes" which become very resource-intensive to recover from if they are numerous.
+    /// For this reason, `broker_redelivery_enabled` is set to `false` by default, and failures are proactively acked to avoid holes.
     #[configurable(derived)]
     #[serde(default = "default_false")]
     broker_redelivery_enabled: bool,
@@ -145,7 +157,7 @@ pub struct PulsarSourceConfig {
     #[serde(default = "default_false")]
     partitioned_topic_auto_discovery: bool,
 
-    /// How often to search for new partitioned topics.
+    /// How often to make sure the consumer has all topics (partitioned or regex).
     #[configurable(metadata(docs::examples = "10"))]
     #[serde(default = "default_topic_refresh_secs")]
     topic_refresh_secs: u8,
@@ -463,7 +475,10 @@ impl PulsarSourceConfig {
                 priority_level: self.priority_level,
                 initial_position: self.consumer_position.into(),
                 ..Default::default()
-            });
+            })
+            .with_topic_refresh(std::time::Duration::from_secs(
+                self.topic_refresh_secs.into(),
+            ));
 
         if let Some(dead_letter_queue_policy) = &self.dead_letter_queue_policy {
             consumer_builder =
@@ -519,18 +534,15 @@ impl PulsarSourceConfig {
 
             consumer_builder = consumer_builder
                 .with_lookup_namespace(format!("{tenant}/{namespace}"))
-                .with_topic_regex(consumer_topic_regex)
-                .with_topic_refresh(std::time::Duration::from_secs(
-                    self.topic_refresh_secs.into(),
-                ));
+                .with_topic_regex(consumer_topic_regex);
             debug!(
                 "Using topic regex '{}' with refresh every {} seconds",
                 topic, self.topic_refresh_secs
             );
         } else {
             debug!(
-                "Using multiple topics subscription with no partition auto-discovery: {:?}",
-                self.topics
+                "Using multiple topics subscription (refreshed every {} secs) with no partition auto-discovery: {:?}",
+                self.topic_refresh_secs, self.topics
             );
             consumer_builder = consumer_builder.with_topics(&self.topics);
         }
@@ -807,7 +819,9 @@ async fn handle_ack(
                     });
                 }
             } else {
-                // Ack the message so that it doesn't remain "unacked". We don't want redelivery.
+                // Ack the message so that it doesn't remain "unacked" and create ack holes. We don't want redelivery.
+                // Kafka does this implicitly--although it doesn't move the cursor on failure, the first successful message
+                // after a bunch of failures *will* move the cursor, and implicitly ack every message before that point.
                 if let Err(error) = consumer
                     .ack_with_id(entry.topic.as_str(), entry.message_id)
                     .await
