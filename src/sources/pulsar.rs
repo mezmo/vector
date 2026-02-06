@@ -145,7 +145,7 @@ pub struct PulsarSourceConfig {
     #[serde(default = "default_false")]
     partitioned_topic_auto_discovery: bool,
 
-    /// How often to search for new partitioned topics.
+    /// How often to make sure the consumer has all topics (partitioned or regex).
     #[configurable(metadata(docs::examples = "10"))]
     #[serde(default = "default_topic_refresh_secs")]
     topic_refresh_secs: u8,
@@ -463,7 +463,10 @@ impl PulsarSourceConfig {
                 priority_level: self.priority_level,
                 initial_position: self.consumer_position.into(),
                 ..Default::default()
-            });
+            })
+            .with_topic_refresh(std::time::Duration::from_secs(
+                self.topic_refresh_secs.into(),
+            ));
 
         if let Some(dead_letter_queue_policy) = &self.dead_letter_queue_policy {
             consumer_builder =
@@ -519,18 +522,15 @@ impl PulsarSourceConfig {
 
             consumer_builder = consumer_builder
                 .with_lookup_namespace(format!("{tenant}/{namespace}"))
-                .with_topic_regex(consumer_topic_regex)
-                .with_topic_refresh(std::time::Duration::from_secs(
-                    self.topic_refresh_secs.into(),
-                ));
+                .with_topic_regex(consumer_topic_regex);
             debug!(
                 "Using topic regex '{}' with refresh every {} seconds",
                 topic, self.topic_refresh_secs
             );
         } else {
             debug!(
-                "Using multiple topics subscription with no partition auto-discovery: {:?}",
-                self.topics
+                "Using multiple topics subscription (refreshed every {} secs) with no partition auto-discovery: {:?}",
+                self.topic_refresh_secs, self.topics
             );
             consumer_builder = consumer_builder.with_topics(&self.topics);
         }
