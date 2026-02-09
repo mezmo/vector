@@ -1,5 +1,17 @@
 ## Changelog
 
+## [6.9.1](https://github.com/mezmo/vector/compare/v6.9.0...v6.9.1) (2026-02-09)
+
+
+### Bug Fixes
+
+* **pulsar**: Use `topic_refresh_secs` always [ad87975](https://github.com/mezmo/vector/commit/ad8797560cb7c97188122fbfbfb2110a5d94bb53) - Darin Spivey [LOG-23134](https://logdna.atlassian.net/browse/LOG-23134)
+
+
+### Chores
+
+* **pulsar**: Update comments regarding acks around failures [deaeeb7](https://github.com/mezmo/vector/commit/deaeeb7cab95aedefd8f518a4f1c7102448540d0) - Darin Spivey [LOG-23134](https://logdna.atlassian.net/browse/LOG-23134)
+
 # [6.9.0](https://github.com/mezmo/vector/compare/v6.8.1...v6.9.0) (2026-02-02)
 
 
