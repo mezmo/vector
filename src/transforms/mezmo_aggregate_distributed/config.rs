@@ -1,6 +1,6 @@
 use redis::{
-    aio::{ConnectionManager, ConnectionManagerConfig},
     RedisResult,
+    aio::{ConnectionManager, ConnectionManagerConfig},
 };
 use snafu::prelude::*;
 use std::time::Duration;
@@ -14,12 +14,12 @@ use crate::config::{
 use crate::mezmo_env_config;
 use crate::schema::Definition;
 use crate::transforms::{
+    Transform,
     mezmo_common::state::{
         default_connection_response_timeout_ms, default_connection_retry_count,
         default_connection_retry_factor_ms, default_connection_retry_max_delay_ms,
         default_connection_string, default_connection_timeout_ms,
     },
-    Transform,
 };
 
 use super::{MezmoAggregateDistributed, RedisCreateFailedSnafu, Strategy};

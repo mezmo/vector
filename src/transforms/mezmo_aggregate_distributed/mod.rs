@@ -7,14 +7,14 @@ use crate::internal_events::{
 use async_stream::stream;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
-use mezmo::{user_trace::handle_transform_error, MezmoContext};
+use mezmo::{MezmoContext, user_trace::handle_transform_error};
 use redis::{
-    aio::ConnectionManager, AsyncCommands, ErrorKind, RedisError, RedisResult, Script, ToRedisArgs,
+    AsyncCommands, ErrorKind, RedisError, RedisResult, Script, ToRedisArgs, aio::ConnectionManager,
 };
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
+use std::collections::hash_map::DefaultHasher;
 use std::fmt::Display;
 use std::hash::{Hash, Hasher};
 use std::pin::Pin;
@@ -26,7 +26,7 @@ use vector_lib::configurable::configurable_component;
 use vector_lib::event::metric::mezmo::TransformError;
 use vector_lib::event::{LogEvent, Metric};
 use vector_lib::{
-    event::{metric::mezmo::to_metric, Event, MetricValue},
+    event::{Event, MetricValue, metric::mezmo::to_metric},
     transform::TaskTransform,
 };
 use vrl::value::{KeyString, Value};

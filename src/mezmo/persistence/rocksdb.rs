@@ -1,5 +1,5 @@
 use rocksdb::statistics::{Histogram, StatsLevel, Ticker};
-use rocksdb::{BlockBasedOptions, Cache, DBCompactionStyle, Options, DB};
+use rocksdb::{BlockBasedOptions, Cache, DB, DBCompactionStyle, Options};
 use snafu::{ResultExt, Snafu};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
@@ -10,10 +10,10 @@ use std::time::Duration;
 
 use crate::mezmo_env_config;
 use crate::{
+    Error,
     internal_events::mezmo_persistence::{
         MezmoPersistenceRocksDBHistogram, MezmoPersistenceRocksDBTicker,
     },
-    Error,
 };
 use mezmo::MezmoContext;
 
@@ -184,7 +184,7 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
             None => {
                 return Err(Box::new(RocksDBPersistenceError::InvalidContext {
                     mezmo_ctx: mezmo_ctx.clone(),
-                }))
+                }));
             }
         };
 
@@ -195,7 +195,7 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
                     RocksDBPersistenceError::MissingEnvironmentVariable {
                         var: POD_NAME_ENV_VAR.to_string(),
                     },
-                ))
+                ));
             }
         };
 

@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use vrl::value::Value;
 
 use vector_core::event::metric::mezmo::{
-    from_f64_or_zero, IntoValue, MetricValueAccessor, MetricValuePairs, MetricValueSerializable,
+    IntoValue, MetricValueAccessor, MetricValuePairs, MetricValueSerializable, from_f64_or_zero,
 };
 
 #[derive(Debug, Default, PartialEq)]

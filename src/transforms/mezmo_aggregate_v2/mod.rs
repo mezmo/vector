@@ -2,7 +2,7 @@ use crate::{conditions::Condition, mezmo::persistence::PersistenceConnection};
 use async_stream::stream;
 use chrono::{DateTime, Utc};
 use futures::{Stream, StreamExt};
-use mezmo::{user_log_error, user_trace::MezmoUserLog, MezmoContext};
+use mezmo::{MezmoContext, user_log_error, user_trace::MezmoUserLog};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
@@ -20,8 +20,8 @@ use vector_lib::{
 use vrl::{
     btreemap,
     compiler::{
-        runtime::{Runtime, Terminate},
         Program,
+        runtime::{Runtime, Terminate},
     },
     path::OwnedTargetPath,
     prelude::*,
@@ -339,8 +339,10 @@ impl MezmoAggregateV2 {
                             break;
                         }
                         match self.run_merge_vrl(window.event.clone(), event.to_owned()) {
-                            Err(e) => error!("dropping event; failed to execute VRL program on event to aggregate: {e}"),
-                            Ok(new_acc) => window.event = new_acc
+                            Err(e) => error!(
+                                "dropping event; failed to execute VRL program on event to aggregate: {e}"
+                            ),
+                            Ok(new_acc) => window.event = new_acc,
                         };
                         window.increment_event_count();
                     }
@@ -423,12 +425,12 @@ impl MezmoAggregateV2 {
                 }
             }
 
-            if let Some(mut retain) = retained {
-                if !retain.flushed {
-                    retain.set_flushed(current_time);
-                    output.push(retain.event.clone());
-                    new_window_list.push_front(retain);
-                }
+            if let Some(mut retain) = retained
+                && !retain.flushed
+            {
+                retain.set_flushed(current_time);
+                output.push(retain.event.clone());
+                new_window_list.push_front(retain);
             }
 
             // Not everything from the metric series might have been drained so skip adding back

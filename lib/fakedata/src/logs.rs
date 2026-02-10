@@ -1,10 +1,10 @@
 use chrono::{
+    SecondsFormat,
     format::{DelayedFormat, StrftimeItems},
     prelude::Local,
-    SecondsFormat,
 };
 use fakedata_generator::{gen_domain, gen_ipv4, gen_username};
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 
 static APPLICATION_NAMES: [&str; 10] = [
     "auth", "data", "deploy", "etl", "scraper", "cron", "ingress", "egress", "alerter", "fwd",

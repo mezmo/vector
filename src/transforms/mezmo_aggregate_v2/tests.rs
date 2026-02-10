@@ -197,9 +197,11 @@ fn assert_windows_eq(expected_events: Vec<Event>, windows: &VecDeque<AggregateWi
             .map(|w| w.event.clone())
             .collect::<Vec<Event>>(),
     );
-    assert!(windows
-        .iter()
-        .all(|AggregateWindow { size_ms, .. }| size_ms.end - size_ms.start == 5))
+    assert!(
+        windows
+            .iter()
+            .all(|AggregateWindow { size_ms, .. }| size_ms.end - size_ms.start == 5)
+    )
 }
 
 fn assert_events_eq(expected_events: Vec<Event>, actual_events: Vec<Event>) {

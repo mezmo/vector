@@ -18,25 +18,25 @@ use tokio::sync::OnceCell;
 use tokio::time::{self, Duration};
 use tokio_util::codec::FramedRead;
 use vector_lib::{
+    EstimatedJsonEncodedSizeOf,
     codecs::{
-        decoding::{DeserializerConfig, FramingConfig},
         StreamDecodingError,
+        decoding::{DeserializerConfig, FramingConfig},
     },
     config::{LogNamespace, SourceOutput},
     configurable::configurable_component,
     internal_event::{
         ByteSize, BytesReceived, CountByteSize, InternalEvent, InternalEventHandle as _, Protocol,
     },
-    EstimatedJsonEncodedSizeOf,
 };
 
 use crate::{
+    SourceSender,
     codecs::{Decoder, DecodingConfig},
     config::{SourceConfig, SourceContext},
     internal_events::{EventsReceived, StreamClosedError},
     serde::{default_decoding, default_framing_message_based},
     shutdown::ShutdownSignal,
-    SourceSender,
 };
 
 #[derive(Debug)]
@@ -210,10 +210,7 @@ impl MezmoOutputFormat {
         emit!(MezmoDemoLogsEventProcessed);
 
         match self {
-            Self::Shuffle {
-                sequence,
-                ref lines,
-            } => Self::shuffle_generate(*sequence, lines, n),
+            Self::Shuffle { sequence, lines } => Self::shuffle_generate(*sequence, lines, n),
             Self::ApacheCommon => apache_common_log_line(),
             Self::ApacheError => apache_error_log_line(),
             Self::Nginx => nginx_access_log_line(),
@@ -225,11 +222,11 @@ impl MezmoOutputFormat {
                 if !state.financial_evt_state.initialized() {
                     let _ = state.financial_evt_state.set(EventGenerator::new(*devices));
                 }
-                let gen = state
+                let generate = state
                     .financial_evt_state
                     .get_mut()
                     .expect("financial event state should be set");
-                let log = gen.gen_event();
+                let log = generate.gen_event();
                 serde_json::to_string(&log).expect("financial data should always be json encodable")
             }
             Self::Syslog => syslog_5424_log_line(),
@@ -262,7 +259,7 @@ impl MezmoOutputFormat {
                     .expect("generic metric event state should be set")
                     .generate_next()
             }
-            Self::UserProvided { ref lines, .. } => {
+            Self::UserProvided { lines, .. } => {
                 let idx = state.user_provided_idx;
                 let line = lines[idx].clone();
                 state.user_provided_idx = (idx + 1) % (lines.len()); // zero-based index, infinite loop
@@ -292,7 +289,7 @@ impl MezmoOutputFormat {
     }
 
     // Ensures that the `lines` list is non-empty if `Shuffle` or `UserProvided` is chosen
-    pub(self) fn validate(&self) -> Result<(), MezmoDemoLogsConfigError> {
+    pub(self) const fn validate(&self) -> Result<(), MezmoDemoLogsConfigError> {
         match self {
             Self::Shuffle { lines, .. } => {
                 if lines.is_empty() {
@@ -469,15 +466,15 @@ impl SourceConfig for MezmoDemoLogsConfig {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use futures::{poll, Stream, StreamExt};
+    use futures::{Stream, StreamExt, poll};
 
     use super::*;
     use crate::{
+        SourceSender,
         config::log_schema,
         event::Event,
         shutdown::ShutdownSignal,
-        test_util::components::{assert_source_compliance, SOURCE_TAGS},
-        SourceSender,
+        test_util::components::{SOURCE_TAGS, assert_source_compliance},
     };
 
     #[test]

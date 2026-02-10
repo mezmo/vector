@@ -6,6 +6,7 @@ use vector_lib::{
     sensitive_string::SensitiveString,
 };
 
+use super::{encoder::HecLogsEncoder, request_builder::HecLogsRequestBuilder, sink::HecLogsSink};
 use crate::{
     codecs::{Encoder, EncodingConfig, Transformer},
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
@@ -13,16 +14,14 @@ use crate::{
     sinks::{
         prelude::*,
         splunk_hec::common::{
+            EndpointTarget, SplunkHecDefaultBatchSettings,
             acknowledgements::HecClientAcknowledgementsConfig,
             build_healthcheck, build_http_batch_service, create_client,
             service::{HecService, HttpRequestBuilder},
-            EndpointTarget, SplunkHecDefaultBatchSettings,
         },
         util::http::HttpRetryLogic,
     },
 };
-
-use super::{encoder::HecLogsEncoder, request_builder::HecLogsRequestBuilder, sink::HecLogsSink};
 
 /// Configuration for the `splunk_hec_logs` sink.
 #[configurable_component(sink(
@@ -291,12 +290,13 @@ impl HecLogsSinkConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::components::validation::prelude::*;
     use vector_lib::{
-        codecs::{encoding::format::JsonSerializerOptions, JsonSerializerConfig, MetricTagValues},
+        codecs::{JsonSerializerConfig, MetricTagValues, encoding::format::JsonSerializerOptions},
         config::LogNamespace,
     };
+
+    use super::*;
+    use crate::components::validation::prelude::*;
 
     #[test]
     fn generate_config() {

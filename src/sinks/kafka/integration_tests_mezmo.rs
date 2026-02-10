@@ -10,22 +10,22 @@ use crate::{
     kafka::{KafkaAuthConfig, KafkaCompression},
     mezmo::reshape_log_event_by_message,
     sinks::{
+        VectorSink,
         kafka::{config::KafkaSinkConfig, sink::KafkaSink},
         util::BatchConfig,
-        VectorSink,
     },
     template::Template,
     test_util::{
-        components::{assert_sink_compliance, SINK_TAGS},
+        components::{SINK_TAGS, assert_sink_compliance},
         random_message_object_events_with_stream, random_string, wait_for,
     },
 };
 use rdkafka::{
-    consumer::{BaseConsumer, Consumer},
     Message, Offset, TopicPartitionList,
+    consumer::{BaseConsumer, Consumer},
 };
 use vector_lib::codecs::{
-    encoding::format::JsonSerializerOptions, JsonSerializerConfig, MetricTagValues,
+    JsonSerializerConfig, MetricTagValues, encoding::format::JsonSerializerOptions,
 };
 use vector_lib::event::{BatchNotifier, BatchStatus};
 use vector_lib::lookup::lookup_v2::ConfigTargetPath;

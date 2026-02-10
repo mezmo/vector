@@ -7,8 +7,8 @@ use crate::config::{
 use crate::mezmo::persistence::RocksDBPersistenceConnection;
 use crate::mezmo_env_config;
 use crate::schema::Definition;
-use crate::transforms::remap::RemapConfig;
 use crate::transforms::Transform;
+use crate::transforms::remap::RemapConfig;
 use vector_lib::config::clone_input_definitions;
 use vector_lib::configurable::configurable_component;
 use vector_lib::enrichment::TableRegistry;
@@ -33,7 +33,9 @@ impl GenerateConfig for SlidingAggregateConfig {
 #[typetag::serde(name = "sliding_aggregate")]
 impl TransformConfig for SlidingAggregateConfig {
     async fn build(&self, ctx: &TransformContext) -> crate::Result<Transform> {
-        warn!("DEPRECATED: The `sliding_aggregate` transform has been renamed. Please use `mezmo_aggregate_v2` instead.");
+        warn!(
+            "DEPRECATED: The `sliding_aggregate` transform has been renamed. Please use `mezmo_aggregate_v2` instead."
+        );
         self.0.build(ctx).await
     }
 

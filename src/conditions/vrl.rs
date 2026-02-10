@@ -1,19 +1,21 @@
-use vector_lib::configurable::configurable_component;
-use vector_lib::{compile_vrl, emit, TimeZone};
-use vrl::compiler::runtime::{Runtime, RuntimeResult, Terminate};
-use vrl::compiler::{CompilationResult, CompileConfig, Program, TypeState, VrlRuntime};
-use vrl::diagnostic::Formatter;
-use vrl::value::Value;
+use vector_lib::{TimeZone, compile_vrl, configurable::configurable_component, emit};
+use vrl::{
+    compiler::{
+        CompilationResult, CompileConfig, Program, TypeState, VrlRuntime,
+        runtime::{Runtime, RuntimeResult, Terminate},
+    },
+    diagnostic::Formatter,
+    value::Value,
+};
 
-use crate::config::LogNamespace;
-use crate::event::TargetEvents;
 use crate::{
     conditions::{Condition, Conditional, ConditionalConfig},
-    event::{Event, VrlTarget},
+    config::LogNamespace,
+    event::{Event, TargetEvents, VrlTarget},
     internal_events::VrlConditionExecutionError,
 };
 
-use mezmo::{functions as mezmo_vrl_functions, MezmoContext};
+use mezmo::{MezmoContext, functions as mezmo_vrl_functions};
 
 /// A condition that uses the [Vector Remap Language](https://vector.dev/docs/reference/vrl) (VRL) [boolean expression](https://vector.dev/docs/reference/vrl#boolean-expressions) against an event.
 #[configurable_component]

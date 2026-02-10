@@ -11,7 +11,7 @@ use async_stream::stream;
 use chrono::Utc;
 use futures::{Stream, StreamExt};
 use mezmo::user_trace::MezmoUserLog;
-use mezmo::{user_log_error, MezmoContext};
+use mezmo::{MezmoContext, user_log_error};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;

@@ -6,7 +6,7 @@ use crate::{
     mezmo::user_trace::UserLoggingResponse,
     sinks::{
         mezmo_opentelemetry::{
-            config::OpentelemetryEndpoint, models::OpentelemetryModelType, Auth,
+            Auth, config::OpentelemetryEndpoint, models::OpentelemetryModelType,
         },
         util::Compression,
     },
@@ -14,10 +14,10 @@ use crate::{
 use bytes::Bytes;
 use futures::future::BoxFuture;
 use http::{
-    header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE},
     HeaderName, HeaderValue, Request,
+    header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE},
 };
-use hyper::{body, Body};
+use hyper::{Body, body};
 use tower::Service;
 use vector_lib::{
     finalization::{EventFinalizers, EventStatus, Finalizable},
@@ -99,17 +99,16 @@ impl Service<OpentelemetryApiRequest> for OpentelemetryService {
 
     fn call(&mut self, mut request: OpentelemetryApiRequest) -> Self::Future {
         let mut client = self.client.clone();
-        let uri: http::Uri;
 
-        match self.endpoint.endpoint(request.get_model_type()) {
-            Some(val) => uri = val,
+        let uri: http::Uri = match self.endpoint.endpoint(request.get_model_type()) {
+            Some(val) => val,
             None => {
                 return Box::pin(async move {
                     Err(OpentelemetrySinkError::new(&format!(
                         "Endpoint is not defined for model type: {}",
                         "Unknown"
                     )))
-                })
+                });
             }
         };
 

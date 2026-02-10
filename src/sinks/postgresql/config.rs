@@ -1,8 +1,8 @@
 use crate::{
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     sinks::{
-        postgresql::sink::{healthcheck, PostgreSQLSink},
         Healthcheck, VectorSink,
+        postgresql::sink::{PostgreSQLSink, healthcheck},
     },
 };
 use async_trait::async_trait;

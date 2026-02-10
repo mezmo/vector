@@ -1,9 +1,22 @@
 use std::{borrow::Cow, sync::Arc};
 
+use bytes::Bytes;
+use futures_util::future::BoxFuture;
+use http::{Request, StatusCode, Uri};
+use hyper::Body;
+use mezmo::{user_log_error, user_trace::MezmoUserLog};
+use snafu::{ResultExt, Snafu};
+use vector_lib::{
+    config::proxy::ProxyConfig,
+    event::EventRef,
+    lookup::lookup_v2::{OptionalTargetPath, OptionalValuePath},
+};
+use vrl::value::Value;
+
 use super::{
+    EndpointTarget,
     request::HecRequest,
     service::{HttpRequestBuilder, MetadataFields},
-    EndpointTarget,
 };
 use crate::{
     config::SinkContext,
@@ -11,22 +24,12 @@ use crate::{
     internal_events::TemplateRenderingError,
     mezmo::user_trace::MezmoHttpBatchLoggingService,
     sinks::{
-        self,
-        util::{http::HttpBatchService, SinkBatchSettings},
-        UriParseSnafu,
+        self, UriParseSnafu,
+        util::{SinkBatchSettings, http::HttpBatchService},
     },
     template::Template,
     tls::{TlsConfig, TlsSettings},
 };
-use bytes::Bytes;
-use futures_util::future::BoxFuture;
-use http::{Request, StatusCode, Uri};
-use hyper::Body;
-use mezmo::{user_log_error, user_trace::MezmoUserLog};
-use snafu::{ResultExt, Snafu};
-use vector_lib::lookup::lookup_v2::{OptionalTargetPath, OptionalValuePath};
-use vector_lib::{config::proxy::ProxyConfig, event::EventRef};
-use vrl::value::Value;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SplunkHecDefaultBatchSettings;
@@ -190,17 +193,17 @@ mod tests {
     use http::{HeaderValue, Uri};
     use vector_lib::config::proxy::ProxyConfig;
     use wiremock::{
-        matchers::{header, method, path},
         Mock, MockServer, ResponseTemplate,
+        matchers::{header, method, path},
     };
 
     use crate::{
         config::SinkContext,
         sinks::{
             splunk_hec::common::{
-                build_healthcheck, build_uri, create_client,
+                EndpointTarget, HOST_FIELD, SOURCE_FIELD, build_healthcheck, build_uri,
+                create_client,
                 service::{HttpRequestBuilder, MetadataFields},
-                EndpointTarget, HOST_FIELD, SOURCE_FIELD,
             },
             util::Compression,
         },

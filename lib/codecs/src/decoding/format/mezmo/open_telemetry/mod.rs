@@ -10,22 +10,22 @@ use std::cell::Cell;
 
 use smallvec::SmallVec;
 
-use crate::decoding::format::Deserializer;
 use crate::decoding::FramingConfig;
+use crate::decoding::format::Deserializer;
 
 use vector_core::{
     config::{DataType, LogNamespace},
     event::{
-        metric::mezmo::{from_f64_or_zero, IntoValue},
         Value,
+        metric::mezmo::{IntoValue, from_f64_or_zero},
     },
     schema,
 };
 
 use vector_core::event::Event;
 
-use vrl::value::kind::Collection;
 use vrl::value::Kind;
+use vrl::value::kind::Collection;
 
 use opentelemetry_rs::Error as OpenTelemetryError;
 

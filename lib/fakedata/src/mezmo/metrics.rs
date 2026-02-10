@@ -4,10 +4,10 @@ use std::{
 };
 
 use ilog::IntLog;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use serde::{
-    ser::{SerializeMap, SerializeSeq},
     Serialize,
+    ser::{SerializeMap, SerializeSeq},
 };
 
 pub struct Generator {

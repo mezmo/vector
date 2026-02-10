@@ -2,7 +2,7 @@ use crate::common::datadog::DatadogMetricType;
 use crate::config::log_schema;
 use crate::event::{Event, MaybeAsLogMut, MetricKind, ObjectMap, Value};
 
-use super::common::{get_message_object, parse_timestamp, TimestampUnit};
+use super::common::{TimestampUnit, get_message_object, parse_timestamp};
 use super::{MezmoDatadogAgentParser, TransformDatadogEvent, TransformDatadogEventError};
 
 pub(super) struct DatadogMetricEvent;
@@ -413,13 +413,13 @@ fn parse_metric_value(value: &Value) -> Result<f64, String> {
 }
 
 fn insert_source_type_name(message: &ObjectMap, tags: &mut ObjectMap) {
-    if let Some(source_type_name) = message.get("source_type_name").and_then(|v| v.as_str()) {
-        if !source_type_name.is_empty() {
-            tags.insert(
-                "source_type_name".into(),
-                Value::from(source_type_name.to_string()),
-            );
-        }
+    if let Some(source_type_name) = message.get("source_type_name").and_then(|v| v.as_str())
+        && !source_type_name.is_empty()
+    {
+        tags.insert(
+            "source_type_name".into(),
+            Value::from(source_type_name.to_string()),
+        );
     }
 }
 

@@ -5,7 +5,7 @@ use crate::{
     config::SinkConfig,
     sinks::{sumo_logic::config::SumoLogicSinkConfig, util::test::load_sink},
     test_util::{
-        components::{run_and_assert_sink_compliance, SINK_TAGS},
+        components::{SINK_TAGS, run_and_assert_sink_compliance},
         generate_lines_with_stream,
     },
 };

@@ -9,11 +9,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::IntoIter;
-use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::sleep;
-use tokio_postgres::types::{Json, ToSql};
 use tokio_postgres::Statement;
+use tokio_postgres::types::{Json, ToSql};
 use vector_lib::mezmo;
 
 const MAX_NEW_TEMPLATES_QUEUED: usize = 100;
@@ -30,7 +30,7 @@ async fn init_db_pool() -> crate::Result<String> {
             return Err(format!(
                 "Could not find metrics database connection string in env: {err:?}"
             )
-            .into())
+            .into());
         }
     };
 

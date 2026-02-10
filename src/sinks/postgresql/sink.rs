@@ -1,5 +1,5 @@
-use crate::sinks::postgresql::metric_utils::get_from_metric;
 use crate::sinks::postgresql::PostgreSQLSinkError;
+use crate::sinks::postgresql::metric_utils::get_from_metric;
 use crate::{
     event::Event,
     sinks::{
@@ -14,7 +14,7 @@ use crate::{
     },
 };
 use async_trait::async_trait;
-use futures::{future, stream::BoxStream, StreamExt};
+use futures::{StreamExt, future, stream::BoxStream};
 use vector_lib::finalization::Finalizable;
 
 pub struct PostgreSQLSink {

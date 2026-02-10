@@ -11,7 +11,7 @@ use vector_lib::configurable::configurable_component;
 use vector_lib::schema::Definition;
 
 use crate::{
-    config::{self, provider::ProviderConfig, ConfigBuilder, TransformContext},
+    config::{self, ConfigBuilder, TransformContext, provider::ProviderConfig},
     internal_events::mezmo_config::{
         MezmoConfigBuildFailure, MezmoConfigBuilderCreate, MezmoConfigReloadSignalSend,
         MezmoConfigVrlValidation, MezmoConfigVrlValidationError, MezmoGenerateConfigError,
@@ -19,7 +19,7 @@ use crate::{
     providers::BuildResult,
     signal,
 };
-use mezmo::{user_trace::MezmoUserLog, MezmoContext};
+use mezmo::{MezmoContext, user_trace::MezmoUserLog};
 
 use self::service::{ConfigService, DefaultConfigService};
 
@@ -560,26 +560,24 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
                 };
                 // Compile the VRL snippet in the transform
                 trace!("Compiling and validating VRL for transform {key}");
-                if let Err(error) = transform.build(&context).await {
-                    if let Some(ctx) = &mezmo_ctx {
-                        match &ctx.pipeline_id {
-                            Some(mezmo::ContextIdentifier::Value { id: _ }) => {
-                                mezmo::user_log_error!(
-                                    mezmo_ctx,
-                                    "Error loading existing transform component. Please contact support"
-                                );
-                                failures.push(format!(
-                                    "Error validating VRL in transform {key}: {error}"
-                                ));
-                            }
-                            Some(mezmo::ContextIdentifier::Shared) => {
-                                // This shouldn't happen...
-                                failures
-                                    .push(format!("Invalid VRL found in shared component {key}"));
-                            }
-                            None => {
-                                // Ignore config validation for non-pipeline components (analysis)
-                            }
+                if let Err(error) = transform.build(&context).await
+                    && let Some(ctx) = &mezmo_ctx
+                {
+                    match &ctx.pipeline_id {
+                        Some(mezmo::ContextIdentifier::Value { id: _ }) => {
+                            mezmo::user_log_error!(
+                                mezmo_ctx,
+                                "Error loading existing transform component. Please contact support"
+                            );
+                            failures
+                                .push(format!("Error validating VRL in transform {key}: {error}"));
+                        }
+                        Some(mezmo::ContextIdentifier::Shared) => {
+                            // This shouldn't happen...
+                            failures.push(format!("Invalid VRL found in shared component {key}"));
+                        }
+                        None => {
+                            // Ignore config validation for non-pipeline components (analysis)
                         }
                     }
                 }
@@ -619,8 +617,8 @@ mod tests {
     use mockall::mock;
     use serde_json::json;
     use wiremock::{
-        matchers::{self, path},
         Mock, MockServer, ResponseTemplate,
+        matchers::{self, path},
     };
 
     macro_rules! S {
@@ -1091,9 +1089,11 @@ mod tests {
             .build_incrementally()
             .await
             .expect("to build successfully");
-        assert!(loaded
-            .iter()
-            .any(|(pipeline, _, _)| { pipeline == "pipeline1" })); // Loaded
+        assert!(
+            loaded
+                .iter()
+                .any(|(pipeline, _, _)| { pipeline == "pipeline1" })
+        ); // Loaded
         let result = validate_config(config_builder.unwrap()).await;
         assert!(result.is_ok(), "expected the invalid VRL to be excluded");
     }
@@ -1136,9 +1136,11 @@ mod tests {
             .build_incrementally()
             .await
             .expect("to build successfully");
-        assert!(!loaded
-            .iter()
-            .any(|(pipeline, _, _)| { pipeline == "pipeline1" })); // Not loaded
+        assert!(
+            !loaded
+                .iter()
+                .any(|(pipeline, _, _)| { pipeline == "pipeline1" })
+        ); // Not loaded
         let result = validate_config(config_builder.unwrap()).await;
         assert!(result.is_ok(), "expected the invalid VRL to be excluded");
     }
@@ -1193,9 +1195,11 @@ mod tests {
             config_builder.is_none(),
             "no builder, existing pipeline still invalid"
         );
-        assert!(!loaded
-            .iter()
-            .any(|(pipeline, _, _)| { pipeline == "pipeline1" })); // Still not loaded
+        assert!(
+            !loaded
+                .iter()
+                .any(|(pipeline, _, _)| { pipeline == "pipeline1" })
+        ); // Still not loaded
     }
 
     fn new_test_builder(service: Box<dyn ConfigService>) -> MezmoConfigBuilder {

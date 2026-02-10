@@ -1,18 +1,18 @@
 use chrono::Utc;
 use futures::StreamExt;
+use vector_lib::EstimatedJsonEncodedSizeOf;
 use vector_lib::codecs::BytesDeserializerConfig;
 use vector_lib::config::SourceOutput;
 use vector_lib::configurable::configurable_component;
-use vector_lib::EstimatedJsonEncodedSizeOf;
 use vector_lib::{config::LogNamespace, schema::Definition};
 
 use crate::mezmo::user_trace::UserLogSubscription;
 use crate::{
+    SourceSender,
     config::{DataType, SourceConfig, SourceContext},
     event::Event,
     internal_events::{InternalLogsBytesReceived, InternalLogsEventsReceived, StreamClosedError},
     shutdown::ShutdownSignal,
-    SourceSender,
 };
 
 /// Configuration for the `mezmo_user_logs` source.
@@ -104,17 +104,17 @@ async fn mezmo_user_logs(
 #[cfg(test)]
 mod tests {
     use futures::Stream;
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{Duration, sleep};
 
     use super::*;
     use crate::{
         event::Event,
         test_util::{
             collect_ready,
-            components::{assert_source_compliance, SOURCE_TAGS},
+            components::{SOURCE_TAGS, assert_source_compliance},
         },
     };
-    use mezmo::{user_trace::MezmoUserLog, MezmoContext};
+    use mezmo::{MezmoContext, user_trace::MezmoUserLog};
     use vector_lib::event::Value;
 
     // The exitence of the captured data wrapper is a hidden implementation detail.

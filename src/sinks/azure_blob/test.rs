@@ -1,26 +1,31 @@
 use bytes::Bytes;
 use chrono::Utc;
-use vector_lib::codecs::{
-    encoding::{Framer, FramingConfig},
-    NewlineDelimitedEncoder, TextSerializerConfig,
+use vector_lib::{
+    EstimatedJsonEncodedSizeOf,
+    codecs::{
+        NewlineDelimitedEncoder, TextSerializerConfig,
+        encoding::{Framer, FramingConfig},
+    },
+    partition::Partitioner,
+    request_metadata::GroupedCountByteSize,
 };
-use vector_lib::request_metadata::GroupedCountByteSize;
-use vector_lib::{partition::Partitioner, EstimatedJsonEncodedSizeOf};
 
-use super::config::AzureBlobSinkConfig;
-use super::request_builder::AzureBlobRequestOptions;
-use crate::event::{Event, LogEvent};
-use crate::sinks::util::{request_builder::RequestBuilder, Compression};
-use crate::{codecs::Encoder, sinks::util::request_builder::EncodeResult};
-use crate::{codecs::EncodingConfigWithFraming, config::SinkContext};
-use crate::{config::SinkConfig, template::Template};
+use super::{config::AzureBlobSinkConfig, request_builder::AzureBlobRequestOptions};
+use crate::{
+    codecs::{Encoder, EncodingConfigWithFraming},
+    config::{SinkConfig, SinkContext},
+    event::{Event, LogEvent},
+    sinks::util::{
+        Compression,
+        request_builder::{EncodeResult, RequestBuilder},
+    },
+    template::Template,
+};
 
 fn default_config(encoding: EncodingConfigWithFraming) -> AzureBlobSinkConfig {
     AzureBlobSinkConfig {
         connection_string: Default::default(),
-        storage_account: Default::default(),
         container_name: Default::default(),
-        endpoint: Default::default(),
         blob_prefix: Default::default(),
         blob_time_format: Default::default(),
         blob_append_uuid: Default::default(),
@@ -305,15 +310,17 @@ async fn azure_blob_build_config_with_invalid_connection_string() {
     let sink_config = AzureBlobSinkConfig {
         blob_prefix: Template::try_from("blob").unwrap(),
         container_name: container_name.clone(),
-        connection_string: Some(String::from("not even close").into()),
+        connection_string: String::from("not even close").into(),
         ..default_config((None::<FramingConfig>, TextSerializerConfig::default()).into())
     };
 
-    assert!(sink_config
-        .build(SinkContext::default())
-        .await
-        .expect("builds with invalid connection string")
-        .1
-        .await
-        .is_err());
+    assert!(
+        sink_config
+            .build(SinkContext::default())
+            .await
+            .expect("builds with invalid connection string")
+            .1
+            .await
+            .is_err()
+    );
 }

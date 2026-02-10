@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 use vector_lib::configurable::configurable_component;
 use vector_lib::{codecs::decoding::MezmoDeserializer, config::LogNamespace, event::Value};
 
-use mezmo::{user_trace::handle_deserializer_error, MezmoContext};
+use mezmo::{MezmoContext, user_trace::handle_deserializer_error};
 
 use crate::{
     config::{DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext},
@@ -13,7 +13,7 @@ use crate::{
     transforms::{FunctionTransform, OutputBuffer, Transform},
 };
 
-use vector_lib::config::{log_schema, TransformOutput};
+use vector_lib::config::{TransformOutput, log_schema};
 use vector_lib::lookup::PathPrefix;
 
 /// The Enum to choose a protobuf vendor.
@@ -99,18 +99,18 @@ impl FunctionTransform for ProtobufToMetric {
             .expect("Log event has no message");
 
         let mut root_internal_metadata = &BTreeMap::new();
-        if let Some(metadata) = log.get(log_schema().metadata_key_target_path().unwrap()) {
-            if let Some(root_meta_obj) = metadata.as_object() {
-                root_internal_metadata = root_meta_obj;
-            }
+        if let Some(metadata) = log.get(log_schema().metadata_key_target_path().unwrap())
+            && let Some(root_meta_obj) = metadata.as_object()
+        {
+            root_internal_metadata = root_meta_obj;
         }
         let root_internal_metadata = root_internal_metadata;
 
         let mut root_user_metadata = &BTreeMap::new();
-        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
-            if let Some(root_meta_obj) = metadata.as_object() {
-                root_user_metadata = root_meta_obj;
-            }
+        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key()))
+            && let Some(root_meta_obj) = metadata.as_object()
+        {
+            root_user_metadata = root_meta_obj;
         }
         let root_user_metadata = root_user_metadata;
 
@@ -146,11 +146,10 @@ impl FunctionTransform for ProtobufToMetric {
 
                 if let Some(metadata) =
                     event.get((PathPrefix::Event, log_schema().user_metadata_key()))
+                    && let Some(user_meta_obj) = metadata.as_object()
                 {
-                    if let Some(user_meta_obj) = metadata.as_object() {
-                        for entry in user_meta_obj.iter() {
-                            user_metadata.insert(entry.0.clone(), entry.1.clone());
-                        }
+                    for entry in user_meta_obj.iter() {
+                        user_metadata.insert(entry.0.clone(), entry.1.clone());
                     }
                 }
 
@@ -164,11 +163,10 @@ impl FunctionTransform for ProtobufToMetric {
                 let mut internal_metadata = root_internal_metadata.clone();
 
                 if let Some(metadata) = event.get(log_schema().metadata_key_target_path().unwrap())
+                    && let Some(meta_obj) = metadata.as_object()
                 {
-                    if let Some(meta_obj) = metadata.as_object() {
-                        for entry in meta_obj.iter() {
-                            internal_metadata.insert(entry.0.clone(), entry.1.clone());
-                        }
+                    for entry in meta_obj.iter() {
+                        internal_metadata.insert(entry.0.clone(), entry.1.clone());
                     }
                 }
 
@@ -262,23 +260,34 @@ mod tests {
                     (
                         "attributes".into(),
                         Value::Object(BTreeMap::from([
-                            ("container.id".into(), Value::from("e59af7f60d91b041aab241389682f45868d4198b456fc95060e9b48eb574f6fe")),
+                            (
+                                "container.id".into(),
+                                Value::from(
+                                    "e59af7f60d91b041aab241389682f45868d4198b456fc95060e9b48eb574f6fe",
+                                ),
+                            ),
                             ("service.name".into(), Value::from("cartservice")),
-                            ("service.namespace".into(), Value::from("opentelemetry-demo")),
+                            (
+                                "service.namespace".into(),
+                                Value::from("opentelemetry-demo"),
+                            ),
                             ("telemetry.sdk.language".into(), Value::from("dotnet")),
                             ("telemetry.sdk.name".into(), Value::from("opentelemetry")),
                             ("telemetry.sdk.version".into(), Value::from("1.4.0.788")),
-                        ]))
+                        ])),
                     ),
                     ("dropped_attributes_count".into(), Value::Integer(0)),
-                ]))
+                ])),
             ),
             (
                 "scope".into(),
                 Value::Object(BTreeMap::from([
                     ("attributes".into(), Value::Object(BTreeMap::new())),
                     ("dropped_attributes_count".into(), Value::Integer(0)),
-                    ("name".into(), Value::from("OpenTelemetry.Instrumentation.Runtime")),
+                    (
+                        "name".into(),
+                        Value::from("OpenTelemetry.Instrumentation.Runtime"),
+                    ),
                     ("version".into(), Value::from("1.1.0.1")),
                 ])),
             ),

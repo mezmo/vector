@@ -4,7 +4,7 @@ use hashbrown::HashMap;
 use std::{collections::BTreeMap, future::ready, pin::Pin};
 use vector_lib::{
     config::log_schema,
-    event::{metric::mezmo::TransformError, LogEvent},
+    event::{LogEvent, metric::mezmo::TransformError},
 };
 use vrl::value::{KeyString, Value};
 
@@ -16,7 +16,7 @@ use crate::{
     },
     transforms::TaskTransform,
 };
-use mezmo::{user_trace::handle_transform_error, MezmoContext};
+use mezmo::{MezmoContext, user_trace::handle_transform_error};
 
 mod config;
 mod tag_value_set;
@@ -123,10 +123,9 @@ impl TagCardinalityLimit {
                             // doesn't change the behavior of the check.
                             for (key, value) in tags_map.iter() {
                                 let value = truncate(value, self.config.max_tag_size);
-                                let tag_value_set = TagValueSet::from(vec![Value::Bytes(
-                                    value.clone(),
-                                )
-                                .to_string()]);
+                                let tag_value_set = TagValueSet::from(vec![
+                                    Value::Bytes(value.clone()).to_string(),
+                                ]);
                                 if self.tag_in_scope(key)
                                     && self.tag_limit_exceeded(key, &tag_value_set)
                                 {
@@ -150,10 +149,9 @@ impl TagCardinalityLimit {
                             tags_map.retain(|key, value| {
                                 let value = truncate(value, self.config.max_tag_size);
                                 if self.tag_in_scope(key) {
-                                    let tag_value_set =
-                                        TagValueSet::from(vec![
-                                            Value::Bytes(value.clone()).to_string()
-                                        ]);
+                                    let tag_value_set = TagValueSet::from(vec![
+                                        Value::Bytes(value.clone()).to_string(),
+                                    ]);
                                     if self.try_accept_tag(key, &tag_value_set) {
                                         true
                                     } else {

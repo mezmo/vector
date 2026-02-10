@@ -13,8 +13,8 @@ use crate::{
     internal_events::SinkRequestBuildError,
     mezmo::user_trace::UserLoggingError,
     sinks::util::{
-        metadata::RequestMetadataBuilder, request_builder::EncodeResult, Compression,
-        RequestBuilder, SinkBuilderExt,
+        Compression, RequestBuilder, SinkBuilderExt, metadata::RequestMetadataBuilder,
+        request_builder::EncodeResult,
     },
 };
 use async_trait::async_trait;

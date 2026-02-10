@@ -6,29 +6,30 @@ use std::{
     sync::Arc,
 };
 
-use azure_core::{error::HttpError, prelude::Range};
+use azure_core::http::StatusCode;
+use azure_core_for_storage::prelude::Range;
 use azure_storage_blobs::prelude::*;
 use bytes::{Buf, BytesMut};
 use flate2::read::GzDecoder;
-use futures::{stream, Stream, StreamExt};
-use http::StatusCode;
-use vector_lib::codecs::{
-    encoding::FramingConfig, JsonSerializerConfig, NewlineDelimitedEncoderConfig,
-    TextSerializerConfig,
+use futures::{Stream, StreamExt, stream};
+use vector_lib::{
+    ByteSizeOf,
+    codecs::{
+        JsonSerializerConfig, NewlineDelimitedEncoderConfig, TextSerializerConfig,
+        encoding::FramingConfig,
+    },
 };
-use vector_lib::ByteSizeOf;
 
 pub use super::config::AzureBlobSinkConfig;
 use crate::{
     config::SinkContext,
     event::{Event, EventArray, LogEvent},
     sinks::{
-        azure_common,
+        VectorSink, azure_common,
         util::{Compression, TowerRequestConfig},
-        VectorSink,
     },
     test_util::{
-        components::{assert_sink_compliance, SINK_TAGS},
+        components::{SINK_TAGS, assert_sink_compliance},
         random_events_with_stream, random_lines, random_lines_with_stream, random_string,
     },
 };
@@ -37,10 +38,8 @@ use crate::{
 async fn azure_blob_healthcheck_passed() {
     let config = AzureBlobSinkConfig::new_emulator().await;
     let client = azure_common::config::build_client(
-        config.connection_string.map(Into::into),
-        None,
+        config.connection_string.clone().into(),
         config.container_name.clone(),
-        None,
     )
     .expect("Failed to create client");
 
@@ -61,10 +60,8 @@ async fn azure_blob_healthcheck_unknown_container() {
         ..config
     };
     let client = azure_common::config::build_client(
-        config.connection_string.map(Into::into),
-        config.storage_account,
+        config.connection_string.clone().into(),
         config.container_name.clone(),
-        config.endpoint.clone(),
     )
     .expect("Failed to create client");
 
@@ -135,7 +132,11 @@ async fn azure_blob_insert_json_into_blob() {
     assert_eq!(expected, blob_lines);
 }
 
+#[ignore]
 #[tokio::test]
+// This test fails to get the posted blob with "header not found content-length".
+// However, we inspected that the sink writes the expected contents to Azure thus this is a retrieval/test issue.
+// Additional context: https://github.com/Azure/Azurite/issues/629
 async fn azure_blob_insert_lines_into_blob_gzip() {
     let blob_prefix = format!("lines-gzip/into/blob/{}", random_string(10));
     let config = AzureBlobSinkConfig::new_emulator().await;
@@ -230,10 +231,8 @@ impl AzureBlobSinkConfig {
     pub async fn new_emulator() -> AzureBlobSinkConfig {
         let address = std::env::var("AZURE_ADDRESS").unwrap_or_else(|_| "localhost".into());
         let config = AzureBlobSinkConfig {
-                connection_string: Some(format!("UseDevelopmentStorage=true;DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://{address}:10000/devstoreaccount1;QueueEndpoint=http://{address}:10001/devstoreaccount1;TableEndpoint=http://{address}:10002/devstoreaccount1;").into()),
-                storage_account: None,
+            connection_string: format!("UseDevelopmentStorage=true;DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://{address}:10000/devstoreaccount1;QueueEndpoint=http://{address}:10001/devstoreaccount1;TableEndpoint=http://{address}:10002/devstoreaccount1;").into(),
                 container_name: "logs".to_string(),
-                endpoint: None,
                 blob_prefix: Default::default(),
                 blob_time_format: None,
                 blob_append_uuid: None,
@@ -253,10 +252,8 @@ impl AzureBlobSinkConfig {
 
     fn to_sink(&self) -> VectorSink {
         let client = azure_common::config::build_client(
-            self.connection_string.clone().map(Into::into),
-            self.storage_account.clone(),
+            self.connection_string.clone().into(),
             self.container_name.clone(),
-            self.endpoint.clone(),
         )
         .expect("Failed to create client");
 
@@ -273,10 +270,8 @@ impl AzureBlobSinkConfig {
 
     pub async fn list_blobs(&self, prefix: String) -> Vec<String> {
         let client = azure_common::config::build_client(
-            self.connection_string.clone().map(Into::into),
-            self.storage_account.clone(),
+            self.connection_string.clone().into(),
             self.container_name.clone(),
-            self.endpoint.clone(),
         )
         .unwrap();
         let response = client
@@ -291,21 +286,17 @@ impl AzureBlobSinkConfig {
             .expect("Failed to fetch blobs")
             .unwrap();
 
-        let blobs = response
+        response
             .blobs
             .blobs()
             .map(|blob| blob.name.clone())
-            .collect::<Vec<_>>();
-
-        blobs
+            .collect::<Vec<_>>()
     }
 
     pub async fn get_blob(&self, blob: String) -> (Blob, Vec<String>) {
         let client = azure_common::config::build_client(
-            self.connection_string.clone().map(Into::into),
-            self.storage_account.clone(),
+            self.connection_string.clone().into(),
             self.container_name.clone(),
-            self.endpoint.clone(),
         )
         .unwrap();
         let response = client
@@ -346,16 +337,14 @@ impl AzureBlobSinkConfig {
         data: Bytes,
     ) {
         let client = azure_common::config::build_client(
-            self.connection_string.clone().map(Into::into),
-            self.storage_account.clone().map(Into::into),
+            self.connection_string.inner().to_string(),
             self.container_name.clone(),
-            self.endpoint.clone(),
         )
         .unwrap();
 
         let mut tags: Tags = Tags::new();
-        if file_tags.is_some() {
-            for (key, value) in file_tags.unwrap().iter() {
+        if let Some(file_tags_map) = file_tags {
+            for (key, value) in file_tags_map.iter() {
                 tags.insert(key, value);
             }
         }
@@ -373,10 +362,8 @@ impl AzureBlobSinkConfig {
 
     pub async fn get_tags(&self, blob: String) -> azure_storage_blobs::prelude::Tags {
         let client = azure_common::config::build_client(
-            self.connection_string.clone().map(Into::into),
-            self.storage_account.clone().map(Into::into),
+            self.connection_string.inner().to_string(),
             self.container_name.clone(),
-            self.endpoint.clone(),
         )
         .unwrap();
 
@@ -386,20 +373,16 @@ impl AzureBlobSinkConfig {
 
     pub async fn get_client(&self) -> Arc<ContainerClient> {
         azure_common::config::build_client(
-            self.connection_string.clone().map(Into::into),
-            self.storage_account.clone().map(Into::into),
+            self.connection_string.inner().to_string(),
             self.container_name.clone(),
-            self.endpoint.clone(),
         )
         .unwrap()
     }
 
     async fn ensure_container(&self) {
         let client = azure_common::config::build_client(
-            self.connection_string.clone().map(Into::into),
-            self.storage_account.clone(),
+            self.connection_string.clone().into(),
             self.container_name.clone(),
-            self.endpoint.clone(),
         )
         .unwrap();
         let request = client
@@ -409,12 +392,9 @@ impl AzureBlobSinkConfig {
 
         let response = match request.await {
             Ok(_) => Ok(()),
-            Err(reason) => match reason.downcast_ref::<HttpError>() {
-                Some(err) => match StatusCode::from_u16(err.status().into()) {
-                    Ok(StatusCode::CONFLICT) => Ok(()),
-                    _ => Err(format!("Unexpected status code {}", err.status())),
-                },
-                _ => Err(format!("Unexpected error {reason}")),
+            Err(error) => match error.as_http_error() {
+                Some(http_error) if http_error.status() as u16 == StatusCode::Conflict => Ok(()),
+                _ => Err(error),
             },
         };
 

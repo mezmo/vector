@@ -6,15 +6,15 @@ use bytes::Bytes;
 use smallvec::SmallVec;
 use snap::raw::Decoder;
 
-use crate::decoding::format::Deserializer;
 use crate::decoding::FramingConfig;
+use crate::decoding::format::Deserializer;
 
 use vector_core::{
     config::{DataType, LogNamespace},
     schema,
 };
-use vrl::value::kind::Collection;
 use vrl::value::Kind;
+use vrl::value::kind::Collection;
 
 use vector_core::event::Event;
 

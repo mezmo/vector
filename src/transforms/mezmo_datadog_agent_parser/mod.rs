@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use vector_lib::lookup::lookup_v2::ConfigTargetPath;
 use vector_lib::transform::SyncTransform;
 
-use mezmo::{user_log_warn, user_trace::MezmoUserLog, MezmoContext};
+use mezmo::{MezmoContext, user_log_warn, user_trace::MezmoUserLog};
 
 use crate::{
     config::log_schema,
@@ -145,10 +145,10 @@ impl MezmoDatadogAgentParser {
             let (message, timestamp) = payload;
             log.insert(message_path, Value::Object(message));
 
-            if let Some(timestamp) = timestamp {
-                if let Some(timestamp_path) = log_schema().timestamp_key_target_path() {
-                    log.insert(timestamp_path, timestamp);
-                }
+            if let Some(timestamp) = timestamp
+                && let Some(timestamp_path) = log_schema().timestamp_key_target_path()
+            {
+                log.insert(timestamp_path, timestamp);
             }
 
             results.push(new_event);
@@ -238,7 +238,7 @@ mod tests {
     use chrono::{TimeZone, Utc};
 
     use super::*;
-    use crate::config::{log_schema, DataType, TransformOutput};
+    use crate::config::{DataType, TransformOutput, log_schema};
     use crate::event::{LogEvent, Value};
     use crate::transforms::SyncTransform;
     use vector_lib::transform::TransformOutputsBuf;

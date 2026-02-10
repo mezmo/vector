@@ -8,17 +8,17 @@ use std::{
 
 use crate::{
     config::{
-        schema::Definition, DataType, Input, LogNamespace, OutputId, TransformConfig,
-        TransformContext,
+        DataType, Input, LogNamespace, OutputId, TransformConfig, TransformContext,
+        schema::Definition,
     },
     event::Event,
     transforms::{TaskTransform, Transform},
 };
 use futures::StreamExt;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::{mpsc, OnceCell};
+use tokio::sync::{OnceCell, mpsc};
 use uuid::Uuid;
-use vector_lib::config::{log_schema, TransformOutput};
+use vector_lib::config::{TransformOutput, log_schema};
 use vector_lib::configurable::configurable_component;
 
 use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogClusterStatus};
@@ -26,7 +26,7 @@ use crate::transforms::mezmo_log_clustering::store::save_in_loop;
 use mezmo::MezmoContext;
 use vector_lib::event::LogEvent;
 use vector_lib::usage_metrics::{
-    get_annotations, include_metadata_in_size, log_event_size, AnnotationSet,
+    AnnotationSet, get_annotations, include_metadata_in_size, log_event_size,
 };
 use vrl::value::Value;
 
@@ -210,9 +210,11 @@ impl MezmoLogClustering {
         let similarity_threshold = if config.similarity_threshold > 1.0
             || config.similarity_threshold < 0.0
         {
-            warn!("Similarity threshold should be between 0.0 and 1.0, but received {}. Using the default: {}",
-            config.similarity_threshold,
-            default_similarity_threshold());
+            warn!(
+                "Similarity threshold should be between 0.0 and 1.0, but received {}. Using the default: {}",
+                config.similarity_threshold,
+                default_similarity_threshold()
+            );
             default_similarity_threshold()
         } else {
             config.similarity_threshold
@@ -421,10 +423,10 @@ impl MezmoLogClustering {
         if field_name.is_none() {
             // Check .message property for backward compatibility
             let field_name = log_schema().message_key().unwrap().to_string();
-            if let Some(field) = log.get(log_schema().message_key_target_path().unwrap()) {
-                if field.is_bytes() {
-                    return (Some(Cow::Owned(field_name)), field.as_str());
-                }
+            if let Some(field) = log.get(log_schema().message_key_target_path().unwrap())
+                && field.is_bytes()
+            {
+                return (Some(Cow::Owned(field_name)), field.as_str());
             }
             return (None, None);
         }
@@ -477,15 +479,15 @@ fn get_component_info(mezmo_ctx: &MezmoContext) -> (Option<Uuid>, Option<String>
 fn get_analysis_id_from_log(log: &LogEvent) -> Option<String> {
     let annotations = log.get(log_schema().annotations_key())?.as_object();
 
-    if let Some(data_profile_value) = annotations?.get("data_profile_id") {
-        if let Some(data_profile_id) = data_profile_value.as_str() {
-            return Some(data_profile_id.to_string());
-        }
+    if let Some(data_profile_value) = annotations?.get("data_profile_id")
+        && let Some(data_profile_id) = data_profile_value.as_str()
+    {
+        return Some(data_profile_id.to_string());
     }
-    if let Some(analysis_value) = annotations?.get("analysis_id") {
-        if let Some(analysis_id) = analysis_value.as_str() {
-            return Some(analysis_id.to_string());
-        }
+    if let Some(analysis_value) = annotations?.get("analysis_id")
+        && let Some(analysis_id) = analysis_value.as_str()
+    {
+        return Some(analysis_id.to_string());
     }
 
     None
@@ -496,8 +498,8 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use super::{
-        default_max_log_samples_amount, default_store_metrics_flush_interval,
-        get_analysis_id_from_log, MezmoLogClusteringConfig,
+        MezmoLogClusteringConfig, default_max_log_samples_amount,
+        default_store_metrics_flush_interval, get_analysis_id_from_log,
     };
 
     use tokio::sync::mpsc;

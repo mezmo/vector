@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
-use vector_lib::config::{log_schema, LogNamespace, OutputId, TransformOutput};
+use vector_lib::config::{LogNamespace, OutputId, TransformOutput, log_schema};
 use vector_lib::configurable::configurable_component;
 
 use crate::mezmo::persistence::PersistenceConnection;
 use crate::{
     conditions::{AnyCondition, Condition},
-    config::{schema::Definition, DataType, Input, TransformConfig, TransformContext},
+    config::{DataType, Input, TransformConfig, TransformContext, schema::Definition},
     event::Event,
     transforms::{FunctionTransform, OutputBuffer, Transform},
 };

@@ -1,7 +1,7 @@
 use crate::mezmo::{choose, choose_weighted};
 use chrono::Utc;
 use fakedata_generator::gen_ipv4;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 
 const APACHE_ERROR_TIME_FORMAT: &str = "%d/%b/%Y:%T %z";
 
@@ -28,7 +28,7 @@ const INFO_MESSAGES: [&str; 16] = [
 
 const WARN_MESSAGES: [&str; 2] = [
     "pid file /opt/CA/BrightStorARCserve/httpd/logs/httpd.pid overwritten -- Unclean shutdown of previous Apache run?",
-    "caught SIGTERM, shutting down"
+    "caught SIGTERM, shutting down",
 ];
 
 const ERROR_MESSAGES: [&str; 8] = [

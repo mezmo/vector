@@ -13,9 +13,9 @@ use super::{
     traces::model::OpentelemetryTracesModel,
 };
 use opentelemetry::{
+    Array as OtlpArray, InstrumentationLibrary, Key, KeyValue, StringValue, Value as OtlpValue,
     logs::AnyValue as OtlpAnyValue,
     trace::{SpanId, TraceFlags, TraceId, TraceState},
-    Array as OtlpArray, InstrumentationLibrary, Key, KeyValue, StringValue, Value as OtlpValue,
 };
 
 use opentelemetry_sdk::Resource;
@@ -325,33 +325,33 @@ impl From<&LogEvent> for OpentelemetryScope {
         let mut schema_url = None;
         let mut attributes = vec![];
 
-        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
-            if let Some(scope) = metadata.get("scope") {
-                name = if let Some(Value::Bytes(val)) = scope.get("name") {
-                    Cow::from(String::from_utf8_lossy(val).into_owned())
-                } else {
-                    Cow::from("")
-                };
+        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key()))
+            && let Some(scope) = metadata.get("scope")
+        {
+            name = if let Some(Value::Bytes(val)) = scope.get("name") {
+                Cow::from(String::from_utf8_lossy(val).into_owned())
+            } else {
+                Cow::from("")
+            };
 
-                version = if let Some(Value::Bytes(val)) = scope.get("version") {
-                    Some(Cow::from(String::from_utf8_lossy(val).into_owned()))
-                } else {
-                    None
-                };
+            version = if let Some(Value::Bytes(val)) = scope.get("version") {
+                Some(Cow::from(String::from_utf8_lossy(val).into_owned()))
+            } else {
+                None
+            };
 
-                schema_url = if let Some(Value::Bytes(val)) = scope.get("schema_url") {
-                    Some(Cow::from(String::from_utf8_lossy(val).into_owned()))
-                } else {
-                    None
-                };
+            schema_url = if let Some(Value::Bytes(val)) = scope.get("schema_url") {
+                Some(Cow::from(String::from_utf8_lossy(val).into_owned()))
+            } else {
+                None
+            };
 
-                if let Some(Value::Object(obj)) = scope.get("attributes") {
-                    for (key, value) in obj.iter() {
-                        attributes.push(KeyValue::new(
-                            key.to_string(),
-                            value_to_otlp_value(value.clone()),
-                        ));
-                    }
+            if let Some(Value::Object(obj)) = scope.get("attributes") {
+                for (key, value) in obj.iter() {
+                    attributes.push(KeyValue::new(
+                        key.to_string(),
+                        value_to_otlp_value(value.clone()),
+                    ));
                 }
             }
         }

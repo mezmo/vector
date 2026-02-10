@@ -9,14 +9,14 @@ use crate::{
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     http::HttpClient,
     sinks::{
-        util::{BatchConfig, Compression, SinkBatchSettings},
         Healthcheck, VectorSink,
+        util::{BatchConfig, Compression, SinkBatchSettings},
     },
 };
 use async_trait::async_trait;
 use futures_util::FutureExt;
-use http::uri::InvalidUri;
 use http::Uri;
+use http::uri::InvalidUri;
 use tower::ServiceBuilder;
 use vector_lib::configurable::configurable_component;
 use vector_lib::sensitive_string::SensitiveString;

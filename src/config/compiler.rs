@@ -1,10 +1,10 @@
-use super::{
-    builder::ConfigBuilder, graph::Graph, transform::get_transform_output_ids, validation, Config,
-    OutputId,
-};
-
 use indexmap::{IndexMap, IndexSet};
 use vector_lib::id::Inputs;
+
+use super::{
+    Config, OutputId, builder::ConfigBuilder, graph::Graph, transform::get_transform_output_ids,
+    validation,
+};
 
 pub fn compile(
     mut builder: ConfigBuilder,
@@ -109,10 +109,8 @@ pub fn compile(
     }
     trace!("Typechecked graph.");
 
-    if validate {
-        if let Err(e) = graph.check_for_cycles() {
-            errors.push(e);
-        }
+    if validate && let Err(e) = graph.check_for_cycles() {
+        errors.push(e);
     }
 
     // Inputs are resolved from string into OutputIds as part of graph construction, so update them
@@ -293,9 +291,10 @@ const fn is_glob_reserved_char(c: char) -> bool {
 
 #[cfg(test)]
 mod test {
+    use vector_lib::config::ComponentKey;
+
     use super::*;
     use crate::test_util::mock::{basic_sink, basic_source, basic_transform};
-    use vector_lib::config::ComponentKey;
 
     #[test]
     fn glob_expansion() {

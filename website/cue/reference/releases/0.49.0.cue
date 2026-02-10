@@ -6,6 +6,31 @@ releases: "0.49.0": {
 
 	whats_next: []
 
+	known_issues: [
+		"""
+			The protobuf codecs do not support all telemetry types. Specifically, the following applies:
+			- Decoder: supports logs.
+			- Encoder: supports logs and traces.
+
+			Metrics are not supported. Any future updates will be noted in changelogs.
+			""",
+		"""
+			In this version, the `aws_s3` default `retry_strategy` is to never retry. A workaround to restore the correct default behavior is to set:
+
+			```yaml
+			retry_strategy:
+			  type: custom
+			  status_codes: []
+			```
+
+			or alternatively to retry every request:
+			```yaml
+			retry_strategy:
+			  type: all
+			```
+			""",
+	]
+
 	description: """
 		The Vector team is excited to announce version `0.49.0`!
 
@@ -17,6 +42,7 @@ releases: "0.49.0": {
 		- The `http` sink's `uri` and `request.headers` config fields now support templating, enabling dynamic construction based on event data.
 		- The `--watch-config` flag now also watches for changes in enrichment table files.
 		- Fixed a race condition that could cause negative values in the `vector_buffer_byte_size` and `vector_buffer_events` gauges.
+		- The `prometheus_remote_write` sink now offers a `expire_metrics_secs` config option. This fixes an issue where incremental metrics were preserved for the lifetime of Vector's runtime causing indefinite memory growth.
 		"""
 
 	changelog: [
@@ -44,7 +70,7 @@ releases: "0.49.0": {
 		{
 			type: "fix"
 			description: """
-				The `utilization` metric is now properly published periodically, even when no events are flowing through the components.
+				The `utilization` metric is now properly published periodically, even when there are no events flowing through the components.
 				"""
 			contributors: ["esensar", "Quad9DNS"]
 		},
@@ -58,7 +84,7 @@ releases: "0.49.0": {
 		{
 			type: "enhancement"
 			description: """
-				The [enrichment functions](https://vector.dev/docs/reference/vrl/functions/#enrichment-functions) now support an optional wildcard parameter where a match will succeed if the field value equals either the wildcard or the actual comparison value.
+				The [enrichment functions](https://vector.dev/docs/reference/vrl/functions/#enrichment-functions) now support an optional wildcard parameter where a match succeeds if the field value equals either the wildcard or the actual comparison value.
 				"""
 			contributors: ["nzxwang"]
 		},
@@ -94,7 +120,7 @@ releases: "0.49.0": {
 		{
 			type: "fix"
 			description: """
-				The `nats` sink now does not return an error when an unresolvable or unavailable URL is provided. Note that if `--require-healthy` is set then Vector will stop on startup.
+				The `nats` sink now does not return an error when an unresolvable or unavailable URL is provided.**Note**: If `--require-healthy` is set, Vector stops on startup.
 				"""
 			contributors: ["rdwr-tomers"]
 		},
@@ -136,7 +162,7 @@ releases: "0.49.0": {
 		{
 			type: "feat"
 			description: """
-				Added `time_settings` configuration to the `dedupe` transform, allowing the `max_age` of items in the deduplication cache to be set. This helps distinguish between true duplicates and expected repetition in data over longer periods.
+				Added `time_settings` configuration to the `dedupe` transform, allowing the `max_age` of items in the deduplication cache to be set. This helps distinguish between true duplicates and expected repetition in data over longer periods of time.
 				"""
 			contributors: ["esensar", "Quad9DNS"]
 		},
@@ -194,7 +220,7 @@ releases: "0.49.0": {
 		{
 			type: "feat"
 			description: """
-				The `request_retry_partial` behavior for the `elasticsearch` sink was changed. Now only the failed retriable requests in a bulk will be retried (instead of all requests in the bulk).
+				The `request_retry_partial` behavior for the `elasticsearch` sink was changed. Now only the failed retriable requests in a bulk is retried (instead of all requests).
 				"""
 			contributors: ["Serendo"]
 		},
@@ -252,7 +278,7 @@ releases: "0.49.0": {
 		{
 			type: "enhancement"
 			description: """
-				The `UnsignedIntTemplate` now supports `strftime` formatting. For example, this `%Y%m%d%H` template will evaluate timestamps to a number.
+				The `UnsignedIntTemplate` now supports `strftime` formatting. For example, this `%Y%m%d%H` template evaluates timestamps to a number.
 				"""
 			contributors: ["5Dev24"]
 		},
@@ -278,7 +304,7 @@ releases: "0.49.0": {
 		- Added `haversine` function for calculating [haversine](https://en.wikipedia.org/wiki/Haversine_formula) distance and bearing.
 			authors: esensar Quad9DNS (https://github.com/vectordotdev/vrl/pull/1442)
 
-		- Add `validate_json_schema` function for validating JSON payloads against JSON schema files. A optional configuration parameter `ignore_unknown_formats` is provided to change how custom formats are handled by the validator. Unknown formats can be silently ignored by setting this to `true` and validation continues without failing due to those fields.
+		- Add `validate_json_schema` function for validating JSON payloads against JSON schema files. An optional configuration parameter `ignore_unknown_formats` is provided to change how custom formats are handled by the validator. Unknown formats can be silently ignored by setting this to `true` and validation continues without failing due to those fields.
 			authors: jlambatl (https://github.com/vectordotdev/vrl/pull/1443)
 		"""
 

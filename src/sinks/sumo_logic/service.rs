@@ -7,8 +7,8 @@ use crate::{http::HttpClient, mezmo::user_trace::UserLoggingResponse, sinks::uti
 use bytes::Bytes;
 use futures::future::BoxFuture;
 use http::{
-    header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE},
     Request,
+    header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE},
 };
 use hyper::Body;
 use tower::Service;

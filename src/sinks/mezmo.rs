@@ -1,6 +1,13 @@
 use std::collections::BTreeMap;
 use std::time::SystemTime;
 
+use bytes::Bytes;
+use futures::{FutureExt, SinkExt};
+use http::{Request, StatusCode, Uri};
+use serde_json::json;
+use vector_lib::{configurable::configurable_component, sensitive_string::SensitiveString};
+use vrl::value::{Kind, Value};
+
 use crate::{
     codecs::Transformer,
     config::{AcknowledgementsConfig, GenerateConfig, Input, SinkConfig, SinkContext},
@@ -8,21 +15,14 @@ use crate::{
     http::{Auth, HttpClient},
     schema,
     sinks::util::{
-        http::{HttpEventEncoder, HttpSink, PartitionHttpSink},
         BatchConfig, BoxedRawValue, JsonArrayBuffer, PartitionBuffer, PartitionInnerBuffer,
         RealtimeSizeBasedDefaultBatchSettings, TowerRequestConfig, UriSerde,
+        http::{HttpEventEncoder, HttpSink, PartitionHttpSink},
     },
     template::{Template, TemplateRenderingError},
 };
-use bytes::Bytes;
-use futures::{FutureExt, SinkExt};
-use http::{Request, StatusCode, Uri};
 use mezmo::{user_log_error, user_trace::MezmoUserLog};
-use serde_json::json;
-use vector_lib::configurable::configurable_component;
 use vector_lib::lookup::PathPrefix;
-use vector_lib::sensitive_string::SensitiveString;
-use vrl::value::{Kind, Value};
 
 const DEFAULT_ROUTE: &str = "logs/ingest";
 const LINE_KEY: &str = "line";
@@ -323,11 +323,7 @@ impl MezmoEventEncoder {
                         }
                     }
                 }
-                if !vec.is_empty() {
-                    Some(vec)
-                } else {
-                    None
-                }
+                if !vec.is_empty() { Some(vec) } else { None }
             })
             .unwrap_or(None);
         let ip = self
@@ -452,11 +448,11 @@ impl HttpEventEncoder<PartitionInnerBuffer<serde_json::Value, PartitionKey>> for
                 };
             }
             // meta
-            if let Some(path) = &self.meta_field {
-                if let Some(meta) = log.get(path.as_str()) {
-                    paths_to_remove.push(path.to_string());
-                    map.insert(META_KEY.to_string(), json!(meta));
-                }
+            if let Some(path) = &self.meta_field
+                && let Some(meta) = log.get(path.as_str())
+            {
+                paths_to_remove.push(path.to_string());
+                map.insert(META_KEY.to_string(), json!(meta));
             }
             // timestamp
             if let Some(path) = &self.timestamp_field {
@@ -680,9 +676,9 @@ async fn healthcheck(config: MezmoConfig, client: HttpClient) -> crate::Result<(
 
 #[cfg(test)]
 mod tests {
-    use futures::{channel::mpsc, StreamExt};
+    use futures::{StreamExt, channel::mpsc};
     use futures_util::stream;
-    use http::{request::Parts, StatusCode};
+    use http::{StatusCode, request::Parts};
     use serde_json::json;
     use temp_env::with_var;
     use vector_lib::event::{BatchNotifier, BatchStatus, Event, LogEvent};
@@ -692,7 +688,7 @@ mod tests {
         config::SinkConfig,
         sinks::util::test::{build_test_server_status, load_sink},
         test_util::{
-            components::{assert_sink_compliance, HTTP_SINK_TAGS},
+            components::{HTTP_SINK_TAGS, assert_sink_compliance},
             next_addr, random_lines,
         },
     };

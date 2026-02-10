@@ -1,17 +1,17 @@
 use chrono::Utc;
 use futures::StreamExt;
+use vector_lib::EstimatedJsonEncodedSizeOf;
 use vector_lib::codecs::BytesDeserializerConfig;
 use vector_lib::config::SourceOutput;
 use vector_lib::configurable::configurable_component;
-use vector_lib::EstimatedJsonEncodedSizeOf;
 use vector_lib::{config::LogNamespace, schema::Definition};
 
 use crate::{
+    SourceSender,
     config::{DataType, SourceConfig, SourceContext},
     event::Event,
     internal_events::{InternalLogsBytesReceived, InternalLogsEventsReceived, StreamClosedError},
     shutdown::ShutdownSignal,
-    SourceSender,
 };
 use mezmo::pipeline_state_variable_change_action::PipelineStateVariableChangeActionSubscription;
 
@@ -104,14 +104,14 @@ async fn mezmo_pipeline_state_variable_change(
 mod tests {
     use futures::Stream;
     use serial_test::serial;
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{Duration, sleep};
 
     use super::*;
     use crate::{
         event::Event,
         test_util::{
             collect_ready,
-            components::{assert_source_compliance, SOURCE_TAGS},
+            components::{SOURCE_TAGS, assert_source_compliance},
         },
     };
     use mezmo::MezmoContext;

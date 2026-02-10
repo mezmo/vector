@@ -9,13 +9,13 @@ use regex::Regex;
 use similar_asserts::assert_eq;
 use tokio_stream::StreamExt;
 use vector_lib::codecs::{
-    decoding::format::{Deserializer, JsonDeserializerConfig, JsonDeserializerOptions},
-    encoding::format::JsonSerializerOptions,
-    encoding::FramingConfig,
     JsonSerializerConfig, MetricTagValues,
+    decoding::format::{Deserializer, JsonDeserializerConfig, JsonDeserializerOptions},
+    encoding::FramingConfig,
+    encoding::format::JsonSerializerOptions,
 };
-use vector_lib::config::proxy::ProxyConfig;
 use vector_lib::config::LogNamespace;
+use vector_lib::config::proxy::ProxyConfig;
 use vector_lib::event::{BatchNotifier, BatchStatus, BatchStatusReceiver, Event, EventArray};
 
 use super::S3SinkConfig;
@@ -27,12 +27,12 @@ use crate::{
         util::{BatchConfig, Compression, TowerRequestConfig},
     },
     test_util::{
-        components::{run_and_assert_sink_compliance, AWS_SINK_TAGS},
+        components::{AWS_SINK_TAGS, run_and_assert_sink_compliance},
         random_message_object_events_with_stream, random_string,
     },
 };
 
-use super::file_consolidation_processor::{get_files_to_consolidate, FileConsolidationProcessor};
+use super::file_consolidation_processor::{FileConsolidationProcessor, get_files_to_consolidate};
 use super::file_consolidator_async::{FileConsolidationConfig, FileConsolidatorAsync};
 use super::integration_tests::{
     client, create_bucket, get_keys, get_lines, get_object, s3_address,

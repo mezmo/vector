@@ -56,13 +56,13 @@ pub mod usage_metrics;
 #[cfg(feature = "vrl")]
 pub mod vrl;
 
-use float_eq::FloatEq;
 use std::path::PathBuf;
+
+pub use event::EstimatedJsonEncodedSizeOf;
+use float_eq::FloatEq;
 
 #[cfg(feature = "vrl")]
 pub use crate::vrl::compile_vrl;
-
-pub use event::EstimatedJsonEncodedSizeOf;
 
 #[macro_use]
 extern crate tracing;

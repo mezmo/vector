@@ -1,7 +1,7 @@
 use rdkafka::{
+    ClientConfig,
     error::KafkaError,
     producer::{BaseProducer, FutureProducer, Producer},
-    ClientConfig,
 };
 use snafu::{ResultExt, Snafu};
 use tracing::Span;

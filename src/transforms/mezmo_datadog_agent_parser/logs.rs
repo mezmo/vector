@@ -2,7 +2,7 @@ use crate::config::log_schema;
 use crate::event::{Event, MaybeAsLogMut, Value};
 use bytes::Bytes;
 
-use super::common::{get_message_object_mut, parse_timestamp, TimestampUnit};
+use super::common::{TimestampUnit, get_message_object_mut, parse_timestamp};
 use super::{MezmoDatadogAgentParser, TransformDatadogEvent, TransformDatadogEventError};
 
 pub(super) struct DatadogLogEvent;
@@ -43,11 +43,11 @@ impl TransformDatadogEvent for DatadogLogEvent {
             .get("timestamp")
             .and_then(|value| parse_timestamp(value, TimestampUnit::Milliseconds));
 
-        if let Some(parsed) = parsed_timestamp {
-            if let Some(timestamp_path) = log_schema().timestamp_key_target_path() {
-                log.insert(timestamp_path, parsed);
-            }
-        };
+        if let Some(parsed) = parsed_timestamp
+            && let Some(timestamp_path) = log_schema().timestamp_key_target_path()
+        {
+            log.insert(timestamp_path, parsed);
+        }
 
         parser.strip_fields(&mut event);
 

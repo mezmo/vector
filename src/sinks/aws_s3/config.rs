@@ -1,10 +1,14 @@
 use aws_sdk_s3::Client as S3Client;
 use tower::ServiceBuilder;
-use vector_lib::codecs::{
-    encoding::{Framer, FramingConfig},
-    TextSerializerConfig,
+use vector_lib::{
+    TimeZone,
+    codecs::{
+        TextSerializerConfig,
+        encoding::{Framer, FramingConfig},
+    },
+    configurable::configurable_component,
+    sink::VectorSink,
 };
-use vector_lib::{configurable::configurable_component, sink::VectorSink, TimeZone};
 
 use super::sink::S3RequestOptions;
 use crate::{
@@ -13,6 +17,7 @@ use crate::{
     config::{AcknowledgementsConfig, GenerateConfig, Input, ProxyConfig, SinkConfig, SinkContext},
     mezmo::user_trace::MezmoLoggingService,
     sinks::{
+        Healthcheck,
         s3_common::{
             self,
             config::{RetryStrategy, S3Options},
@@ -21,10 +26,9 @@ use crate::{
             sink::S3Sink,
         },
         util::{
-            timezone_to_offset, BatchConfig, BulkSizeBasedDefaultBatchSettings, Compression,
-            ServiceBuilderExt, TowerRequestConfig,
+            BatchConfig, BulkSizeBasedDefaultBatchSettings, Compression, ServiceBuilderExt,
+            TowerRequestConfig, timezone_to_offset,
         },
-        Healthcheck,
     },
     template::Template,
     tls::TlsConfig,
@@ -156,7 +160,7 @@ pub struct S3SinkConfig {
     #[serde(default = "crate::serde::default_true")]
     pub force_path_style: bool,
 
-    /// Specifies errors to retry
+    /// Specifies retry strategy for failed requests.
     ///
     /// By default, the sink only retries attempts it deems possible to retry.
     /// These settings extend the default behavior.

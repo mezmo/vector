@@ -2,14 +2,18 @@ use std::sync::Arc;
 
 use vector_lib::usage_metrics::UsageMetrics;
 
+use futures_util::FutureExt as _;
+use tokio::sync::{Mutex, MutexGuard, mpsc};
+
 #[cfg(feature = "api")]
 use crate::api;
-use crate::extra_context::ExtraContext;
-use crate::internal_events::{VectorRecoveryError, VectorReloadError, VectorReloaded};
-use futures_util::FutureExt as _;
-use tokio::sync::{mpsc, Mutex, MutexGuard};
-
-use crate::{config, signal::ShutdownError, topology::RunningTopology};
+use crate::{
+    config,
+    extra_context::ExtraContext,
+    internal_events::{VectorRecoveryError, VectorReloadError, VectorReloaded},
+    signal::ShutdownError,
+    topology::RunningTopology,
+};
 
 #[derive(Clone, Debug)]
 pub struct SharedTopologyController(Arc<Mutex<TopologyController>>);
@@ -19,11 +23,11 @@ impl SharedTopologyController {
         Self(Arc::new(Mutex::new(inner)))
     }
 
-    pub fn blocking_lock(&self) -> MutexGuard<TopologyController> {
+    pub fn blocking_lock(&self) -> MutexGuard<'_, TopologyController> {
         self.0.blocking_lock()
     }
 
-    pub async fn lock(&self) -> MutexGuard<TopologyController> {
+    pub async fn lock(&self) -> MutexGuard<'_, TopologyController> {
         self.0.lock().await
     }
 
@@ -86,9 +90,11 @@ impl TopologyController {
                 drop(server)
             }
         } else if self.api_server.is_none() {
-            use crate::internal_events::ApiStarted;
             use std::sync::atomic::AtomicBool;
+
             use tokio::runtime::Handle;
+
+            use crate::internal_events::ApiStarted;
 
             debug!("Starting api server.");
 

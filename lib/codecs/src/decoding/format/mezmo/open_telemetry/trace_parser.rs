@@ -17,7 +17,7 @@ use vector_core::{
 use vector_common::btreemap;
 
 use crate::decoding::format::mezmo::open_telemetry::{
-    get_uniq_request_id, nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
+    DeserializerError, OpenTelemetryKeyValue, get_uniq_request_id, nano_to_timestamp,
 };
 
 pub fn parse_traces_request(bytes: &[u8]) -> vector_common::Result<smallvec::SmallVec<[Event; 1]>> {
@@ -42,11 +42,10 @@ fn extract<'a>(attributes: Vec<KeyValue<'a>>, key_name: &str) -> Option<Cow<'a, 
                     value: AnyValueOneOfvalue::string_value(v),
                 }),
         } = kv
+            && k == key_name
         {
-            if k == key_name {
-                out = Some(v.clone());
-                break;
-            }
+            out = Some(v.clone());
+            break;
         }
     }
 

@@ -82,10 +82,9 @@ impl FileConsolidatorAsync {
 
         if self.join_handle.is_some() {
             info!(
-                message =
-                    "container_name={}, base_path={} Thread for azure-blob file consolidation already in progress",
-                    container_name = self.container_name,
-                    base_path = self.file_consolidation_config.base_path.clone(),
+                message = "container_name={}, base_path={} Thread for azure-blob file consolidation already in progress",
+                container_name = self.container_name,
+                base_path = self.file_consolidation_config.base_path.clone(),
             );
             return false;
         }
@@ -112,10 +111,8 @@ impl FileConsolidatorAsync {
         let box_output_format = Box::new(self.file_consolidation_config.output_format.clone());
 
         let build_client = crate::sinks::azure_common::config::build_client(
-            Some(box_connection_string.inner().to_string()),
-            None,
+            box_connection_string.inner().to_string(),
             *box_container_name.clone(),
-            None,
         );
 
         // double check that we were able to build the client
@@ -163,10 +160,9 @@ impl FileConsolidatorAsync {
                 let diff = process_every_ms - elapsed as u64;
                 if diff > 0 {
                     info!(
-                        message =
-                            "container_name={}, base_path={}, processing time={} ms, restarting in {} ms",
-                            container_name = *box_container_name.clone(),
-                            base_path = *box_base_path.clone(),
+                        message = "container_name={}, base_path={}, processing time={} ms, restarting in {} ms",
+                        container_name = *box_container_name.clone(),
+                        base_path = *box_base_path.clone(),
                         elapsed,
                         diff
                     );

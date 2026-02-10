@@ -4,7 +4,7 @@
 
 use assay::assay;
 use futures::{future::ready, stream};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use vector_lib::event::{BatchNotifier, BatchStatus, Event, LogEvent};
 
 // Shared integration testing structures (made `pub` by Mezmo devs)
@@ -15,7 +15,7 @@ use super::{BulkConfig, ElasticsearchCommon, ElasticsearchConfig};
 use crate::{
     config::{SinkConfig, SinkContext},
     sinks::util::Compression,
-    test_util::components::{run_and_assert_sink_compliance, HTTP_SINK_TAGS},
+    test_util::components::{HTTP_SINK_TAGS, run_and_assert_sink_compliance},
 };
 
 #[assay(

@@ -14,7 +14,7 @@ use vector_core::{
 use vector_common::btreemap;
 
 use crate::decoding::format::mezmo::open_telemetry::{
-    nano_to_timestamp, DeserializerError, OpenTelemetryAnyValue, OpenTelemetryKeyValue,
+    DeserializerError, OpenTelemetryAnyValue, OpenTelemetryKeyValue, nano_to_timestamp,
 };
 
 pub fn parse_logs_request(bytes: &[u8]) -> vector_common::Result<smallvec::SmallVec<[Event; 1]>> {

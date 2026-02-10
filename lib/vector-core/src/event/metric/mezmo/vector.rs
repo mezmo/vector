@@ -1,11 +1,11 @@
 use crate::{
     config::log_schema,
     event::{
-        metric::{
-            mezmo::from_f64_or_zero, Bucket, Metric, MetricArbitrary, MetricData, MetricKind,
-            MetricName, MetricSeries, MetricTags, MetricTime, MetricValue, Quantile, Sample,
-        },
         KeyString, LogEvent, StatisticKind, Value,
+        metric::{
+            Bucket, Metric, MetricArbitrary, MetricData, MetricKind, MetricName, MetricSeries,
+            MetricTags, MetricTime, MetricValue, Quantile, Sample, mezmo::from_f64_or_zero,
+        },
     },
     metrics::AgentDDSketch,
 };
@@ -667,7 +667,7 @@ mod tests {
 
     use vrl::value::{KeyString, Value};
 
-    use crate::event::{metric::MetricSketch, LogEvent};
+    use crate::event::{LogEvent, metric::MetricSketch};
 
     use super::{from_metric, to_metric};
 

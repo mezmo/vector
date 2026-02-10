@@ -12,11 +12,11 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use aws_sdk_s3::{
-    types::{CompletedMultipartUpload, CompletedPart, RequestPayer},
     Client as S3Client, Error,
+    types::{CompletedMultipartUpload, CompletedPart, RequestPayer},
 };
 
-use aws_smithy_types::{byte_stream::ByteStream, DateTime as AwsDateTime};
+use aws_smithy_types::{DateTime as AwsDateTime, byte_stream::ByteStream};
 
 const TWO_HOURS_IN_SECONDS: u64 = 2 * 60 * 60;
 const MULTIPART_FILE_MIN_MB_I64: i64 = 5 * 1024 * 1024;
@@ -381,7 +381,13 @@ impl<'a> FileConsolidationProcessor<'a> {
                         u
                     }
                     Err(e) => {
-                        error!(?e, "bucket={}, upload_id={}, Failed to complete multipart upload for file={}", self.bucket.clone(), upload_id.clone(), new_file_key.clone());
+                        error!(
+                            ?e,
+                            "bucket={}, upload_id={}, Failed to complete multipart upload for file={}",
+                            self.bucket.clone(),
+                            upload_id.clone(),
+                            new_file_key.clone()
+                        );
 
                         // completing the file didn't work out, so abort it completely.
                         match self
@@ -394,8 +400,19 @@ impl<'a> FileConsolidationProcessor<'a> {
                             .send()
                             .await
                         {
-                            Ok(_v) => info!("bucket={}, upload_id={}, Aborted multipart upload for file={}", self.bucket.clone(), upload_id.clone(), new_file_key.clone()),
-                            Err(e) => error!(?e, "bucket={}, upload_id={}, Failed to abort multipart upload for file={}", self.bucket.clone(), upload_id.clone(), new_file_key.clone()),
+                            Ok(_v) => info!(
+                                "bucket={}, upload_id={}, Aborted multipart upload for file={}",
+                                self.bucket.clone(),
+                                upload_id.clone(),
+                                new_file_key.clone()
+                            ),
+                            Err(e) => error!(
+                                ?e,
+                                "bucket={}, upload_id={}, Failed to abort multipart upload for file={}",
+                                self.bucket.clone(),
+                                upload_id.clone(),
+                                new_file_key.clone()
+                            ),
                         };
 
                         continue;
@@ -731,7 +748,7 @@ async fn download_bytes(client: &S3Client, bucket: String, key: String) -> Resul
                 aws_sdk_s3::types::error::NotFound::builder()
                     .message(format!("{e}"))
                     .build(),
-            ))
+            ));
         }
     };
 
@@ -765,14 +782,14 @@ fn group_files_by_directory(
 #[cfg(test)]
 mod tests {
     use bytes::{Bytes, BytesMut};
-    use flate2::read::GzEncoder;
     use flate2::Compression;
+    use flate2::read::GzEncoder;
     use std::io::Read;
 
+    use crate::sinks::aws_s3::file_consolidation_processor::ConsolidationFile;
     use crate::sinks::aws_s3::file_consolidation_processor::decompress_gzip;
     use crate::sinks::aws_s3::file_consolidation_processor::group_files_by_directory;
     use crate::sinks::aws_s3::file_consolidation_processor::splice_files_list;
-    use crate::sinks::aws_s3::file_consolidation_processor::ConsolidationFile;
 
     #[test]
     fn splice_empty_list() {

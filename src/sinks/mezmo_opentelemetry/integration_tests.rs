@@ -8,8 +8,8 @@ mod test {
     use vector_lib::{
         config::log_schema,
         event::{
-            metric::mezmo::{from_f64_or_zero, to_metric},
             Event, KeyString, LogEvent,
+            metric::mezmo::{from_f64_or_zero, to_metric},
         },
         finalization::{BatchNotifier, BatchStatus},
         lookup::PathPrefix,
@@ -20,7 +20,7 @@ mod test {
         event::Value,
         sinks::{mezmo_opentelemetry::config::OpentelemetrySinkConfig, util::test::load_sink},
         test_util::{
-            components::{run_and_assert_sink_compliance, SINK_TAGS},
+            components::{SINK_TAGS, run_and_assert_sink_compliance},
             generate_events_with_stream, generate_metrics_with_stream,
         },
     };

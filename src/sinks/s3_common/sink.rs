@@ -1,9 +1,9 @@
 use std::{fmt, hash::Hash};
 
-use crate::sinks::prelude::*;
+use vector_lib::{event::Event, partition::Partitioner};
 
 use super::partitioner::S3PartitionKey;
-use vector_lib::{event::Event, partition::Partitioner};
+use crate::sinks::prelude::*;
 
 // MEZMO: added dependency for s3-sink file consolidation
 use crate::sinks::aws_s3::file_consolidator_async::FileConsolidatorAsync;

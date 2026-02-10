@@ -7,11 +7,11 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use crate::event::{
-    metric::{MetricKind, TagValue},
     KeyString, LogEvent, Value,
+    metric::{MetricKind, TagValue},
 };
 
-pub use vector::{from_metric, to_metric, TransformError};
+pub use vector::{TransformError, from_metric, to_metric};
 
 pub fn from_f64_or_zero(value: f64) -> Value {
     use ordered_float::NotNan;
@@ -405,11 +405,11 @@ where
             )
         };
 
-        if let Some(arbitrary_data) = self.arbitrary_data {
-            if let Value::Object(data) = arbitrary_data.value().to_value() {
-                for (key, val) in data.iter() {
-                    value.insert(key.as_str(), val.clone());
-                }
+        if let Some(arbitrary_data) = self.arbitrary_data
+            && let Value::Object(data) = arbitrary_data.value().to_value()
+        {
+            for (key, val) in data.iter() {
+                value.insert(key.as_str(), val.clone());
             }
         }
 

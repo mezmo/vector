@@ -7,29 +7,32 @@ use snafu::Snafu;
 use tokio::{
     io::{AsyncRead, BufReader},
     process::Command,
-    sync::mpsc::{channel, Sender},
-    time::{self, sleep, Duration, Instant},
+    sync::mpsc::{Sender, channel},
+    time::{self, Duration, Instant, sleep},
 };
 use tokio_stream::wrappers::IntervalStream;
 use tokio_util::codec::FramedRead;
-use vector_lib::configurable::configurable_component;
-use vector_lib::internal_event::{ByteSize, BytesReceived, InternalEventHandle as _, Protocol};
 use vector_lib::{
+    ByteSizeOf, EstimatedJsonEncodedSizeOf, TimeZone,
     codecs::{
-        decoding::{DeserializerConfig, FramingConfig},
         StreamDecodingError,
+        decoding::{DeserializerConfig, FramingConfig},
     },
-    config::LegacyKey,
+    config::{LegacyKey, LogNamespace, log_schema},
+    configurable::configurable_component,
     event::{LogEvent, TargetEvents},
-    schema, ByteSizeOf, EstimatedJsonEncodedSizeOf, TimeZone,
+    internal_event::{ByteSize, BytesReceived, InternalEventHandle as _, Protocol},
+    lookup::{owned_value_path, path},
+    schema,
 };
-use vrl::value::Kind;
 use vrl::{
-    compiler::{runtime::Runtime, Program},
+    compiler::{Program, runtime::Runtime},
     path::OwnedValuePath,
+    value::Kind,
 };
 
 use crate::{
+    SourceSender,
     codecs::{Decoder, DecodingConfig},
     config::{SourceConfig, SourceContext, SourceOutput},
     event::{Event, VrlTarget},
@@ -41,12 +44,9 @@ use crate::{
     serde::default_decoding,
     shutdown::ShutdownSignal,
     transforms::remap::RemapConfig,
-    SourceSender,
 };
 use async_trait::async_trait;
 use futures::FutureExt;
-use vector_lib::config::{log_schema, LogNamespace};
-use vector_lib::lookup::{owned_value_path, path};
 
 #[cfg(test)]
 mod tests;
@@ -230,7 +230,7 @@ const EXEC_TYPE_KEY: &str = "exec_type";
 impl_generate_config_from_default!(ExecConfig);
 
 impl ExecConfig {
-    fn validate(&self) -> Result<(), ExecConfigError> {
+    const fn validate(&self) -> Result<(), ExecConfigError> {
         let script_mode = self.is_script_mode();
 
         if script_mode && self.command.is_some() {

@@ -1,14 +1,14 @@
 use crate::{
     config::{
-        schema::Definition, DataType, Input, LogNamespace, OutputId, TransformConfig,
-        TransformContext,
+        DataType, Input, LogNamespace, OutputId, TransformConfig, TransformContext,
+        schema::Definition,
     },
     event::{Event, LogEvent},
     transforms::{TaskTransform, Transform},
 };
 use futures::StreamExt;
 use vector_lib::{
-    config::{log_schema, TransformOutput},
+    config::{TransformOutput, log_schema},
     configurable::configurable_component,
     usage_metrics::{include_metadata_in_size, log_event_size},
 };
@@ -30,7 +30,10 @@ const CUSTOM_GROK_DEFINITIONS: [(&str, &str); 1] = [
     // Use the java grok pattern which is more strict that the rust port of grok
     // @see: https://docs.rs/grok/2.0.0/src/grok/lib.rs.html#1-4
     // https://github.com/thekrakken/java-grok/blob/901fda38ef6d5c902355eb25cff3f4b4fc3debde/src/main/resources/patterns/linux-syslog#L2
-    ("SYSLOGLINE", "(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?%{SYSLOGHOST:logsource} %{SYSLOGPROG}: %{GREEDYDATA:message}")
+    (
+        "SYSLOGLINE",
+        "(?:%{SYSLOGTIMESTAMP:timestamp}|%{TIMESTAMP_ISO8601:timestamp8601}) (?:%{SYSLOGFACILITY} )?%{SYSLOGHOST:logsource} %{SYSLOGPROG}: %{GREEDYDATA:message}",
+    ),
 ];
 
 /// List of grok aliases to compile and check against. Comparisons happen in order of this array.

@@ -8,12 +8,12 @@ use smallvec::SmallVec;
 use vector_core::{
     config::log_schema,
     event::{
+        Event, MetricKind,
         metric::mezmo::{
             IntoTagValue, IntoValue, MetricArbitraryAccessor, MetricTags, MetricTagsAccessor,
             MetricToLogEvent, MetricValueAccessor, MetricValuePairs, MetricValueSerializable,
             MezmoMetric,
         },
-        Event, MetricKind,
     },
 };
 
@@ -139,30 +139,30 @@ enum TypedSample<T, U, V, W, X> {
 impl<'a, T, U, V, W, X> MetricValueAccessor<'a> for TypedSample<T, U, V, W, X>
 where
     T: MetricValueAccessor<
-        'a,
-        ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>,
-        ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>,
-    >,
+            'a,
+            ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>,
+            ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>,
+        >,
     U: MetricValueAccessor<
-        'a,
-        ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>,
-        ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>,
-    >,
+            'a,
+            ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>,
+            ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>,
+        >,
     V: MetricValueAccessor<
-        'a,
-        ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>,
-        ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>,
-    >,
+            'a,
+            ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>,
+            ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>,
+        >,
     W: MetricValueAccessor<
-        'a,
-        ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>,
-        ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>,
-    >,
+            'a,
+            ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>,
+            ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>,
+        >,
     X: MetricValueAccessor<
-        'a,
-        ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>,
-        ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>,
-    >,
+            'a,
+            ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>,
+            ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>,
+        >,
 {
     type ArrIter = std::array::IntoIter<&'a dyn IntoValue, 0>;
     type ObjIter = std::array::IntoIter<(&'a dyn ToString, &'a dyn IntoValue), 3>;
@@ -224,19 +224,16 @@ impl<'a> TypedSampleGroupMap<'a> {
     ) -> Result<(), ParseError> {
         use std::str::FromStr;
         match (self, grouping_strategy) {
-            (Self::Counter(ref mut metrics), GroupingStrategy::Counter) => {
+            (Self::Counter(metrics), GroupingStrategy::Counter) => {
                 metrics.insert(key, BasicMetricValue::new(value));
             }
-            (Self::Gauge(ref mut metrics), GroupingStrategy::Gauge) => {
+            (Self::Gauge(metrics), GroupingStrategy::Gauge) => {
                 metrics.insert(key, BasicMetricValue::new(value));
             }
-            (Self::Untyped(ref mut metrics), GroupingStrategy::Untyped) => {
+            (Self::Untyped(metrics), GroupingStrategy::Untyped) => {
                 metrics.insert(key, BasicMetricValue::new(value));
             }
-            (
-                Self::Histogram(ref mut metrics),
-                GroupingStrategy::HistogramBucket(bucket_id_str),
-            ) => {
+            (Self::Histogram(metrics), GroupingStrategy::HistogramBucket(bucket_id_str)) => {
                 let upper_limit = f64::from_str(bucket_id_str)
                     .map_err(|e| ParseError::ParseFloatError { source: e })?;
                 let count = try_f64_to_u64(value)?;
@@ -244,23 +241,23 @@ impl<'a> TypedSampleGroupMap<'a> {
                     .buckets
                     .push(HistogramBucketValue { upper_limit, count });
             }
-            (Self::Histogram(ref mut metrics), GroupingStrategy::HistogramSum) => {
+            (Self::Histogram(metrics), GroupingStrategy::HistogramSum) => {
                 matching_group(metrics, key).sum = value;
             }
-            (Self::Histogram(ref mut metrics), GroupingStrategy::HistogramCount) => {
+            (Self::Histogram(metrics), GroupingStrategy::HistogramCount) => {
                 matching_group(metrics, key).count = try_f64_to_u64(value)?;
             }
-            (Self::Summary(ref mut metrics), GroupingStrategy::SummaryQuantile(quantile_str)) => {
+            (Self::Summary(metrics), GroupingStrategy::SummaryQuantile(quantile_str)) => {
                 let quantile = f64::from_str(quantile_str)
                     .map_err(|e| ParseError::ParseFloatError { source: e })?;
                 matching_group(metrics, key)
                     .quantiles
                     .push(SummaryQuantileValue { quantile, value });
             }
-            (Self::Summary(ref mut metrics), GroupingStrategy::SummarySum) => {
+            (Self::Summary(metrics), GroupingStrategy::SummarySum) => {
                 matching_group(metrics, key).sum = value;
             }
-            (Self::Summary(ref mut metrics), GroupingStrategy::SummaryCount) => {
+            (Self::Summary(metrics), GroupingStrategy::SummaryCount) => {
                 matching_group(metrics, key).count = try_f64_to_u64(value)?;
             }
             _ => {
@@ -489,9 +486,7 @@ pub(crate) fn parse_write_req<'a>(
         BTreeMap::new(),
         |mut acc,
          TimeSeries {
-             ref mut labels,
-             ref samples,
-             ..
+             labels, samples, ..
          }| {
             let name = extract_label(METRIC_NAME_LABEL, labels)
                 .map(|label| label.value.to_string())

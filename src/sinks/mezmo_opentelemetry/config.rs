@@ -1,20 +1,20 @@
 use std::borrow::Cow;
 
 use crate::mezmo::user_trace::MezmoLoggingService;
-use crate::sinks::util::retries::RetryLogic;
 use crate::sinks::util::ServiceBuilderExt;
+use crate::sinks::util::retries::RetryLogic;
 use crate::{
     config::{AcknowledgementsConfig, DataType, GenerateConfig, Input, SinkConfig, SinkContext},
     http::HttpClient,
     sinks::{
-        mezmo_opentelemetry::{Auth, OpentelemetrySinkAuth},
-        util::{http::RequestConfig, BatchConfig, Compression, SinkBatchSettings},
         Healthcheck, VectorSink,
+        mezmo_opentelemetry::{Auth, OpentelemetrySinkAuth},
+        util::{BatchConfig, Compression, SinkBatchSettings, http::RequestConfig},
     },
 };
 
 use async_trait::async_trait;
-use http::{header::AUTHORIZATION, uri::InvalidUri, HeaderName, HeaderValue, Uri};
+use http::{HeaderName, HeaderValue, Uri, header::AUTHORIZATION, uri::InvalidUri};
 use indexmap::IndexMap;
 use std::collections::BTreeMap;
 use tower::ServiceBuilder;

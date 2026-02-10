@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 use vector_lib::{
     codecs::decoding::MezmoDeserializer,
-    config::{log_schema, LogNamespace, TransformOutput},
+    config::{LogNamespace, TransformOutput, log_schema},
     configurable::configurable_component,
     event::Value,
     lookup::PathPrefix,
 };
 
-use mezmo::{user_trace::handle_deserializer_error, MezmoContext};
+use mezmo::{MezmoContext, user_trace::handle_deserializer_error};
 
 use crate::{
     config::{DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext},
@@ -104,18 +104,18 @@ impl FunctionTransform for ProtobufToLog {
             .expect("Log event has no message");
 
         let mut root_internal_metadata = &BTreeMap::new();
-        if let Some(metadata) = log.get(log_schema().metadata_key_target_path().unwrap()) {
-            if let Some(root_meta_obj) = metadata.as_object() {
-                root_internal_metadata = root_meta_obj;
-            }
+        if let Some(metadata) = log.get(log_schema().metadata_key_target_path().unwrap())
+            && let Some(root_meta_obj) = metadata.as_object()
+        {
+            root_internal_metadata = root_meta_obj;
         }
         let root_internal_metadata = root_internal_metadata;
 
         let mut root_user_metadata = &BTreeMap::new();
-        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
-            if let Some(root_meta_obj) = metadata.as_object() {
-                root_user_metadata = root_meta_obj;
-            }
+        if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key()))
+            && let Some(root_meta_obj) = metadata.as_object()
+        {
+            root_user_metadata = root_meta_obj;
         }
         let root_user_metadata = root_user_metadata;
 
@@ -145,11 +145,10 @@ impl FunctionTransform for ProtobufToLog {
 
                     if let Some(metadata) =
                         event.get((PathPrefix::Event, log_schema().user_metadata_key()))
+                        && let Some(user_meta_obj) = metadata.as_object()
                     {
-                        if let Some(user_meta_obj) = metadata.as_object() {
-                            for entry in user_meta_obj.iter() {
-                                user_metadata.insert(entry.0.clone(), entry.1.clone());
-                            }
+                        for entry in user_meta_obj.iter() {
+                            user_metadata.insert(entry.0.clone(), entry.1.clone());
                         }
                     }
 
@@ -164,11 +163,10 @@ impl FunctionTransform for ProtobufToLog {
 
                     if let Some(metadata) =
                         event.get(log_schema().metadata_key_target_path().unwrap())
+                        && let Some(meta_obj) = metadata.as_object()
                     {
-                        if let Some(meta_obj) = metadata.as_object() {
-                            for entry in meta_obj.iter() {
-                                internal_metadata.insert(entry.0.clone(), entry.1.clone());
-                            }
+                        for entry in meta_obj.iter() {
+                            internal_metadata.insert(entry.0.clone(), entry.1.clone());
                         }
                     }
 
@@ -468,20 +466,29 @@ mod tests {
                     (
                         "attributes".into(),
                         Value::Object(BTreeMap::from([
-                            ("process.executable.name".into(), Value::from("featureflagservice")),
-                            ("process.runtime.description".into(), Value::from("Erlang/OTP 23 erts-11.2.2.8")),
+                            (
+                                "process.executable.name".into(),
+                                Value::from("featureflagservice"),
+                            ),
+                            (
+                                "process.runtime.description".into(),
+                                Value::from("Erlang/OTP 23 erts-11.2.2.8"),
+                            ),
                             ("process.runtime.name".into(), Value::from("BEAM")),
                             ("process.runtime.version".into(), Value::from("11.2.2.8")),
-                            ("service.instance.id".into(), Value::from("featureflagservice@d69d857131ac")),
+                            (
+                                "service.instance.id".into(),
+                                Value::from("featureflagservice@d69d857131ac"),
+                            ),
                             ("service.name".into(), Value::from("featureflagservice")),
                             ("telemetry.sdk.language".into(), Value::from("erlang")),
                             ("telemetry.sdk.name".into(), Value::from("opentelemetry")),
                             ("telemetry.sdk.version".into(), Value::from("1.2.1")),
-                        ]))
+                        ])),
                     ),
                     ("dropped_attributes_count".into(), Value::Integer(0)),
                     ("schema_url".into(), Value::from("")),
-                ]))
+                ])),
             ),
             (
                 "scope".into(),
@@ -496,7 +503,12 @@ mod tests {
                 "attributes".into(),
                 Value::Object(BTreeMap::from([
                     ("db.instance".into(), Value::from("ffs")),
-                    ("db.statement".into(), Value::from("SELECT f0.\"id\", f0.\"description\", f0.\"enabled\", f0.\"name\", f0.\"inserted_at\", f0.\"updated_at\" FROM \"featureflags\" AS f0")),
+                    (
+                        "db.statement".into(),
+                        Value::from(
+                            "SELECT f0.\"id\", f0.\"description\", f0.\"enabled\", f0.\"name\", f0.\"inserted_at\", f0.\"updated_at\" FROM \"featureflags\" AS f0",
+                        ),
+                    ),
                     ("db.type".into(), Value::from("sql")),
                     ("db.url".into(), Value::from("ecto://ffs_postgres")),
                     ("decode_time_microseconds".into(), Value::Integer(5)),
@@ -505,8 +517,6 @@ mod tests {
                     ("queue_time_microseconds".into(), Value::Integer(52)),
                     ("source".into(), Value::from("featureflags")),
                     ("total_time_microseconds".into(), Value::Integer(546)),
-
-
                 ])),
             ),
             ("level".into(), "trace".into()),

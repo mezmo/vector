@@ -11,12 +11,12 @@ use crate::{
     gcp::{GcpAuthenticator, GcpError},
     http::HttpClient,
     sinks::{
+        Healthcheck, HealthcheckError,
         gcs_common::service::GcsResponse,
         util::retries::{RetryAction, RetryLogic},
-        Healthcheck, HealthcheckError,
     },
 };
-use mezmo::{user_log_error, user_trace::MezmoUserLog, MezmoContext};
+use mezmo::{MezmoContext, user_log_error, user_trace::MezmoUserLog};
 
 pub fn default_endpoint() -> String {
     "https://storage.googleapis.com".to_string()

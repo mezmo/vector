@@ -156,9 +156,7 @@ impl GroupKind {
         let value = metric.value;
 
         match self {
-            Self::Counter(ref mut metrics)
-            | Self::Gauge(ref mut metrics)
-            | Self::Untyped(ref mut metrics) => {
+            Self::Counter(metrics) | Self::Gauge(metrics) | Self::Untyped(metrics) => {
                 if !suffix.is_empty() {
                     return Ok(Some(Metric {
                         name: metric.name,
@@ -169,7 +167,7 @@ impl GroupKind {
                 }
                 metrics.insert(key, SimpleMetric { value });
             }
-            Self::Histogram(ref mut metrics) => match suffix {
+            Self::Histogram(metrics) => match suffix {
                 "_bucket" => {
                     let bucket = key.labels.remove("le").ok_or(ParserError::ExpectedLeTag)?;
                     let (_, bucket) = line::Metric::parse_value(&bucket)
@@ -194,10 +192,10 @@ impl GroupKind {
                         timestamp: key.timestamp,
                         labels: key.labels,
                         value,
-                    }))
+                    }));
                 }
             },
-            Self::Summary(ref mut metrics) => match suffix {
+            Self::Summary(metrics) => match suffix {
                 "" => {
                     let quantile = key
                         .labels
@@ -225,7 +223,7 @@ impl GroupKind {
                         timestamp: key.timestamp,
                         labels: key.labels,
                         value,
-                    }))
+                    }));
                 }
             },
         }

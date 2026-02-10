@@ -22,10 +22,10 @@ pub enum DbError {
 const DEFAULT_DB_CONNECTION_POOL_SIZE: usize = 4;
 
 fn connection_pool_size() -> usize {
-    if let Ok(value) = env::var("DB_CONNECTION_POOL_SIZE") {
-        if let Ok(value) = value.parse::<usize>() {
-            return value;
-        }
+    if let Ok(value) = env::var("DB_CONNECTION_POOL_SIZE")
+        && let Ok(value) = value.parse::<usize>()
+    {
+        return value;
     }
     DEFAULT_DB_CONNECTION_POOL_SIZE
 }
@@ -66,10 +66,10 @@ fn parse_endpoint_url(endpoint_url: &str) -> Result<Config, DbError> {
     cfg.password = url
         .password()
         .map(|v| urlencoding::decode(v).expect("UTF-8").to_string());
-    if let Some(mut path_segments) = url.path_segments() {
-        if let Some(first) = path_segments.next() {
-            cfg.dbname = Some(first.into());
-        }
+    if let Some(mut path_segments) = url.path_segments()
+        && let Some(first) = path_segments.next()
+    {
+        cfg.dbname = Some(first.into());
     }
 
     // Postgres client supports request pipelining (aka pipeline mode).

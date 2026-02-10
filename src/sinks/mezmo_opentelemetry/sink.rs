@@ -16,8 +16,8 @@ use crate::{
     internal_events::SinkRequestBuildError,
     sinks::prelude::*,
     sinks::util::{
-        metadata::RequestMetadataBuilder, request_builder::EncodeResult, Compression,
-        RequestBuilder, SinkBuilderExt,
+        Compression, RequestBuilder, SinkBuilderExt, metadata::RequestMetadataBuilder,
+        request_builder::EncodeResult,
     },
 };
 use async_trait::async_trait;
