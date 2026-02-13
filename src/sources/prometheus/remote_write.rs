@@ -290,7 +290,7 @@ mod test {
         // Send the request via HTTP POST
         let client = reqwest::Client::new();
         let response = client
-            .post(format!("http://localhost:{}/", port))
+            .post(format!("http://localhost:{port}/"))
             .header("Content-Type", "application/x-protobuf")
             .header("Content-Encoding", "snappy")
             .body(request_body)

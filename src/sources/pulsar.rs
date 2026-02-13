@@ -329,6 +329,10 @@ pub struct PulsarConnectionRetryOptions {
     #[configurable(metadata(docs::type_unit = "seconds"))]
     #[configurable(metadata(docs::examples = 60))]
     pub keep_alive_secs: Option<u64>,
+    /// Maximum idle time before a connection is eligible for cleanup
+    #[configurable(metadata(docs::type_unit = "seconds"))]
+    #[configurable(metadata(docs::examples = 120))]
+    pub connection_max_idle: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -435,6 +439,9 @@ impl PulsarSourceConfig {
             }
             if let Some(secs) = opts.keep_alive_secs {
                 retry_options.keep_alive = Duration::from_secs(secs);
+            }
+            if let Some(secs) = opts.connection_max_idle {
+                retry_options.connection_max_idle = Duration::from_secs(secs);
             }
         }
 
@@ -871,6 +878,7 @@ mod tests {
             max_retries = 50
             connection_timeout_secs = 59
             keep_alive_secs = 58
+            connection_max_idle = 55
         "#,
         );
 
@@ -880,6 +888,7 @@ mod tests {
         assert_eq!(opts.max_retries, Some(50));
         assert_eq!(opts.connection_timeout_secs, Some(59));
         assert_eq!(opts.keep_alive_secs, Some(58));
+        assert_eq!(opts.connection_max_idle, Some(55));
     }
 
     #[test]
@@ -925,6 +934,10 @@ mod tests {
         assert_eq!(
             opts.keep_alive_secs, None,
             "Expected keep_alive_secs to be None"
+        );
+        assert_eq!(
+            opts.connection_max_idle, None,
+            "Expected connection_max_idle to be None"
         );
     }
 

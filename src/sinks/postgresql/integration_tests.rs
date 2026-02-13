@@ -426,7 +426,7 @@ async fn metrics() {
     let events: Vec<_> = (0..num_events)
         .map(|index| {
             let mut metric = Metric::new(
-                format!("counter_{}", index),
+                format!("counter_{index}"),
                 MetricKind::Absolute,
                 MetricValue::Counter {
                     value: index as f64,

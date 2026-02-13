@@ -1,5 +1,12 @@
 ## Changelog
 
+## [6.9.2](https://github.com/mezmo/vector/compare/v6.9.1...v6.9.2) (2026-02-11)
+
+
+### Chores
+
+* **deps**: Bump `pulsar-rs` to latest SHA [0370cb5](https://github.com/mezmo/vector/commit/0370cb58c5b05dc8c6f96d35518ecaf85b1b640d) - Darin Spivey [LOG-23224](https://logdna.atlassian.net/browse/LOG-23224)
+
 ## [6.9.1](https://github.com/mezmo/vector/compare/v6.9.0...v6.9.1) (2026-02-09)
 
 
