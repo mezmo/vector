@@ -1,7 +1,7 @@
 use crate::mezmo::choose_weighted;
 use chrono::Utc;
 use faker_rand::{en_us::internet::Domain, lorem::Word};
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use serde::Serialize;
 
 const LEVELS: [(&str, f32); 2] = [("INFO", 15.0), ("ERROR", 1.0)];
@@ -124,10 +124,18 @@ impl KubernetesLog {
         Self {
             app: app.to_string(),
             container: choose_weighted(&CONTAINERS).to_string(),
-            host: thread_rng().gen::<Domain>().to_string(),
-            node: thread_rng().gen::<Word>().to_string(),
-            pod: thread_rng().gen::<Word>().to_string(),
-            namespace: thread_rng().gen::<Word>().to_string(),
+            host: thread_rng()
+                .sample::<Domain, _>(rand::distributions::Standard)
+                .to_string(),
+            node: thread_rng()
+                .sample::<Word, _>(rand::distributions::Standard)
+                .to_string(),
+            pod: thread_rng()
+                .sample::<Word, _>(rand::distributions::Standard)
+                .to_string(),
+            namespace: thread_rng()
+                .sample::<Word, _>(rand::distributions::Standard)
+                .to_string(),
             level: level.to_string(),
             line: kubernetes_message(level, app),
         }

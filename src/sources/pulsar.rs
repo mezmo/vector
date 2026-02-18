@@ -2,24 +2,25 @@
 //! Accepts log events streamed from [`Apache Pulsar`][pulsar].
 //!
 //! [pulsar]: https://pulsar.apache.org/
+use std::path::Path;
+
 use bytes::Bytes;
 use chrono::TimeZone;
 use futures_util::StreamExt;
 use pulsar::{
+    Authentication, ConnectionRetryOptions, Consumer, Pulsar, SubType, TokioExecutor,
     authentication::oauth2::{OAuth2Authentication, OAuth2Params},
     consumer::{InitialPosition, Message},
     message::proto::MessageIdData,
-    Authentication, ConnectionRetryOptions, Consumer, Pulsar, SubType, TokioExecutor,
 };
 use regex::Regex;
-use std::path::Path;
 use std::time::Duration;
 use tokio_util::codec::FramedRead;
-
 use vector_lib::{
+    EstimatedJsonEncodedSizeOf,
     codecs::{
-        decoding::{DeserializerConfig, FramingConfig},
         StreamDecodingError,
+        decoding::{DeserializerConfig, FramingConfig},
     },
     config::{LegacyKey, LogNamespace, SourceAcknowledgementsConfig, SourceOutput},
     configurable::configurable_component,
@@ -32,12 +33,12 @@ use vector_lib::{
     },
     sensitive_string::SensitiveString,
     shutdown::ShutdownSignal,
-    EstimatedJsonEncodedSizeOf,
 };
 use vrl::value::ObjectMap;
 use vrl::{owned_value_path, path, value::Kind};
 
 use crate::{
+    SourceSender,
     codecs::{Decoder, DecodingConfig},
     config::{SourceConfig, SourceContext},
     event::BatchNotifier,
@@ -48,7 +49,6 @@ use crate::{
     mezmo_env_config,
     serde::default_false,
     serde::{bool_or_struct, default_decoding, default_framing_message_based},
-    SourceSender,
 };
 use std::sync::LazyLock;
 
@@ -955,10 +955,15 @@ mod tests {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use crate::config::log_schema;
-    use crate::test_util::components::{assert_source_compliance, SOURCE_TAGS};
-    use crate::test_util::{collect_n, random_string, trace_init};
-    use crate::tls::TEST_PEM_INTERMEDIATE_CA_PATH;
+    use crate::{
+        config::log_schema,
+        test_util::{
+            collect_n,
+            components::{SOURCE_TAGS, assert_source_compliance},
+            random_string, trace_init,
+        },
+        tls::TEST_PEM_INTERMEDIATE_CA_PATH,
+    };
     use pulsar::producer;
     use std::collections::HashMap;
 
@@ -1314,7 +1319,8 @@ mod integration_tests {
             Err(error) => {
                 let error_msg = format!("{error}");
                 assert_eq!(
-                    error_msg, "Topic must be in the format [protocol://]tenant/namespace/topic: 'persistent:///default/topic'",
+                    error_msg,
+                    "Topic must be in the format [protocol://]tenant/namespace/topic: 'persistent:///default/topic'",
                     "Error should mention topic parsing failure: {error_msg}",
                 );
             }
@@ -1359,7 +1365,8 @@ mod integration_tests {
             Err(error) => {
                 let error_msg = format!("{error}");
                 assert_eq!(
-                    error_msg, "Topic must be in the format [protocol://]tenant/namespace/topic: 'persistent://public//topic'",
+                    error_msg,
+                    "Topic must be in the format [protocol://]tenant/namespace/topic: 'persistent://public//topic'",
                     "Error should mention topic parsing failure: {error_msg}",
                 );
             }

@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
 
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 
 const ONE_MEGABYTE_USIZE: usize = 1024 * 1024;
 const MAX_BLOCKS_IN_PUT_BLOCK: usize = 50_000;
@@ -586,14 +586,14 @@ fn group_files_by_directory(
 #[cfg(test)]
 mod tests {
     use bytes::{Bytes, BytesMut};
-    use flate2::read::GzEncoder;
     use flate2::Compression;
+    use flate2::read::GzEncoder;
     use std::io::Read;
 
+    use crate::sinks::azure_blob::file_consolidation_processor::ConsolidationFile;
     use crate::sinks::azure_blob::file_consolidation_processor::decompress_gzip;
     use crate::sinks::azure_blob::file_consolidation_processor::group_files_by_directory;
     use crate::sinks::azure_blob::file_consolidation_processor::splice_files_list;
-    use crate::sinks::azure_blob::file_consolidation_processor::ConsolidationFile;
 
     #[test]
     fn splice_empty_list() {

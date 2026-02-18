@@ -7,22 +7,21 @@ mod tests;
 
 use crate::mezmo::user_trace::UserLoggingError;
 use aws_sdk_firehose::{
-    error::ProvideErrorMetadata, operation::put_record_batch::PutRecordBatchError,
-    types::Record as FRecord, Client,
+    Client, error::ProvideErrorMetadata, operation::put_record_batch::PutRecordBatchError,
+    types::Record as FRecord,
 };
 use aws_smithy_runtime_api::client::{orchestrator::HttpResponse, result::SdkError};
 
 use vrl::value::Value;
 
+pub use self::config::KinesisFirehoseSinkConfig;
 pub use super::{
-    config::{build_sink, KinesisSinkBaseConfig},
+    config::{KinesisSinkBaseConfig, build_sink},
     record::{Record, SendRecord},
     request_builder,
     service::{KinesisResponse, KinesisService},
     sink,
 };
-
-pub use self::config::KinesisFirehoseSinkConfig;
 
 pub type KinesisError = PutRecordBatchError;
 pub type KinesisRecord = FRecord;

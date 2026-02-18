@@ -16,19 +16,19 @@ use opentelemetry_rs::opentelemetry::common::KeyValue;
 use vector_core::{
     config::log_schema,
     event::{
-        metric::mezmo::{
-            from_f64_or_zero, IntoTagValue, IntoValue, MetricArbitraryAccessor, MetricTags,
-            MetricTagsAccessor, MetricToLogEvent, MetricValueAccessor, MetricValuePairs,
-            MetricValueSerializable, MezmoMetric,
-        },
         Event, KeyString, LogEvent, MetricKind, Value,
+        metric::mezmo::{
+            IntoTagValue, IntoValue, MetricArbitraryAccessor, MetricTags, MetricTagsAccessor,
+            MetricToLogEvent, MetricValueAccessor, MetricValuePairs, MetricValueSerializable,
+            MezmoMetric, from_f64_or_zero,
+        },
     },
 };
 
 use vector_common::btreemap;
 
 use crate::decoding::format::mezmo::open_telemetry::{
-    get_uniq_request_id, nano_to_timestamp, DeserializerError, OpenTelemetryKeyValue,
+    DeserializerError, OpenTelemetryKeyValue, get_uniq_request_id, nano_to_timestamp,
 };
 
 const METRIC_TIMESTAMP_KEY: &str = "message.value.time_unix";
@@ -1619,33 +1619,32 @@ pub fn to_events(metric_request: ExportMetricsServiceRequest) -> SmallVec<[Event
 }
 
 fn make_event(mut log_event: LogEvent) -> Event {
-    if let Some(message_key) = log_schema().message_key() {
-        if let Some(message) = log_event.get_mut((lookup::PathPrefix::Event, message_key)) {
-            let metric_name = match message.get("name").unwrap_or(&Value::Null) {
-                Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
-                _ => Cow::from(""),
-            };
+    if let Some(message_key) = log_schema().message_key()
+        && let Some(message) = log_event.get_mut((lookup::PathPrefix::Event, message_key))
+    {
+        let metric_name = match message.get("name").unwrap_or(&Value::Null) {
+            Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
+            _ => Cow::from(""),
+        };
 
-            let metric_unit = match message.get("value.unit").unwrap_or(&Value::Null) {
-                Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
-                _ => Cow::from(""),
-            };
+        let metric_unit = match message.get("value.unit").unwrap_or(&Value::Null) {
+            Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
+            _ => Cow::from(""),
+        };
 
-            let metric_kind = match message.get("kind").unwrap_or(&Value::Null) {
-                Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
-                _ => Cow::from(""),
-            };
+        let metric_kind = match message.get("kind").unwrap_or(&Value::Null) {
+            Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
+            _ => Cow::from(""),
+        };
 
-            let metric_type = match message.get("value.type").unwrap_or(&Value::Null) {
-                Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
-                _ => Cow::from(""),
-            };
+        let metric_type = match message.get("value.type").unwrap_or(&Value::Null) {
+            Value::Bytes(bytes) => Cow::from(String::from_utf8_lossy(bytes).into_owned()),
+            _ => Cow::from(""),
+        };
 
-            let normalized_name =
-                normalize_name(metric_name, metric_unit, metric_type, metric_kind);
+        let normalized_name = normalize_name(metric_name, metric_unit, metric_type, metric_kind);
 
-            message.insert("name", Value::from(normalized_name));
-        }
+        message.insert("name", Value::from(normalized_name));
     }
 
     if let Some(timestamp_key) = log_schema().timestamp_key() {
@@ -1669,7 +1668,7 @@ mod tests {
     use chrono::DateTime;
     use std::collections::BTreeMap;
 
-    use vector_core::event::metric::{mezmo::to_metric, Bucket, Quantile};
+    use vector_core::event::metric::{Bucket, Quantile, mezmo::to_metric};
     use vector_core::event::{MetricKind, MetricValue};
 
     use opentelemetry_rs::opentelemetry::metrics::{

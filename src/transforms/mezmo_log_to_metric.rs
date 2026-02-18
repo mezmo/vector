@@ -10,7 +10,7 @@ use crate::{
     schema,
     transforms::{FunctionTransform, OutputBuffer, Transform},
 };
-use mezmo::{user_trace::handle_transform_error, MezmoContext};
+use mezmo::{MezmoContext, user_trace::handle_transform_error};
 
 /// Configuration for the `mezmo_log_to_metric` transform.
 #[configurable_component(transform("mezmo_log_to_metric"))]
@@ -91,7 +91,7 @@ impl FunctionTransform for LogToMetric {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{offset::TimeZone, DateTime, NaiveDateTime, Utc};
+    use chrono::{DateTime, NaiveDateTime, Utc, offset::TimeZone};
     use futures_util::{Stream, StreamExt};
     use serde_json;
     use serial_test::serial;
@@ -111,8 +111,8 @@ mod tests {
     use crate::{
         config::log_schema,
         event::{
-            metric::{Metric, MetricKind, MetricValue, StatisticKind},
             Event, LogEvent,
+            metric::{Metric, MetricKind, MetricValue, StatisticKind},
         },
     };
 

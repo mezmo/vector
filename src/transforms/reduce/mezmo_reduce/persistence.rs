@@ -12,7 +12,7 @@ use crate::transforms::reduce::mezmo_reduce::{
     EventMetadata, KeyString, MezmoMetadata, ReduceState, ReduceValueMerger,
     SerializableReduceValueMerger,
 };
-use crate::{event::Value, Error};
+use crate::{Error, event::Value};
 
 // The key for the state persistence db.
 const STATE_PERSISTENCE_KEY: &str = "state";
@@ -322,7 +322,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::config::TransformContext;
-    use crate::event::{discriminant::Discriminant, Event, KeyString, Value};
+    use crate::event::{Event, KeyString, Value, discriminant::Discriminant};
     use crate::mezmo::persistence::RocksDBPersistenceConnection;
     use crate::transforms::reduce::mezmo_reduce::{
         MezmoMetadata, MezmoReduce, MezmoReduceConfig, ReduceState,
@@ -767,12 +767,16 @@ mod tests {
 
         // The state should contain the merged values from both events
         let state = new_reduce.reduce_merge_states.values().next().unwrap();
-        assert!(state
-            .message_fields
-            .contains_key(&KeyString::from("request_id")));
-        assert!(state
-            .message_fields
-            .contains_key(&KeyString::from("message")));
+        assert!(
+            state
+                .message_fields
+                .contains_key(&KeyString::from("request_id"))
+        );
+        assert!(
+            state
+                .message_fields
+                .contains_key(&KeyString::from("message"))
+        );
     }
 
     #[tokio::test]

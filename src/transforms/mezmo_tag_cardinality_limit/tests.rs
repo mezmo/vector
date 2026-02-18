@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::config::{default_cache_size, default_max_tag_size, BloomFilterConfig, Mode};
+use super::config::{BloomFilterConfig, Mode, default_cache_size, default_max_tag_size};
 use super::*;
 use crate::event::Event;
 use crate::test_util::components::assert_transform_compliance;
@@ -146,15 +146,17 @@ async fn drop_tag(config: TagCardinalityLimitConfig) {
         assert_ne!(new_event3, Some(event3));
 
         let new_event3 = new_event3.unwrap();
-        assert!(!new_event3
-            .as_log()
-            .get("message")
-            .unwrap()
-            .get("tags")
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .contains_key("tag1"));
+        assert!(
+            !new_event3
+                .as_log()
+                .get("message")
+                .unwrap()
+                .get("tags")
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .contains_key("tag1")
+        );
         assert_eq!(
             "val1",
             new_event3

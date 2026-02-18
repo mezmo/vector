@@ -1,19 +1,18 @@
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
-use futures_util::{future::ready, Stream, StreamExt};
+use futures_util::{Stream, StreamExt, future::ready};
 use std::future::Future;
 use std::ops::Deref;
 use std::task::{Context, Poll};
 use tokio::sync::broadcast::Receiver;
 use tokio_stream::wrappers::BroadcastStream;
 use tower::Service;
-use vector_lib::{event::LogEvent, ByteSizeOf};
+use vector_lib::{ByteSizeOf, event::LogEvent};
 use vrl::value::Value;
 
 use mezmo::{
-    user_log_error,
-    user_trace::{get_user_log_sender, MezmoUserLog},
-    MezmoContext,
+    MezmoContext, user_log_error,
+    user_trace::{MezmoUserLog, get_user_log_sender},
 };
 
 use crate::http::HttpError;
@@ -184,7 +183,7 @@ mod tests {
     use snafu::Snafu;
     use tokio::{
         select,
-        time::{sleep, Duration},
+        time::{Duration, sleep},
     };
     use tokio_test::{assert_pending, assert_ready};
     use tower_test::{

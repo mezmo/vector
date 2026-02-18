@@ -1,7 +1,7 @@
 use crate::mezmo::{choose, choose_weighted, gen_digit_string, to_iso8601};
 use chrono::{Duration, Utc};
 use faker_rand::en_us::names::{FirstName, LastName};
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use serde::Serialize;
 use std::time::SystemTime;
 use uuid::Uuid;
@@ -102,8 +102,8 @@ impl CreditCard {
         let cc_exp = format!("{}", cc_exp.format("%m/%y"));
         let cc_number = gen_digit_string(card_type.number_len);
         let cc_cvv = gen_digit_string(card_type.cvv_len);
-        let fname = thread_rng().gen::<FirstName>().to_string();
-        let lname = thread_rng().gen::<LastName>().to_string();
+        let fname: FirstName = thread_rng().sample(rand::distributions::Standard);
+        let lname: LastName = thread_rng().sample(rand::distributions::Standard);
         let cc_name = format!("{fname} {lname}");
         let cc_zip = gen_digit_string(5);
 
@@ -201,8 +201,8 @@ impl AccessDetails {
     fn gen_access() -> Self {
         // Uses a UUID v3 for the user_id because it's based on the MD5 hash of the name, which
         // should produce the same UUID if a duplicate name is picked.
-        let fname = thread_rng().gen::<FirstName>().to_string();
-        let lname = thread_rng().gen::<LastName>().to_string();
+        let fname: FirstName = thread_rng().sample(rand::distributions::Standard);
+        let lname: LastName = thread_rng().sample(rand::distributions::Standard);
         let name = format!("{fname} {lname}");
         let user_id = Uuid::new_v3(&Uuid::NAMESPACE_OID, name.as_bytes()).to_string();
         let action = choose_weighted(&ACCESS_ACTIONS).to_string();

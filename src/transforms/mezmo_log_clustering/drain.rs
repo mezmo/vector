@@ -1,5 +1,5 @@
 use base64::Engine;
-use blake2::{digest::consts::U8, Blake2b, Digest};
+use blake2::{Blake2b, Digest, digest::consts::U8};
 use lru::LruCache;
 use std::{borrow::Cow, collections::HashMap, fmt::Display, num::NonZeroUsize};
 use vrl::value::Value;
@@ -309,7 +309,7 @@ impl<'a> LogParser<'a> {
         &mut self,
         line: &str,
         sample_context: Option<&Value>,
-    ) -> (&LogCluster, LogClusterStatus) {
+    ) -> (&LogCluster<'_>, LogClusterStatus) {
         let tokens = tokenize(line, &self.extra_delimiters);
 
         let (cluster, cluster_status) = match self.tree_search(&tokens) {
@@ -387,11 +387,7 @@ impl<'a> LogParser<'a> {
             let max_children = if curr_node_depth > 1 {
                 let factor = curr_node_depth * 2;
                 let result = self.max_children / factor;
-                if result < 2 {
-                    2
-                } else {
-                    result
-                }
+                if result < 2 { 2 } else { result }
             } else {
                 self.max_children
             };
@@ -520,7 +516,7 @@ mod tests {
     use std::collections::{BTreeMap, HashSet};
     use std::{num::NonZeroUsize, vec};
 
-    use super::{tokenize, LogParser};
+    use super::{LogParser, tokenize};
 
     #[test]
     fn add_log_line() {

@@ -2,11 +2,11 @@ use chrono::Utc;
 use futures_util::StreamExt;
 use rand::Rng;
 use reqwest::{
-    header::{self, HeaderValue},
     Client, Method,
+    header::{self, HeaderValue},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     str::FromStr,
@@ -17,8 +17,8 @@ use url::Url;
 use vector_lib::api_client::{
     connect_subscription_client,
     gql::{
-        output_events_by_component_id_patterns_subscription::OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns,
         TapEncodingFormat, TapSubscriptionExt,
+        output_events_by_component_id_patterns_subscription::OutputEventsByComponentIdPatternsSubscriptionOutputEventsByComponentIdPatterns,
     },
 };
 
@@ -74,10 +74,10 @@ pub(crate) async fn start_polling_for_tasks(
         #[cfg(test)]
         {
             iteration_count += 1;
-            if let Some(max) = max_iterations {
-                if iteration_count > max {
-                    break;
-                }
+            if let Some(max) = max_iterations
+                && iteration_count > max
+            {
+                break;
             }
         }
         let start = Instant::now();
@@ -392,9 +392,9 @@ mod tests {
     use assay::assay;
 
     use httptest::{
+        Expectation, Server,
         matchers::{all_of, contains, json_decoded, lowercase, not, request},
         responders::{json_encoded, status_code},
-        Expectation, Server,
     };
     use serde_json::json;
 

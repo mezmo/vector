@@ -6,22 +6,22 @@ use crate::{
     schema,
     template::Template,
     transforms::{
+        Transform,
         mezmo_common::state::{
             default_connection_response_timeout_ms, default_connection_retry_count,
             default_connection_retry_factor_ms, default_connection_retry_max_delay_ms,
             default_connection_string, default_connection_timeout_ms,
         },
-        Transform,
     },
 };
 use redis::{
-    aio::{ConnectionManager, ConnectionManagerConfig},
     RedisResult,
+    aio::{ConnectionManager, ConnectionManagerConfig},
 };
 use serde_with::serde_as;
 use snafu::ResultExt;
 use std::time::Duration;
-use vector_lib::config::{clone_input_definitions, LogNamespace, OutputId, TransformOutput};
+use vector_lib::config::{LogNamespace, OutputId, TransformOutput, clone_input_definitions};
 use vector_lib::configurable::component::GenerateConfig;
 use vector_lib::configurable::configurable_component;
 

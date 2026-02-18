@@ -3,9 +3,8 @@ use std::borrow::Cow;
 use async_graphql::Object;
 use chrono::{DateTime, Utc};
 use vector_lib::config::log_schema;
-use vector_lib::encode_logfmt;
-use vector_lib::event;
-use vector_lib::tap::topology::TapOutput;
+use vector_lib::{encode_logfmt, event, tap::topology::TapOutput};
+// use vrl::event_path;
 
 use super::EventEncodingType;
 

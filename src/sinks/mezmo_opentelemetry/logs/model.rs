@@ -13,9 +13,9 @@ use std::borrow::Cow;
 
 use crate::sinks::mezmo_opentelemetry::{
     models::{
-        value_to_otlp_any_value, value_to_system_time, OpentelemetryModelMatch,
-        OpentelemetryModelType, OpentelemetryResource, OpentelemetryScope, OpentelemetrySpanId,
-        OpentelemetryTraceFlags, OpentelemetryTraceId,
+        OpentelemetryModelMatch, OpentelemetryModelType, OpentelemetryResource, OpentelemetryScope,
+        OpentelemetrySpanId, OpentelemetryTraceFlags, OpentelemetryTraceId,
+        value_to_otlp_any_value, value_to_system_time,
     },
     sink::OpentelemetrySinkError,
 };
@@ -75,12 +75,12 @@ impl TryFrom<Event> for OpentelemetryLogsModel {
         let mut severity_number = None;
 
         if let Some(metadata) = log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
-            if let Some(value) = metadata.get("attributes") {
-                if let OtlpAnyValue::Map(attrs) = value_to_otlp_any_value(value.clone()) {
-                    let attributes = attrs.clone().into_iter().collect::<Vec<_>>();
+            if let Some(value) = metadata.get("attributes")
+                && let OtlpAnyValue::Map(attrs) = value_to_otlp_any_value(value.clone())
+            {
+                let attributes = attrs.clone().into_iter().collect::<Vec<_>>();
 
-                    record_builder = record_builder.with_attributes(attributes);
-                }
+                record_builder = record_builder.with_attributes(attributes);
             }
 
             if let Some(timestamp) = metadata.get("time") {
@@ -177,12 +177,12 @@ mod test {
     use vector_lib::event::{Event, LogEvent};
 
     use opentelemetry::{
+        InstrumentationLibrary,
         logs::{AnyValue as OtlpAnyValue, LogRecord, Severity, TraceContext},
         trace::{SpanId, TraceFlags, TraceId},
-        InstrumentationLibrary,
     };
-    use opentelemetry_sdk::export::logs::LogData;
     use opentelemetry_sdk::Resource;
+    use opentelemetry_sdk::export::logs::LogData;
 
     fn line_generator(index: usize) -> String {
         format!("opentelemetry test log index {index}")

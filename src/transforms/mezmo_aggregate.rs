@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     pin::Pin,
     time::Duration,
 };
@@ -9,7 +9,7 @@ use futures::{Stream, StreamExt};
 use vector_lib::configurable::configurable_component;
 use vector_lib::{
     config::LogNamespace,
-    event::{metric::mezmo::to_metric, Metric},
+    event::{Metric, metric::mezmo::to_metric},
 };
 use vector_lib::{
     config::{OutputId, TransformOutput},
@@ -18,14 +18,14 @@ use vector_lib::{
 
 use crate::{
     config::{DataType, Input, TransformConfig, TransformContext},
-    event::{metric, Event, EventMetadata},
+    event::{Event, EventMetadata, metric},
     internal_events::{
         MezmoAggregateEventRecorded, MezmoAggregateFlushed, MezmoAggregateUpdateFailed,
     },
     schema,
     transforms::{TaskTransform, Transform},
 };
-use mezmo::{user_trace::handle_transform_error, MezmoContext};
+use mezmo::{MezmoContext, user_trace::handle_transform_error};
 
 /// Configuration for the `mezmo_aggregate` transform.
 #[configurable_component(transform("mezmo_aggregate"))]
@@ -184,13 +184,13 @@ mod tests {
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
     use vector_lib::event::{
-        metric::{Bucket, Quantile, Sample},
         StatisticKind,
+        metric::{Bucket, Quantile, Sample},
     };
 
     use super::*;
     use crate::{
-        event::{metric, Event, Metric},
+        event::{Event, Metric, metric},
         test_util::components::assert_transform_compliance,
         transforms::test::create_topology,
     };

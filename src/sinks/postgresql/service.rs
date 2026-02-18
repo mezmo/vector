@@ -2,14 +2,14 @@ use crate::{event::EventStatus, sinks::postgresql::PostgreSQLSinkError};
 use bytes::BytesMut;
 use chrono::{DateTime, Utc};
 use futures::future::BoxFuture;
-use serde_json::json;
 use serde_json::Value as SerdeValue;
+use serde_json::json;
 use std::{
     borrow::Cow,
     error::Error,
     task::{Context, Poll},
 };
-use tokio_postgres::types::{to_sql_checked, IsNull, ToSql, Type};
+use tokio_postgres::types::{IsNull, ToSql, Type, to_sql_checked};
 use tower::Service;
 use vector_lib::byte_size_of::ByteSizeOf;
 use vector_lib::finalization::{EventFinalizers, Finalizable};
@@ -101,7 +101,7 @@ impl Service<PostgreSQLRequest> for PostgreSQLService {
                 Err(source) => {
                     return Err(PostgreSQLSinkError::PoolError {
                         message: source.to_string(),
-                    })
+                    });
                 }
             };
 

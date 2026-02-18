@@ -9,7 +9,7 @@ use super::*;
 use vector_lib::{configurable::component, lookup::event_path};
 
 use crate::{
-    event::{metric, Event, LogEvent},
+    event::{Event, LogEvent, metric},
     test_util::components::assert_transform_compliance,
     topology::RunningTopology,
     transforms::test::create_topology_with_name,

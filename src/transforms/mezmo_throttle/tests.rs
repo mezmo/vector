@@ -1,7 +1,7 @@
 use assay::assay;
 use std::sync::{
-    atomic::{AtomicI64, Ordering},
     Arc,
+    atomic::{AtomicI64, Ordering},
 };
 use std::task::Poll;
 use tempfile::tempdir;
@@ -12,7 +12,7 @@ use super::*;
 use crate::{
     event::LogEvent,
     test_util::components::assert_transform_compliance,
-    transforms::{test::create_topology, Transform},
+    transforms::{Transform, test::create_topology},
 };
 use config::MezmoThrottleConfig;
 use mezmo::MezmoContext;
