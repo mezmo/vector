@@ -1,18 +1,18 @@
-use vector_lib::config::{clone_input_definitions, LogNamespace};
+use vector_lib::config::{LogNamespace, clone_input_definitions};
 use vector_lib::configurable::configurable_component;
 use vector_lib::lookup::lookup_v2::ConfigTargetPath;
 
 use crate::{
     config::{
-        log_schema, DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext,
-        TransformOutput,
+        DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext,
+        TransformOutput, log_schema,
     },
     schema,
     transforms::Transform,
 };
 
 use super::{
-    MezmoDatadogAgentParser, LOGS_OUTPUT, METRICS_OUTPUT, TRACES_OUTPUT, UNMATCHED_OUTPUT,
+    LOGS_OUTPUT, METRICS_OUTPUT, MezmoDatadogAgentParser, TRACES_OUTPUT, UNMATCHED_OUTPUT,
 };
 
 fn default_event_type_path() -> ConfigTargetPath {

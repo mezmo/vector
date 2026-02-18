@@ -33,9 +33,7 @@ pub enum StateVariablesDBError {
     /// Error for when the database connnection string is invalid
     UrlInvalid,
     /// Error when a database connection cannot be made
-    #[snafu(display(
-        "Can't connect to postgres for state variables encrichment table: {message}"
-    ))]
+    #[snafu(display("Can't connect to postgres for state variables encrichment table: {message}"))]
     ConnectionError {
         /// A message detailing the exact error
         message: String,
@@ -130,7 +128,9 @@ impl StateVariables {
             loop {
                 match fetch_states_from_db(&spawn_cache, spawn_partition_name.as_str()).await {
                     Ok(0) => {
-                        debug!("Warning: No state variables loaded for partition '{spawn_partition_name}'");
+                        debug!(
+                            "Warning: No state variables loaded for partition '{spawn_partition_name}'"
+                        );
                     }
                     Ok(row_len) => debug!("Loaded {row_len} entries"),
                     Err(err) => error!("Error polling state variables DB table: {err:?}"),

@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
+use std::collections::hash_map::Entry;
 use std::iter::Sum;
 use std::sync::OnceLock;
 use std::time::Instant;
 use std::{collections::HashMap, env, str::FromStr, sync::Arc};
 use tokio::{
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
-    time::{sleep, Duration},
+    time::{Duration, sleep},
 };
 use vector_common::{
     byte_size_of::ByteSizeOf,
@@ -19,7 +19,7 @@ use vrl::value::{KeyString, Value};
 use crate::{
     config::log_schema,
     event::EventArray,
-    event::{array::EventContainer, MetricValue},
+    event::{MetricValue, array::EventContainer},
     usage_metrics::flusher::HttpFlusher,
 };
 use flusher::{DbFlusher, MetricsFlusher, StdErrFlusher};
@@ -334,13 +334,13 @@ pub fn get_component_usage_tracker(
     key: &Option<UsageMetricsKey>,
     tx: &UnboundedSender<UsageMetrics>,
 ) -> Box<dyn ComponentUsageTracker> {
-    if let Some(key) = key {
-        if key.is_tracked() {
-            return Box::new(DefaultComponentTracker {
-                metrics_tx: tx.clone(),
-                key: key.target_key(),
-            });
-        }
+    if let Some(key) = key
+        && key.is_tracked()
+    {
+        return Box::new(DefaultComponentTracker {
+            metrics_tx: tx.clone(),
+            key: key.target_key(),
+        });
     }
 
     Box::new(NoopTracker {})
@@ -351,14 +351,14 @@ pub fn get_transform_usage_tracker(
     key: &Option<UsageMetricsKey>,
     tx: &UnboundedSender<UsageMetrics>,
 ) -> Box<dyn OutputUsageTracker> {
-    if let Some(key) = key {
-        if key.is_tracked() {
-            return Box::new(DefaultOutputTracker {
-                metrics_tx: tx.clone(),
-                // Use the target key (e.g. source), not the original key (e.g. source format)
-                target_key: key.target_key(),
-            });
-        }
+    if let Some(key) = key
+        && key.is_tracked()
+    {
+        return Box::new(DefaultOutputTracker {
+            metrics_tx: tx.clone(),
+            // Use the target key (e.g. source), not the original key (e.g. source format)
+            target_key: key.target_key(),
+        });
     }
 
     Box::new(NoopTracker {})
@@ -542,11 +542,7 @@ pub fn get_annotations(fields: &BTreeMap<KeyString, Value>) -> Option<Annotation
     };
 
     // Annotations can be defined without the relevant properties
-    if set.is_empty() {
-        None
-    } else {
-        Some(set)
-    }
+    if set.is_empty() { None } else { Some(set) }
 }
 
 fn get_string_field(fields: &BTreeMap<KeyString, Value>, key: &str) -> Option<String> {

@@ -3,16 +3,18 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use criterion::{
-    criterion_group, measurement::WallTime, BatchSize, BenchmarkGroup, BenchmarkId, Criterion,
-    SamplingMode, Throughput,
+    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, SamplingMode, Throughput, criterion_group,
+    measurement::WallTime,
 };
-use vector::config::TransformContext;
-use vector::transforms::{
-    route::{Route, RouteConfig},
-    TransformOutputsBuf,
+use vector::{
+    config::TransformContext,
+    transforms::{
+        TransformOutputsBuf,
+        route::{Route, RouteConfig},
+    },
 };
-use vector_core::{
-    config::{DataType, Output, TransformOutput},
+use vector_lib::{
+    config::{DataType, TransformOutput},
     event::{Event, EventContainer, EventMetadata, LogEvent},
     transform::SyncTransform,
 };
@@ -55,7 +57,7 @@ fn route(c: &mut Criterion) {
         "bba", "bbca", "dba", "bea", "fba", "gba", "hba", "iba", "jba", "bka", "bal", "bma", "bna",
         "boa", "bpa", "bqa", "bra", "bsa", "bta", "bua", "bva", "bwa", "xba", "aby", "zba",
     ] {
-        outputs.push(Output {
+        outputs.push(TransformOutput {
             port: Some(String::from(name)),
             ty: DataType::Log,
             log_schema_definitions: Default::default(),

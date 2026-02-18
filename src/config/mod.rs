@@ -9,23 +9,22 @@ use std::{
     time::Duration,
 };
 
+use indexmap::IndexMap;
+use serde::Serialize;
+use vector_config::configurable_component;
+pub use vector_lib::{
+    config::{
+        AcknowledgementsConfig, DataType, GlobalOptions, Input, LogNamespace,
+        SourceAcknowledgementsConfig, SourceOutput, TransformOutput, WildcardMatching,
+    },
+    configurable::component::{GenerateConfig, SinkDescription, TransformDescription},
+};
+
 use crate::{
     conditions,
     event::{Metric, Value},
     secrets::SecretBackends,
     serde::OneOrMany,
-};
-
-use indexmap::IndexMap;
-use serde::Serialize;
-
-use vector_config::configurable_component;
-pub use vector_lib::config::{
-    AcknowledgementsConfig, DataType, GlobalOptions, Input, LogNamespace,
-    SourceAcknowledgementsConfig, SourceOutput, TransformOutput, WildcardMatching,
-};
-pub use vector_lib::configurable::component::{
-    GenerateConfig, SinkDescription, TransformDescription,
 };
 
 pub mod api;
@@ -50,29 +49,29 @@ mod vars;
 pub mod watcher;
 
 pub use builder::ConfigBuilder;
-pub use cmd::{cmd, Opts};
+pub use cmd::{Opts, cmd};
 pub use diff::ConfigDiff;
 pub use enrichment_table::{EnrichmentTableConfig, EnrichmentTableOuter};
 pub use format::{Format, FormatHint};
 pub use loading::{
-    load, load_builder_from_paths, load_from_paths, load_from_paths_with_provider_and_secrets,
-    load_from_str, load_source_from_paths, merge_path_lists, process_paths, COLLECTOR,
-    CONFIG_PATHS,
+    COLLECTOR, CONFIG_PATHS, load, load_builder_from_paths, load_from_paths,
+    load_from_paths_with_provider_and_secrets, load_from_str, load_source_from_paths,
+    merge_path_lists, process_paths,
 };
 pub use provider::ProviderConfig;
 pub use secret::SecretBackend;
 pub use sink::{BoxedSink, SinkConfig, SinkContext, SinkHealthcheckOptions, SinkOuter};
 pub use source::{BoxedSource, SourceConfig, SourceContext, SourceOuter};
 pub use transform::{
-    get_transform_output_ids, BoxedTransform, TransformConfig, TransformContext, TransformOuter,
+    BoxedTransform, TransformConfig, TransformContext, TransformOuter, get_transform_output_ids,
 };
-pub use unit_test::{build_unit_tests, build_unit_tests_main, UnitTestResult};
+pub use unit_test::{UnitTestResult, build_unit_tests, build_unit_tests_main};
 pub use validation::warnings;
-pub use vars::{interpolate, ENVIRONMENT_VARIABLE_INTERPOLATION_REGEX};
+pub use vars::{ENVIRONMENT_VARIABLE_INTERPOLATION_REGEX, interpolate};
 pub use vector_lib::{
     config::{
-        init_log_schema, init_telemetry, log_schema, proxy::ProxyConfig, telemetry, ComponentKey,
-        LogSchema, OutputId,
+        ComponentKey, LogSchema, OutputId, init_log_schema, init_telemetry, log_schema,
+        proxy::ProxyConfig, telemetry,
     },
     id::Inputs,
 };
@@ -237,16 +236,14 @@ impl Config {
         for (sink, input) in sink_inputs {
             trace!(
                 "Evaluating candidates for acknowledgements from sink {} via input {}",
-                sink,
-                input.component
+                sink, input.component
             );
             let component = &input.component;
             if let Some(source) = self.sources.get_mut(component) {
                 if source.inner.can_acknowledge() {
                     trace!(
                         "Sink {} has source ancestor {} which can acknowledge",
-                        sink,
-                        component,
+                        sink, component,
                     );
 
                     source.sink_acknowledgements = true;
@@ -260,8 +257,7 @@ impl Config {
             } else if let Some(transform) = self.transforms.get(component) {
                 trace!(
                     "Evaluating sink {} transform input {} for ancestor sources to propagate acknowledgements",
-                    sink,
-                    component,
+                    sink, component,
                 );
                 let inputs: Vec<(ComponentKey, OutputId)> = transform
                     .inputs
@@ -354,10 +350,10 @@ impl Resource {
         // Find equality based conflicts
         for (key, resources) in components {
             for resource in resources {
-                if let Resource::Port(address, protocol) = &resource {
-                    if address.ip().is_unspecified() {
-                        unspecified.push((key.clone(), *address, *protocol));
-                    }
+                if let Resource::Port(address, protocol) = &resource
+                    && address.ip().is_unspecified()
+                {
+                    unspecified.push((key.clone(), *address, *protocol));
                 }
 
                 resource_map
@@ -462,7 +458,11 @@ impl TestDefinition<String> {
             .filter_map(|(extract_from, conditions)| {
                 let mut outputs = Vec::new();
                 for from in extract_from {
-                    if let Some(output_id) = output_map.get(&from) {
+                    if no_outputs_from.contains(&from) {
+                        errors.push(format!(
+                            r#"Invalid extract_from target in test '{name}': '{from}' listed in no_outputs_from"#
+                        ));
+                    } else if let Some(output_id) = output_map.get(&from) {
                         outputs.push(output_id.clone());
                     } else {
                         errors.push(format!(
@@ -607,10 +607,10 @@ pub struct TestOutput<T: 'static = OutputId> {
 mod tests {
     use std::{collections::HashMap, path::PathBuf};
 
-    use crate::{config, topology};
     use indoc::indoc;
 
-    use super::{builder::ConfigBuilder, format, load_from_str, ComponentKey, ConfigDiff, Format};
+    use super::{ComponentKey, ConfigDiff, Format, builder::ConfigBuilder, format, load_from_str};
+    use crate::{config, topology};
 
     async fn load(config: &str, format: config::Format) -> Result<Vec<String>, Vec<String>> {
         match config::load_from_str(config, format) {
@@ -1366,12 +1366,13 @@ mod resource_config_tests {
     use indoc::indoc;
     use vector_lib::configurable::schema::generate_root_schema;
 
-    use super::{load_from_str, Format};
+    use super::{Format, load_from_str};
 
     #[test]
     fn config_conflict_detected() {
-        assert!(load_from_str(
-            indoc! {r#"
+        assert!(
+            load_from_str(
+                indoc! {r#"
                 [sources.in0]
                   type = "stdin"
 
@@ -1383,9 +1384,10 @@ mod resource_config_tests {
                   inputs = ["in0","in1"]
                   encoding.codec = "json"
             "#},
-            Format::Toml,
-        )
-        .is_err());
+                Format::Toml,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1393,10 +1395,10 @@ mod resource_config_tests {
     #[allow(clippy::print_stdout)]
     #[allow(clippy::print_stderr)]
     fn generate_component_config_schema() {
-        use crate::config::{SinkOuter, SourceOuter, TransformOuter};
         use indexmap::IndexMap;
-        use vector_lib::config::ComponentKey;
-        use vector_lib::configurable::configurable_component;
+        use vector_lib::{config::ComponentKey, configurable::configurable_component};
+
+        use crate::config::{SinkOuter, SourceOuter, TransformOuter};
 
         /// Top-level Vector configuration.
         #[configurable_component]

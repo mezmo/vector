@@ -1,7 +1,7 @@
 use metrics::counter;
 use vector_lib::{
     emit,
-    internal_event::{ComponentEventsDropped, InternalEvent, INTENTIONAL},
+    internal_event::{ComponentEventsDropped, INTENTIONAL, InternalEvent},
 };
 
 pub struct MezmoTagCardinalityLimitRejectingEvent<'a> {

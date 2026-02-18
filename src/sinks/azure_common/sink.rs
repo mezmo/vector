@@ -1,7 +1,8 @@
 use std::fmt;
 
-use crate::sinks::{prelude::*, util::partitioner::KeyPartitioner};
 use vector_lib::{event::Event, partition::Partitioner};
+
+use crate::sinks::{prelude::*, util::partitioner::KeyPartitioner};
 
 // MEZMO: added dependency for s3-sink file consolidation
 use crate::sinks::azure_blob::file_consolidator_async::FileConsolidatorAsync;

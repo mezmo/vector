@@ -3,7 +3,7 @@ use chrono::Utc;
 use fakedata_generator::gen_ipv4;
 use faker_rand::en_us::internet::{Domain, Username};
 use lazy_static::lazy_static;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use rand_distr::Normal;
 use serde::Serialize;
 
@@ -49,13 +49,34 @@ const HTTP_CODES: [(usize, f32); 10] = [
 ];
 
 const USER_AGENTS: [(&str, f32); 7] = [
-    ("Mozilla/5.0 (Linux; Android 5.1.1; SM-G361H Build/LMY48B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.91 Mobile Safari/537.36", 2.5),
-    ("Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_2 like Mac OS X) AppleWebKit/603.2.4 (KHTML, like Gecko) Version/10.0 Mobile/14F89 Safari/602.1", 3.0),
-    ("Mozilla/5.0 (Linux; Android 8.0.0; SAMSUNG SM-G950F Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/8.2 Chrome/63.0.3239.111 Mobile Safari/537.36", 2.5),
-    ("Mozilla/5.0 (Android 7.1.1; Mobile; rv:64.0) Gecko/64.0 Firefox/64.0", 0.3),
-    ("Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:15.0) Gecko/20100101 Firefox/15.0.1", 0.2),
-    ("Mozilla/5.0 (X11; CrOS x86_64 8172.45.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.64 Safari/537.36", 1.0),
-    ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246", 0.5)
+    (
+        "Mozilla/5.0 (Linux; Android 5.1.1; SM-G361H Build/LMY48B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.91 Mobile Safari/537.36",
+        2.5,
+    ),
+    (
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 10_3_2 like Mac OS X) AppleWebKit/603.2.4 (KHTML, like Gecko) Version/10.0 Mobile/14F89 Safari/602.1",
+        3.0,
+    ),
+    (
+        "Mozilla/5.0 (Linux; Android 8.0.0; SAMSUNG SM-G950F Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/8.2 Chrome/63.0.3239.111 Mobile Safari/537.36",
+        2.5,
+    ),
+    (
+        "Mozilla/5.0 (Android 7.1.1; Mobile; rv:64.0) Gecko/64.0 Firefox/64.0",
+        0.3,
+    ),
+    (
+        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:15.0) Gecko/20100101 Firefox/15.0.1",
+        0.2,
+    ),
+    (
+        "Mozilla/5.0 (X11; CrOS x86_64 8172.45.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.64 Safari/537.36",
+        1.0,
+    ),
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246",
+        0.5,
+    ),
 ];
 
 const BASE_PATH_SEGMENT: [(&str, f32); 6] = [
@@ -116,7 +137,7 @@ pub fn apache_common_log_line() -> String {
 
 pub fn nginx_access_log_line() -> String {
     let user_agent = choose_weighted(&USER_AGENTS);
-    let referer = thread_rng().gen::<Domain>().to_string();
+    let referer: Domain = thread_rng().sample(rand::distributions::Standard);
 
     // This combined format mirrors what the VRL `parse_nginx_log` is capable of
     // parsing: https://github.com/answerbook/vector/blob/e4b96c57c6c62d91a3d53d1d327cba9501e342f3/lib/vrl/stdlib/src/parse_nginx_log.rs#L81
@@ -147,8 +168,12 @@ pub fn json_access_log_line() -> JsonAccessLog {
     let status = choose_weighted(&HTTP_CODES);
     let protocol = choose_weighted(&HTTP_VERSIONS).to_string();
     let datetime = format!("{}", Utc::now().format(JSON_TIME_FORMAT));
-    let user_identifier = thread_rng().gen::<Username>().to_string();
-    let referer = thread_rng().gen::<Domain>().to_string();
+    let user_identifier = thread_rng()
+        .sample::<Username, _>(rand::distributions::Standard)
+        .to_string();
+    let referer = thread_rng()
+        .sample::<Domain, _>(rand::distributions::Standard)
+        .to_string();
     JsonAccessLog {
         host: gen_ipv4(),
         user_identifier,

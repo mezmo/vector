@@ -51,6 +51,9 @@ pipeline {
     ENVIRONMENT_AUTOBUILD = 'false'
     ENVIRONMENT_TTY = 'false'
     CI = 'true'
+    RUST_BACKTRACE = 'full'
+    RUST_LOG = 'debug'
+    RUST_TEST_NOCAPTURE = '1'
     VECTOR_TARGET = "${BRANCH_BUILD}-target"
     VECTOR_CARGO_CACHE = "${BRANCH_BUILD}-cargo"
     VECTOR_RUSTUP_CACHE = "${BRANCH_BUILD}-rustup"

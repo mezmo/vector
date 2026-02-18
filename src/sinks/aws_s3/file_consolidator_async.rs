@@ -2,7 +2,7 @@ use aws_types::region::Region;
 use tokio::task::JoinHandle;
 use vector_lib::configurable::configurable_component;
 
-use crate::aws::{create_client, AwsAuthentication, AwsTimeout};
+use crate::aws::{AwsAuthentication, AwsTimeout, create_client};
 use crate::common::s3::S3ClientBuilder;
 use crate::config::ProxyConfig;
 use crate::sinks::aws_s3::file_consolidation_processor::FileConsolidationProcessor;

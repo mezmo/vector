@@ -70,7 +70,7 @@ export CURRENT_DIR = $(shell pwd)
 # Override this to automatically enter a container containing the correct, full, official build environment for Vector, ready for development
 export ENVIRONMENT ?= false
 # The upstream container we publish artifacts to on a successful master build.
-export ENVIRONMENT_UPSTREAM ?= us.gcr.io/logdna-k8s/vector-dev:10
+export ENVIRONMENT_UPSTREAM ?= us.gcr.io/logdna-k8s/vector-dev:11
 # Override to disable building the container, having it pull from the Github packages repo instead
 # TODO: Disable this by default. Blocked by `docker pull` from Github Packages requiring authenticated login
 export ENVIRONMENT_AUTOBUILD ?= true
@@ -313,8 +313,9 @@ CARGO_HANDLES_FRESHNESS:
 cross-image-%: export TRIPLE =$($(strip @):cross-image-%=%)
 cross-image-%:
 	$(CONTAINER_TOOL) build \
+		--build-arg TARGET=${TRIPLE} \
+		--file scripts/cross/Dockerfile \
 		--tag vector-cross-env:${TRIPLE} \
-		--file scripts/cross/${TRIPLE}.dockerfile \
 		.
 
 # This is basically a shorthand for folks.
@@ -519,7 +520,7 @@ check-component-features: ## Check that all component features are setup properl
 
 .PHONY: check-clippy
 check-clippy: ## Check code with Clippy
-	$(call MAYBE_ENVIRONMENT_EXEC,cargo vdev check rust --clippy)
+	$(call MAYBE_ENVIRONMENT_EXEC,cargo vdev check rust)
 
 .PHONY: check-docs
 check-docs: ## Check that all /docs file are valid
@@ -770,3 +771,15 @@ cargo-install-%:
 .PHONY: ci-generate-publish-metadata
 ci-generate-publish-metadata: ## Generates the necessary metadata required for building/publishing Vector.
 	cargo vdev build publish-metadata
+
+.PHONY: clippy-fix
+clippy-fix:
+	${MAYBE_ENVIRONMENT_EXEC} cargo vdev check rust --fix
+
+.PHONY: fmt
+fmt:
+	${MAYBE_ENVIRONMENT_EXEC} cargo vdev fmt
+
+.PHONY: build-licenses
+build-licenses:
+	${MAYBE_ENVIRONMENT_EXEC} cargo vdev build licenses

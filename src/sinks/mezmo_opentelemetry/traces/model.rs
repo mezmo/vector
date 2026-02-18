@@ -1,8 +1,8 @@
 use crate::sinks::mezmo_opentelemetry::{
     models::{
-        value_to_system_time, OpentelemetryAttributes, OpentelemetryModelMatch,
-        OpentelemetryModelType, OpentelemetryResource, OpentelemetryScope, OpentelemetrySpanId,
-        OpentelemetryTraceFlags, OpentelemetryTraceId, OpentelemetryTraceState,
+        OpentelemetryAttributes, OpentelemetryModelMatch, OpentelemetryModelType,
+        OpentelemetryResource, OpentelemetryScope, OpentelemetrySpanId, OpentelemetryTraceFlags,
+        OpentelemetryTraceId, OpentelemetryTraceState, value_to_system_time,
     },
     sink::OpentelemetrySinkError,
 };
@@ -285,11 +285,11 @@ mod test {
     use crate::event::Value;
     use chrono::DateTime;
     use opentelemetry::{
+        KeyValue,
         trace::{
             Event as TraceEvent, Link, SpanContext, SpanId, SpanKind, Status, TraceFlags, TraceId,
             TraceState,
         },
-        KeyValue,
     };
     use opentelemetry_sdk::{Resource, Scope};
     use vector_lib::event::{Event, EventMetadata, LogEvent};

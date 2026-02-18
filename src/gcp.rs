@@ -5,22 +5,27 @@ use std::{
     time::Duration,
 };
 
-use base64::prelude::{Engine as _, BASE64_URL_SAFE};
+use base64::prelude::{BASE64_URL_SAFE, Engine as _};
 pub use goauth::scopes::Scope;
 use goauth::{
+    GoErr,
     auth::{JwtClaims, Token, TokenErr},
     credentials::Credentials,
-    GoErr,
 };
-use http::{uri::PathAndQuery, Uri};
+use http::{Uri, uri::PathAndQuery};
 use hyper::header::AUTHORIZATION;
 use smpl_jwt::Jwt;
 use snafu::{ResultExt, Snafu};
 use tokio::sync::watch;
-use vector_lib::configurable::configurable_component;
-use vector_lib::sensitive_string::SensitiveString;
+use vector_lib::{configurable::configurable_component, sensitive_string::SensitiveString};
 
-use crate::http::HttpError;
+use crate::{
+    config::ProxyConfig,
+    http::{HttpClient, HttpError},
+};
+
+const SERVICE_ACCOUNT_TOKEN_URL: &str =
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
 
 // See https://cloud.google.com/compute/docs/access/authenticate-workloads#applications
 const METADATA_TOKEN_EXPIRY_MARGIN_SECS: u64 = 200;
@@ -50,6 +55,8 @@ pub enum GcpError {
     GetToken { source: GoErr },
     #[snafu(display("Failed to get OAuth token text: {}", source))]
     GetTokenBytes { source: hyper::Error },
+    #[snafu(display("Failed to parse OAuth token JSON: {}", source))]
+    GetImplicitToken { source: HttpError },
     #[snafu(display("Failed to parse OAuth token JSON: {}", source))]
     TokenFromJson { source: TokenErr },
     #[snafu(display("Failed to parse OAuth token JSON text: {}", source))]
@@ -113,7 +120,8 @@ impl GcpAuthConfig {
         Ok(if self.skip_authentication {
             GcpAuthenticator::None
         } else {
-            let creds_path = self.credentials_path.as_ref();
+            let gap = std::env::var("GOOGLE_APPLICATION_CREDENTIALS").ok();
+            let creds_path = self.credentials_path.as_ref().or(gap.as_ref());
             match (&creds_path, &self.credentials_json, &self.api_key) {
                 (Some(path), _, _) => GcpAuthenticator::from_file(path, scope).await?,
                 (None, Some(credentials_json), _) => {
@@ -251,11 +259,11 @@ impl GcpAuthenticator {
 
 impl InnerCreds {
     async fn regenerate_token(&self) -> crate::Result<()> {
-        if let Some((creds, scope)) = &self.creds {
-            let token = fetch_token(creds, scope).await?;
-            *self.token.write().unwrap() = token;
+        let token = match &self.creds {
+            Some((creds, scope)) => fetch_token(creds, scope).await?,
+            None => get_token_implicit().await?,
         };
-
+        *self.token.write().unwrap() = token;
         Ok(())
     }
 
@@ -266,7 +274,13 @@ impl InnerCreds {
 }
 
 async fn fetch_token(creds: &Credentials, scope: &Scope) -> crate::Result<Token> {
-    let claims = JwtClaims::new(creds.iss(), &[scope.clone()], creds.token_uri(), None, None);
+    let claims = JwtClaims::new(
+        creds.iss(),
+        std::slice::from_ref(scope),
+        creds.token_uri(),
+        None,
+        None,
+    );
     let rsa_key = creds.rsa_key().context(InvalidRsaKeySnafu)?;
     let jwt = Jwt::new(claims, rsa_key, None);
 
@@ -280,6 +294,35 @@ async fn fetch_token(creds: &Credentials, scope: &Scope) -> crate::Result<Token>
         .await
         .context(GetTokenSnafu)
         .map_err(Into::into)
+}
+
+async fn get_token_implicit() -> Result<Token, GcpError> {
+    debug!("Fetching implicit GCP authentication token.");
+    let req = http::Request::get(SERVICE_ACCOUNT_TOKEN_URL)
+        .header("Metadata-Flavor", "Google")
+        .body(hyper::Body::empty())
+        .unwrap();
+
+    let proxy = ProxyConfig::from_env();
+    let res = HttpClient::new(None, &proxy)
+        .context(BuildHttpClientSnafu)?
+        .send(req)
+        .await
+        .context(GetImplicitTokenSnafu)?;
+
+    let body = res.into_body();
+    let bytes = hyper::body::to_bytes(body)
+        .await
+        .context(GetTokenBytesSnafu)?;
+
+    // Token::from_str is irresponsible and may panic!
+    match serde_json::from_slice::<Token>(&bytes) {
+        Ok(token) => Ok(token),
+        Err(error) => Err(match serde_json::from_slice::<TokenErr>(&bytes) {
+            Ok(error) => GcpError::TokenFromJson { source: error },
+            Err(_) => GcpError::TokenJsonFromStr { source: error },
+        }),
+    }
 }
 
 #[cfg(test)]

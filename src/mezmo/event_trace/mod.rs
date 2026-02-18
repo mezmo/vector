@@ -268,9 +268,11 @@ mod tests {
             .expect("trace object should be an array value");
         assert_eq!(1, actual.len());
         assert!(actual[0].get("elapsed").is_some_and(Value::is_integer));
-        assert!(actual[0]
-            .get("id")
-            .is_some_and(|v| v.as_str().expect("node is a string") == "node-1"));
+        assert!(
+            actual[0]
+                .get("id")
+                .is_some_and(|v| v.as_str().expect("node is a string") == "node-1")
+        );
     }
 
     #[derive(Clone)]
@@ -332,11 +334,15 @@ mod tests {
             .as_array()
             .expect("trace object should be an array value");
         assert_eq!(1, trace.len());
-        assert!(trace[0]
-            .get("elapsed")
-            .is_some_and(|v| v.as_integer().expect("elapsed is an integer") > -1));
-        assert!(trace[0]
-            .get("id")
-            .is_some_and(|v| v.as_str().expect("node is a string") == "node-1"));
+        assert!(
+            trace[0]
+                .get("elapsed")
+                .is_some_and(|v| v.as_integer().expect("elapsed is an integer") > -1)
+        );
+        assert!(
+            trace[0]
+                .get("id")
+                .is_some_and(|v| v.as_str().expect("node is a string") == "node-1")
+        );
     }
 }
