@@ -3,11 +3,11 @@ use crate::mezmo;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::future::join_all;
-use http::{header, HeaderName, HeaderValue};
+use http::{HeaderName, HeaderValue, header};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::IntoIter;
 use std::collections::HashMap;
+use std::collections::hash_map::IntoIter;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -20,10 +20,8 @@ use uuid::Uuid;
 use vector_common::internal_event::emit;
 use vector_common::internal_event::usage_metrics::InsertFailed;
 
-const INSERT_BILLING_QUERY: &str =
-    "INSERT INTO usage_metrics (event_ts, account_id, pipeline_id, component_id, processor, metric, value) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
-const INSERT_PROFILES_QUERY: &str =
-    "INSERT INTO usage_metrics_by_annotations (ts, account_id, component_id, count, size, annotations) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING";
+const INSERT_BILLING_QUERY: &str = "INSERT INTO usage_metrics (event_ts, account_id, pipeline_id, component_id, processor, metric, value) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
+const INSERT_PROFILES_QUERY: &str = "INSERT INTO usage_metrics_by_annotations (ts, account_id, component_id, count, size, annotations) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING";
 
 const DB_MAX_PARALLEL_EXECUTIONS: usize = 8;
 const VECTOR_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -296,17 +294,18 @@ impl HttpFlusher {
                         break;
                     }
                     if attempt == 1 {
-                        warn!(message = format!(
-                            "Usage metrics could not be stored due to a {:?} on the first attempt, retrying",
-                            e
-                        ));
+                        warn!(
+                            message = format!(
+                                "Usage metrics could not be stored due to a {:?} on the first attempt, retrying",
+                                e
+                            )
+                        );
                     }
                     if attempt % 10 == 0 {
                         error!(
                             message = format!(
                                 "Usage metrics could not be stored due to a {:?} after {} attempts, retrying",
-                                e,
-                                attempt
+                                e, attempt
                             )
                         );
                     }
@@ -445,9 +444,9 @@ mod tests {
 
     use super::*;
     use httptest::{
+        Expectation, Server,
         matchers::{all_of, json_decoded, request},
         responders::{cycle, status_code},
-        Expectation, Server,
     };
 
     static HTTP_FLUSHER_PATH: &str = "/v1/http-flusher-test";

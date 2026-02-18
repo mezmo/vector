@@ -1,6 +1,9 @@
-use vector_lib::config::{clone_input_definitions, LogNamespace};
-use vector_lib::configurable::configurable_component;
+use vector_lib::{
+    config::{LogNamespace, clone_input_definitions},
+    configurable::configurable_component,
+};
 
+use super::transform::Window;
 use crate::{
     conditions::AnyCondition,
     config::{
@@ -10,8 +13,6 @@ use crate::{
     schema,
     transforms::Transform,
 };
-
-use super::transform::Window;
 
 /// Configuration for the `window` transform.
 #[configurable_component(transform(
@@ -65,9 +66,9 @@ impl TransformConfig for WindowConfig {
             Window::new(
                 self.forward_when
                     .as_ref()
-                    .map(|condition| condition.build(&context.enrichment_tables))
+                    .map(|condition| condition.build(&context.enrichment_tables, None))
                     .transpose()?,
-                self.flush_when.build(&context.enrichment_tables)?,
+                self.flush_when.build(&context.enrichment_tables, None)?,
                 self.num_events_before,
                 self.num_events_after,
             )

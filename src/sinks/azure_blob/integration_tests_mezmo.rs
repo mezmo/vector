@@ -3,8 +3,8 @@
 #![cfg(all(test, feature = "azure-blob-integration-tests"))]
 
 use bytes::{Bytes, BytesMut};
-use flate2::read::GzEncoder;
 use flate2::Compression;
+use flate2::read::GzEncoder;
 use std::io::Read;
 
 use crate::template::Template;
@@ -12,15 +12,15 @@ use crate::test_util::{random_message_object_events_with_stream, random_string};
 use assay::assay;
 use std::{collections::BTreeMap, thread, time};
 use vector_lib::codecs::{
-    encoding::format::JsonSerializerOptions, JsonSerializerConfig, MetricTagValues,
-    NewlineDelimitedEncoderConfig,
+    JsonSerializerConfig, MetricTagValues, NewlineDelimitedEncoderConfig,
+    encoding::format::JsonSerializerOptions,
 };
 
 // Use THEIR implementation - reduces code copying
 use super::integration_tests::AzureBlobSinkConfig;
 use crate::mezmo::reshape_log_event_by_message;
 
-use super::file_consolidation_processor::{get_files_to_consolidate, FileConsolidationProcessor};
+use super::file_consolidation_processor::{FileConsolidationProcessor, get_files_to_consolidate};
 use super::file_consolidator_async::{FileConsolidationConfig, FileConsolidatorAsync};
 
 #[assay(
@@ -142,7 +142,7 @@ async fn azure_file_consolidator_enabled_run() {
     let config = get_test_config(None, None).await;
 
     let mut fc = FileConsolidatorAsync::new(
-        config.connection_string,
+        Some(config.connection_string),
         config.container_name,
         FileConsolidationConfig {
             enabled: true,

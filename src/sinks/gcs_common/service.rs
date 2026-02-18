@@ -5,13 +5,15 @@ use bytes::Bytes;
 use futures::future;
 use futures::future::BoxFuture;
 use http::{
-    header::{HeaderName, HeaderValue},
     Request, Uri,
+    header::{HeaderName, HeaderValue},
 };
 use hyper::Body;
 use tower::Service;
-use vector_lib::request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata};
-use vector_lib::stream::DriverResponse;
+use vector_lib::{
+    request_metadata::{GroupedCountByteSize, MetaDescriptive, RequestMetadata},
+    stream::DriverResponse,
+};
 use vrl::value::Value;
 
 use crate::{

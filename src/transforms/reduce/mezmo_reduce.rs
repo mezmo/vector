@@ -7,7 +7,7 @@
 use rand::Rng;
 use std::collections::BTreeMap;
 use std::{
-    collections::{hash_map, HashMap},
+    collections::{HashMap, hash_map},
     mem,
     num::NonZeroUsize,
     pin::Pin,
@@ -20,24 +20,24 @@ use crate::event::{KeyString, Value};
 use crate::{
     conditions::{AnyCondition, Condition},
     config::{DataType, Input, TransformConfig, TransformContext},
-    event::{discriminant::Discriminant, Event, EventMetadata, LogEvent},
+    event::{Event, EventMetadata, LogEvent, discriminant::Discriminant},
     internal_events::ReduceStaleEventFlushed,
     mezmo::persistence::{PersistenceConnection, RocksDBPersistenceConnection},
     transforms::{TaskTransform, Transform},
 };
 use async_stream::stream;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
-use futures::{stream, Stream, StreamExt};
+use futures::{Stream, StreamExt, stream};
 use indexmap::IndexMap;
 use serde_with::serde_as;
-use vector_lib::config::{log_schema, LogNamespace, OutputId, TransformOutput};
+use vector_lib::config::{LogNamespace, OutputId, TransformOutput, log_schema};
 use vector_lib::configurable::configurable_component;
-use vector_lib::lookup::lookup_v2::{parse_target_path, OwnedSegment};
+use vector_lib::lookup::lookup_v2::{OwnedSegment, parse_target_path};
 use vector_lib::lookup::owned_value_path;
 use vector_lib::schema::Definition;
 
 mod persistence;
-use persistence::{load_initial_state, persist_runtime_state, PersistedState};
+use persistence::{PersistedState, load_initial_state, persist_runtime_state};
 
 /// Configuration for the `mezmo_reduce` transform.
 #[serde_as]
@@ -407,52 +407,52 @@ impl ReduceState {
             let start_str = date_prop.as_str();
             let end_str = end_prop.as_str();
 
-            if let Some(Value::Timestamp(start_date)) = message_obj.get(start_str) {
-                if let Some(Value::Timestamp(end_date)) = message_obj.get(end_str) {
-                    let start_date_string = start_date.format(format).to_string();
-                    let end_date_string = end_date.format(format).to_string();
+            if let Some(Value::Timestamp(start_date)) = message_obj.get(start_str)
+                && let Some(Value::Timestamp(end_date)) = message_obj.get(end_str)
+            {
+                let start_date_string = start_date.format(format).to_string();
+                let end_date_string = end_date.format(format).to_string();
 
-                    let date_kind = self.mezmo_metadata.get_date_kind(start_str);
+                let date_kind = self.mezmo_metadata.get_date_kind(start_str);
 
-                    let (coerced_start_value, coerced_end_value) = match date_kind.as_str() {
-                        "string" => {
-                            debug!(
-                                message = "Coercing date back into string",
-                                start_date_string, end_date_string
-                            );
-                            (Value::from(start_date_string), Value::from(end_date_string))
-                        }
-                        "integer" => {
-                            debug!(
-                                message = "Coercing date back to integer",
-                                start_date_string, end_date_string
-                            );
-                            let start_val = start_date_string
+                let (coerced_start_value, coerced_end_value) = match date_kind.as_str() {
+                    "string" => {
+                        debug!(
+                            message = "Coercing date back into string",
+                            start_date_string, end_date_string
+                        );
+                        (Value::from(start_date_string), Value::from(end_date_string))
+                    }
+                    "integer" => {
+                        debug!(
+                            message = "Coercing date back to integer",
+                            start_date_string, end_date_string
+                        );
+                        let start_val = start_date_string
                             .parse::<i64>().map(Value::from)
                             .unwrap_or_else(|error| {
                                 warn!(message = "Could not coerce start date back into an integer Value", date_prop, %error);
                                 Value::from(start_date_string)
                             });
-                            let end_val = end_date_string
+                        let end_val = end_date_string
                             .parse::<i64>().map(Value::from)
                             .unwrap_or_else(|error| {
                                 warn!(message = "Could not coerce end date back into an integer Value", end_prop, %error);
                                 Value::from(end_date_string)
                             });
 
-                            (start_val, end_val)
-                        }
-                        _ => {
-                            warn!(
-                                message = "mezmo_meta did not contain prop kind for date property",
-                                date_prop
-                            );
-                            continue;
-                        }
-                    };
-                    message_obj.insert(start_str, coerced_start_value);
-                    message_obj.insert(end_str, coerced_end_value);
-                }
+                        (start_val, end_val)
+                    }
+                    _ => {
+                        warn!(
+                            message = "mezmo_meta did not contain prop kind for date property",
+                            date_prop
+                        );
+                        continue;
+                    }
+                };
+                message_obj.insert(start_str, coerced_start_value);
+                message_obj.insert(end_str, coerced_end_value);
             }
         }
     }
@@ -620,7 +620,8 @@ impl MezmoReduce {
                 debug!(message = "Flushing based on started_at exceeding expire_after_ms");
                 flush_discriminants.insert(state.started_at, discriminant.clone());
             } else if state.size_estimate > self.byte_threshold_per_state {
-                warn!("Flushing because the state size of {} has exceeded the per-state threshold of {}",
+                warn!(
+                    "Flushing because the state size of {} has exceeded the per-state threshold of {}",
                     state.size_estimate, self.byte_threshold_per_state
                 );
                 flush_discriminants.insert(state.started_at, discriminant.clone());
@@ -915,12 +916,12 @@ pub fn get_root_property_name_from_path(
             } else {
                 let mut segments = target_path.path.segments;
                 // Ignore schema prefixes, which are valid VRL but not relevant to reduce
-                if let Some(OwnedSegment::Field(first_element)) = segments.first() {
-                    if first_element.as_str() == log_schema().message_key().unwrap().to_string().as_str() {
+                if let Some(OwnedSegment::Field(first_element)) = segments.first()
+                    && first_element.as_str() == log_schema().message_key().unwrap().to_string().as_str()
+                {
                         segments.remove(0);
                         field_count = segments.len();
                     }
-                }
                 match segments.first() {
                     Some(OwnedSegment::Field(root_field)) => {
                         if field_count == 1 {
@@ -1484,9 +1485,10 @@ max_events = 0
 
         match reduce_config {
             Ok(_conf) => unreachable!("max_events=0 should be rejected."),
-            Err(err) => assert!(err
-                .to_string()
-                .contains("invalid value: integer `0`, expected a nonzero usize")),
+            Err(err) => assert!(
+                err.to_string()
+                    .contains("invalid value: integer `0`, expected a nonzero usize")
+            ),
         }
     }
 

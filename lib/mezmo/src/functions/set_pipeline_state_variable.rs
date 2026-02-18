@@ -2,6 +2,7 @@ use crate::{set_pipeline_state_variable, MezmoContext};
 use enrichment::{
     vrl_util::Error as EnrichmentTableError, Case, Condition, TableRegistry, TableSearch,
 };
+use std::slice;
 use tracing::{debug, warn};
 use vrl::prelude::*;
 
@@ -127,7 +128,7 @@ impl FunctionExpression for SetPipelineStateVariableFn {
             "state_variables",
             Case::Sensitive, // unused
             &conditions,
-            Some(&[name.clone()]),
+            Some(slice::from_ref(&name)),
             None, // wildcards aren't used
             None, // indexes aren't used
         ) {

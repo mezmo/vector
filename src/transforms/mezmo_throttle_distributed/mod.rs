@@ -12,8 +12,8 @@ use crate::{
 };
 use async_stream::stream;
 use futures::{Stream, StreamExt};
-use mezmo::{user_trace::handle_transform_error, MezmoContext};
-use redis::{aio::ConnectionManager, ErrorKind, RedisError, RedisResult, Script};
+use mezmo::{MezmoContext, user_trace::handle_transform_error};
+use redis::{ErrorKind, RedisError, RedisResult, Script, aio::ConnectionManager};
 use snafu::Snafu;
 use std::num::NonZeroU32;
 use std::pin::Pin;

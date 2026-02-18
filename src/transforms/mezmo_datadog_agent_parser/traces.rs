@@ -7,7 +7,7 @@ use crate::event::{Event, MaybeAsLogMut, ObjectMap, Value};
 use crate::internal_events::{
     MezmoDatadogAgentParserDroppedSpan, MezmoDatadogAgentParserInvalidItem,
 };
-use crate::transforms::mezmo_datadog_agent_parser::common::{parse_timestamp, TimestampUnit};
+use crate::transforms::mezmo_datadog_agent_parser::common::{TimestampUnit, parse_timestamp};
 
 use super::common::get_message_object;
 use super::{MezmoDatadogAgentParser, TransformDatadogEvent, TransformDatadogEventError};
@@ -43,7 +43,7 @@ impl TransformDatadogEvent for DatadogTraceEvent {
                 return Err(TransformDatadogEventError::from(
                     event,
                     &format!("Unsupported payload version: {version}"),
-                ))
+                ));
             }
         };
 
@@ -248,15 +248,15 @@ fn build_v1_traces(tracer_payload: &ObjectMap) -> Result<Vec<TraceEvent>, String
         {
             event.insert(event_path!("agent_version"), val.clone());
         }
-        if let Some(val) = tracer_payload.get("targetTPS").and_then(value_to_f64) {
-            if let Ok(target_tps) = NotNan::new(val) {
-                event.insert(event_path!("target_tps"), Value::Float(target_tps));
-            }
+        if let Some(val) = tracer_payload.get("targetTPS").and_then(value_to_f64)
+            && let Ok(target_tps) = NotNan::new(val)
+        {
+            event.insert(event_path!("target_tps"), Value::Float(target_tps));
         }
-        if let Some(val) = tracer_payload.get("errorTPS").and_then(value_to_f64) {
-            if let Ok(error_tps) = NotNan::new(val) {
-                event.insert(event_path!("error_tps"), Value::Float(error_tps));
-            }
+        if let Some(val) = tracer_payload.get("errorTPS").and_then(value_to_f64)
+            && let Ok(error_tps) = NotNan::new(val)
+        {
+            event.insert(event_path!("error_tps"), Value::Float(error_tps));
         }
         if let Some(sampler_enabled) = tracer_payload
             .get("rareSamplerEnabled")

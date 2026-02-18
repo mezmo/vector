@@ -1,7 +1,7 @@
 use std::io;
 
 use crate::sinks::prelude::*;
-use crate::sinks::util::encoding::{as_tracked_write, Encoder};
+use crate::sinks::util::encoding::{Encoder, as_tracked_write};
 
 use super::{
     logs::encoding::encode as encode_log, metrics::encoding::encode as encode_metrics,

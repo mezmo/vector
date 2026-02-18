@@ -11,12 +11,11 @@ fn get_tag_value<'a>(
     iter: impl Iterator<Item = BorrowedSegment<'a>> + Clone,
 ) -> Option<Value> {
     let mut iter = iter.peekable();
-    if let Some(tags) = tags {
-        if let Some(BorrowedSegment::Field(tag_name)) = iter.next().as_ref() {
-            if iter.peek().is_none() {
-                return tags.get(tag_name).map(Value::from);
-            }
-        }
+    if let Some(tags) = tags
+        && let Some(BorrowedSegment::Field(tag_name)) = iter.next().as_ref()
+        && iter.peek().is_none()
+    {
+        return tags.get(tag_name).map(Value::from);
     }
     None
 }
@@ -28,11 +27,12 @@ fn get_metric_value<'a>(
     let mut iter = iter.peekable();
     match value {
         MetricValue::Counter { value } | MetricValue::Gauge { value } => {
-            if let Some(BorrowedSegment::Field(tag_name)) = iter.next().as_ref() {
-                if iter.peek().is_none() && tag_name == "value" {
-                    let value: Option<NotNan<f64>> = NotNan::from_f64(*value);
-                    return value.map(Value::from);
-                }
+            if let Some(BorrowedSegment::Field(tag_name)) = iter.next().as_ref()
+                && iter.peek().is_none()
+                && tag_name == "value"
+            {
+                let value: Option<NotNan<f64>> = NotNan::from_f64(*value);
+                return value.map(Value::from);
             }
         }
         _ => {

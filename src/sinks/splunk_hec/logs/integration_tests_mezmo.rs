@@ -5,23 +5,23 @@ use crate::{
     sinks::{
         splunk_hec::{
             common::{
-                integration_test_helpers::{get_token, splunk_api_address, splunk_hec_address},
                 EndpointTarget,
+                integration_test_helpers::{get_token, splunk_api_address, splunk_hec_address},
             },
             logs::config::HecLogsSinkConfig,
         },
         util::{BatchConfig, Compression, TowerRequestConfig},
     },
     test_util::{
-        components::{run_and_assert_sink_compliance, HTTP_SINK_TAGS},
+        components::{HTTP_SINK_TAGS, run_and_assert_sink_compliance},
         random_message_object_events_with_stream,
     },
 };
 use assay::assay;
 use serde_json::Value as JsonValue;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use vector_lib::codecs::{
-    encoding::format::JsonSerializerOptions, JsonSerializerConfig, MetricTagValues,
+    JsonSerializerConfig, MetricTagValues, encoding::format::JsonSerializerOptions,
 };
 use vector_lib::lookup::lookup_v2::ConfigValuePath;
 

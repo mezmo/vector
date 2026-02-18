@@ -24,8 +24,8 @@ pub use gelf::{GelfDeserializer, GelfDeserializerConfig, GelfDeserializerOptions
 pub use influxdb::{InfluxdbDeserializer, InfluxdbDeserializerConfig};
 pub use json::{JsonDeserializer, JsonDeserializerConfig, JsonDeserializerOptions};
 pub use mezmo::{
-    open_telemetry::{DeserializerError, OpenTelemetryMetricDeserializer},
     MezmoDeserializer,
+    open_telemetry::{DeserializerError, OpenTelemetryMetricDeserializer},
 };
 pub use native::{NativeDeserializer, NativeDeserializerConfig};
 pub use native_json::{
@@ -35,12 +35,12 @@ pub use protobuf::{ProtobufDeserializer, ProtobufDeserializerConfig, ProtobufDes
 use smallvec::SmallVec;
 #[cfg(feature = "syslog")]
 pub use syslog::{SyslogDeserializer, SyslogDeserializerConfig, SyslogDeserializerOptions};
-use vector_core::config::LogNamespace;
-use vector_core::event::Event;
+use vector_core::{config::LogNamespace, event::Event};
 
-pub use self::bytes::{BytesDeserializer, BytesDeserializerConfig};
-
-pub use self::vrl::{VrlDeserializer, VrlDeserializerConfig, VrlDeserializerOptions};
+pub use self::{
+    bytes::{BytesDeserializer, BytesDeserializerConfig},
+    vrl::{VrlDeserializer, VrlDeserializerConfig, VrlDeserializerOptions},
+};
 
 /// Parse structured events from bytes.
 pub trait Deserializer: DynClone + Send + Sync {
@@ -50,11 +50,18 @@ pub trait Deserializer: DynClone + Send + Sync {
     /// frame can potentially hold multiple events, e.g. when parsing a JSON
     /// array. However, we optimize the most common case of emitting one event
     /// by not requiring heap allocations for it.
+    ///
+    /// **Note**: The type of the produced events depends on the implementation.
     fn parse(
         &self,
         bytes: Bytes,
         log_namespace: LogNamespace,
     ) -> vector_common::Result<SmallVec<[Event; 1]>>;
+
+    /// Parses trace events from bytes.
+    fn parse_traces(&self, _bytes: Bytes) -> vector_common::Result<SmallVec<[Event; 1]>> {
+        unimplemented!()
+    }
 }
 
 dyn_clone::clone_trait_object!(Deserializer);

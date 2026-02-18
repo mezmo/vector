@@ -7,7 +7,7 @@ use crate::{
     transforms::Transform,
 };
 use serde_with::serde_as;
-use vector_lib::config::{clone_input_definitions, LogNamespace, OutputId, TransformOutput};
+use vector_lib::config::{LogNamespace, OutputId, TransformOutput, clone_input_definitions};
 use vector_lib::configurable::configurable_component;
 
 /// Configuration for the `mezmo_throttle` transform.

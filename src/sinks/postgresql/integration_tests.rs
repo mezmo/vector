@@ -5,14 +5,14 @@ use crate::sinks::postgresql::config::{
     PostgreSQLConflictsConfig, PostgreSQLFieldConfig, PostgreSQLSchemaConfig, PostgreSQLSinkConfig,
 };
 use crate::sinks::postgresql::sink::PostgreSQLSink;
-use crate::test_util::components::{assert_sink_compliance, SINK_TAGS};
+use crate::test_util::components::{SINK_TAGS, assert_sink_compliance};
 use crate::test_util::{
     generate_events_with_stream, map_event_batch_stream, random_string, trace_init,
 };
 use chrono::{DateTime, SubsecRound, Utc};
-use futures_util::{stream, Stream};
-use serde_json::json;
+use futures_util::{Stream, stream};
 use serde_json::Value as SerdeValue;
+use serde_json::json;
 use std::env;
 use tokio_postgres::{Client, NoTls, Statement};
 use vector_lib::btreemap;
@@ -193,20 +193,24 @@ async fn check_log_events_match(psql_client: &Client, table_name: &str, expected
 
         // Postgres should have coerced the JSON field into a text string for storage
         let serialized_json_field = actual.get::<usize, String>(4);
-        let expected_serialized_json = serde_json::to_string(&json!(expected
-            .value()
-            .get(".serialized_json_field")
-            .expect(".serialized_json_field should exist in the event")))
+        let expected_serialized_json = serde_json::to_string(&json!(
+            expected
+                .value()
+                .get(".serialized_json_field")
+                .expect(".serialized_json_field should exist in the event")
+        ))
         .expect(".serialized_json_field should be serialized JSON");
 
         assert_eq!(serialized_json_field, expected_serialized_json);
 
         // Postgres should return the data as a serde Value to be compared to the `Object` value of `.json_field`
         let json_field: SerdeValue = actual.get::<usize, SerdeValue>(5);
-        let expected_json_value: SerdeValue = json!(expected
-            .value()
-            .get(".json_field")
-            .expect(".json_field should exist in the event"));
+        let expected_json_value: SerdeValue = json!(
+            expected
+                .value()
+                .get(".json_field")
+                .expect(".json_field should exist in the event")
+        );
 
         assert_eq!(json_field, expected_json_value);
     }
@@ -422,7 +426,7 @@ async fn metrics() {
     let events: Vec<_> = (0..num_events)
         .map(|index| {
             let mut metric = Metric::new(
-                format!("counter_{}", index),
+                format!("counter_{index}"),
                 MetricKind::Absolute,
                 MetricValue::Counter {
                     value: index as f64,
@@ -576,7 +580,7 @@ async fn jsonb_value_storage() {
     .await
     .unwrap();
 
-    let stmt = format!("SELECT my_col FROM jsonb_testing");
+    let stmt = "SELECT my_col FROM jsonb_testing".to_string();
     let rows = psql_client.query(&stmt, &[]).await.unwrap();
 
     // Grab all values AS JSON from the DB so that we can retain the types for comparison.
@@ -588,11 +592,8 @@ async fn jsonb_value_storage() {
         assert_eq!(
             row.get::<usize, SerdeValue>(0),
             expected,
-            "{}",
-            format!(
-                "Test case not found in the DB: {:?}",
-                log.get(".name").unwrap().to_string_lossy()
-            )
+            "Test case not found in the DB: {:?}",
+            log.get(".name").unwrap().to_string_lossy()
         );
     }
 }

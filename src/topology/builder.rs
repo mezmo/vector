@@ -6,41 +6,40 @@ use std::{
     time::Instant,
 };
 
-use futures::{stream::FuturesOrdered, FutureExt, StreamExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryStreamExt, stream::FuturesOrdered};
 use futures_util::stream::FuturesUnordered;
 use metrics::gauge;
 use stream_cancel::{StreamExt as StreamCancelExt, Trigger, Tripwire};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::{select, sync::mpsc, sync::oneshot, time::timeout};
 use tracing::Instrument;
-use vector_lib::config::LogNamespace;
-use vector_lib::internal_event::{
-    self, CountByteSize, EventsSent, InternalEventHandle as _, Registered,
-};
-use vector_lib::transform::update_runtime_schema_definition;
 use vector_lib::{
+    EstimatedJsonEncodedSizeOf,
     buffers::{
+        BufferType, WhenFull,
         topology::{
             builder::TopologyBuilder,
             channel::{BufferReceiver, BufferSender},
         },
-        BufferType, WhenFull,
     },
+    config::LogNamespace,
+    internal_event::{self, CountByteSize, EventsSent, InternalEventHandle as _, Registered},
     schema::Definition,
+    transform::update_runtime_schema_definition,
     usage_metrics::{
-        get_component_usage_tracker, get_transform_usage_tracker, OutputUsageTracker, UsageMetrics,
+        OutputUsageTracker, UsageMetrics, get_component_usage_tracker, get_transform_usage_tracker,
     },
-    EstimatedJsonEncodedSizeOf,
 };
 
 use super::{
+    BuiltBuffer, ConfigDiff,
     fanout::{self, Fanout},
     schema,
     task::{Task, TaskOutput, TaskResult},
-    BuiltBuffer, ConfigDiff,
 };
 use crate::mezmo::event_trace::{MezmoSyncTransformTrace, MezmoTaskTransformTrace};
 use crate::{
+    SourceSender,
     config::{
         ComponentKey, Config, DataType, EnrichmentTableConfig, Input, Inputs, OutputId,
         ProxyConfig, SinkContext, SourceContext, TransformContext, TransformOuter, TransformOutput,
@@ -49,12 +48,11 @@ use crate::{
     extra_context::ExtraContext,
     internal_events::EventsReceived,
     shutdown::SourceShutdownCoordinator,
-    source_sender::{SourceSenderItem, CHUNK_SIZE},
+    source_sender::{CHUNK_SIZE, SourceSenderItem},
     spawn_named,
     topology::task::TaskError,
     transforms::{SyncTransform, TaskTransform, Transform, TransformOutputs, TransformOutputsBuf},
-    utilization::{wrap, UtilizationComponentSender, UtilizationEmitter},
-    SourceSender,
+    utilization::{UtilizationComponentSender, UtilizationEmitter, wrap},
 };
 use mezmo::MezmoContext;
 
@@ -104,7 +102,9 @@ impl<'a> Builder<'a> {
             tx
         } else {
             // Create a dummy transmitter to simplify implementation (avoid adapting all test code)
-            warn!("Building pieces with unbounded channel. This may result in an OOM error for long running processes.");
+            warn!(
+                "Building pieces with unbounded channel. This may result in an OOM error for long running processes."
+            );
             let (tx, _) = mpsc::unbounded_channel::<UsageMetrics>();
             tx
         };

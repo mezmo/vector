@@ -1,14 +1,19 @@
-use std::os::fd::{FromRawFd as _, IntoRawFd as _, RawFd};
-use std::{fs::File, io};
+use std::{
+    fs::File,
+    io,
+    os::fd::{FromRawFd as _, IntoRawFd as _, RawFd},
+};
 
-use super::{outputs, FileDescriptorConfig};
-use vector_lib::codecs::decoding::{DeserializerConfig, FramingConfig};
-use vector_lib::config::LogNamespace;
-use vector_lib::configurable::configurable_component;
-use vector_lib::lookup::lookup_v2::OptionalValuePath;
+use vector_lib::{
+    codecs::decoding::{DeserializerConfig, FramingConfig},
+    config::LogNamespace,
+    configurable::configurable_component,
+    lookup::lookup_v2::OptionalValuePath,
+};
 
+use super::{FileDescriptorConfig, outputs};
 use crate::{
-    config::{GenerateConfig, Output, Resource, SourceConfig, SourceContext},
+    config::{GenerateConfig, Resource, SourceConfig, SourceContext, SourceOutput},
     serde::default_decoding,
 };
 /// Configuration for the `file_descriptor` source.
@@ -97,7 +102,7 @@ impl SourceConfig for FileDescriptorSourceConfig {
         self.source(pipe, cx.shutdown, cx.out, log_namespace)
     }
 
-    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<Output> {
+    fn outputs(&self, global_log_namespace: LogNamespace) -> Vec<SourceOutput> {
         let log_namespace = global_log_namespace.merge(self.log_namespace);
 
         outputs(log_namespace, &self.host_key, &self.decoding, Self::NAME)
@@ -114,19 +119,19 @@ impl SourceConfig for FileDescriptorSourceConfig {
 
 #[cfg(test)]
 mod tests {
+    use futures::StreamExt;
     use nix::unistd::{close, pipe, write};
     use vector_lib::lookup::path;
+    use vrl::value;
 
     use super::*;
     use crate::{
+        SourceSender,
         config::log_schema,
         test_util::components::{
-            assert_source_compliance, assert_source_error, COMPONENT_ERROR_TAGS, SOURCE_TAGS,
+            COMPONENT_ERROR_TAGS, SOURCE_TAGS, assert_source_compliance, assert_source_error,
         },
-        SourceSender,
     };
-    use futures::StreamExt;
-    use vrl::value;
 
     #[test]
     fn generate_config() {
@@ -206,10 +211,11 @@ mod tests {
                 meta.get(path!("vector", "source_type")).unwrap(),
                 &value!("file_descriptor")
             );
-            assert!(meta
-                .get(path!("vector", "ingest_timestamp"))
-                .unwrap()
-                .is_timestamp());
+            assert!(
+                meta.get(path!("vector", "ingest_timestamp"))
+                    .unwrap()
+                    .is_timestamp()
+            );
 
             let event = stream.next().await;
             let event = event.unwrap();
