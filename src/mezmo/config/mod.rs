@@ -1224,6 +1224,7 @@ mod tests {
             None,
             HashMap::new(),
             ExtraContext::default(),
+            None,
         )
         .await
         .map(|_| ())

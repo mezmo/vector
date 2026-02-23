@@ -511,7 +511,7 @@ check: ## Run prerequisite code checks
 .PHONY: check-all
 check-all: ## Check everything
 check-all: check-fmt check-clippy check-docs
-check-all: check-version check-examples check-component-features
+check-all: check-examples check-component-features
 check-all: check-scripts check-deny check-component-docs check-licenses
 
 .PHONY: check-component-features
@@ -537,10 +537,6 @@ check-licenses: ## Check that the 3rd-party license file is up to date
 .PHONY: check-markdown
 check-markdown: ## Check that markdown is styled properly
 	$(call MAYBE_ENVIRONMENT_EXEC,cargo vdev check markdown)
-
-.PHONY: check-version
-check-version: ## Check that Vector's version is correct accounting for recent changes
-	$(call MAYBE_ENVIRONMENT_EXEC,cargo vdev check version)
 
 .PHONY: check-examples
 check-examples: ## Check that the config/examples files are valid
@@ -692,7 +688,7 @@ release-github: ## Release to GitHub
 
 .PHONY: release-homebrew
 release-homebrew: ## Release to vectordotdev Homebrew tap
-	@cargo vdev release homebrew
+	@cargo vdev release homebrew --vector-version $(VECTOR_VERSION)
 
 .PHONY: release-prepare
 release-prepare: ## Prepares the release with metadata and highlights
@@ -725,10 +721,6 @@ compile-vrl-wasm: ## Compile VRL crates to WASM target
 .PHONY: clean
 clean: environment-clean ## Clean everything
 	cargo clean
-
-.PHONY: fmt
-fmt: ## Format code
-	$(call MAYBE_ENVIRONMENT_EXEC,cargo fmt)
 
 .PHONY: generate-kubernetes-manifests
 generate-kubernetes-manifests: ## Generate Kubernetes manifests from latest Helm chart

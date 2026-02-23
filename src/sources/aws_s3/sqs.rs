@@ -25,7 +25,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::serde_as;
 use smallvec::SmallVec;
 use snafu::{ResultExt, Snafu};
-use tokio::{pin, select, time::sleep};
+use tokio::{pin, select};
 use tokio_util::codec::FramedRead;
 use tracing::Instrument;
 use vector_lib::{
@@ -421,36 +421,45 @@ impl IngestorProcess {
         loop {
             select! {
                 _ = &mut shutdown => break,
-                _ = self.run_once() => {},
+                result = self.run_once() => {
+                    match result {
+                        Ok(()) => {
+                            // Reset backoff on successful receive
+                            self.backoff.reset();
+                        }
+                        Err(_) => {
+                            let delay = self.backoff.next();
+                            trace!(
+                                delay_ms = delay.as_millis(),
+                                "`run_once` failed, will retry after delay.",
+                            );
+                            tokio::time::sleep(delay).await;
+                        }
+                    }
+                },
             }
         }
     }
 
-    async fn run_once(&mut self) {
-        let messages = self.receive_messages().await;
-
-        if let Err(ref e) = messages {
-            emit!(SqsMessageReceiveError { error: e });
-            user_log_error!(
-                self.mezmo_ctx,
-                Value::from(
-                    SqsMessageReceiveError::<SdkError<ReceiveMessageError, HttpResponse>>::MESSAGE
-                )
-            );
-            // Sleep for a while before returning
-            sleep(self.backoff.next()).await;
-            return;
-        }
-
-        self.backoff.reset();
-
-        let messages = messages
-            .inspect(|messages| {
+    async fn run_once(&mut self) -> Result<(), ()> {
+        let messages = match self.receive_messages().await {
+            Ok(messages) => {
                 emit!(SqsMessageReceiveSucceeded {
                     count: messages.len(),
                 });
-            })
-            .unwrap();
+                messages
+            }
+            Err(err) => {
+                emit!(SqsMessageReceiveError { error: &err });
+                user_log_error!(
+                    self.mezmo_ctx,
+                    Value::from(
+                        SqsMessageReceiveError::<SdkError<ReceiveMessageError, HttpResponse>>::MESSAGE
+                    )
+                );
+                return Err(());
+            }
+        };
 
         let mut delete_entries = Vec::new();
         let mut deferred_entries = Vec::new();
@@ -545,11 +554,8 @@ impl IngestorProcess {
         // Should consider removing failed deferrals from the delete_entries
         if !deferred_entries.is_empty() {
             let Some(deferred) = &self.state.deferred else {
-                warn!(
-                    message = "Deferred queue not configured, but received deferred entries.",
-                    internal_log_rate_limit = true
-                );
-                return;
+                warn!("Deferred queue not configured, but received deferred entries.");
+                return Ok(());
             };
             let cloned_entries = deferred_entries.clone();
             match self
@@ -618,6 +624,7 @@ impl IngestorProcess {
                 }
             }
         }
+        Ok(())
     }
 
     async fn handle_sqs_message(&mut self, message: Message) -> Result<(), ProcessingError> {

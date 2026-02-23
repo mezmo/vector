@@ -6,6 +6,7 @@ use crate::{
         mock::{basic_sink, basic_source},
         start_topology, trace_init,
     },
+    topology::ReloadError::*,
 };
 
 #[tokio::test]
@@ -22,10 +23,10 @@ async fn topology_doesnt_reload_new_data_dir() {
 
     new_config.global.data_dir = Some(Path::new("/qwerty").to_path_buf());
 
-    topology
+    let result = topology
         .reload_config_and_respawn(new_config.build().unwrap(), Default::default(), None)
-        .await
-        .unwrap();
+        .await;
+    assert!(matches!(result, Err(GlobalOptionsChanged { .. })));
 
     assert_eq!(
         topology.config.global.data_dir,

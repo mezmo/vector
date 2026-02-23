@@ -12,7 +12,7 @@ use crate::{
     extra_context::ExtraContext,
     internal_events::{VectorRecoveryError, VectorReloadError, VectorReloaded},
     signal::ShutdownError,
-    topology::RunningTopology,
+    topology::{ReloadError, RunningTopology},
 };
 
 #[derive(Clone, Debug)]
@@ -131,7 +131,7 @@ impl TopologyController {
             )
             .await
         {
-            Ok(true) => {
+            Ok(()) => {
                 #[cfg(feature = "api")]
                 // Pass the new config to the API server.
                 if let Some(ref api_server) = self.api_server {
@@ -143,13 +143,38 @@ impl TopologyController {
                 });
                 ReloadOutcome::Success
             }
-            Ok(false) => {
-                emit!(VectorReloadError);
+            Err(ReloadError::GlobalOptionsChanged { changed_fields }) => {
+                error!(
+                    message = "Config reload rejected due to non-reloadable global options.",
+                    changed_fields = %changed_fields.join(", "),
+                    internal_log_rate_limit = false,
+                );
+                emit!(VectorReloadError {
+                    reason: "global_options_changed",
+                });
                 ReloadOutcome::RolledBack
             }
-            // Trigger graceful shutdown for what remains of the topology
-            Err(()) => {
-                emit!(VectorReloadError);
+            Err(ReloadError::GlobalDiffFailed { source }) => {
+                error!(
+                    message = "Config reload rejected because computing global diff failed.",
+                    error = %source,
+                    internal_log_rate_limit = false,
+                );
+                emit!(VectorReloadError {
+                    reason: "global_diff_failed",
+                });
+                ReloadOutcome::RolledBack
+            }
+            Err(ReloadError::TopologyBuildFailed) => {
+                emit!(VectorReloadError {
+                    reason: "topology_build_failed",
+                });
+                ReloadOutcome::RolledBack
+            }
+            Err(ReloadError::FailedToRestore) => {
+                emit!(VectorReloadError {
+                    reason: "restore_failed",
+                });
                 emit!(VectorRecoveryError);
                 ReloadOutcome::FatalError(ShutdownError::ReloadFailedToRestore)
             }

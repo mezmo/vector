@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use std::{
     fs::{create_dir, read_dir},
     io::Write,
