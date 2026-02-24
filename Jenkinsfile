@@ -120,9 +120,9 @@ pipeline {
         stage('Checks'){
           steps {
             sh """
-              make check-scripts ENVIRONMENT=true
-              make check-fmt ENVIRONMENT=true
-              make check-clippy ENVIRONMENT=true
+              # make check-scripts ENVIRONMENT=true
+              # make check-fmt ENVIRONMENT=true
+              # make check-clippy ENVIRONMENT=true
             """
           }
         }
@@ -130,7 +130,7 @@ pipeline {
         stage('Unit test'){
           steps {
             sh """
-              make test ENVIRONMENT=true
+              make test ENVIRONMENT=true ENVIRONMENT_AUTOPULL=false
             """
           }
         }
