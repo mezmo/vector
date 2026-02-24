@@ -1,4 +1,5 @@
 FROM docker.io/ubuntu:24.04
+ENV AAAAAAAAAAAAAA=BBBBBBBBBBB
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ='America/New York' \
     PATH=/root/.cargo/bin:/root/.local/bin/:$PATH \
