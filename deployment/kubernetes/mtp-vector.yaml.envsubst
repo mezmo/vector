@@ -156,6 +156,15 @@ spec:
         namespace: pipeline
         key: pipeline-db-secret-uri-key
 
+  - name: pulsar_admin_url
+    optional: true
+    default: 'http://pulsar-proxy.pulsar.svc.cluster.local'
+    valueFrom:
+      configMapKeyRef:
+        name: publishing-backend
+        namespace: default
+        key: pulsar-http-service-url
+
   strTemplates:
   - | # yaml
     apiVersion: v1
@@ -329,6 +338,9 @@ spec:
 
                 - name: MEZMO_EVENT_TRACE_ENABLED
                   value: "{{{mezmo_event_trace_enabled}}}"
+
+                - name: PULSAR_ADMIN_URL
+                  value: "{{{pulsar_admin_url}}}"
 
                 - name: DB_CONNECTION_POOL_SIZE
                   value: "{{{db_connection_pool_size}}}"

@@ -3,10 +3,11 @@ version: '3'
 services:
   pulsar:
     image: docker.io/apachepulsar/pulsar:${CONFIG_VERSION}
-    command: sh -c "bin/apply-config-from-env.py conf/standalone.conf && bin/pulsar standalone"
+    command: sh -c "bin/apply-config-from-env.py --prefix PULSAR_PREFIX_ conf/standalone.conf && bin/pulsar standalone"
     ports:
       - 6650:6650
       - 6651:6651
+      - 8080:8080
     environment:
       - PULSAR_PREFIX_brokerServicePortTls=6651
       - PULSAR_PREFIX_tlsKeyFilePath=/etc/pulsar/certs/pulsar.key.pem
