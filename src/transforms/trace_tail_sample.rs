@@ -181,10 +181,10 @@ impl TraceTailSample {
     }
 
     fn build_key(&mut self, data_name: &str, trace_id: Option<&str>) -> String {
-        if trace_id.is_none() {
-            data_name.to_string()
+        if let Some(trace_id) = trace_id {
+            format!("{}:{}", trace_id, data_name)
         } else {
-            format!("{}:{}", trace_id.unwrap(), data_name)
+            data_name.to_owned()
         }
     }
 
