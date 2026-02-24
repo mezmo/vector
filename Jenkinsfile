@@ -130,7 +130,7 @@ pipeline {
         stage('Unit test'){
           steps {
             sh """
-              make test ENVIRONMENT=true ENVIRONMENT_AUTOPULL=false
+              make test ENVIRONMENT=true ENVIRONMENT_AUTOPULL=false DISABLE_MOLD=true
             """
           }
         }
