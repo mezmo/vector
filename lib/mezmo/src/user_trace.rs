@@ -237,11 +237,8 @@ impl MezmoUserLog for Option<MezmoContext> {
             let mut event = LogEvent::default();
             event.insert("meta.mezmo.level", Value::from(level.to_string()));
             event.insert("meta.mezmo.account_id", Value::from(&ctx.account_id));
-            if ctx.pipeline_id.is_some() {
-                event.insert(
-                    "meta.mezmo.pipeline_id",
-                    Value::from(ctx.pipeline_id.as_ref().unwrap()),
-                );
+            if let Some(pipeline_id) = ctx.pipeline_id.as_ref() {
+                event.insert("meta.mezmo.pipeline_id", Value::from(pipeline_id));
             }
             event.insert(
                 "meta.mezmo.component_id",

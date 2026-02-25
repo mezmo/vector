@@ -195,11 +195,8 @@ impl PipelineStateVariableChangeActionLog for Option<MezmoContext> {
             "set_pipeline_state_variable",
         );
         event.insert("meta.mezmo.account_id", Value::from(&ctx.account_id));
-        if ctx.pipeline_id.is_some() {
-            event.insert(
-                "meta.mezmo.pipeline_id",
-                Value::from(ctx.pipeline_id.as_ref().unwrap()),
-            );
+        if let Some(pipeline_id) = ctx.pipeline_id {
+            event.insert("meta.mezmo.pipeline_id", Value::from(&pipeline_id));
         }
         event.insert(
             "meta.mezmo.component_id",

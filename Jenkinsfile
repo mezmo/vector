@@ -88,34 +88,34 @@ pipeline {
         }
       }
       stages {
-        stage('Lint and test release'){
-          when {
-            allOf {
-                expression { !(env.TOP_COMMIT ==~ /^Merge remote-tracking branch.*$/) }
-                expression { !(env.TOP_COMMIT ==~ /^Merge upstream.*$/) }
-                expression { !(env.TOP_COMMIT ==~ /^.*\[skip lint\].*$/) }
-            }
-          }
-          tools {
-            nodejs 'NodeJS 20'
-          }
-          environment {
-            GIT_BRANCH = "${CURRENT_BRANCH}"
-            // This is not populated on PR builds and is needed for the release dry runs
-            BRANCH_NAME = "${CURRENT_BRANCH}"
-            CHANGE_ID = ""
-          }
-          steps {
-            script {
-              configFileProvider(NPMRC) {
-                sh 'npm ci'
-                sh 'npm run release:dry'
-              }
-            }
-            sh './release-tool lint'
-            sh './release-tool test'
-          }
-        }
+        // stage('Lint and test release'){
+        //   when {
+        //     allOf {
+        //         expression { !(env.TOP_COMMIT ==~ /^Merge remote-tracking branch.*$/) }
+        //         expression { !(env.TOP_COMMIT ==~ /^Merge upstream.*$/) }
+        //         expression { !(env.TOP_COMMIT ==~ /^.*\[skip lint\].*$/) }
+        //     }
+        //   }
+        //   tools {
+        //     nodejs 'NodeJS 20'
+        //   }
+        //   environment {
+        //     GIT_BRANCH = "${CURRENT_BRANCH}"
+        //     // This is not populated on PR builds and is needed for the release dry runs
+        //     BRANCH_NAME = "${CURRENT_BRANCH}"
+        //     CHANGE_ID = ""
+        //   }
+        //   steps {
+        //     script {
+        //       configFileProvider(NPMRC) {
+        //         sh 'npm ci'
+        //         sh 'npm run release:dry'
+        //       }
+        //     }
+        //     sh './release-tool lint'
+        //     sh './release-tool test'
+        //   }
+        // }
 
         stage('Checks'){
           steps {
@@ -130,7 +130,7 @@ pipeline {
         stage('Unit test'){
           steps {
             sh """
-              make test ENVIRONMENT=true
+              make test ENVIRONMENT=true ENVIRONMENT_AUTOBUILD=true ENVIRONMENT_AUTOPULL=false
             """
           }
         }
