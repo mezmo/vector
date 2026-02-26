@@ -1,5 +1,12 @@
 ## Changelog
 
+# [7.1.0](https://github.com/mezmo/vector/compare/v7.0.0...v7.1.0) (2026-02-26)
+
+
+### Features
+
+* **sources**: Pulsar should accept broker config options [6f4ca8e](https://github.com/mezmo/vector/commit/6f4ca8e8b318a4c9fd261a73edd66903a46c401c) - Darin Spivey [LOG-23305](https://logdna.atlassian.net/browse/LOG-23305)
+
 # [7.0.0](https://github.com/mezmo/vector/compare/v6.9.2...v7.0.0) (2026-02-18)
 
 
