@@ -27,6 +27,7 @@ pub fn init(rate_limit: u64) {
 pub struct LogIdentifier {
     component_id: String,
     identity: CallsiteIdentity,
+    message: String, // added this to assure rate-limiting happens on the message level, otherwise rate-limiting swallows non-related messages as other ones
 }
 
 #[derive(Debug)]
@@ -262,6 +263,7 @@ impl MezmoUserLog for Option<MezmoContext> {
                     |v| Value::from(btreemap! { "captured_data" => v }),
                 ),
             );
+            let message = msg.to_string_lossy().into_owned();
             event.insert("message", msg);
             try_send_user_log(
                 event,
@@ -269,6 +271,7 @@ impl MezmoUserLog for Option<MezmoContext> {
                 LogIdentifier {
                     component_id: ctx.id.to_owned(),
                     identity,
+                    message,
                 },
             );
         } else if cfg!(debug_assertions) {

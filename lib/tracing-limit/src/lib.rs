@@ -124,6 +124,7 @@ const MESSAGE_FIELD: &str = "message";
 // These fields will cause events to be independently rate limited by the values
 // for these keys
 const COMPONENT_ID_FIELD: &str = "component_id";
+const VRL_POSITION_FIELD: &str = "vrl_position"; // mezmo: adding this to assure rate-limiting is unique to component + vrl position
 
 #[derive(Eq, PartialEq, Hash, Clone)]
 struct RateKeyIdentifier {
@@ -480,24 +481,31 @@ impl From<String> for TraceValue {
 ///
 /// **Tracked fields** (only these create distinct rate limit groups):
 /// - `component_id` - Different components are rate limited independently
+/// - `vrl_position` - Mezmo: Different VRL call sites are rate limited independently
 ///
 /// **Ignored fields**: All other fields are ignored for grouping purposes. This avoids resource/cost implications from high-cardinality tags.
 /// ```
 #[derive(Default, Eq, PartialEq, Hash, Clone)]
 struct RateLimitedSpanKeys {
     component_id: Option<TraceValue>,
+    vrl_position: Option<TraceValue>,
 }
 
 impl RateLimitedSpanKeys {
     fn record(&mut self, field: &Field, value: TraceValue) {
         if field.name() == COMPONENT_ID_FIELD {
             self.component_id = Some(value);
+        } else if field.name() == VRL_POSITION_FIELD {
+            self.vrl_position = Some(value);
         }
     }
 
     fn merge(&mut self, other: &Self) {
         if let Some(component_id) = &other.component_id {
             self.component_id = Some(component_id.clone());
+        }
+        if let Some(vrl_position) = &other.vrl_position {
+            self.vrl_position = Some(vrl_position.clone());
         }
     }
 }
