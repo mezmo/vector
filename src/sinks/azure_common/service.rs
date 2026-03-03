@@ -44,10 +44,9 @@ impl Service<AzureBlobRequest> for AzureBlobService {
                     let byte_size = request.blob_data.len();
 
                     let mut tags: Tags = Tags::new();
-                    if request.tags.is_some() {
-                        for (key, value) in request.tags.unwrap().iter() {
-                            tags.insert(key, value);
-                        }
+
+                    for (key, value) in request.tags.into_iter().flatten() {
+                        tags.insert(key, value);
                     }
 
                     let blob = client

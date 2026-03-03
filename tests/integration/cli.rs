@@ -1,4 +1,5 @@
 #![allow(clippy::print_stdout)]
+#![allow(deprecated)]
 use std::{collections::HashSet, fs::read_dir, process::Command};
 
 use assert_cmd::prelude::*;

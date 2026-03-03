@@ -27,6 +27,7 @@ pub fn init(rate_limit: u64) {
 pub struct LogIdentifier {
     component_id: String,
     identity: CallsiteIdentity,
+    message: String, // added this to assure rate-limiting happens on the message level, otherwise rate-limiting swallows non-related messages as other ones
 }
 
 #[derive(Debug)]
@@ -237,11 +238,8 @@ impl MezmoUserLog for Option<MezmoContext> {
             let mut event = LogEvent::default();
             event.insert("meta.mezmo.level", Value::from(level.to_string()));
             event.insert("meta.mezmo.account_id", Value::from(&ctx.account_id));
-            if ctx.pipeline_id.is_some() {
-                event.insert(
-                    "meta.mezmo.pipeline_id",
-                    Value::from(ctx.pipeline_id.as_ref().unwrap()),
-                );
+            if let Some(pipeline_id) = ctx.pipeline_id.as_ref() {
+                event.insert("meta.mezmo.pipeline_id", Value::from(pipeline_id));
             }
             event.insert(
                 "meta.mezmo.component_id",
@@ -265,6 +263,7 @@ impl MezmoUserLog for Option<MezmoContext> {
                     |v| Value::from(btreemap! { "captured_data" => v }),
                 ),
             );
+            let message = msg.to_string_lossy().into_owned();
             event.insert("message", msg);
             try_send_user_log(
                 event,
@@ -272,6 +271,7 @@ impl MezmoUserLog for Option<MezmoContext> {
                 LogIdentifier {
                     component_id: ctx.id.to_owned(),
                     identity,
+                    message,
                 },
             );
         } else if cfg!(debug_assertions) {

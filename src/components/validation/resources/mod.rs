@@ -157,6 +157,7 @@ fn deserializer_config_to_serializer(config: &DeserializerConfig) -> encoding::S
                 protobuf: vector_lib::codecs::encoding::ProtobufSerializerOptions {
                     desc_file: config.protobuf.desc_file.clone(),
                     message_type: config.protobuf.message_type.clone(),
+                    use_json_names: config.protobuf.use_json_names,
                 },
             })
         }
@@ -173,6 +174,8 @@ fn deserializer_config_to_serializer(config: &DeserializerConfig) -> encoding::S
         // TODO: Influxdb has no serializer yet
         DeserializerConfig::Influxdb { .. } => todo!(),
         DeserializerConfig::Vrl { .. } => unimplemented!(),
+        #[cfg(feature = "codecs-opentelemetry")]
+        DeserializerConfig::Otlp { .. } => SerializerConfig::Otlp,
     };
 
     serializer_config
@@ -230,10 +233,13 @@ fn serializer_config_to_deserializer(
                 protobuf: vector_lib::codecs::decoding::ProtobufDeserializerOptions {
                     desc_file: config.protobuf.desc_file.clone(),
                     message_type: config.protobuf.message_type.clone(),
+                    use_json_names: config.protobuf.use_json_names,
                 },
             })
         }
         SerializerConfig::RawMessage | SerializerConfig::Text(_) => DeserializerConfig::Bytes,
+        #[cfg(feature = "codecs-opentelemetry")]
+        SerializerConfig::Otlp => todo!(),
     };
 
     deserializer_config.build()

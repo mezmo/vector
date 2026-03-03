@@ -2,6 +2,7 @@
 pub(crate) mod backoff;
 #[cfg(feature = "sources-http_server")]
 mod body_decoding;
+#[cfg(feature = "sources-file")]
 mod encoding_config;
 #[cfg(all(unix, feature = "sources-dnstap"))]
 pub mod framestream;
@@ -68,7 +69,7 @@ pub use self::http::add_query_parameters;
     feature = "sources-prometheus-remote-write",
     feature = "sources-utils-http-encoding"
 ))]
-pub use self::http::decode;
+pub use self::http::decompress_body;
 #[cfg(any(
     feature = "sources-aws_sqs",
     feature = "sources-gcp_pubsub",

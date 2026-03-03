@@ -255,7 +255,7 @@ impl SinkConfig for MezmoConfig {
             client.clone(),
             cx,
         )
-        .sink_map_err(|error| error!(message = "Fatal mezmo sink error.", %error));
+        .sink_map_err(|error| error!(message = "Fatal mezmo sink error.", %error, internal_log_rate_limit = false));
 
         let healthcheck = healthcheck(self.clone(), client).boxed();
 
@@ -1375,7 +1375,7 @@ mod tests {
     async fn smoke_fails() {
         let (_hosts, _partitions, mut rx) =
             smoke_start(StatusCode::FORBIDDEN, BatchStatus::Rejected).await;
-        assert!(matches!(rx.try_next(), Err(mpsc::TryRecvError { .. })));
+        assert!(rx.try_recv().is_err());
     }
 
     #[tokio::test]

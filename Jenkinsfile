@@ -93,6 +93,7 @@ pipeline {
             allOf {
                 expression { !(env.TOP_COMMIT ==~ /^Merge remote-tracking branch.*$/) }
                 expression { !(env.TOP_COMMIT ==~ /^Merge upstream.*$/) }
+                expression { !(env.TOP_COMMIT ==~ /^Merge tag.*$/) }
                 expression { !(env.TOP_COMMIT ==~ /^.*\[skip lint\].*$/) }
             }
           }
@@ -130,7 +131,7 @@ pipeline {
         stage('Unit test'){
           steps {
             sh """
-              make test ENVIRONMENT=true
+              make test ENVIRONMENT=true ENVIRONMENT_AUTOBUILD=true ENVIRONMENT_AUTOPULL=false
             """
           }
         }

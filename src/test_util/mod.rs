@@ -110,10 +110,7 @@ where
 }
 
 pub fn open_fixture(path: impl AsRef<Path>) -> crate::Result<serde_json::Value> {
-    let test_file = match File::open(path) {
-        Ok(file) => file,
-        Err(e) => return Err(e.into()),
-    };
+    let test_file = File::open(path)?;
     let value: serde_json::Value = serde_json::from_reader(test_file)?;
     Ok(value)
 }
@@ -140,13 +137,17 @@ pub fn trace_init() {
     let color = {
         use std::io::IsTerminal;
         std::io::stdout().is_terminal()
+            || std::env::var("NEXTEST")
+                .ok()
+                .and(Some(true))
+                .unwrap_or(false)
     };
     // Windows: ANSI colors are not supported by cmd.exe
     // Color is false for everything except unix.
     #[cfg(not(unix))]
     let color = false;
 
-    let levels = std::env::var("TEST_LOG").unwrap_or_else(|_| "error".to_string());
+    let levels = std::env::var("VECTOR_LOG").unwrap_or_else(|_| "error".to_string());
 
     trace::init(color, false, &levels, 10);
 

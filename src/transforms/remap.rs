@@ -37,6 +37,7 @@ use crate::{
         TransformOutput, log_schema,
     },
     event::{Event, TargetEvents, VrlTarget},
+    format_vrl_diagnostics,
     internal_events::{RemapMappingAbort, RemapMappingError},
     schema,
     transforms::{SyncTransform, Transform, TransformOutputsBuf},
@@ -254,18 +255,13 @@ impl RemapConfig {
 
         let res = compile_vrl(&source, &functions, &state, config)
             .map_err(|diagnostics| match self.file {
-                None => Formatter::new(&source, diagnostics)
-                    .colored()
-                    .to_string()
-                    .into(),
-                Some(_) => redacted_diagnostics(&source, diagnostics).into(),
+                None => format_vrl_diagnostics(&source, diagnostics),
+                Some(_) => redacted_diagnostics(&source, diagnostics),
             })
             .map(|result| {
                 (
                     result.program,
-                    Formatter::new(&source, result.warnings)
-                        .colored()
-                        .to_string(),
+                    format_vrl_diagnostics(&source, result.warnings),
                     result.config.get_custom::<MeaningList>().unwrap().clone(),
                 )
             });
@@ -505,8 +501,7 @@ where
         let message = error
             .notes()
             .iter()
-            .filter(|note| matches!(note, Note::UserErrorMessage(_)))
-            .next_back()
+            .rfind(|note| matches!(note, Note::UserErrorMessage(_)))
             .map(|note| note.to_string())
             .unwrap_or_else(|| error.to_string());
         serde_json::json!({
