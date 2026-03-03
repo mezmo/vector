@@ -1,5 +1,208 @@
 ## Changelog
 
+# [7.2.0](https://github.com/mezmo/vector/compare/v7.1.0...v7.2.0) (2026-03-03)
+
+
+### Bug Fixes
+
+* **aws_sqs source**: add retry delay in sqs::Ingestor (#23996) [7224315](https://github.com/mezmo/vector/commit/7224315c3336c4d296006ba9997c4f985c6c9ceb) - GitHub
+* **azure_blob sink**: use correct reqwest feature (#23865) [4985e40](https://github.com/mezmo/vector/commit/4985e40303afa0bd6aabfc4d9aea3a99b855e973) - GitHub
+* bump rocksdb [6218a23](https://github.com/mezmo/vector/commit/6218a2302d5d6c7f8003571053a2e8b1da0a6962) - Kristof Mattei
+* bump Rust to 1.93.1 [833e244](https://github.com/mezmo/vector/commit/833e244e6b8c6883fb8c2a0dee398c7dfb0ad385) - Kristof Mattei
+* **ci**: add e2e-tests should run filter (#24016) [fcb9dfd](https://github.com/mezmo/vector/commit/fcb9dfdcc8f5f40afa3a34f9560831bd647762e3) - GitHub
+* **ci**: Add missing step to last needs of integration.yml (#24065) [98a8d41](https://github.com/mezmo/vector/commit/98a8d4119612c353e4a036e14b9f90030d9e4ae5) - GitHub
+* **ci**: datadog-metrics e2e test fixes (#23919) [9ead212](https://github.com/mezmo/vector/commit/9ead2129b552ecfc561f44bcd0aab614cd8984b7) - GitHub
+* **ci**: fix path in datadog-metrics e2e test.yaml (#24127) [8c5af62](https://github.com/mezmo/vector/commit/8c5af6208d673f488e980ae866ae881946710e78) - GitHub
+* **ci**: increase e2e timeout (#23857) [bd6a8f5](https://github.com/mezmo/vector/commit/bd6a8f51d6c16106de76de3330d27415f53940ad) - GitHub
+* **ci**: latest-vector_default.yaml case was silently failing (#23984) [2275c69](https://github.com/mezmo/vector/commit/2275c69b7ae5180373f44763bcd9fb7b16025d53) - GitHub
+* **ci**: only run changed integrations in the MQ (#23937) [0c652ce](https://github.com/mezmo/vector/commit/0c652ce808a73501bc7ca3e4a5d1de66e5e42472) - GitHub
+* **ci**: run mqtt int tests (#24102) [11c5521](https://github.com/mezmo/vector/commit/11c55214bec4ae90c83dc12b00d817dbb0fb9ccb) - GitHub
+* **ci**: scripts/run-integration-test.sh must fail early (not skip) (#23977) [a0fd699](https://github.com/mezmo/vector/commit/a0fd6992cf3a02d7acb9aa7fffcc5999782fde2d) - GitHub
+* **ci**: vdev build on cache miss (#24113) [bfaefdc](https://github.com/mezmo/vector/commit/bfaefdc8d4bbf0d97cdc848e020f1559b9f37383) - GitHub
+* **ci**: vdev caching (#24126) [5cf227e](https://github.com/mezmo/vector/commit/5cf227e646734e13b47de0d559c353b20aae3461) - GitHub
+* **ci**: windows rustup stable not installed by default (#23868) [ae9010c](https://github.com/mezmo/vector/commit/ae9010cb89ce19e9254731214861085b1fd8f82f) - GitHub
+* **config**: watch-config file events handling (#23899) [f3d2608](https://github.com/mezmo/vector/commit/f3d26082c81a0dc75c05c1d3dd432278ff3208b4) - GitHub
+* **dev**: add .md authors spelling pattern (#23843) [76dc8b7](https://github.com/mezmo/vector/commit/76dc8b7291e2b3015c5d49f1a3ea6a3247bad97e) - GitHub
+* **dev**: aws-kinesis-firehose tests (#24117) [42f7106](https://github.com/mezmo/vector/commit/42f71067ca5a9c9f989578bbce90ab84b503ecaf) - GitHub
+* **dev**: Fix incorrect cue.sh path (#23953) [5c1e1ee](https://github.com/mezmo/vector/commit/5c1e1ee7d0543ab8e4b4af85fca46c6c10140e0f) - GitHub
+* **dev**: fix journald tests for local macOS (#24114) [e486428](https://github.com/mezmo/vector/commit/e486428e05061d4810ea943250afbe5167e08d97) - GitHub
+* **dev**: Fix local mqtt int test (#24096) [f6be7db](https://github.com/mezmo/vector/commit/f6be7db2b3d2e357316d3e151ff410f8631118ba) - GitHub
+* **dev**: multicast_and_unicast_udp_message no longer hangs on macOS (#24112) [ae8ad71](https://github.com/mezmo/vector/commit/ae8ad712906742fd77f38f58120db6af27cd757b) - GitHub
+* disable release-tool for now, this should not be merged in `master` [c3f7176](https://github.com/mezmo/vector/commit/c3f717663889b5e379168305cafb2270b21ef40b) - Kristof Mattei
+* **docker_logs source**: fix docker client with specified socket path (#24026) [2ead145](https://github.com/mezmo/vector/commit/2ead14508c2e6c235a025263d38626fd6970526b) - GitHub
+* **enrichment tables**: prevent crash on config reload with enrichment table sources (#24014) [13f77b9](https://github.com/mezmo/vector/commit/13f77b9815c56e0355a6cd52801cafb01a8d6a2e) - GitHub
+* **enrichment tables**: properly enable memory enrichment table for `vector tap` (#23863) [f054f9c](https://github.com/mezmo/vector/commit/f054f9c1371be239eeac85fb79ab20d101cb71df) - GitHub
+* **fluent source**: stop counting received events twice (#23900) [28de351](https://github.com/mezmo/vector/commit/28de351c85cfb06e3825551c467e2d7b1b237b8c) - GitHub
+* **instrument**: Buffer counter underflowed (#23872) (#23973) [bd9b877](https://github.com/mezmo/vector/commit/bd9b87700a4178decb54547bc158385156ad96f9) - GitHub
+* **integration test**: fix `external` type in `networks` in docker compose file (#23942) [8dff36b](https://github.com/mezmo/vector/commit/8dff36b9c06df052b4158557fd0b82df5aedf5ad) - GitHub
+* **logging**: rate limiting fixes [4a28a76](https://github.com/mezmo/vector/commit/4a28a761b44898e1a00840bf72cd78e0ff89fe67) - Phil Ciampini [LOG-23166](https://logdna.atlassian.net/browse/LOG-23166)
+* **metrics**: prevent negative utilization on late messages (#24073) [22cb8c5](https://github.com/mezmo/vector/commit/22cb8c5d83e469390a4c85fb269434dfd35154de) - GitHub
+* **metrics**: prevent utilization metric loss on configuration reload (#24080) [fb74a1e](https://github.com/mezmo/vector/commit/fb74a1eab52c20b985b63ebd39d013b6f64c56c0) - GitHub
+* **mqtt sink**: tls auth by client cert (#23839) [ba11319](https://github.com/mezmo/vector/commit/ba1131964447904a26a871f1b97f8bd4cca8a796) - GitHub
+* **opentelemetry source**: fix HTTP not decompressing payloads (#24068) [52a1c65](https://github.com/mezmo/vector/commit/52a1c65e96ff295094879634fb14ce33f0d2d6b8) - GitHub
+* **prometheus_remote_write source**: ignore conflicting metadata instead of returning HTTP 400 (#23773) [5e1c3bf](https://github.com/mezmo/vector/commit/5e1c3bf2768af4130420f06cd742b4111ac2d561) - GitHub
+* **prometheus_remote_write source**: import only if flag is set (#24082) [825f4a3](https://github.com/mezmo/vector/commit/825f4a332846a806eaf9584d829a4e4f4241ae54) - GitHub
+* **vdev**: corrects stop logic (#24086) [97c8d28](https://github.com/mezmo/vector/commit/97c8d28c7765b3cf7dc519d60259703a0a9a0cfb) - GitHub
+* **website**: 0.50.0 release typos (#23918) [1e49204](https://github.com/mezmo/vector/commit/1e4920444f357f6f75c98e555c073e00fd670b07) - GitHub
+* **website**: fix creation dates for a few md files (#24048) [4cd5f67](https://github.com/mezmo/vector/commit/4cd5f675d3a40e648acd405353f1b4d3f631740a) - GitHub
+* **website**: use ` instead of " in aws guide (#23983) [a9d635a](https://github.com/mezmo/vector/commit/a9d635a85c83072b744075e7e10cb38be1b06c79) - GitHub
+
+
+### Chores
+
+* address clippy as part of the 1.93.1 Rust upgrade [ae54816](https://github.com/mezmo/vector/commit/ae54816a26d81b70e33b6d8b4907061a67af9c0c) - Kristof Mattei
+* bump mold, previous version broke Rust 1.89 [1871acd](https://github.com/mezmo/vector/commit/1871acd30c3496d113b8cab0911ca3ba369adf75) - Kristof Mattei
+* **ci**: add timeout to component features job (#23814) [8b25a7e](https://github.com/mezmo/vector/commit/8b25a7e918bfbd2732de8e5f7ab8de5c6becd563) - GitHub
+* **ci**: allow manual homebrew runs (#23835) [80fee27](https://github.com/mezmo/vector/commit/80fee2733787d7468bba971f5766373f2c27cf0d) - GitHub
+* **ci**: Bump actions/cache from 4.2.4 to 4.3.0 (#23927) [0fc7111](https://github.com/mezmo/vector/commit/0fc7111eb9a4393b31cfab4b3b015e8243558944) - GitHub
+* **ci**: Bump actions/github-script from 7.0.1 to 8.0.0 (#23906) [a36ad74](https://github.com/mezmo/vector/commit/a36ad74e5cdd0d9d254e66a3700ccba560260bce) - GitHub
+* **ci**: Bump actions/labeler from 5.0.0 to 6.0.1 (#23905) [0346d54](https://github.com/mezmo/vector/commit/0346d5420980e19d447479561af61e7c218e8a07) - GitHub
+* **ci**: Bump actions/setup-python from 5 to 6 (#23924) [7cf189f](https://github.com/mezmo/vector/commit/7cf189fe4aba3bf29acac9a20025bd9fc7625cfa) - GitHub
+* **ci**: Bump amannn/action-semantic-pull-request from 5.5.3 to 6.1.1 (#23907) [8ff0e90](https://github.com/mezmo/vector/commit/8ff0e90ee298a9937654f601578ea32efe9f58d8) - GitHub
+* **ci**: Bump aws-actions/configure-aws-credentials from 4.3.1 to 5.0.0 (#23928) [a7b4dc3](https://github.com/mezmo/vector/commit/a7b4dc34cbc9cfe791dfda6864627d6146059334) - GitHub
+* **ci**: Bump docker/login-action from 3.5.0 to 3.6.0 (#23904) [f09401d](https://github.com/mezmo/vector/commit/f09401d3bf0b84ef0e4a5264aff5c484b03358ec) - GitHub
+* **ci**: Bump github/codeql-action from 3.30.0 to 3.30.5 (#23908) [2e2e5bb](https://github.com/mezmo/vector/commit/2e2e5bb1e0421a99c1eecf8847d13425c62dd447) - GitHub
+* **ci**: Bump github/codeql-action from 3.30.5 to 3.30.6 (#23926) [9783640](https://github.com/mezmo/vector/commit/9783640c57de3df503465b43c40d6e1e5bb40fd6) - GitHub
+* **ci**: Bump ossf/scorecard-action from 2.4.2 to 2.4.3 (#23925) [12fd410](https://github.com/mezmo/vector/commit/12fd410016520652344b752ad6b6ae84cd21ccf9) - GitHub
+* **ci**: cache vdev (#24103) [31e8d2e](https://github.com/mezmo/vector/commit/31e8d2e03703c9ae879533d82e0112ba16b28165) - GitHub
+* **ci**: extract homebrew publishing into a new workflow (#23833) [8387b5e](https://github.com/mezmo/vector/commit/8387b5e4be4abb70d90bb419646b4e512ffacabb) - GitHub
+* **ci**: homebrew workflow fixes (#23836) [e6da138](https://github.com/mezmo/vector/commit/e6da13867c68dff362263006a8e6350e0bbce1f8) - GitHub
+* **ci**: Ignore E2E datadog-metrics (#23917) [5156c8b](https://github.com/mezmo/vector/commit/5156c8b5a13dc1cf8f1c8907106a21f793ebce14) - GitHub
+* **ci**: make labeler action glob ci files correctly (#24030) [359fc8a](https://github.com/mezmo/vector/commit/359fc8a47420d3285a6dd4b83d9a6313a38de50b) - GitHub
+* **ci**: make workflows run when yml files change (#24017) [01b7369](https://github.com/mezmo/vector/commit/01b736903adf5012a81ecc32ba15cc0d7cdad4d4) - GitHub
+* **ci**: parallelize e2e tests (ci-integration-review) (#24115) [d8abed5](https://github.com/mezmo/vector/commit/d8abed57442322105ad05992368ec98f4c3227f6) - GitHub
+* **ci**: remove CARGO_NET_GIT_FETCH_WITH_CLI (#24055) [5e79207](https://github.com/mezmo/vector/commit/5e792078f7e75f692720adba1fdc21c29d4cb636) - GitHub
+* **ci**: remove check-version script (#23940) [152cc39](https://github.com/mezmo/vector/commit/152cc39965b516840cdc2bc7d66dda3e9b97415b) - GitHub
+* **ci**: remove redundant setup steps (#23999) [a121acf](https://github.com/mezmo/vector/commit/a121acf807d0acd0fda58d743ffb258094fecb54) - GitHub
+* **ci**: Run deny on nightly schedule (#24029) [09bdb96](https://github.com/mezmo/vector/commit/09bdb9610a09c92c411133630071e5552b0870bf) - GitHub
+* **ci**: run expensive Component Features check weekly (#23963) [cdb9e3c](https://github.com/mezmo/vector/commit/cdb9e3c2ea32101595d5129d980c1c68ac26260d) - GitHub
+* **ci**: run IT suite once (#23818) [4eadd70](https://github.com/mezmo/vector/commit/4eadd70b7444a9fa6a2dee22bd3f3c7a803dc188) - GitHub
+* **ci**: run K8s e2e test suite only on MQ (#24110) [9fdced8](https://github.com/mezmo/vector/commit/9fdced84af203e07ba81e8052b634314b8b8e42d) - GitHub
+* **ci**: spellchecker fix (#23842) [592dab7](https://github.com/mezmo/vector/commit/592dab79583c9f7e221bb00ec38e94b41473081d) - GitHub
+* **ci**: spread out schedules (#23852) [a7d91b3](https://github.com/mezmo/vector/commit/a7d91b343abeb321ba53919924e633b62671e2ba) - GitHub
+* **ci**: use 8core runners for int tests (#23909) [2dfb9fc](https://github.com/mezmo/vector/commit/2dfb9fcb96f5198eaf68ba19c873e3b97cdd197e) - GitHub
+* **ci**: use official squid image (#24090) [e43d490](https://github.com/mezmo/vector/commit/e43d490fba57820ea6b39f3f15f4c46a6a815dc2) - GitHub
+* **ci**: use shared volume in `opentelemetry-logs` E2E test (#23854) [fad8439](https://github.com/mezmo/vector/commit/fad8439c7051a8a3968b9184f257239e0bc173b7) - GitHub
+* **codecs**: add signal priority option to OTLP decoder (#24019) [778b944](https://github.com/mezmo/vector/commit/778b94446db40ec65df0758cd1c5192d401a9955) - GitHub
+* **codecs**: refactoring - move code out of mod.rs (#24000) [c1b8027](https://github.com/mezmo/vector/commit/c1b8027680e8f5cd3d8725f889219b159b544d93) - GitHub
+* **config**: disable config error log rate limit (#24091) [64aacca](https://github.com/mezmo/vector/commit/64aaccac438efa6ab03bfc1f9d9a7dd60698d0c7) - GitHub
+* **config**: Expose a public way to load a config from str (#23825) [d12c8f1](https://github.com/mezmo/vector/commit/d12c8f14ce1af42cfb1e1b38b11115a5ea884b66) - GitHub
+* **datadog service**: add flattened and unflattened key examples to datadog_search tests (#24008) [45093c9](https://github.com/mezmo/vector/commit/45093c9f8cc8769cd08eed6026c6dc7cfff44e77) - GitHub
+* **datadog_agent source**: reuse code from util/http/encoding.rs (#24071) [e618fdf](https://github.com/mezmo/vector/commit/e618fdfd6b38b981a9cda3fdd3018d28744fe573) - GitHub
+* **deps**: batch netlink-* dep updates (#23920) [c21ff5b](https://github.com/mezmo/vector/commit/c21ff5b5b19a3c6caf3596b7d1fb85f0b1226bc9) - GitHub
+* **deps**: Bump async-nats from 0.42.0 to 0.43.1 (#23886) [4d20c76](https://github.com/mezmo/vector/commit/4d20c763bc21159008f150db71178a06d09461a4) - GitHub
+* **deps**: Bump aws-smithy-runtime from 1.9.1 to 1.9.2 in the aws group (#23879) [c66f4a3](https://github.com/mezmo/vector/commit/c66f4a34bb2cb72202c7d108e984b5c4baeb9b33) - GitHub
+* **deps**: Bump bytesize from 2.0.1 to 2.1.0 (#23885) [03e8021](https://github.com/mezmo/vector/commit/03e8021571f30069b5ee47f1e2340ea5ca2e98bc) - GitHub
+* **deps**: bump fakeintake version (updated sha) (#23922) [573241a](https://github.com/mezmo/vector/commit/573241a1fe4ed280eb24fefbc3e927d236e4e2a3) - GitHub
+* **deps**: Bump humantime from 2.2.0 to 2.3.0 (#23895) [2855aef](https://github.com/mezmo/vector/commit/2855aef0fd5f5693544f3cfc049982c41b1238b9) - GitHub
+* **deps**: Bump proptest from 1.7.0 to 1.8.0 (#23890) [759c6b1](https://github.com/mezmo/vector/commit/759c6b137a9c740a98bccd9b17371f94e7e84b6c) - GitHub
+* **deps**: Bump security-framework from 3.3.0 to 3.5.1 (#23887) [2332719](https://github.com/mezmo/vector/commit/2332719568154106fc5bdc115823e568b5b206ea) - GitHub
+* **deps**: Bump sysinfo from 0.36.1 to 0.37.1 (#23892) [ee390b8](https://github.com/mezmo/vector/commit/ee390b82fd199b397cae09f3a8303800c501a0d1) - GitHub
+* **deps**: bump sysinfo to 0.37.2 (#23921) [bff3623](https://github.com/mezmo/vector/commit/bff362389f2834e506f25a8454968ac1696e90a2) - GitHub
+* **deps**: Bump tempfile from 3.21.0 to 3.23.0 (#23889) [36459cc](https://github.com/mezmo/vector/commit/36459cc67e8f41140fdf6e990efddace6334670c) - GitHub
+* **deps**: Bump the clap group with 2 updates (#23881) [398b81b](https://github.com/mezmo/vector/commit/398b81b50b9feb44a5e1fc81e08061edc053ebcc) - GitHub
+* **deps**: bump VRL to latest sha (#23947) [549381e](https://github.com/mezmo/vector/commit/549381ecd2f84a7c3f03866ad3cd0a6decb2c54b) - GitHub
+* **deps**: Bump warp from 0.3.7 to 0.4.2 (#23683) [d4f791d](https://github.com/mezmo/vector/commit/d4f791d8f387da451b34a1cbea05888743ae92b3) - GitHub
+* **deps**: Update `dd-rust-license-tool` to v1.0.4 (#24122) [d6421e3](https://github.com/mezmo/vector/commit/d6421e32e38ed924893cc94ec3959c09fde16c33) - GitHub
+* **dev**:  revert  "Remove RUST_VERSION from int/e2e Dockerfile (#24057)" (#24062) [b08819e](https://github.com/mezmo/vector/commit/b08819ef49e221f0542da48291f4c9d84eae8994) - GitHub
+* **dev**: add always build option to scripts/run-integration-test.sh (#24120) [086d8f3](https://github.com/mezmo/vector/commit/086d8f3c928167e5290647a205132e3466549412) - GitHub
+* **dev**: add maxwidth format option (#23985) [64cb8fa](https://github.com/mezmo/vector/commit/64cb8fa7af4e67f7df30713654bbd3cdab7869ad) - GitHub
+* **dev**: add user facing change explanation in PR template (#24070) [db89076](https://github.com/mezmo/vector/commit/db89076a80aa7e48c866be9f847020fe66ba3e0c) - GitHub
+* **dev**: check modified files only for style (#24106) [6547b81](https://github.com/mezmo/vector/commit/6547b81f2a807f411bd81f65059cdea53e5976ec) - GitHub
+* **dev**: consolidate usage of VECTOR_LOG in tests and remove TEST_LOG (#23804) [a70eca4](https://github.com/mezmo/vector/commit/a70eca4ea9900075ac8954c74238b2742fb244cd) - GitHub
+* **dev**: fix environment image and add test (#24033) [a9d244a](https://github.com/mezmo/vector/commit/a9d244a7d5f07b3ee50dd8137ae0de8a5814e057) - GitHub
+* **dev**: merge both cue.sh scripts (#23951) [5aa7244](https://github.com/mezmo/vector/commit/5aa7244511bb282658a87053033928c1f80fbbc1) - GitHub
+* **dev**: Remove references to soak-builder (#24032) [61e7bf3](https://github.com/mezmo/vector/commit/61e7bf349c2c5858f96050ab2e82e96704cf1bcb) - GitHub
+* **dev**: Remove RUST_VERSION from int/e2e Dockerfile (#24057) [4bde7f9](https://github.com/mezmo/vector/commit/4bde7f97513ed48eb851fa26ae21363694ed4683) - GitHub
+* **dev**: Remove RUST_VERSION from int/e2e Dockerfile (#24083) [834529f](https://github.com/mezmo/vector/commit/834529fb97699cd89ffb9ef41377869e98a91dbe) - GitHub
+* **dev**: separate vector-top into it's own module (#23969) [9c0dffb](https://github.com/mezmo/vector/commit/9c0dffb72d42bb12120d6b3af96e3541094268ef) - GitHub
+* **dev**: small vdev improvements and refactor (#23912) [68f0b4c](https://github.com/mezmo/vector/commit/68f0b4cf6a9c5fec461bf7b81617c889bcfc9ebb) - GitHub
+* **dev**: update environment image (#23816) [19f99f7](https://github.com/mezmo/vector/commit/19f99f7aae311505e5a8ea8baf3efca97051be89) - GitHub
+* **dev**: update VRL (#23903) [64463fb](https://github.com/mezmo/vector/commit/64463fb0b4383c3c7f3cbcb5bc742c19e368e07b) - GitHub
+* **dev**: use rust 1.90 (#23870) [1d86067](https://github.com/mezmo/vector/commit/1d86067671a36ea9c35687a11616d18ca9e262f0) - GitHub
+* **e2e**: remove build directives from datadog compose files (#24018) [1bed43c](https://github.com/mezmo/vector/commit/1bed43c2fc907005f01da5ebfa65a8ec38641581) - GitHub
+* **external docs**: improve internal_log_rate_limit docs (#24023) [8c909f2](https://github.com/mezmo/vector/commit/8c909f2641c25abd9eceebe271fd99584076380a) - GitHub
+* **external docs**: parse_aws_alb_log strict_mode (#24021) [ea91a4d](https://github.com/mezmo/vector/commit/ea91a4d3661362cfdc9b570dfddc761a24556a1f) - GitHub
+* **file sink**: Remove `_config` suffix from `truncate_config` (#23864) [a17a184](https://github.com/mezmo/vector/commit/a17a1844efffe0ce4b3cf4851991ccc7c2f838fd) - GitHub
+* **file source**: remove legacy checksum/fingerprinting (#23874) [3cd1a31](https://github.com/mezmo/vector/commit/3cd1a3135885f8e0007e7b73fb6eca137f02734d) - GitHub
+* **internal_logs source**: update internal_log_rate_limit tags (#24050) [c7889db](https://github.com/mezmo/vector/commit/c7889dba2f59e6ba6f54ea532f65a9a759208584) - GitHub
+* **internal_metrics source**: refactor utilization.rs and add tests (#24085) [e732a6e](https://github.com/mezmo/vector/commit/e732a6ebddd8640a56eceb2283c343846d5a7621) - GitHub
+* **releasing**: minor release template fixes (#23831) [b86a6aa](https://github.com/mezmo/vector/commit/b86a6aa199d0d38cbe86b8dd68a52bb3211c698c) - GitHub
+* **releasing**: post release steps (#23834) [74380c2](https://github.com/mezmo/vector/commit/74380c218d9626f61686a60c10b3b7e7ef907953) - GitHub
+* **releasing**: prepare v0.51.0 release (#24131) [f8d6250](https://github.com/mezmo/vector/commit/f8d625072fcb0cc66f9d16f7bb5721aebb76b323) - GitHub
+* **releasing**: prepare v0.51.1 release (#24214) [44c8f1c](https://github.com/mezmo/vector/commit/44c8f1cfd64bdedb924034c946f639d09890fc53) - Thomas
+* **releasing**: remove support for x86_64-apple-darwin (#23867) [e4e01fa](https://github.com/mezmo/vector/commit/e4e01fa3fc2eb799fe66df6163891f6c67a9fa75) - GitHub
+* **tests**: increase timeouts in file_start_position_server_restart_unfinalized (#23812) [203b2bc](https://github.com/mezmo/vector/commit/203b2bcbb0f453939fdcea7175b489c37df54400) - GitHub
+* **tests**: use telemetrygen and delete custom log generator (#23968) [33692fa](https://github.com/mezmo/vector/commit/33692fab7dfe897a7e4c9154a559017e4136e981) - GitHub
+* **top**: Export the `top` function for external reuse (#23988) [2e128dc](https://github.com/mezmo/vector/commit/2e128dc63a7d495c9a320f443643b65a89ccc794) - GitHub
+* **topology**: use builder pattern to avoid large list of arguments (#24084) [a1ca14f](https://github.com/mezmo/vector/commit/a1ca14fb704d77d974a52c30bd9c82add879f0b8) - GitHub
+* **vdev**: capture stderr and refactor (#24045) [770ae96](https://github.com/mezmo/vector/commit/770ae9643cb867b07444b2f9af6da899e1852fb0) - GitHub
+* **vdev**: refactor to avoid temp files and leverage docker APIs (#23976) [dc60da0](https://github.com/mezmo/vector/commit/dc60da02e07c58ae8d96059b2228c64fcd680c05) - GitHub
+* **vdev**: use one dockerfile for e2e and int (#24101) [caf1592](https://github.com/mezmo/vector/commit/caf159276d07d8993c4b0a59f51f61696b2f7d23) - GitHub
+* **vrl playground**: enable wrap to help with long strings (#24013) [f8f23df](https://github.com/mezmo/vector/commit/f8f23df24c7c0542cc0a935677c42b1fc52f248f) - GitHub
+* **vrl playground**: fix timezone dropdown pop up (#24015) [90648c9](https://github.com/mezmo/vector/commit/90648c96440bd9bedec5c8a66eec6622e6220d15) - GitHub
+* **website**: fix typo (#23841) [56a7af5](https://github.com/mezmo/vector/commit/56a7af50c8a36bb09843bc8c5b524a2c9ecf46c1) - GitHub
+* **website**: fix vector diagram (#23830) [be2dde4](https://github.com/mezmo/vector/commit/be2dde4a0b4bcc40c5e20aa69b385bf083c1b414) - GitHub
+* **website**: guides and highlights author/date fixes (#24047) [cd5d442](https://github.com/mezmo/vector/commit/cd5d44276e77ece2e58ec9cf2d2e25ad9298ccef) - GitHub
+* **website**: improve indexing for memory table docs (#23827) [52049ad](https://github.com/mezmo/vector/commit/52049ad615a6c31eda3ca7c45150e2c201c309d0) - GitHub
+* **website**: improve output type sections (#24006) [d9e0e3a](https://github.com/mezmo/vector/commit/d9e0e3af30f3dbefe50dfab97b8990b5e672e492) - GitHub
+* **website**: re-organize and improve aws guides (#23954) [90f59d5](https://github.com/mezmo/vector/commit/90f59d5ca899ef4120840cdf2ffd4ddee3232328) - GitHub
+* **website**: show both author name and handle (#23948) [a5fb0ec](https://github.com/mezmo/vector/commit/a5fb0ecc511ad9fde1c79a68074f641bb916f84c) - GitHub
+
+
+### Features
+
+* **ci**: add aggregated test detection outputs to changes.yml (#24040) [e162bda](https://github.com/mezmo/vector/commit/e162bda8216e4a9d1d73587b717766b28b08bacc) - GitHub
+* **ci**: add RUST_BACKTRACE/CARGO_TERM_COLOR to setup action (#24056) [6ec5b90](https://github.com/mezmo/vector/commit/6ec5b90bf8cf54ba6a5d1c780eab57651c7acbdd) - GitHub
+* **ci**: add setup action (#23707) [c6fb996](https://github.com/mezmo/vector/commit/c6fb99628eeed263a9265af08c378627d63ba36d) - GitHub
+* **ci**: add workflow to build and push test runner image (#24042) [192dd25](https://github.com/mezmo/vector/commit/192dd25a3eb21e83912f054ae4a1b4d37cf3d3ba) - GitHub
+* **ci**: misc tests now run in parallel (#23987) [0b75760](https://github.com/mezmo/vector/commit/0b75760095b019d3ae2caed1e596c4ce4dec85fc) - GitHub
+* **ci**: move e2e.yml logic to integration.yml (#23873) [2e605f5](https://github.com/mezmo/vector/commit/2e605f52128deff9ecd7fada87b102357dca8dd9) - GitHub
+* **ci**: only run tests when change conditions are met (#23939) [6b807ef](https://github.com/mezmo/vector/commit/6b807ef93ce21c70e143c4fb4c67d8baaca14a9b) - GitHub
+* **ci**: optimize integration tests by reusing test-runner images (#24052) [c6a6a85](https://github.com/mezmo/vector/commit/c6a6a85e3b55463db3eada8e400e46daab0c30aa) - GitHub
+* **codecs**: add 'use_json_names' options to protobuf codecs (#24002) [e1ecf8e](https://github.com/mezmo/vector/commit/e1ecf8e536e3ff424d32c25e5cff9ceac8f4ae27) - GitHub
+* **codecs**: bump `avro-rs` crate to improve avro encoding error (#24119) [aef66cf](https://github.com/mezmo/vector/commit/aef66cfae8f68a7006b9c1cebba9ff022e0520da) - GitHub
+* **codecs**: introduce OTLP decoder (#24003) [73c468c](https://github.com/mezmo/vector/commit/73c468cd2df1b55d81ecafcc046019bdabfbf82b) - GitHub
+* **config**: emit config_reload_rejected and config_reloaded counters (#23500) [c52d405](https://github.com/mezmo/vector/commit/c52d405e5a54287c668f20ac95a8a81c3c142236) - GitHub
+* **dev**: add opentelemetry metrics e2e tests (#24109) [5d70d07](https://github.com/mezmo/vector/commit/5d70d07c3806f09ddf0597374de4553ed1394399) - GitHub
+* **dev**: enable colors when running in nextest (#23819) [e1cd39c](https://github.com/mezmo/vector/commit/e1cd39c78e439a8cb054aef69782cc00524ddb11) - GitHub
+* **docker_logs source**: print error with `Debug` trait to improve the user diagnostic experience (#23949) [2527653](https://github.com/mezmo/vector/commit/2527653b27302989b17666c3534285924c7106b8) - GitHub
+* **enrichment tables**: add expired items output to memory enrichment table (#23815) [a4ded4a](https://github.com/mezmo/vector/commit/a4ded4a8dfeb8e4ea19bae53c285ffb378f3cc75) - GitHub
+* **file sink**: add options to truncate files in some conditions (#23671) [a52a749](https://github.com/mezmo/vector/commit/a52a7494adc133c765b9cdcf70ce1cf8fbc504a8) - GitHub
+* **file source**: make fingerprinter buffer internal (#23859) [1a2dccb](https://github.com/mezmo/vector/commit/1a2dccb548e0e2d51b3a96aebe91b10218548b2c) - GitHub
+* **journald source**: improve error handling for journald source by spawn new stderr handler (#23941) [4c34fc6](https://github.com/mezmo/vector/commit/4c34fc60899d104ed4c571660f6e8e761e6ec719) - GitHub
+* **opentelemetry sink**: introduce `otlp` encoder  (#23850) [b18ada8](https://github.com/mezmo/vector/commit/b18ada85600888142703fe5f8276bc670d9330bc) - GitHub
+* **prometheus_remote_write source**: add path configuration option (#23956) [6f7ef56](https://github.com/mezmo/vector/commit/6f7ef56fab687db65808b24ffb8e54c67ee545f2) - GitHub
+* **remap transform**: reload transforms with external VRL on SIGHUP (#23898) [b9737f7](https://github.com/mezmo/vector/commit/b9737f74a94260221298b1e29a06de8208825ad4) - GitHub
+* **splunk_hec sink**: Add HEC indexer ack query compression (#23823) [ab8c4da](https://github.com/mezmo/vector/commit/ab8c4da85996c5c853017e38085a60e49ebb3fc5) - GitHub
+* **tests**: binstall cargo nextest in int/e2e tests (#23913) [2845c58](https://github.com/mezmo/vector/commit/2845c58505b2e6fd78391fa6c6da5deeffb3e31f) - GitHub
+* **unit tests**:  respect color flag for tests (#23957) [6a8dccc](https://github.com/mezmo/vector/commit/6a8dccc503d0a9386a83a52c274085d435ceda42) - GitHub
+* **unit tests**:  respect color flag for tests (#23964) [515a548](https://github.com/mezmo/vector/commit/515a54850a8b1bbd2bc8b5469d966c65adb16c0a) - GitHub
+* **unit tests**: respect color flag for tests (recreated) (#23966) [4044e43](https://github.com/mezmo/vector/commit/4044e43bb7d57cfdbdc5ec1edd0ac356ddc5e73b) - GitHub
+* **vdev**: add --reuse-image flag for CI optimization (#24041) [9b775a5](https://github.com/mezmo/vector/commit/9b775a572b235d8e89b9f0b554fc6b296274b3d5) - GitHub
+* **website**: add highlights to typesense (#23952) [cd2471a](https://github.com/mezmo/vector/commit/cd2471ab3ed81cc55b13eb4f094af735a210b61e) - GitHub
+
+
+### Miscellaneous
+
+* Merge pull request #63 from mezmo/feature/LOG-23166 [b65ec13](https://github.com/mezmo/vector/commit/b65ec1393e034465cf2a53f5893d75370f5a21d0) - GitHub [LOG-23166](https://logdna.atlassian.net/browse/LOG-23166)
+* Merge tag 'v7.1.0' into feature/LOG-23166 [0f01d67](https://github.com/mezmo/vector/commit/0f01d670969385737362ea79fcf930d52ed98423) - Phil Ciampini [LOG-23166](https://logdna.atlassian.net/browse/LOG-23166) [LOG-23166](https://logdna.atlassian.net/browse/LOG-23166)
+* Merge pull request #62 from mezmo/feature/LOG-23166-update-mold-cleanup [7b34e82](https://github.com/mezmo/vector/commit/7b34e828c96c3df0f47ee5b49c690a5d1ffe2519) - GitHub [LOG-23166](https://logdna.atlassian.net/browse/LOG-23166)
+* Merge upstream tag 'v0.51.1' into feature/LOG-23166 [b51aa3b](https://github.com/mezmo/vector/commit/b51aa3b6e64406f4e6c889b13400b12d17cc3000) - Phil Ciampini [LOG-23166](https://logdna.atlassian.net/browse/LOG-23166) [LOG-23166](https://logdna.atlassian.net/browse/LOG-23166)
+* chore!(config): prevent multiline env var interpolation (#24088) [8cc639f](https://github.com/mezmo/vector/commit/8cc639fd4f0ebe022da9598bfeca2a7483c691e9) - GitHub
+* feat!(internal_logs source): turn ON rate limiting by default (#24024) [3146eca](https://github.com/mezmo/vector/commit/3146ecae74e2371db559c5c0b5127bfa5786b968) - GitHub
+* fix!(metrics): limit utilization precision and reduce debug log frequency  (#23938) [828829c](https://github.com/mezmo/vector/commit/828829c0e472990442b718fc7d64c8fe4a1c05df) - GitHub
+* **config**: Document best-practice of not ending with _config in config spec (#23866) [5ce51c0](https://github.com/mezmo/vector/commit/5ce51c046d3e686ed248d9f82800581e5acdc231) - GitHub
+* **datadog_agent source**: Add control for metric name splitting (#23986) [cbfcb8c](https://github.com/mezmo/vector/commit/cbfcb8c182442df88b12e5096af2284d68752d82) - GitHub
+* **docker_logs source**: add requirement for docker logs source (#23944) [50f9a8c](https://github.com/mezmo/vector/commit/50f9a8c5dae8506e3ab7a11d61c43afe07982baa) - GitHub
+* **external docs**: fix empty collection rendering by isset (#23945) [deab79c](https://github.com/mezmo/vector/commit/deab79c5172837a44fcd0458c0b2215e6d1a456e) - GitHub
+* **external docs**: fix tls how it work (#24036) [0c99f16](https://github.com/mezmo/vector/commit/0c99f1646c58d170f91db1827d9778e60f1dbbd4) - GitHub
+* **external**: add example for AWS Secrets Manager backend (#23548) [25f0353](https://github.com/mezmo/vector/commit/25f0353fa129a9318fb9f3c97cfe2b2facf89940) - GitHub
+* **external**: improvements (#23869) [a3ee7ab](https://github.com/mezmo/vector/commit/a3ee7ab9854b9ffb4f411733f45811ddbcb9d3e9) - GitHub
+* **external**: vrl pop() function (#23727) [7893538](https://github.com/mezmo/vector/commit/78935388ac68c7e110fe148b56d564a887f02a11) - GitHub
+* **kubernetes_logs source**: fix warning for kubernetes logs source (#23965) [f56549c](https://github.com/mezmo/vector/commit/f56549ca18ed3a6969ee70532eee50f0a85449b9) - GitHub
+* **vrl**: add new path related documents (#23935) [59689d3](https://github.com/mezmo/vector/commit/59689d3c5ec29790eb5e109001a0c2993b062a39) - GitHub
+
 # [7.1.0](https://github.com/mezmo/vector/compare/v7.0.0...v7.1.0) (2026-02-26)
 
 
