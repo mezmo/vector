@@ -1,7 +1,8 @@
 use metrics::histogram;
 use std::time::Duration;
-use vector_lib::internal_event::InternalEvent;
+use vector_lib::{NamedInternalEvent, internal_event::InternalEvent};
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoLogClusteringStore {
     pub elapsed: Duration,
     pub total_usage_records: usize,

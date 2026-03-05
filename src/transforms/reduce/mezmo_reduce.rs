@@ -1933,11 +1933,15 @@ max_events = 3
                 },
             );
 
-            for event in vec![e_1.into(), e_2.into(), e_3.into(), e_4.into()] {
+            for event in vec![e_1.into(), e_2.into(), e_3.into()] {
                 tx.send(event).await.unwrap();
                 // Space out the events so that the internal timer can call `flush_into` which does the size checking.
                 sleep(tokio::time::Duration::from_millis(100)).await;
             }
+            tx.send(e_4.into()).await.unwrap();
+            // Drop tx to trigger flush_all_into on shutdown, ensuring e_4 is flushed deterministically
+            // rather than waiting for expire_after_ms (2000ms).
+            drop(tx);
 
             let output_1 = out_stream.recv().await.unwrap().into_log();
             assert_eq!(

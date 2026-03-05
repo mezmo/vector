@@ -31,12 +31,12 @@ impl Function for MockUserLog {
 
     fn examples(&self) -> &'static [Example] {
         &[
-            Example {
+            example! {
                 title: "default log level (info)",
                 source: r#"user_log("foo")"#,
                 result: Ok("null"),
             },
-            Example {
+            example! {
                 title: "custom level",
                 source: r#"user_log("foo", "error")"#,
                 result: Ok("null"),

@@ -1,7 +1,7 @@
 use metrics::counter;
-use vector_lib::internal_event::InternalEvent;
+use vector_lib::{NamedInternalEvent, internal_event::InternalEvent};
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoAggregateEventRecorded;
 
 impl InternalEvent for MezmoAggregateEventRecorded {
@@ -10,7 +10,7 @@ impl InternalEvent for MezmoAggregateEventRecorded {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoAggregateFlushed;
 
 impl InternalEvent for MezmoAggregateFlushed {
@@ -19,7 +19,7 @@ impl InternalEvent for MezmoAggregateFlushed {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoAggregateUpdateFailed;
 
 impl InternalEvent for MezmoAggregateUpdateFailed {

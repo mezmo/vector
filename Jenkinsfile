@@ -120,10 +120,11 @@ pipeline {
 
         stage('Checks'){
           steps {
+            // NOTE(pciampini): speed up the checks by disabling auto-builds
             sh """
-              make check-scripts ENVIRONMENT=true
-              make check-fmt ENVIRONMENT=true
-              make check-clippy ENVIRONMENT=true
+              make check-scripts ENVIRONMENT=true ENVIRONMENT_AUTOBUILD=false
+              make check-fmt ENVIRONMENT=true ENVIRONMENT_AUTOBUILD=false
+              make check-clippy ENVIRONMENT=true ENVIRONMENT_AUTOBUILD=false
             """
           }
         }
@@ -131,7 +132,7 @@ pipeline {
         stage('Unit test'){
           steps {
             sh """
-              make test ENVIRONMENT=true ENVIRONMENT_AUTOBUILD=true ENVIRONMENT_AUTOPULL=false
+              make test ENVIRONMENT=true ENVIRONMENT_AUTOBUILD=false ENVIRONMENT_AUTOPULL=false
             """
           }
         }

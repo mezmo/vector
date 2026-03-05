@@ -26,6 +26,8 @@ async fn topology_doesnt_reload_new_data_dir() {
     let result = topology
         .reload_config_and_respawn(new_config.build().unwrap(), Default::default(), None)
         .await;
+
+    // Should fail with GlobalOptionsChanged error
     assert!(matches!(result, Err(GlobalOptionsChanged { .. })));
 
     assert_eq!(

@@ -21,9 +21,6 @@ releases: "0.51.0": {
 			Blackhole sink periodic statistics messages are incorrectly rate limited.
 			""",
 		"""
-			The `internal_logs` source incorrectly rate limits and drops repeated messages.
-			""",
-		"""
 			When running Vector with debug logs enabled (`VECTOR_LOG=debug`), threads panic when log
 			messages are missing both a message and a rate limit tag. This is known to happen when
 			the utilization debug log is emitted and in the file server (affecting the `file` and

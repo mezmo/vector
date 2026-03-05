@@ -12,13 +12,15 @@ use vector_lib::event::{BatchNotifier, BatchStatus};
 use crate::{
     mezmo::reshape_log_event_by_message,
     sinks::{prelude::*, util::test::build_test_server},
-    test_util::{next_addr, random_lines_with_stream, random_message_object_events_with_stream},
+    test_util::{
+        addr::next_addr, random_lines_with_stream, random_message_object_events_with_stream,
+    },
 };
 
 use super::config::HttpSinkConfig;
 
 async fn build_sink(extra_config: &str) -> (std::net::SocketAddr, crate::sinks::VectorSink) {
-    let in_addr = next_addr();
+    let (_guard, in_addr) = next_addr();
 
     let config = format!(
         r#"
@@ -40,7 +42,7 @@ async fn build_sink(extra_config: &str) -> (std::net::SocketAddr, crate::sinks::
 async fn build_text_encoding_sink(
     extra_config: &str,
 ) -> (std::net::SocketAddr, crate::sinks::VectorSink) {
-    let in_addr = next_addr();
+    let (_guard, in_addr) = next_addr();
     let config = format!(
         r#"
             uri = "http://{in_addr}/frames"

@@ -1,5 +1,6 @@
 use std::{collections::HashMap, env, time::Instant};
 
+use http_body::Body as _;
 use hyper::Body;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -248,7 +249,9 @@ async fn http_request(
         status,
     });
 
-    let body = hyper::body::to_bytes(response.into_body())
+    let body = response
+        .into_body()
+        .collect()
         .await
         .map_err(|err| {
             let message = "Error interpreting response.";
@@ -258,7 +261,8 @@ async fn http_request(
                     error = ?cause);
 
             format!("{message} Error: {cause:?}")
-        })?;
+        })
+        .map(|c| c.to_bytes())?;
 
     if !status.is_success() {
         let text = String::from_utf8(body.into_iter().collect()).unwrap_or_default();

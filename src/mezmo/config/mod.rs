@@ -474,6 +474,8 @@ async fn generate_config(
     }
 
     let config_str = parts.join("\n");
+    // added this to ensure we're interpolating any environment variables in the TOML
+    let config_str = crate::config::loading::prepare_input(config_str.as_bytes(), true)?;
 
     trace!("Loading assembled config from {} parts", parts.len());
 
@@ -504,8 +506,10 @@ async fn generate_config(
             "Validating transforms for updated pipeline revision {}",
             r.id
         );
+        // added this to ensure we're interpolating any environment variables in the TOML
+        let interpolated = crate::config::loading::prepare_input(r.config.as_bytes(), true)?;
         let config_builder = config::load::<_, ConfigBuilder>(
-            r.config.as_bytes(),
+            interpolated.as_bytes(),
             crate::config::format::Format::Toml,
         )?;
         // Warnings would have already been handled above in the full config load...
@@ -729,6 +733,52 @@ mod tests {
             pipelines: None,
             common_config: None,
             validate_vrl: true, // Validated, and should succeed
+        };
+        let config_builder = b.build_all().await.expect("to build successfully");
+        assert!(
+            b.cache.contains_key("pipeline1"),
+            "pipeline should be in the cache"
+        );
+        let result = validate_config(config_builder).await;
+        assert!(result.is_ok(), "expected the invalid VRL to be excluded");
+    }
+
+    // Added this test after upstream changed the behavior of interpolating environment variables.
+    // While the change does not change the default behavior of the main config verification loop,
+    // we were not using those mechanisms, so interpolation was no longer executing.
+    // This test should warn us if something changes about this again
+    #[tokio::test]
+    async fn build_all_should_pass_interpolating_env_vars() {
+        let mut service = MockConfigService::new();
+        service
+            .expect_get_pipelines_by_partition()
+            .returning(|| Ok((vec![S!("pipeline1")], S!("data_dir = \"/data/vector\""))));
+        service.expect_get_new_revisions().returning(|_| {
+            Ok(HashMap::from([(
+                S!("pipeline1"),
+                Revision {
+                    id: S!("revision1"),
+                    toml_version: 1,
+                    config: S!(r#"
+                    [sources.in]
+                    type="stdin"
+                    [sinks.test_sink_id]
+                    type = "blackhole"
+                    inputs = [ "in" ]
+                    [sinks.test_sink_id.buffer]
+                    max_events = ${MEZMO_MEM_BUFFER_MAX_EVENTS:-1}
+                    when_full = "drop_newest"
+                    "#),
+                },
+            )]))
+        });
+
+        let mut b = MezmoConfigBuilder {
+            service: Box::new(service),
+            cache: HashMap::new(),
+            pipelines: None,
+            common_config: None,
+            validate_vrl: false, // Validated, and should succeed
         };
         let config_builder = b.build_all().await.expect("to build successfully");
         assert!(

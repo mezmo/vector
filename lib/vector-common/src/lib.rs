@@ -13,6 +13,8 @@
 #![deny(unused_comparisons)]
 #![allow(clippy::explicit_iter_loop, clippy::useless_conversion)]
 
+pub use vector_common_macros::NamedInternalEvent;
+
 #[cfg(feature = "btreemap")]
 pub use vrl::btreemap;
 

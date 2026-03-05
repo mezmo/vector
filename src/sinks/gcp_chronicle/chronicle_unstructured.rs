@@ -745,6 +745,7 @@ mod integration_tests {
         config(log_type, auth_path).build(cx).await
     }
 
+    #[ignore = "https://github.com/vectordotdev/vector/issues/24133"]
     #[tokio::test]
     async fn publish_events() {
         trace_init();
@@ -787,6 +788,7 @@ mod integration_tests {
         assert!(sink.is_ok())
     }
 
+    #[ignore = "https://github.com/vectordotdev/vector/issues/24133"]
     #[tokio::test]
     async fn publish_invalid_events() {
         trace_init();

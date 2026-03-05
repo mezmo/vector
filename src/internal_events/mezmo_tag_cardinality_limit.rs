@@ -1,9 +1,10 @@
 use metrics::counter;
 use vector_lib::{
-    emit,
+    NamedInternalEvent, emit,
     internal_event::{ComponentEventsDropped, INTENTIONAL, InternalEvent},
 };
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoTagCardinalityLimitRejectingEvent<'a> {
     pub tag_key: &'a str,
     pub tag_value: &'a str,
@@ -26,6 +27,7 @@ impl<'a> InternalEvent for MezmoTagCardinalityLimitRejectingEvent<'a> {
     }
 }
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoTagCardinalityLimitRejectingTag<'a> {
     pub tag_key: &'a str,
     pub tag_value: &'a str,
@@ -43,6 +45,7 @@ impl<'a> InternalEvent for MezmoTagCardinalityLimitRejectingTag<'a> {
     }
 }
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoTagCardinalityValueLimitReached<'a> {
     pub key: &'a str,
 }

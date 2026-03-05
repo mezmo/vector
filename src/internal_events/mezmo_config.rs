@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use http::StatusCode;
 use metrics::{counter, gauge, histogram};
-use vector_lib::internal_event::InternalEvent;
+use vector_lib::{NamedInternalEvent, internal_event::InternalEvent};
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoGenerateConfigError {
     pub errors: Vec<String>,
     pub pipeline_id: Option<String>,
@@ -48,7 +48,7 @@ impl InternalEvent for MezmoGenerateConfigError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoConfigReload {
     pub elapsed: Duration,
     pub success: bool,
@@ -61,6 +61,7 @@ impl InternalEvent for MezmoConfigReload {
     }
 }
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoConfigCompile {
     pub elapsed: Duration,
 }
@@ -71,6 +72,7 @@ impl InternalEvent for MezmoConfigCompile {
     }
 }
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoConfigVrlValidation {
     pub elapsed: Duration,
 }
@@ -81,6 +83,7 @@ impl InternalEvent for MezmoConfigVrlValidation {
     }
 }
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoConfigVrlValidationError {
     pub failure_count: u64,
 }
@@ -91,6 +94,7 @@ impl InternalEvent for MezmoConfigVrlValidationError {
     }
 }
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoConfigBuilderCreate {
     pub revisions: usize,
 }
@@ -102,6 +106,7 @@ impl InternalEvent for MezmoConfigBuilderCreate {
     }
 }
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoConfigServiceResponse<'a> {
     pub elapsed: Duration,
     pub url: &'a str,
@@ -118,6 +123,7 @@ impl InternalEvent for MezmoConfigServiceResponse<'_> {
     }
 }
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoConfigBuildFailure {
     pub error: String,
 }
@@ -129,6 +135,7 @@ impl InternalEvent for MezmoConfigBuildFailure {
     }
 }
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoConfigReloadSignalSend {}
 
 impl InternalEvent for MezmoConfigReloadSignalSend {
@@ -138,6 +145,7 @@ impl InternalEvent for MezmoConfigReloadSignalSend {
     }
 }
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoConfigReloadSignalReceive {}
 
 impl InternalEvent for MezmoConfigReloadSignalReceive {

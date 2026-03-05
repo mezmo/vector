@@ -6,6 +6,7 @@ use bytes::{Buf, Bytes};
 use futures::{Sink, future::BoxFuture};
 use headers::HeaderName;
 use http::{HeaderValue, Request, Response, StatusCode, header};
+use http_body::Body as _;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OrderedHeaderName(HeaderName);
@@ -49,7 +50,7 @@ use std::{
     time::Duration,
 };
 
-use hyper::{Body, body};
+use hyper::Body;
 use pin_project::pin_project;
 use snafu::{ResultExt, Snafu};
 use tower::{Service, ServiceBuilder};
@@ -540,7 +541,7 @@ where
             }
 
             let (parts, body) = response.into_parts();
-            let mut body = body::aggregate(body).await?;
+            let mut body = body.collect().await?.aggregate();
             Ok(hyper::Response::from_parts(
                 parts,
                 body.copy_to_bytes(body.remaining()),
@@ -1003,7 +1004,7 @@ mod test {
     };
 
     use super::*;
-    use crate::{config::ProxyConfig, test_util::next_addr};
+    use crate::{config::ProxyConfig, test_util::addr::next_addr};
 
     #[test]
     fn util_http_retry_logic() {
@@ -1031,7 +1032,7 @@ mod test {
 
     #[tokio::test]
     async fn util_http_it_makes_http_requests() {
-        let addr = next_addr();
+        let (_guard, addr) = next_addr();
 
         let uri = format!("http://{}:{}/", addr.ip(), addr.port())
             .parse::<Uri>()
@@ -1051,13 +1052,14 @@ mod test {
         let new_service = make_service_fn(move |_| {
             let tx = tx.clone();
 
-            let svc = service_fn(move |req| {
+            let svc = service_fn(move |req: http::Request<Body>| {
                 let mut tx = tx.clone();
 
                 async move {
-                    let mut body = hyper::body::aggregate(req.into_body())
+                    let mut body = http_body::Body::collect(req.into_body())
                         .await
-                        .map_err(|error| format!("error: {error}"))?;
+                        .map_err(|error| format!("error: {error}"))?
+                        .aggregate();
                     let string = String::from_utf8(body.copy_to_bytes(body.remaining()).to_vec())
                         .map_err(|_| "Wasn't UTF-8".to_string())?;
                     tx.try_send(string).map_err(|_| "Send error".to_string())?;

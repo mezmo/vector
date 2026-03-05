@@ -105,12 +105,18 @@ pub fn to_events(log_request: ExportLogsServiceRequest) -> SmallVec<[Event; 1]> 
                         None => Value::Null,
                     };
 
-                    let message_key = log_schema().message_key().unwrap();
-
                     let mut log_event = LogEvent::from_map(btreemap! {
                         log_schema().user_metadata_key() => Value::Object(metadata),
-                        KeyString::from(message_key.to_string().as_str()) => line,
                     }, EventMetadata::default());
+
+                    // in the unlikely condition the message_key Option value
+                    // is None, the previous logic would panic.
+                    if let Some(message_key) = log_schema().message_key() {
+                        log_event.insert(
+                            (lookup::PathPrefix::Event, message_key),
+                            line,
+                        );
+                    }
 
                     if let Some(timestamp_key) = log_schema().timestamp_key() {
                         log_event.insert((lookup::PathPrefix::Event, timestamp_key), time);

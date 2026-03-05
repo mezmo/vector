@@ -1,8 +1,10 @@
 use metrics::counter;
-use vector_lib::internal_event::InternalEvent;
-use vector_lib::internal_event::{ComponentEventsDropped, UNINTENTIONAL};
+use vector_lib::{
+    NamedInternalEvent,
+    internal_event::{ComponentEventsDropped, InternalEvent, UNINTENTIONAL},
+};
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoAggregateDistributedEventRecorded;
 
 impl InternalEvent for MezmoAggregateDistributedEventRecorded {
@@ -12,7 +14,7 @@ impl InternalEvent for MezmoAggregateDistributedEventRecorded {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoAggregateDistributedFlushed {
     pub event_count: u64,
 }
@@ -27,7 +29,7 @@ impl InternalEvent for MezmoAggregateDistributedFlushed {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoAggregateDistributedFlushFailed {
     pub err: String,
 }
@@ -40,7 +42,7 @@ impl InternalEvent for MezmoAggregateDistributedFlushFailed {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoAggregateDistributedRecordFailed {
     pub drop_reason: &'static str,
     pub err: String,
@@ -58,7 +60,7 @@ impl InternalEvent for MezmoAggregateDistributedRecordFailed {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoAggregateDistributedRecordRetried {
     pub attempt: usize,
     pub delay_ms: u128,

@@ -18,7 +18,7 @@ use tokio::sync::OnceCell;
 use tokio::time::{self, Duration};
 use tokio_util::codec::FramedRead;
 use vector_lib::{
-    EstimatedJsonEncodedSizeOf,
+    EstimatedJsonEncodedSizeOf, NamedInternalEvent,
     codecs::{
         StreamDecodingError,
         decoding::{DeserializerConfig, FramingConfig},
@@ -39,7 +39,7 @@ use crate::{
     shutdown::ShutdownSignal,
 };
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoDemoLogsEventProcessed;
 
 impl InternalEvent for MezmoDemoLogsEventProcessed {
