@@ -173,7 +173,7 @@ async fn healthcheck(
     let res = client.send(req).await?;
 
     let status = res.status();
-    let body = hyper::body::to_bytes(res.into_body()).await?;
+    let body = http_body::Body::collect(res.into_body()).await?.to_bytes();
 
     if status.is_client_error() || status.is_server_error() {
         let msg = Value::from(format!(

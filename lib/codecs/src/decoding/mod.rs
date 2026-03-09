@@ -378,7 +378,7 @@ impl DeserializerConfig {
                 AvroDeserializerConfig {
                     avro_options: avro.clone(),
                 }
-                .build(),
+                .build()?,
             )),
             DeserializerConfig::Bytes => Ok(Deserializer::Bytes(BytesDeserializerConfig.build())),
             DeserializerConfig::Json(config) => Ok(Deserializer::Json(config.build())),

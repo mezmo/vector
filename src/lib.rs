@@ -114,7 +114,6 @@ pub mod signal;
 pub(crate) mod sink_ext;
 #[allow(unreachable_pub)]
 pub mod sinks;
-pub mod source_sender;
 #[allow(unreachable_pub)]
 pub mod sources;
 pub mod stats;
@@ -139,8 +138,9 @@ pub mod vector_windows;
 
 pub mod mezmo;
 
-pub use source_sender::SourceSender;
-pub use vector_lib::{Error, Result, event, metrics, schema, shutdown, tcp, tls};
+pub use vector_lib::{
+    Error, Result, event, metrics, schema, shutdown, source_sender::SourceSender, tcp, tls,
+};
 
 static APP_NAME_SLUG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static USE_COLOR: std::sync::OnceLock<bool> = std::sync::OnceLock::new();

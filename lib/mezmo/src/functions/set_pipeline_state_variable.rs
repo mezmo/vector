@@ -31,17 +31,17 @@ impl Function for SetPipelineStateVariable {
 
     fn examples(&self) -> &'static [Example] {
         &[
-            Example {
+            example! {
                 title: "set a state variable for the pipeline",
                 source: r#"set_pipeline_state_variable("foo", "bar")"#,
                 result: Ok("bar"),
             },
-            Example {
+            example! {
                 title: "set a state variable for the pipeline",
                 source: r#"set_pipeline_state_variable("my_num", 123)"#,
                 result: Ok("123"),
             },
-            Example {
+            example! {
                 title: "set a state variable for the pipeline",
                 source: r#"set_pipeline_state_variable("my_arr", [1, 2, 3])"#,
                 result: Ok("[1, 2, 3]"),

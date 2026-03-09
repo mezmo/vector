@@ -2,9 +2,9 @@ use crate::mezmo::persistence::RocksDBConnection;
 use metrics::{counter, gauge};
 use mezmo::MezmoContext;
 use rocksdb::statistics::{Histogram, Ticker};
-use vector_lib::internal_event::InternalEvent;
+use vector_lib::{NamedInternalEvent, internal_event::InternalEvent};
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoPersistenceRocksDBTicker<'a> {
     pub ticker: Ticker,
     pub connection: &'a RocksDBConnection,
@@ -24,6 +24,7 @@ impl InternalEvent for MezmoPersistenceRocksDBTicker<'_> {
     }
 }
 
+#[derive(NamedInternalEvent)]
 pub struct MezmoPersistenceRocksDBHistogram<'a> {
     pub histogram: Histogram,
     pub connection: &'a RocksDBConnection,

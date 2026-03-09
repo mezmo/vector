@@ -22,7 +22,7 @@ impl Function for GetPipelineStateVariable {
     }
 
     fn examples(&self) -> &'static [Example] {
-        &[Example {
+        &[example! {
             title: "get a variable from state",
             source: r#"get_pipeline_state_variable("foo")"#,
             result: Ok("bar"),

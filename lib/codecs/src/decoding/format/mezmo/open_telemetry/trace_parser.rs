@@ -195,12 +195,16 @@ pub fn to_events(trace_request: ExportTraceServiceRequest) -> SmallVec<[Event; 1
                         KeyString::from("span_uniq_id") => span_uniq_id.clone(),
                     };
 
-                    let message_key = log_schema().message_key().unwrap().to_string();
-
                     let mut log_event = LogEvent::from_map(btreemap! {
-                        KeyString::from(message_key.as_str()) => Value::Object(message),
                         KeyString::from(log_schema().user_metadata_key()) => Value::Object(user_metadata),
                     }, EventMetadata::default());
+
+                    if let Some(message_key) = log_schema().message_key() {
+                        log_event.insert(
+                            (lookup::PathPrefix::Event, message_key),
+                            Value::Object(message),
+                        );
+                    }
 
                     if let Some(timestamp_key) = log_schema().timestamp_key() {
                         log_event.insert(

@@ -37,22 +37,22 @@ impl Function for UserLog {
 
     fn examples(&self) -> &'static [Example] {
         &[
-            Example {
+            example! {
                 title: "default log level (info)",
                 source: r#"user_log("some information")"#,
                 result: Ok("null"),
             },
-            Example {
+            example! {
                 title: "custom level",
                 source: r#"user_log("foo bombed", level: "error")"#,
                 result: Ok("null"),
             },
-            Example {
+            example! {
                 title: "custom rate limiting with warning",
                 source: r#"user_log("be careful", level: "warn", rate_limit_secs: 10)"#,
                 result: Ok("null"),
             },
-            Example {
+            example! {
                 title: "with captured_data that caused the error",
                 source: r#"user_log("something failed", level: "error", captured_data: .some_field)"#,
                 result: Ok("null"),

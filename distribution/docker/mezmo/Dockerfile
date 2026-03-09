@@ -1,5 +1,5 @@
 # use a source that has multi-arch support (amd64+arm64)
-FROM rust:1-slim-bullseye as release-builder
+FROM rust:1-slim-trixie AS release-builder
 ARG GITHUB_TOKEN
 ARG BUILD_DATE
 ARG VCS_REF
@@ -7,7 +7,7 @@ ARG BUILD_VERSION
 ARG RELEASE_VERSION
 
 # deps for compiler
-RUN DEPS='gcc g++ make cmake xz-utils locales python libexpat1-dev gettext libz-dev libssl-dev autoconf pkg-config bzip2 protobuf-compiler libsasl2-dev git libclang-dev' \
+RUN DEPS='gcc g++ make cmake xz-utils locales python3 libexpat1-dev gettext libz-dev libssl-dev autoconf pkg-config bzip2 protobuf-compiler libsasl2-dev git libclang-dev' \
   && apt-get update \
   && apt-get install -y --no-install-recommends $DEPS \
   && echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen \
@@ -35,7 +35,7 @@ RUN ls -lh /build/target/release
 RUN ["/build/target/release/vector", "--version"]
 
 # use internal base image
-FROM us.gcr.io/logdna-k8s/release:bullseye as release
+FROM us.gcr.io/logdna-k8s/release:trixie AS release
 
 # install remaining dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends systemd gdb \

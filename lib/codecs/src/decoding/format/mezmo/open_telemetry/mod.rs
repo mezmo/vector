@@ -38,7 +38,10 @@ const NANO_RATIO: u64 = 1_000_000_000;
 
 pub fn nano_to_timestamp(time_unix_nano: u64) -> Value {
     Value::Timestamp(if time_unix_nano > 0 {
-        let ms: i64 = (time_unix_nano / NANO_RATIO).try_into().unwrap();
+        let ms: i64 = match (time_unix_nano / NANO_RATIO).try_into() {
+            Ok(v) => v,
+            Err(_) => return Value::Timestamp(Utc::now()),
+        };
         let nanos: u32 = (time_unix_nano % NANO_RATIO) as u32;
         DateTime::from_timestamp(ms, nanos).expect("timestamp should be a valid timestamp")
     } else {

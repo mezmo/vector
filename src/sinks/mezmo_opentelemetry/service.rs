@@ -17,7 +17,8 @@ use http::{
     HeaderName, HeaderValue, Request,
     header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE},
 };
-use hyper::{Body, body};
+use http_body::Body as _;
+use hyper::Body;
 use tower::Service;
 use vector_lib::{
     finalization::{EventFinalizers, EventStatus, Finalizable},
@@ -155,8 +156,10 @@ impl Service<OpentelemetryApiRequest> for OpentelemetryService {
                     }
 
                     let body = response.into_body();
-                    let body = match body::to_bytes(body).await {
-                        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                    let body = match body.collect().await {
+                        Ok(collected) => {
+                            String::from_utf8_lossy(&collected.to_bytes()).into_owned()
+                        }
                         Err(err) => err.to_string(),
                     };
 

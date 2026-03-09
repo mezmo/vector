@@ -1,20 +1,23 @@
 use metrics::counter;
-use vector_lib::internal_event::{ComponentEventsDropped, InternalEvent, UNINTENTIONAL};
+use vector_lib::{
+    NamedInternalEvent,
+    internal_event::{ComponentEventsDropped, InternalEvent, UNINTENTIONAL},
+};
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoDatadogAgentParserError<'a> {
     pub error: &'a str,
     pub event_type: Option<&'a str>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoDatadogAgentParserInvalidItem<'a> {
     pub error: &'a str,
     pub item_type: &'a str,
     pub event_type: Option<&'a str>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoDatadogAgentParserDroppedSpan<'a> {
     pub missing_fields: &'a str,
 }

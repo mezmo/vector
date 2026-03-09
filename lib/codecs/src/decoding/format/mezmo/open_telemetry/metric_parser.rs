@@ -998,7 +998,7 @@ impl<'a> ScopeMetricValue<'a> {
 impl IntoValue for ScopeMetricValue<'_> {
     fn to_value(&self) -> Value {
         let attributes = OpenTelemetryKeyValue {
-            attributes: self.attributes.as_ref().unwrap().clone(),
+            attributes: self.attributes.clone().unwrap_or_default(),
         };
 
         let name = if let Some(name) = self.name.as_ref() {
@@ -1254,7 +1254,7 @@ pub fn sanitize_tags<'a>(
                     })
                     .collect();
 
-                let first_char = sanitized_key.chars().next().unwrap();
+                let first_char = sanitized_key.chars().next().unwrap_or_default();
                 if first_char.is_ascii_digit() {
                     sanitized_key.insert_str(0, "key_");
                 } else if !first_char.is_alphabetic() {
@@ -1338,7 +1338,13 @@ pub fn normalize_name<'a>(
     let mut normalized_name = name_tokens.join("_");
 
     // Metric name cannot start with a digit, so prefix it with "_" in this case
-    if !normalized_name.is_empty() && normalized_name.chars().next().unwrap().is_ascii_digit() {
+    if !normalized_name.is_empty()
+        && normalized_name
+            .chars()
+            .next()
+            .unwrap_or_default()
+            .is_ascii_digit()
+    {
         normalized_name = "_".to_owned() + &normalized_name
     }
 

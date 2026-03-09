@@ -1,7 +1,10 @@
 use metrics::counter;
-use vector_lib::internal_event::{ComponentEventsDropped, INTENTIONAL, InternalEvent};
+use vector_lib::{
+    NamedInternalEvent,
+    internal_event::{ComponentEventsDropped, INTENTIONAL, InternalEvent},
+};
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub(crate) struct MezmoThrottleDistributedEventThrottled;
 
 impl InternalEvent for MezmoThrottleDistributedEventThrottled {
@@ -15,7 +18,7 @@ impl InternalEvent for MezmoThrottleDistributedEventThrottled {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoThrottleDistributedEventChecked;
 
 impl InternalEvent for MezmoThrottleDistributedEventChecked {
@@ -25,7 +28,7 @@ impl InternalEvent for MezmoThrottleDistributedEventChecked {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoThrottleDistributedCheckFailed {
     pub err: String,
 }
@@ -42,7 +45,7 @@ impl InternalEvent for MezmoThrottleDistributedCheckFailed {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NamedInternalEvent)]
 pub struct MezmoThrottleDistributedCheckRetried {
     pub attempt: usize,
     pub delay_ms: u128,
