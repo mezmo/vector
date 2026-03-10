@@ -1,5 +1,17 @@
 ## Changelog
 
+## [8.0.1](https://github.com/mezmo/vector/compare/v8.0.0...v8.0.1) (2026-03-10)
+
+
+### Bug Fixes
+
+* **config**: remote configs need to interpolate configs [8b8c760](https://github.com/mezmo/vector/commit/8b8c760ddf09c004b5ee9ab0e96934ce2825e2ce) - Phil Ciampini [LOG-23388](https://logdna.atlassian.net/browse/LOG-23388)
+
+
+### Miscellaneous
+
+* Merge pull request #65 from mezmo/pciampini/LOG-23388 [84470aa](https://github.com/mezmo/vector/commit/84470aa301769ab0c79f9c4af0a3dc40ee26a4f1) - GitHub [LOG-23388](https://logdna.atlassian.net/browse/LOG-23388)
+
 # [8.0.0](https://github.com/mezmo/vector/compare/v7.2.0...v8.0.0) (2026-03-09)
 
 
