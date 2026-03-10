@@ -160,7 +160,7 @@ async fn http_request_to_config_builder(
         .await
         .map_err(|e| vec![e])?;
 
-    config::load(config_str.chunk(), *config_format)
+    config::load_with_env_interpolation(config_str.chunk(), *config_format)
 }
 
 /// Polls the HTTP endpoint after/every `poll_interval_secs`, returning a stream of `ConfigBuilder`.

@@ -344,6 +344,18 @@ where
     format::deserialize(&with_vars, format)
 }
 
+// Mezmo: added to fix interpolating env vars on remote http config load
+pub fn load_with_env_interpolation<R: std::io::Read, T>(
+    input: R,
+    format: Format,
+) -> Result<T, Vec<String>>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let with_vars = prepare_input(input, true)?;
+    format::deserialize(&with_vars, format)
+}
+
 #[cfg(not(windows))]
 fn default_path() -> PathBuf {
     "/etc/vector/vector.yaml".into()
