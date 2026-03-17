@@ -48,6 +48,7 @@ pub(crate) async fn start_polling_for_tasks(
     auth_token: String,
     get_endpoint_url: String,
     post_endpoint_url: String,
+    extra_headers: HashMap<String, String>,
     #[cfg(test)] max_iterations: Option<usize>, // for testing only, set to 0 for infinite loop
 ) {
     let task_initial_pool_delay = Duration::from_secs(mezmo_env_config!(
@@ -87,6 +88,7 @@ pub(crate) async fn start_polling_for_tasks(
             &auth_token,
             &get_endpoint_url,
             &post_endpoint_url,
+            &extra_headers,
         );
 
         if let Err(_) = tokio::time::timeout(task_execution_timeout, task_fut).await {
@@ -117,8 +119,9 @@ async fn run_task_step(
     auth_token: &str,
     get_endpoint_url: &str,
     post_endpoint_url: &str,
+    extra_headers: &HashMap<String, String>,
 ) {
-    let tasks = fetch_tasks(client, auth_token, get_endpoint_url)
+    let tasks = fetch_tasks(client, auth_token, get_endpoint_url, extra_headers)
         .await
         .unwrap_or_else(|e| {
             warn!("Remote task fetch failed: {e}");
@@ -141,7 +144,15 @@ async fn run_task_step(
         }
 
         let results = execute_task(&t, config).await;
-        if let Err(e) = post_task_results(client, auth_token, post_endpoint_url, &t, &results).await
+        if let Err(e) = post_task_results(
+            client,
+            auth_token,
+            post_endpoint_url,
+            &t,
+            &results,
+            extra_headers,
+        )
+        .await
         {
             warn!(
                 "There was an error when posting task results for {}: {}",
@@ -209,7 +220,11 @@ impl FromStr for TaskType {
     }
 }
 
-fn gen_headers(auth_token: &str, method: Method) -> header::HeaderMap {
+fn gen_headers(
+    auth_token: &str,
+    method: Method,
+    extra_headers: &HashMap<String, String>,
+) -> header::HeaderMap {
     let mut headers = header::HeaderMap::new();
     headers.insert(header::USER_AGENT, HeaderValue::from_static("Mezmo Pulse"));
     match method {
@@ -228,6 +243,14 @@ fn gen_headers(auth_token: &str, method: Method) -> header::HeaderMap {
         header::AUTHORIZATION,
         HeaderValue::from_str(&format!("Token {auth_token}")).unwrap(),
     );
+    for (k, v) in extra_headers {
+        if let (Ok(name), Ok(value)) = (
+            header::HeaderName::from_bytes(k.as_bytes()),
+            HeaderValue::from_str(v),
+        ) {
+            headers.insert(name, value);
+        }
+    }
 
     headers
 }
@@ -236,10 +259,11 @@ async fn fetch_tasks(
     client: &Client,
     auth_token: &str,
     endpoint_url: &str,
+    extra_headers: &HashMap<String, String>,
 ) -> Result<Vec<Task>, Err> {
     let resp = client
         .get(endpoint_url)
-        .headers(gen_headers(auth_token, Method::GET))
+        .headers(gen_headers(auth_token, Method::GET, extra_headers))
         .send()
         .await
         .map_err(|e| format!("Connection error: {e}"))?;
@@ -262,13 +286,14 @@ async fn post_task_results(
     endpoint_url: &str,
     task: &Task,
     results: &Result<TaskResult, Err>,
+    extra_headers: &HashMap<String, String>,
 ) -> Result<(), Err> {
     let endpoint_url = endpoint_url.replace(":task_id", &task.task_id);
 
     let resp = client
         .post(&endpoint_url)
         .json(&results.to_json())
-        .headers(gen_headers(auth_token, Method::POST))
+        .headers(gen_headers(auth_token, Method::POST, extra_headers))
         .send()
         .await
         .map_err(|e| format!("Connection error: {e}"))?;
@@ -448,7 +473,15 @@ mod tests {
         let post_url = format!("http://{}{}", server.addr(), post_path);
         let client = Client::new();
 
-        run_task_step(&Default::default(), &client, "token", &get_url, &post_url).await;
+        run_task_step(
+            &Default::default(),
+            &client,
+            "token",
+            &get_url,
+            &post_url,
+            &HashMap::new(),
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -498,7 +531,15 @@ mod tests {
         let post_url = format!("http://{}{}", server.addr(), post_path);
         let client = Client::new();
 
-        run_task_step(&Default::default(), &client, "token", &get_url, &post_url).await;
+        run_task_step(
+            &Default::default(),
+            &client,
+            "token",
+            &get_url,
+            &post_url,
+            &HashMap::new(),
+        )
+        .await;
     }
 
     #[assay(
@@ -535,6 +576,7 @@ mod tests {
             String::from("token"),
             get_url,
             unused_post_url,
+            HashMap::new(),
             Some(1),
         )
         .await;
