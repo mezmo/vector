@@ -411,7 +411,7 @@ openssl-probe = { version = "0.1.6", default-features = false }
 ordered-float.workspace = true
 percent-encoding = { version = "2.3.1", default-features = false }
 postgres-openssl = { version = "0.5.1", default-features = false, features = ["runtime"], optional = true }
-pulsar = { git = "https://github.com/mezmo/pulsar-rs", rev = "9cae903825bf6203f91198cfa4d42ebc9c099b06", default-features = false, features = ["tokio-runtime", "admin-api", "auth-oauth2", "flate2", "lz4", "snap", "zstd"], optional = true }
+pulsar = { git = "https://github.com/mezmo/pulsar-rs", rev = "89e4f0f0ca46f84f07f3a93e0f2f6d653d6dc060", default-features = false, features = ["tokio-runtime", "admin-api", "auth-oauth2", "flate2", "lz4", "snap", "zstd"], optional = true }
 quick-junit = { version = "0.5.1" }
 rand.workspace = true
 rand_distr.workspace = true
