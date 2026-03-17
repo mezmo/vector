@@ -9220,7 +9220,7 @@ dependencies = [
 [[package]]
 name = "pulsar"
 version = "6.4.1"
-source = "git+https://github.com/mezmo/pulsar-rs?rev=9cae903825bf6203f91198cfa4d42ebc9c099b06#9cae903825bf6203f91198cfa4d42ebc9c099b06"
+source = "git+https://github.com/mezmo/pulsar-rs?rev=89e4f0f0ca46f84f07f3a93e0f2f6d653d6dc060#89e4f0f0ca46f84f07f3a93e0f2f6d653d6dc060"
 dependencies = [
  "async-channel 2.5.0",
  "async-trait",
