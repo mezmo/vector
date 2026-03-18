@@ -211,6 +211,7 @@ mock_instant = { version = "0.6" }
 serial_test = { version = "3.2" }
 
 [dependencies]
+anyhow.workspace = true
 cfg-if.workspace = true
 clap.workspace = true
 indoc.workspace = true
@@ -680,6 +681,7 @@ sources-logs-mezmo = [
   "sources-fluent",
   "sources-http_server",
   "sources-http_client",
+  "sources-mezmo_kubernetes_metrics",
   "sources-mezmo_pipeline_state_variable_change",
   "sources-mezmo_user_logs",
   "sources-kafka",
@@ -734,6 +736,7 @@ sources-host_metrics = ["heim/cpu", "heim/host", "heim/memory", "heim/net"]
 sources-http_client = ["sources-utils-http-client"]
 sources-http_server = ["sources-utils-http", "sources-utils-http-headers", "sources-utils-http-query"]
 sources-internal_logs = []
+sources-mezmo_kubernetes_metrics = ["kubernetes"]
 sources-mezmo_pipeline_state_variable_change = []
 sources-mezmo_user_logs = ["sources-internal_logs"]
 sources-internal_metrics = []
