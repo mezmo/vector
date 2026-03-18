@@ -1,5 +1,12 @@
 ## Changelog
 
+# [8.1.0](https://github.com/mezmo/vector/compare/v8.0.1...v8.1.0) (2026-03-18)
+
+
+### Features
+
+* **pulsar-rs**: Bump to revision with schema_version fixes [68f150f](https://github.com/mezmo/vector/commit/68f150f9b81397e010af8a9ec9d85323e8410245) - kwabena [LOG-23450](https://logdna.atlassian.net/browse/LOG-23450)
+
 ## [8.0.1](https://github.com/mezmo/vector/compare/v8.0.0...v8.0.1) (2026-03-10)
 
 
