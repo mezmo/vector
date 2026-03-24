@@ -5,6 +5,7 @@ def DEFAULT_BRANCH = "master"
 def PROJECT_NAME = "vector"
 def CURRENT_BRANCH = currentBranch()
 def DOCKER_REPO = "docker.io/mezmo"
+def TRIGGER_PATTERN = '.*@logdnabot.*'
 
 def BRANCH_BUILD = slugify("${CURRENT_BRANCH}-${BUILD_NUMBER}")
 
@@ -39,6 +40,7 @@ pipeline {
       // Cron hours are in GMT, so this is roughly 12-3am EST, depending on DST
       env.BRANCH_NAME == DEFAULT_BRANCH ? 'H H(5-6) * * * % SANITY_BUILD=true' : ''
     )
+    issueCommentTrigger(TRIGGER_PATTERN)
   }
   options {
     timestamps()
