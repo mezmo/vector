@@ -1,5 +1,12 @@
 ## Changelog
 
+## [8.1.1](https://github.com/mezmo/vector/compare/v8.1.0...v8.1.1) (2026-03-24)
+
+
+### Bug Fixes
+
+* **ci**: add trigger for fork PRs [3dc2eb2](https://github.com/mezmo/vector/commit/3dc2eb25637a5c08426505fc928efdebbafdb22d) - Mike Del Tito [LOG-23477](https://logdna.atlassian.net/browse/LOG-23477)
+
 # [8.1.0](https://github.com/mezmo/vector/compare/v8.0.1...v8.1.0) (2026-03-18)
 
 
