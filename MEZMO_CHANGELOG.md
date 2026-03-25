@@ -1,5 +1,12 @@
 ## Changelog
 
+## [8.1.2](https://github.com/mezmo/vector/compare/v8.1.1...v8.1.2) (2026-03-25)
+
+
+### Chores
+
+* **deps**: Update `pulsar-rs` crate [3f77469](https://github.com/mezmo/vector/commit/3f77469a3912dcd9ca699a0833dfb85f67f53ab3) - Darin Spivey [LOG-23491](https://logdna.atlassian.net/browse/LOG-23491)
+
 ## [8.1.1](https://github.com/mezmo/vector/compare/v8.1.0...v8.1.1) (2026-03-24)
 
 
