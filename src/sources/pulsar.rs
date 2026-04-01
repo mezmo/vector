@@ -8,8 +8,7 @@ use bytes::Bytes;
 use chrono::TimeZone;
 use futures_util::StreamExt;
 use pulsar::{
-    Authentication, BrokerConfigOptions, ConnectionRetryOptions, Consumer, Pulsar, SubType,
-    TokioExecutor,
+    Authentication, ConnectionRetryOptions, Consumer, Pulsar, SubType, TokioExecutor,
     authentication::oauth2::{OAuth2Authentication, OAuth2Params},
     consumer::{InitialPosition, Message},
     message::proto::MessageIdData,
@@ -63,6 +62,13 @@ pub struct PulsarSourceConfig {
     #[configurable(metadata(docs::examples = "pulsar://127.0.0.1:6650"))]
     #[serde(alias = "address")]
     endpoint: String,
+
+    /// The base URL of the Pulsar Admin HTTP endpoint.
+    ///
+    /// Required when `broker_config_options` is set. If not provided, broker-side
+    /// topic policies will not be applied.
+    #[configurable(metadata(docs::examples = "http://127.0.0.1:8080"))]
+    admin_endpoint: Option<String>,
 
     /// The Pulsar topic names to read events from.
     #[configurable(metadata(docs::examples = "[persistent://public/default/my-topic]"))]
@@ -347,18 +353,11 @@ pub struct PulsarConnectionRetryOptions {
 #[derive(Clone, Debug)]
 pub struct PulsarBrokerConfigOptions {
     /// Maximum number of unacknowledged messages allowed per consumer on a topic.
-    /// Requires the `admin-api` feature in the pulsar crate and `topicLevelPoliciesEnabled=true`
-    /// in the broker configuration.
+    ///
+    /// Applied via the Pulsar Admin REST API after the consumer subscribes. Requires
+    /// `admin_endpoint` to be set in this source's configuration.
     #[configurable(metadata(docs::examples = 1000))]
     pub max_unacked_messages_per_consumer: Option<u32>,
-}
-
-impl From<&PulsarBrokerConfigOptions> for BrokerConfigOptions {
-    fn from(opts: &PulsarBrokerConfigOptions) -> Self {
-        BrokerConfigOptions {
-            max_unacked_messages_per_consumer: opts.max_unacked_messages_per_consumer,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -439,12 +438,7 @@ impl PulsarSourceConfig {
     async fn create_consumer(
         &self,
     ) -> crate::Result<pulsar::consumer::Consumer<String, TokioExecutor>> {
-        let admin_url_env_var = std::env::var("PULSAR_ADMIN_URL").ok();
-
         let mut builder = Pulsar::builder(&self.endpoint, TokioExecutor);
-        if let Some(admin_url) = admin_url_env_var {
-            builder = builder.with_admin_url(admin_url);
-        }
 
         let mut retry_options = ConnectionRetryOptions {
             // Use an infinite number of retries by default so that Vector doesn't
@@ -585,11 +579,35 @@ impl PulsarSourceConfig {
             consumer_builder = consumer_builder.with_topics(&self.topics);
         }
 
-        if let Some(broker_config) = &self.broker_config_options {
-            consumer_builder = consumer_builder.with_broker_config(broker_config.into());
-        }
-
         let consumer = consumer_builder.build::<String>().await?;
+
+        // Apply broker-side topic policies via the admin API after the consumer has
+        // subscribed (the topic must exist first). Errors are logged and ignored so
+        // that a misconfigured or unavailable admin endpoint does not prevent Vector
+        // from starting up.
+        if let (Some(admin_url), Some(broker_config)) =
+            (&self.admin_endpoint, &self.broker_config_options)
+            && let Some(max_unacked) = broker_config.max_unacked_messages_per_consumer
+        {
+            match pulsar.admin(admin_url) {
+                Ok(admin) => {
+                    for topic in &self.topics {
+                        if let Err(e) = admin
+                            .set_max_unacked_messages_per_consumer(topic, max_unacked)
+                            .await
+                        {
+                            warn!(
+                                "Failed to set max_unacked_messages_per_consumer on topic \
+                                 {topic}: {e}"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to create Pulsar admin client for {admin_url}: {e}");
+                }
+            }
+        }
 
         Ok(consumer)
     }
@@ -986,6 +1004,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_admin_endpoint() {
+        let config = config_from_str(r#"admin_endpoint = "http://127.0.0.1:8080""#);
+        assert_eq!(
+            config.admin_endpoint.as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
+    }
+
+    #[test]
+    fn no_admin_endpoint_is_none() {
+        let config = config_from_str("");
+        assert!(
+            config.admin_endpoint.is_none(),
+            "Expected admin_endpoint to be None when not in config"
+        );
+    }
+
+    #[test]
     fn parse_broker_config_options_full() {
         let config = config_from_str(
             r#"
@@ -1138,6 +1174,7 @@ mod integration_tests {
             partitioned_topic_auto_discovery: false,
             topic_refresh_secs: 30,
             connection_retry_options: None,
+            admin_endpoint: None,
             broker_config_options: None,
         };
         let mut builder = Pulsar::<TokioExecutor>::builder(&cnf.endpoint, TokioExecutor);
@@ -1232,6 +1269,7 @@ mod integration_tests {
             partitioned_topic_auto_discovery: true,
             topic_refresh_secs: 10,
             connection_retry_options: None,
+            admin_endpoint: None,
             broker_config_options: None,
         };
 
@@ -1269,6 +1307,7 @@ mod integration_tests {
             partitioned_topic_auto_discovery: true,
             topic_refresh_secs: 15,
             connection_retry_options: None,
+            admin_endpoint: None,
             broker_config_options: None,
         };
 
@@ -1305,6 +1344,7 @@ mod integration_tests {
             partitioned_topic_auto_discovery: false,
             topic_refresh_secs: 20,
             connection_retry_options: None,
+            admin_endpoint: None,
             broker_config_options: None,
         };
 
@@ -1341,6 +1381,7 @@ mod integration_tests {
             partitioned_topic_auto_discovery: true,
             topic_refresh_secs: 30,
             connection_retry_options: None,
+            admin_endpoint: None,
             broker_config_options: None,
         };
 
@@ -1388,6 +1429,7 @@ mod integration_tests {
             partitioned_topic_auto_discovery: true,
             topic_refresh_secs: 30,
             connection_retry_options: None,
+            admin_endpoint: None,
             broker_config_options: None,
         };
 
@@ -1435,6 +1477,7 @@ mod integration_tests {
             partitioned_topic_auto_discovery: true,
             topic_refresh_secs: 30,
             connection_retry_options: None,
+            admin_endpoint: None,
             broker_config_options: None,
         };
 
@@ -1485,6 +1528,7 @@ mod integration_tests {
                 partitioned_topic_auto_discovery: true,
                 topic_refresh_secs: refresh_secs,
                 connection_retry_options: None,
+                admin_endpoint: None,
                 broker_config_options: None,
             };
 
@@ -1528,6 +1572,7 @@ mod integration_tests {
                 partitioned_topic_auto_discovery: true,
                 topic_refresh_secs: 30,
                 connection_retry_options: None,
+                admin_endpoint: None,
                 broker_config_options: None,
             };
 
@@ -1540,66 +1585,113 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn test_broker_config_admin_error_is_swallowed() {
+        trace_init();
+
+        let topic = format!("persistent://public/default/test-{}", random_string(10));
+
+        // Point admin_endpoint at a port with nothing listening. The consumer
+        // subscription itself should still succeed — the admin error is warned
+        // and ignored so Vector startup is not blocked.
+        let cnf = PulsarSourceConfig {
+            endpoint: pulsar_address("pulsar", 6650),
+            topics: vec![topic.clone()],
+            consumer_name: Some("test-admin-error-consumer".to_string()),
+            subscription_name: Some("test-admin-error-sub".to_string()),
+            priority_level: None,
+            batch_size: None,
+            auth: None,
+            dead_letter_queue_policy: None,
+            subscription_type: SubscriptionType::default(),
+            consumer_position: ConsumerPosition::default(),
+            framing: FramingConfig::Bytes,
+            decoding: DeserializerConfig::Bytes,
+            acknowledgements: false.into(),
+            log_namespace: None,
+            broker_redelivery_enabled: false,
+            tls: None,
+            partitioned_topic_auto_discovery: false,
+            topic_refresh_secs: 30,
+            connection_retry_options: None,
+            admin_endpoint: Some("http://127.0.0.1:1".to_string()),
+            broker_config_options: Some(PulsarBrokerConfigOptions {
+                max_unacked_messages_per_consumer: Some(500),
+            }),
+        };
+
+        let result = cnf.create_consumer().await;
+        assert!(
+            result.is_ok(),
+            "Consumer creation should succeed even when the admin endpoint is unreachable: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
     async fn test_broker_config_max_unacked_messages() {
         trace_init();
 
         let admin_url = pulsar_admin_url();
         let topic = format!("persistent://public/default/test-{}", random_string(10));
 
-        temp_env::async_with_vars([("PULSAR_ADMIN_URL", Some(&admin_url))], async {
-            let cnf = PulsarSourceConfig {
-                endpoint: pulsar_address("pulsar", 6650),
-                topics: vec![topic.clone()],
-                consumer_name: Some("test-admin-consumer".to_string()),
-                subscription_name: Some("test-admin-sub".to_string()),
-                priority_level: None,
-                batch_size: None,
-                auth: None,
-                dead_letter_queue_policy: None,
-                subscription_type: SubscriptionType::default(),
-                consumer_position: ConsumerPosition::default(),
-                framing: FramingConfig::Bytes,
-                decoding: DeserializerConfig::Bytes,
-                acknowledgements: false.into(),
-                log_namespace: None,
-                broker_redelivery_enabled: false,
-                tls: None,
-                partitioned_topic_auto_discovery: false,
-                topic_refresh_secs: 30,
-                connection_retry_options: None,
-                broker_config_options: Some(PulsarBrokerConfigOptions {
-                    max_unacked_messages_per_consumer: Some(500),
-                }),
-            };
+        let cnf = PulsarSourceConfig {
+            endpoint: pulsar_address("pulsar", 6650),
+            topics: vec![topic.clone()],
+            consumer_name: Some("test-admin-consumer".to_string()),
+            subscription_name: Some("test-admin-sub".to_string()),
+            priority_level: None,
+            batch_size: None,
+            auth: None,
+            dead_letter_queue_policy: None,
+            subscription_type: SubscriptionType::default(),
+            consumer_position: ConsumerPosition::default(),
+            framing: FramingConfig::Bytes,
+            decoding: DeserializerConfig::Bytes,
+            acknowledgements: false.into(),
+            log_namespace: None,
+            broker_redelivery_enabled: false,
+            tls: None,
+            partitioned_topic_auto_discovery: false,
+            topic_refresh_secs: 30,
+            connection_retry_options: None,
+            admin_endpoint: Some(admin_url.clone()),
+            broker_config_options: Some(PulsarBrokerConfigOptions {
+                max_unacked_messages_per_consumer: Some(500),
+            }),
+        };
 
-            let _consumer = cnf.create_consumer().await.unwrap();
+        let _consumer = cnf.create_consumer().await.unwrap();
 
-            let topic_name = topic.split('/').next_back().unwrap();
-            let url = format!(
-                "{admin_url}/admin/v2/persistent/public/default/{topic_name}/maxUnackedMessagesOnConsumer",
+        let topic_name = topic.split('/').next_back().unwrap();
+        let url = format!(
+            "{admin_url}/admin/v2/persistent/public/default/{topic_name}/maxUnackedMessagesOnConsumer",
+        );
+
+        // Topic-level policies propagate asynchronously; poll until the value appears
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        let value: i32 = loop {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let resp = reqwest::get(&url).await.unwrap();
+            assert!(
+                resp.status().is_success(),
+                "Admin API GET failed with status: {}",
+                resp.status()
             );
-
-            // Topic-level policies propagate asynchronously; poll until the value appears
-            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
-            let value: i32 = loop {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                let resp = reqwest::get(&url).await.unwrap();
-                assert!(
-                    resp.status().is_success(),
-                    "Admin API GET failed with status: {}",
-                    resp.status()
-                );
-                let body = resp.text().await.unwrap();
-                if !body.is_empty() {
-                    break body.trim().parse().expect("expected integer from admin API");
-                }
-                assert!(
-                    tokio::time::Instant::now() < deadline,
-                    "Timed out waiting for max_unacked_messages_per_consumer policy to propagate"
-                );
-            };
-            assert_eq!(value, 500, "Expected max_unacked_messages_per_consumer=500, got {value}");
-        })
-        .await;
+            let body = resp.text().await.unwrap();
+            if !body.is_empty() {
+                break body
+                    .trim()
+                    .parse()
+                    .expect("expected integer from admin API");
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "Timed out waiting for max_unacked_messages_per_consumer policy to propagate"
+            );
+        };
+        assert_eq!(
+            value, 500,
+            "Expected max_unacked_messages_per_consumer=500, got {value}"
+        );
     }
 }
