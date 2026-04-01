@@ -1,5 +1,12 @@
 ## Changelog
 
+## [8.1.3](https://github.com/mezmo/vector/compare/v8.1.2...v8.1.3) (2026-04-01)
+
+
+### Bug Fixes
+
+* **sources**: Re-implement Pulsar's use of the admin api [fb2d37a](https://github.com/mezmo/vector/commit/fb2d37adb05c5d06716227558f60614cd05d6866) - Darin Spivey [LOG-23536](https://logdna.atlassian.net/browse/LOG-23536)
+
 ## [8.1.2](https://github.com/mezmo/vector/compare/v8.1.1...v8.1.2) (2026-03-25)
 
 
