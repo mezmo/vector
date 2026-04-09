@@ -82,6 +82,8 @@ pub mod mezmo_opentelemetry;
 pub mod mqtt;
 #[cfg(feature = "sinks-nats")]
 pub mod nats;
+#[cfg(feature = "sinks-network_mock")]
+pub mod network_mock;
 #[cfg(feature = "sinks-new_relic")]
 pub mod new_relic;
 #[cfg(feature = "sinks-webhdfs")]

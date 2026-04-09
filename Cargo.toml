@@ -952,6 +952,7 @@ sinks-logs-mezmo = [
   "sinks-blackhole",
   "sinks-console",
   "sinks-clickhouse",
+  "sinks-network_mock",
   "sinks-datadog_logs",
   "sinks-datadog_traces",
   "sinks-elasticsearch",
@@ -1037,6 +1038,7 @@ sinks-mezmo = []
 sinks-loki = ["loki-logproto"]
 sinks-mqtt = ["dep:rumqttc"]
 sinks-nats = ["dep:async-nats", "dep:nkeys"]
+sinks-network_mock = []
 sinks-new_relic_logs = ["sinks-http"]
 sinks-new_relic = []
 sinks-opentelemetry = ["sinks-http", "codecs-opentelemetry"]
