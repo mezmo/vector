@@ -90,78 +90,6 @@ pipeline {
         }
       }
       stages {
-        stage('Lint and test release'){
-          when {
-            allOf {
-                expression { !(env.TOP_COMMIT ==~ /^Merge remote-tracking branch.*$/) }
-                expression { !(env.TOP_COMMIT ==~ /^Merge upstream.*$/) }
-                expression { !(env.TOP_COMMIT ==~ /^Merge tag.*$/) }
-                expression { !(env.TOP_COMMIT ==~ /^.*\[skip lint\].*$/) }
-            }
-          }
-          tools {
-            nodejs 'NodeJS 20'
-          }
-          environment {
-            GIT_BRANCH = "${CURRENT_BRANCH}"
-            // This is not populated on PR builds and is needed for the release dry runs
-            BRANCH_NAME = "${CURRENT_BRANCH}"
-            CHANGE_ID = ""
-          }
-          steps {
-            script {
-              configFileProvider(NPMRC) {
-                sh 'npm ci'
-                sh 'npm run release:dry'
-              }
-            }
-            sh './release-tool lint'
-            sh './release-tool test'
-          }
-        }
-
-        stage('Checks'){
-          steps {
-            // NOTE(pciampini): speed up the checks by disabling auto-builds
-            sh """
-              make check-scripts ENVIRONMENT=true ENVIRONMENT_AUTOBUILD=false
-              make check-fmt ENVIRONMENT=true ENVIRONMENT_AUTOBUILD=false
-              make check-clippy ENVIRONMENT=true ENVIRONMENT_AUTOBUILD=false
-            """
-          }
-        }
-
-        stage('Unit test'){
-          steps {
-            sh """
-              make test ENVIRONMENT=true ENVIRONMENT_AUTOBUILD=false ENVIRONMENT_AUTOPULL=false
-            """
-          }
-        }
-
-        stage('image test') {
-          when {
-            allOf{
-              changeRequest() // Only do this during PRs because it can take 30 minutes
-              changeset "distribution/docker/mezmo/Dockerfile"
-            }
-          }
-          steps {
-            script {
-              def semver = npm.semver()
-              def pkg_version = "${semver.version}+${BRANCH_BUILD}"
-              buildx.build(
-                project: PROJECT_NAME
-              , push: false
-              , tags: [BRANCH_BUILD]
-              , dockerfile: "distribution/docker/mezmo/Dockerfile"
-              , args: [RELEASE_VERSION: pkg_version]
-              , docker_repo: DOCKER_REPO
-              )
-            }
-          }
-        }
-
         stage('Feature build and publish') {
           when {
             expression {
@@ -207,37 +135,6 @@ pipeline {
             }
           }
         }
-      }
-    }
-    stage('Publish') {
-      when {
-        allOf {
-          branch DEFAULT_BRANCH
-          expression { env.TOP_COMMIT ==~ RELEASE_COMMIT_TITLE }
-          not {
-            environment name: 'SANITY_BUILD', value: 'true'
-          }
-        }
-      }
-      steps {
-        script {
-          def tag = sh (
-            script: "./release-tool debug-RELEASE_VERSION",
-            returnStdout: true
-          ).split(' = ')[1].trim()
-
-          buildx.build(
-            project: PROJECT_NAME
-          , push: true
-          , tags: [tag]
-          , dockerfile: "distribution/docker/mezmo/Dockerfile"
-          , args: [RELEASE_VERSION: tag]
-          , docker_repo: DOCKER_REPO
-          )
-        }
-        sh './release-tool clean'
-        sh './release-tool build'
-        sh './release-tool publish'
       }
     }
   }
