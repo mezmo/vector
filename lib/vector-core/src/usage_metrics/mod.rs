@@ -666,6 +666,10 @@ async fn get_flusher(
         if db_url == "log://stderr" {
             return Ok(Arc::new(StdErrFlusher {}));
         }
+        // Discard metrics entirely — useful for pods without a metrics DB
+        if db_url == "log://null" {
+            return Ok(Arc::new(NoopFlusher {}));
+        }
 
         return Ok(Arc::new(
             DbFlusher::new(&pod_name)
