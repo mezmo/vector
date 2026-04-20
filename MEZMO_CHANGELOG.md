@@ -1,5 +1,18 @@
 ## Changelog
 
+# [8.2.0](https://github.com/mezmo/vector/compare/v8.1.3...v8.2.0) (2026-04-20)
+
+
+### Bug Fixes
+
+* **pulsar**: adjust event finalization/acking [3a11fd1](https://github.com/mezmo/vector/commit/3a11fd1a83d94f6de7fbd370c6dc5dce9a88a5a9) - Mike Del Tito [LOG-23596](https://logdna.atlassian.net/browse/LOG-23596)
+
+
+### Features
+
+* **metrics**: add log://null flusher to suppress metrics output [ab9bb30](https://github.com/mezmo/vector/commit/ab9bb30e56c25c27b3b9f5b4e7cfd359c50867b1) - Mike Del Tito [LOG-223600](https://logdna.atlassian.net/browse/LOG-223600)
+* **sinks**: add `network_mock` sink [4369d06](https://github.com/mezmo/vector/commit/4369d066bdb559474c19930f5a4d3d55fefe02f7) - Mike Del Tito [LOG-23599](https://logdna.atlassian.net/browse/LOG-23599)
+
 ## [8.1.3](https://github.com/mezmo/vector/compare/v8.1.2...v8.1.3) (2026-04-01)
 
 
