@@ -1,5 +1,12 @@
 ## Changelog
 
+## [8.2.1](https://github.com/mezmo/vector/compare/v8.2.0...v8.2.1) (2026-04-20)
+
+
+### Chores
+
+* **deps**: Bump `pulsar-rs` to include origin pong fix [ec29b98](https://github.com/mezmo/vector/commit/ec29b9856fdeaa2f65bb6c26f7f48677b7bf92ae) - Darin Spivey [LOG-23608](https://logdna.atlassian.net/browse/LOG-23608)
+
 # [8.2.0](https://github.com/mezmo/vector/compare/v8.1.3...v8.2.0) (2026-04-20)
 
 
