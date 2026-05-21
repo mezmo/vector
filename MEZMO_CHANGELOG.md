@@ -1,5 +1,12 @@
 ## Changelog
 
+## [8.2.2](https://github.com/mezmo/vector/compare/v8.2.1...v8.2.2) (2026-05-21)
+
+
+### Chores
+
+* **deps**: Upgrade to streamnative pulsar-rs master branch [5f970f2](https://github.com/mezmo/vector/commit/5f970f2a7ae0198b6d0ad04d2e88e3f506d52d8e) - Darin Spivey [LOG-23797](https://logdna.atlassian.net/browse/LOG-23797)
+
 ## [8.2.1](https://github.com/mezmo/vector/compare/v8.2.0...v8.2.1) (2026-04-20)
 
 
