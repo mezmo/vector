@@ -1,5 +1,12 @@
 ## Changelog
 
+## [8.2.3](https://github.com/mezmo/vector/compare/v8.2.2...v8.2.3) (2026-06-10)
+
+
+### Bug Fixes
+
+* **transforms**: RocksDB transforms should take finalizers early [af00ccb](https://github.com/mezmo/vector/commit/af00ccb5827f77df2e51d5e881d1e6a75051664f) - Darin Spivey [LOG-24001](https://logdna.atlassian.net/browse/LOG-24001)
+
 ## [8.2.2](https://github.com/mezmo/vector/compare/v8.2.1...v8.2.2) (2026-05-21)
 
 
