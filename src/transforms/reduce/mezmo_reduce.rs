@@ -739,6 +739,14 @@ impl MezmoReduce {
     fn transform_one(&mut self, output: &mut Vec<Event>, event: Event) {
         let mut event = event.into_log();
 
+        // Ack the source event on receipt rather than holding its finalizers in reduce state
+        // across the window. Holding them stalls Pulsar sources once in-flight unacked hits
+        // max_unacked_messages_per_consumer. RocksDB state persistence provides durability.
+        event
+            .metadata_mut()
+            .take_finalizers()
+            .update_status(vector_lib::event::EventStatus::Delivered);
+
         // Mezmo functionality here creates a new Event with the `.message` properties moved
         // to the root of the new event. This way, we can reuse all the complex functionality
         // of Condition and whether or not the reduce accumulator should stop, and how group_by works.
@@ -805,15 +813,7 @@ impl MezmoReduce {
             );
             match persist_runtime_state(state, state_persistence).await {
                 Ok(_) => {
-                    // Once persisted, update the status on the finalizers as delivered thus acking the
-                    // original events. RocksDB will provide the durability of the aggregate events.
-                    for reduce in self.reduce_merge_states.values_mut() {
-                        reduce
-                            .metadata
-                            .take_finalizers()
-                            .update_status(vector_lib::event::EventStatus::Delivered);
-                    }
-
+                    // Finalizers are acked on receipt in `transform_one`; nothing to release here.
                     debug!("MezmoReduce: persisted state successfully");
                 }
                 Err(err) => {

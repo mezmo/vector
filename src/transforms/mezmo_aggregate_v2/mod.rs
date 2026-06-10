@@ -299,7 +299,14 @@ impl MezmoAggregateV2 {
     /// Executes the aggregation program with the new event, collecting the aggregate into sliding windows. Aggregate
     /// events that are ready to be released/flushed will not be further mutated but remain in memory until the flush
     /// method is called, typically on a polling cycle.
-    fn record(&mut self, event: Event) {
+    fn record(&mut self, mut event: Event) {
+        // Ack the source event on receipt rather than holding its finalizers in aggregate state
+        // across the window. Holding them stalls Pulsar sources once in-flight unacked hits
+        // max_unacked_messages_per_consumer. RocksDB state persistence provides durability.
+        event
+            .take_finalizers()
+            .update_status(EventStatus::Delivered);
+
         let event_key = self.get_event_key(&event);
         let event_timestamp = self.get_event_timestamp(&event);
 
@@ -457,18 +464,7 @@ impl MezmoAggregateV2 {
             match handle {
                 Ok(result) => match result {
                     Ok(_) => {
-                        // LOG-19818: Many usages of the aggregate processor span a time boundary that
-                        // causes heartburn with kafka acknowledgements. If we've persisted the data
-                        // locally, then update the status on the finalizers as delivered; the processor
-                        // will now provide the durability.
-                        for windows in self.data.values_mut() {
-                            for window in windows.iter_mut() {
-                                window
-                                    .event
-                                    .take_finalizers()
-                                    .update_status(EventStatus::Delivered);
-                            }
-                        }
+                        // Finalizers are acked on receipt in `record`; nothing to release here.
                         debug!("MezmoAggregateV2: state persisted");
                     }
                     Err(err) => {
