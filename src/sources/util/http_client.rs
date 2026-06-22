@@ -27,7 +27,7 @@ use crate::{
     SourceSender,
     http::{Auth, HttpClient, QueryParameterValue, QueryParameters},
     internal_events::{
-        EndpointBytesReceived, HttpClientEventsReceived, HttpClientHttpError,
+        EndpointBytesReceived, HttpClientBuildError, HttpClientEventsReceived, HttpClientHttpError,
         HttpClientHttpResponseError, StreamClosedError,
     },
     sources::util::http::HttpMethod,
@@ -211,8 +211,20 @@ pub(crate) async fn call<
                 None => Body::empty(),
             };
 
-            // building the request should be infallible
-            let mut request = builder.body(body).expect("error creating request");
+            // Building the request can fail if a user-supplied header name/value
+            // or the URL is invalid (for example control characters or CRLF in a
+            // header value). Skip this request instead of panicking, which would
+            // crash the entire (shared) Vector process.
+            let mut request = match builder.body(body) {
+                Ok(request) => request,
+                Err(error) => {
+                    emit!(HttpClientBuildError {
+                        error,
+                        url: url.to_string(),
+                    });
+                    return stream::empty::<Event>().boxed();
+                }
+            };
 
             if let Some(auth) = &inputs.auth {
                 auth.apply(&mut request);
