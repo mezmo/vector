@@ -1,5 +1,12 @@
 ## Changelog
 
+## [8.2.4](https://github.com/mezmo/vector/compare/v8.2.3...v8.2.4) (2026-06-22)
+
+
+### Bug Fixes
+
+* **source**: http source should gracefully fail [cacd330](https://github.com/mezmo/vector/commit/cacd33002623d484025ea9ac242b77561415d484) - Darin Spivey [LOG-24045](https://logdna.atlassian.net/browse/LOG-24045)
+
 ## [8.2.3](https://github.com/mezmo/vector/compare/v8.2.2...v8.2.3) (2026-06-10)
 
 
