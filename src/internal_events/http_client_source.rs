@@ -64,6 +64,31 @@ impl InternalEvent for HttpClientHttpResponseError {
 }
 
 #[derive(Debug, NamedInternalEvent)]
+pub struct HttpClientBuildError {
+    pub error: http::Error,
+    pub url: String,
+}
+
+impl InternalEvent for HttpClientBuildError {
+    fn emit(self) {
+        error!(
+            message = "Failed to build HTTP request; skipping.",
+            url = %self.url,
+            error = ?self.error,
+            error_type = error_type::REQUEST_FAILED,
+            stage = error_stage::PROCESSING,
+        );
+        counter!(
+            "component_errors_total",
+            "url" => self.url,
+            "error_type" => error_type::REQUEST_FAILED,
+            "stage" => error_stage::PROCESSING,
+        )
+        .increment(1);
+    }
+}
+
+#[derive(Debug, NamedInternalEvent)]
 pub struct HttpClientHttpError {
     pub error: crate::Error,
     pub url: String,
