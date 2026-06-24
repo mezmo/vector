@@ -1,5 +1,12 @@
 ## Changelog
 
+## [8.2.5](https://github.com/mezmo/vector/compare/v8.2.4...v8.2.5) (2026-06-24)
+
+
+### Bug Fixes
+
+* **vrl**: Disallow vrl functions used in SSRF attacks [f70a8a5](https://github.com/mezmo/vector/commit/f70a8a5a7fc52d27741801e4e945b4b4ebed8e62) - Darin Spivey [VM-673](https://logdna.atlassian.net/browse/VM-673)
+
 ## [8.2.4](https://github.com/mezmo/vector/compare/v8.2.3...v8.2.4) (2026-06-22)
 
 
