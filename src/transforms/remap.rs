@@ -237,6 +237,8 @@ impl RemapConfig {
         functions.append(&mut dnstap_parser::vrl_functions());
         functions.append(&mut vector_vrl_functions::all());
         functions.append(&mut mezmo_vrl_functions::vrl_functions());
+        // VM-673: strip SSRF-capable functions from the set.
+        mezmo_vrl_functions::remove_disabled(&mut functions);
 
         let state = TypeState {
             local: Default::default(),
