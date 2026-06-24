@@ -144,11 +144,13 @@ impl HttpServerAuthConfig {
                 ))
             }
             HttpServerAuthConfig::Custom { source } => {
-                let functions = vrl::stdlib::all()
+                let mut functions = vrl::stdlib::all()
                     .into_iter()
                     .chain(vector_lib::enrichment::vrl_functions())
                     .chain(vector_vrl_functions::all())
                     .collect::<Vec<_>>();
+                // VM-673: strip SSRF-capable functions.
+                mezmo::functions::remove_disabled(&mut functions);
 
                 let state = TypeState::default();
 
