@@ -26,7 +26,7 @@ use vector_lib::{
     configurable::configurable_component,
     event::Event,
     finalization::BatchStatus,
-    finalizer::OrderedFinalizer,
+    finalizer::UnorderedFinalizer,
     internal_event::{
         ByteSize, BytesReceived, CountByteSize, EventsReceived, InternalEventHandle, Protocol,
         Registered,
@@ -622,8 +622,14 @@ async fn pulsar_source(
     log_namespace: LogNamespace,
     broker_redelivery_enabled: bool,
 ) -> Result<(), ()> {
+    // Acks are individual (`ack_with_id` below), not a single contiguous offset like
+    // Kafka/file sources, so we don't need to ack in receive order. Using an unordered
+    // finalizer lets each message ack as soon as its own delivery resolves. A slow sink
+    // holding one message can/will block the acks of messagse that come after it.
+    // Using `UnorderedFinalizer` polls all parked futures and yields whichever resolves first,
+    // rather than require them to be serial. This avoids the "head of line is blocking" problem.
     let (finalizer, mut ack_stream) =
-        OrderedFinalizer::<FinalizerEntry>::new(Some(shutdown.clone()));
+        UnorderedFinalizer::<FinalizerEntry>::new(Some(shutdown.clone()));
 
     let bytes_received = register!(BytesReceived::from(Protocol::TCP));
     let events_received = register!(EventsReceived);
@@ -683,7 +689,7 @@ async fn pulsar_source(
 async fn parse_message(
     msg: Message<String>,
     decoder: &Decoder,
-    finalizer: &OrderedFinalizer<FinalizerEntry>,
+    finalizer: &UnorderedFinalizer<FinalizerEntry>,
     out: &mut SourceSender,
     acknowledgements: bool,
     log_namespace: LogNamespace,
@@ -813,7 +819,7 @@ async fn parse_message(
 /// only attached to events when sink acknowledgements are enabled; otherwise it
 /// is dropped after send, resolving the receiver immediately.
 async fn finalize_event_stream(
-    finalizer: &OrderedFinalizer<FinalizerEntry>,
+    finalizer: &UnorderedFinalizer<FinalizerEntry>,
     out: &mut SourceSender,
     stream: std::pin::Pin<Box<dyn futures_util::Stream<Item = Event> + Send + '_>>,
     topic: String,
@@ -899,6 +905,63 @@ mod tests {
     #[test]
     fn generate_config() {
         crate::test_util::test_generate_config::<PulsarSourceConfig>();
+    }
+
+    // The source uses an `UnorderedFinalizer`, so each Pulsar message is acked as soon as
+    // its own delivery resolves. A slow/stuck message must not head-of-line-block the acks
+    // of messages received after it. Here message 2 finalizes before message 1, and we assert
+    // the ack stream surfaces 2 first. With the previous `OrderedFinalizer`, the first
+    // `next().await` would hang waiting on message 1.
+    #[tokio::test]
+    async fn finalizer_acks_in_completion_order_not_receive_order() {
+        use futures_util::StreamExt;
+
+        use super::{
+            BatchNotifier, BatchStatus, FinalizerEntry, MessageIdData, UnorderedFinalizer,
+        };
+
+        fn msg_id(entry_id: u64) -> MessageIdData {
+            MessageIdData {
+                ledger_id: 0,
+                entry_id,
+                ..Default::default()
+            }
+        }
+
+        let (finalizer, mut ack_stream) = UnorderedFinalizer::<FinalizerEntry>::new(None);
+
+        // Two in-flight messages, received in order: 1 then 2.
+        let (batch1, receiver1) = BatchNotifier::new_with_receiver();
+        let (batch2, receiver2) = BatchNotifier::new_with_receiver();
+        finalizer.add(
+            FinalizerEntry {
+                topic: "t".into(),
+                message_id: msg_id(1),
+            },
+            receiver1,
+        );
+        finalizer.add(
+            FinalizerEntry {
+                topic: "t".into(),
+                message_id: msg_id(2),
+            },
+            receiver2,
+        );
+
+        // Resolve the SECOND message first; the first is still "in flight".
+        drop(batch2);
+        let (status, entry) = ack_stream.next().await.expect("ack for message 2");
+        assert!(matches!(status, BatchStatus::Delivered));
+        assert_eq!(
+            entry.message_id.entry_id, 2,
+            "message 2 must ack before message 1 -- no head-of-line blocking"
+        );
+
+        // Now resolve the first; it acks once its own delivery completes.
+        drop(batch1);
+        let (status, entry) = ack_stream.next().await.expect("ack for message 1");
+        assert!(matches!(status, BatchStatus::Delivered));
+        assert_eq!(entry.message_id.entry_id, 1);
     }
 
     fn config_from_str(config_str: &str) -> PulsarSourceConfig {
