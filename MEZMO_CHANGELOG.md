@@ -1,5 +1,17 @@
 ## Changelog
 
+## [8.2.6](https://github.com/mezmo/vector/compare/v8.2.5...v8.2.6) (2026-06-30)
+
+
+### Chores
+
+* **transforms**: enable lua [0634e5b](https://github.com/mezmo/vector/commit/0634e5b969d1f9a863801fea6efe23d13116d228) - dominic-mcallister-logdna [LOG-24081](https://logdna.atlassian.net/browse/LOG-24081)
+
+
+### Miscellaneous
+
+* Merge pull request #78 from mezmo/dominic/LOG-24081 [d1e7311](https://github.com/mezmo/vector/commit/d1e7311aa6f6d11e7f1d7b7ff5c59711311c3241) - GitHub [LOG-24081](https://logdna.atlassian.net/browse/LOG-24081)
+
 ## [8.2.5](https://github.com/mezmo/vector/compare/v8.2.4...v8.2.5) (2026-06-24)
 
 
