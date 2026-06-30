@@ -809,6 +809,7 @@ transforms-logs = [
 transforms-logs-mezmo = [
   "transforms-dedupe",
   "transforms-filter",
+  "transforms-lua",
   "transforms-mezmo_datadog_agent_parser",
   "transforms-mezmo_reduce",
   "transforms-remap",
@@ -835,6 +836,7 @@ transforms-metrics = [
 ]
 transforms-metrics-mezmo = [
   "transforms-filter",
+  "transforms-lua",
   "transforms-remap",
   "transforms-throttle",
   "transforms-aggregate",
