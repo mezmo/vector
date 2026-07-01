@@ -681,11 +681,18 @@ async fn get_flusher(
     if let Some(endpoint_url) = endpoint_url {
         // Http endpoint used by Pulse
         let auth_token = env::var("MEZMO_LOCAL_DEPLOY_AUTH_TOKEN").ok();
-        let headers = if let Some(token) = auth_token {
+        let mut headers = if let Some(token) = auth_token {
             HashMap::from([("Authorization".into(), format!("Token {token}"))])
         } else {
             return Err(MetricsPublishingError::AuthNotSetError);
         };
+
+        if let Some(extra) = env::var("MEZMO_REMOTE_TASK_EXTRA_HEADERS")
+            .ok()
+            .and_then(|v| serde_json::from_str::<HashMap<String, String>>(&v).ok())
+        {
+            headers.extend(extra);
+        }
 
         return Ok(Arc::new(HttpFlusher::new(
             &pod_name,
