@@ -1,5 +1,12 @@
 ## Changelog
 
+## [8.2.7](https://github.com/mezmo/vector/compare/v8.2.6...v8.2.7) (2026-07-01)
+
+
+### Bug Fixes
+
+* **pulsar**: Change acking to use an unordered finalizer [9f542d0](https://github.com/mezmo/vector/commit/9f542d0cd7289ae6eed6edbb6a3487f8600eaba4) - Darin Spivey [LOG-24065](https://logdna.atlassian.net/browse/LOG-24065)
+
 ## [8.2.6](https://github.com/mezmo/vector/compare/v8.2.5...v8.2.6) (2026-06-30)
 
 
