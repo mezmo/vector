@@ -9,19 +9,20 @@ use ordered_float::NotNan;
 use serde::Serialize;
 use vector_lib::{
     config::log_schema,
-    event::ObjectMap,
+    event::{KeyString, ObjectMap},
     internal_event::{ComponentEventsDropped, INTENTIONAL, UNINTENTIONAL},
 };
 use vrl::event_path;
 
 use super::NewRelicSinkError;
-use crate::event::{Event, MetricKind, MetricValue, Value};
+use crate::event::{Event, LogEvent, MetricKind, MetricValue, Value};
 
 #[derive(Debug)]
 pub(super) enum NewRelicApiModel {
     Metrics(MetricsApiModel),
     Events(EventsApiModel),
     Logs(LogsApiModel),
+    Traces(TracesApiModel),
 }
 
 /// The metrics API data model.
@@ -333,6 +334,340 @@ impl TryFrom<Vec<Event>> for LogsApiModel {
         } else {
             Err(NewRelicSinkError::new("No valid logs to generate"))
         }
+    }
+}
+
+/// The Trace API data model, using the New Relic-format trace payload.
+///
+/// Reference: https://docs.newrelic.com/docs/distributed-tracing/trace-api/report-new-relic-format-traces-trace-api/
+#[derive(Debug, Serialize)]
+pub(super) struct TracesApiModel(pub [SpanStore; 1]);
+
+#[derive(Debug, Serialize)]
+pub(super) struct SpanStore {
+    pub spans: Vec<Span>,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct Span {
+    #[serde(rename = "trace.id")]
+    pub trace_id: String,
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<i64>,
+    pub attributes: ObjectMap,
+}
+
+impl TracesApiModel {
+    pub(super) const fn new(spans: Vec<Span>) -> Self {
+        Self([SpanStore { spans }])
+    }
+}
+
+const NANOS_PER_MILLI_F64: f64 = 1_000_000.0;
+const NANOS_PER_MILLI: i64 = 1_000_000;
+const OTEL_STATUS_CODE_ERROR: i64 = 2;
+
+/// Attribute keys that New Relic drops or that trigger undefined behavior. Stripped from any
+/// passthrough attributes.
+///
+/// Reference: https://docs.newrelic.com/docs/distributed-tracing/trace-api/trace-api-general-requirements-limits/
+const RESTRICTED_TRACE_ATTRIBUTES: [&str; 5] = [
+    "entityGuid",
+    "guid",
+    "entity.guid",
+    "entity.name",
+    "entity.type",
+];
+
+/// Why a span envelope was dropped during translation. Determines which `ComponentEventsDropped`
+/// internal event is emitted.
+enum SpanDropReason {
+    NonObject,
+    NonTrace,
+    MissingId,
+    MissingStart,
+}
+
+impl TryFrom<Vec<Event>> for TracesApiModel {
+    type Error = NewRelicSinkError;
+
+    fn try_from(buf_events: Vec<Event>) -> Result<Self, Self::Error> {
+        let mut num_non_log = 0;
+        let mut num_non_object = 0;
+        let mut num_non_trace = 0;
+        let mut num_missing_id = 0;
+        let mut num_missing_start = 0;
+
+        let spans: Vec<Span> = buf_events
+            .into_iter()
+            .filter_map(|event| {
+                let Some(log) = event.try_into_log() else {
+                    num_non_log += 1;
+                    return None;
+                };
+                match span_from_log(log) {
+                    Ok(span) => Some(span),
+                    Err(SpanDropReason::NonObject) => {
+                        num_non_object += 1;
+                        None
+                    }
+                    Err(SpanDropReason::NonTrace) => {
+                        num_non_trace += 1;
+                        None
+                    }
+                    Err(SpanDropReason::MissingId) => {
+                        num_missing_id += 1;
+                        None
+                    }
+                    Err(SpanDropReason::MissingStart) => {
+                        num_missing_start += 1;
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        if num_non_log > 0 {
+            emit!(ComponentEventsDropped::<INTENTIONAL> {
+                count: num_non_log,
+                reason: "non-log event",
+            });
+        }
+        if num_non_object > 0 {
+            emit!(ComponentEventsDropped::<INTENTIONAL> {
+                count: num_non_object,
+                reason: "non-object event",
+            });
+        }
+        if num_non_trace > 0 {
+            emit!(ComponentEventsDropped::<INTENTIONAL> {
+                count: num_non_trace,
+                reason: "non-trace event",
+            });
+        }
+        if num_missing_id > 0 {
+            emit!(ComponentEventsDropped::<UNINTENTIONAL> {
+                count: num_missing_id,
+                reason: "span missing trace/span id",
+            });
+        }
+        if num_missing_start > 0 {
+            emit!(ComponentEventsDropped::<UNINTENTIONAL> {
+                count: num_missing_start,
+                reason: "span missing start time",
+            });
+        }
+
+        if !spans.is_empty() {
+            Ok(Self::new(spans))
+        } else {
+            Err(NewRelicSinkError::new("No valid spans to generate"))
+        }
+    }
+}
+
+/// Translate a single span envelope (`{resource, scope, type, record}`) log into a New Relic
+/// trace span. Reserved attributes are written after passthrough attributes so they win on any
+/// key collision.
+fn span_from_log(mut log: LogEvent) -> Result<Span, SpanDropReason> {
+    // Mezmo pipeline events wrap the self-describing span envelope under the log schema message
+    // key (`{message: {record, resource, scope, type}}`). Prefer that payload; fall back to the
+    // event root for a bare root-level envelope.
+    let mut envelope = match take_message_object(&mut log) {
+        Some(message) => message,
+        None => log
+            .into_parts()
+            .0
+            .into_object()
+            .ok_or(SpanDropReason::NonObject)?,
+    };
+
+    // The envelope carries `type: "trace"`. Reject other types when the field is present, but
+    // tolerate its absence.
+    if let Some(kind) = envelope.get("type").and_then(Value::as_str)
+        && &*kind != "trace"
+    {
+        return Err(SpanDropReason::NonTrace);
+    }
+
+    let mut record = envelope
+        .remove("record")
+        .and_then(Value::into_object)
+        .ok_or(SpanDropReason::MissingId)?;
+
+    let trace_id = take_id(&mut record, "traceId").ok_or(SpanDropReason::MissingId)?;
+    let id = take_id(&mut record, "spanId").ok_or(SpanDropReason::MissingId)?;
+
+    let start_ns = record
+        .remove("startTimeUnixNano")
+        .as_ref()
+        .and_then(parse_unix_nanos)
+        .filter(|&ns| ns > 0)
+        .ok_or(SpanDropReason::MissingStart)?;
+    let end_ns = record
+        .remove("endTimeUnixNano")
+        .as_ref()
+        .and_then(parse_unix_nanos);
+    let duration_ms = end_ns
+        .map(|end| ((end - start_ns) as f64 / NANOS_PER_MILLI_F64).max(0.0))
+        .unwrap_or(0.0);
+
+    let mut attributes = ObjectMap::new();
+
+    // Passthrough: resource attributes (lowest priority). `service.name` is promoted to a
+    // reserved attribute; restricted keys are stripped.
+    let mut service_name = None;
+    if let Some(mut resource) = envelope.remove("resource").and_then(Value::into_object)
+        && let Some(resource_attributes) =
+            resource.remove("attributes").and_then(Value::into_object)
+    {
+        for (key, value) in resource_attributes {
+            if key.as_str() == "service.name" {
+                service_name = coerce_attribute_value(value);
+                continue;
+            }
+            insert_passthrough_attribute(&mut attributes, key, value);
+        }
+    }
+
+    // Passthrough: span attributes (override resource attributes on collision).
+    if let Some(span_attributes) = record.remove("attributes").and_then(Value::into_object) {
+        for (key, value) in span_attributes {
+            insert_passthrough_attribute(&mut attributes, key, value);
+        }
+    }
+
+    // Reserved attributes.
+    attributes.insert("duration.ms".into(), Value::from_f64_or_zero(duration_ms));
+    if let Some(name) = record.remove("name").filter(|v| !v.is_null()) {
+        attributes.insert("name".into(), name);
+    }
+    if let Some(parent_id) = record.remove("parentSpanId").filter(|v| !v.is_null()) {
+        attributes.insert("parent.id".into(), parent_id);
+    }
+    if let Some(service_name) = service_name {
+        attributes.insert("service.name".into(), service_name);
+    }
+    if let Some(kind) = record.remove("kind").as_ref().and_then(Value::as_integer)
+        && let Some(kind) = map_span_kind(kind)
+    {
+        attributes.insert("span.kind".into(), Value::from(kind));
+    }
+    if let Some(mut status) = record.remove("status").and_then(Value::into_object) {
+        if let Some(code) = status.remove("code").as_ref().and_then(Value::as_integer) {
+            attributes.insert(
+                "otel.status_code".into(),
+                Value::from(map_status_code(code)),
+            );
+            if code == OTEL_STATUS_CODE_ERROR {
+                attributes.insert("error".into(), Value::from(true));
+            }
+        }
+        if let Some(message) = status.remove("message").filter(|v| !v.is_null()) {
+            attributes.insert("otel.status_description".into(), message);
+        }
+    }
+    if let Some(mut scope) = envelope.remove("scope").and_then(Value::into_object) {
+        if let Some(name) = scope.remove("name").filter(|v| !v.is_null()) {
+            attributes.insert("otel.scope.name".into(), name);
+        }
+        if let Some(version) = scope.remove("version").filter(|v| !v.is_null()) {
+            attributes.insert("otel.scope.version".into(), version);
+        }
+    }
+    if let Some(events) = record.remove("events").filter(|v| !v.is_null())
+        && let Ok(json) = serde_json::to_string(&events)
+    {
+        attributes.insert("otel.span.events".into(), Value::from(json));
+    }
+    if let Some(links) = record.remove("links").filter(|v| !v.is_null())
+        && let Ok(json) = serde_json::to_string(&links)
+    {
+        attributes.insert("otel.span.links".into(), Value::from(json));
+    }
+
+    Ok(Span {
+        trace_id,
+        id,
+        timestamp: Some(start_ns / NANOS_PER_MILLI),
+        attributes,
+    })
+}
+
+fn insert_passthrough_attribute(attributes: &mut ObjectMap, key: KeyString, value: Value) {
+    if is_restricted_trace_attribute(key.as_str()) {
+        return;
+    }
+    if let Some(value) = coerce_attribute_value(value) {
+        attributes.insert(key, value);
+    }
+}
+
+/// Remove and return the span envelope when the event wraps it under the log schema message key
+/// (`{message: {record, ...}}`), the shape Mezmo pipeline events use. Returns `None` when there is
+/// no message object, so the caller falls back to treating the event root as the envelope.
+fn take_message_object(log: &mut LogEvent) -> Option<ObjectMap> {
+    let path = log_schema().message_key_target_path()?;
+    log.remove(path).and_then(Value::into_object)
+}
+
+/// Remove a hex-string id (`traceId`/`spanId`) from the record, returning `None` when absent,
+/// empty, or not a string.
+fn take_id(record: &mut ObjectMap, key: &str) -> Option<String> {
+    match record.remove(key) {
+        Some(Value::Bytes(bytes)) => {
+            let id = String::from_utf8_lossy(bytes.as_ref()).into_owned();
+            (!id.is_empty()).then_some(id)
+        }
+        _ => None,
+    }
+}
+
+/// Parse a `*UnixNano` value. The decoder keeps these as strings to preserve int64 precision, but
+/// tolerate integers/floats as well.
+fn parse_unix_nanos(value: &Value) -> Option<i64> {
+    match value {
+        Value::Bytes(bytes) => String::from_utf8_lossy(bytes.as_ref()).trim().parse().ok(),
+        Value::Integer(n) => Some(*n),
+        Value::Float(f) => Some(f.into_inner() as i64),
+        _ => None,
+    }
+}
+
+/// Map an OTel `SpanKind` integer to the New Relic `span.kind` string. `0` (unspecified) is
+/// omitted.
+const fn map_span_kind(kind: i64) -> Option<&'static str> {
+    match kind {
+        1 => Some("internal"),
+        2 => Some("server"),
+        3 => Some("client"),
+        4 => Some("producer"),
+        5 => Some("consumer"),
+        _ => None,
+    }
+}
+
+const fn map_status_code(code: i64) -> &'static str {
+    match code {
+        1 => "OK",
+        2 => "ERROR",
+        _ => "UNSET",
+    }
+}
+
+fn is_restricted_trace_attribute(key: &str) -> bool {
+    RESTRICTED_TRACE_ATTRIBUTES.contains(&key)
+}
+
+/// Coerce an attribute value to a New Relic trace attribute (string/number/boolean). Arrays and
+/// objects are JSON-stringified; nulls drop the key.
+fn coerce_attribute_value(value: Value) -> Option<Value> {
+    match value {
+        Value::Bytes(_) | Value::Integer(_) | Value::Float(_) | Value::Boolean(_) => Some(value),
+        Value::Array(_) | Value::Object(_) => serde_json::to_string(&value).ok().map(Value::from),
+        Value::Null => None,
+        other => Some(other),
     }
 }
 
