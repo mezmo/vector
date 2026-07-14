@@ -12,7 +12,7 @@ use http::{
 use hyper::Body;
 use tracing::Instrument;
 
-use super::{NewRelicCredentials, NewRelicSinkError};
+use super::{NewRelicApi, NewRelicCredentials, NewRelicSinkError};
 use crate::{
     http::HttpClient,
     sinks::{prelude::*, util::Compression},
@@ -85,6 +85,15 @@ impl Service<NewRelicApiRequest> for NewRelicApiService {
         let http_request = Request::post(&uri)
             .header(CONTENT_TYPE, "application/json")
             .header("Api-Key", request.credentials.license_key.clone());
+
+        // The Trace API requires the payload format to be declared explicitly.
+        let http_request = if request.credentials.api == NewRelicApi::Traces {
+            http_request
+                .header("Data-Format", "newrelic")
+                .header("Data-Format-Version", "1")
+        } else {
+            http_request
+        };
 
         let http_request = if let Some(ce) = request.compression.content_encoding() {
             http_request.header(CONTENT_ENCODING, ce)

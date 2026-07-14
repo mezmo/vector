@@ -8,7 +8,7 @@ use vector_lib::{
 
 use super::{
     EventsApiModel, LogsApiModel, MetricsApiModel, NewRelicApi, NewRelicApiModel,
-    NewRelicCredentials, NewRelicSinkError,
+    NewRelicCredentials, NewRelicSinkError, TracesApiModel,
 };
 use crate::sinks::{
     prelude::*,
@@ -37,12 +37,14 @@ impl Encoder<Vec<Event>> for NewRelicEncoder {
             NewRelicApi::Events => NewRelicApiModel::Events(EventsApiModel::try_from(input)?),
             NewRelicApi::Metrics => NewRelicApiModel::Metrics(MetricsApiModel::try_from(input)?),
             NewRelicApi::Logs => NewRelicApiModel::Logs(LogsApiModel::try_from(input)?),
+            NewRelicApi::Traces => NewRelicApiModel::Traces(TracesApiModel::try_from(input)?),
         };
 
         let json = match api_model {
             NewRelicApiModel::Events(ev_api_model) => to_json(&ev_api_model)?,
             NewRelicApiModel::Metrics(met_api_model) => to_json(&met_api_model)?,
             NewRelicApiModel::Logs(log_api_model) => to_json(&log_api_model)?,
+            NewRelicApiModel::Traces(traces_api_model) => to_json(&traces_api_model)?,
         };
 
         let size = as_tracked_write::<_, _, io::Error>(writer, &json, |writer, json| {

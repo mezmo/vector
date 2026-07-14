@@ -39,6 +39,9 @@ pub enum NewRelicApi {
 
     /// Logs API.
     Logs,
+
+    /// Traces API.
+    Traces,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -211,6 +214,12 @@ impl NewRelicCredentials {
             NewRelicApi::Logs => match self.region {
                 NewRelicRegion::Us => Uri::from_static("https://log-api.newrelic.com/log/v1"),
                 NewRelicRegion::Eu => Uri::from_static("https://log-api.eu.newrelic.com/log/v1"),
+            },
+            NewRelicApi::Traces => match self.region {
+                NewRelicRegion::Us => Uri::from_static("https://trace-api.newrelic.com/trace/v1"),
+                NewRelicRegion::Eu => {
+                    Uri::from_static("https://trace-api.eu.newrelic.com/trace/v1")
+                }
             },
         }
     }
