@@ -1,5 +1,12 @@
 ## Changelog
 
+# [8.3.0](https://github.com/mezmo/vector/compare/v8.2.7...v8.3.0) (2026-07-15)
+
+
+### Features
+
+* **new_relic**: add support for Traces API [96a819e](https://github.com/mezmo/vector/commit/96a819e7e57602c4bb6c5298aeb6fd15b11bab2b) - Mike Del Tito [LOG-24120](https://logdna.atlassian.net/browse/LOG-24120)
+
 ## [8.2.7](https://github.com/mezmo/vector/compare/v8.2.6...v8.2.7) (2026-07-01)
 
 
