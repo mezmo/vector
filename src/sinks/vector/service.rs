@@ -2,7 +2,6 @@ use std::task::{Context, Poll};
 
 use futures::{TryFutureExt, future::BoxFuture};
 use http::Uri;
-use hyper::client::HttpConnector;
 use hyper_openssl::HttpsConnector;
 use hyper_proxy::ProxyConnector;
 use prost::Message;
@@ -17,6 +16,7 @@ use super::VectorSinkError;
 use crate::{
     Error,
     event::{EventFinalizers, EventStatus, Finalizable},
+    http::VectorHttpConnector,
     internal_events::EndpointBytesSent,
     proto::vector as proto_vector,
     sinks::util::uri,
@@ -68,7 +68,7 @@ impl MetaDescriptive for VectorRequest {
 
 impl VectorService {
     pub fn new(
-        hyper_client: hyper::Client<ProxyConnector<HttpsConnector<HttpConnector>>, BoxBody>,
+        hyper_client: hyper::Client<ProxyConnector<HttpsConnector<VectorHttpConnector>>, BoxBody>,
         uri: Uri,
         compression: bool,
     ) -> Self {
@@ -135,7 +135,7 @@ impl Service<VectorRequest> for VectorService {
 #[derive(Clone, Debug)]
 pub struct HyperSvc {
     uri: Uri,
-    client: hyper::Client<ProxyConnector<HttpsConnector<HttpConnector>>, BoxBody>,
+    client: hyper::Client<ProxyConnector<HttpsConnector<VectorHttpConnector>>, BoxBody>,
 }
 
 impl Service<hyper::Request<BoxBody>> for HyperSvc {

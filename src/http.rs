@@ -40,6 +40,7 @@ use crate::{
     config::ProxyConfig,
     internal_events::{HttpServerRequestReceived, HttpServerResponseSent, http_client},
     mezmo::user_trace::UserLoggingError,
+    ssrf::GuardedResolver,
     tls::{MaybeTlsSettings, TlsError, tls_connector_builder},
 };
 
@@ -62,17 +63,38 @@ pub enum HttpError {
     CallRequest { source: hyper::Error },
     #[snafu(display("Failed to build HTTP request: {}", source))]
     BuildRequest { source: http::Error },
+    #[snafu(display("Blocked request to restricted address: {}", host))]
+    BlockedAddress { host: String },
 }
 
 impl HttpError {
     pub const fn is_retriable(&self) -> bool {
         match self {
             HttpError::BuildRequest { .. } | HttpError::MakeProxyConnector { .. } => false,
+            // Retrying cannot help: the address is in a range this client may never
+            // reach, and that set does not change at runtime.
+            HttpError::BlockedAddress { .. } => false,
             HttpError::CallRequest { .. }
             | HttpError::BuildTlsConnector { .. }
             | HttpError::MakeHttpsConnector { .. } => true,
         }
     }
+}
+
+/// Whether an [`HttpClient`] rejects connections to internal addresses.
+///
+/// Endpoints that come from user configuration are guarded; internal plumbing is not,
+/// since components like the `mezmo` sink legitimately dial a ClusterIP.
+///
+/// Defaults to [`SsrfGuard::Enabled`] so that anything deserialized from a user-supplied
+/// config is guarded whether or not it thought to ask.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SsrfGuard {
+    /// Reject loopback, link-local, private, and reserved destinations.
+    #[default]
+    Enabled,
+    /// Permit any destination.
+    Disabled,
 }
 
 impl UserLoggingError for HttpError {
@@ -82,12 +104,21 @@ impl UserLoggingError for HttpError {
 }
 
 pub type HttpClientFuture = <HttpClient as Service<http::Request<Body>>>::Future;
-type HttpProxyConnector = ProxyConnector<HttpsConnector<HttpConnector>>;
+
+/// The connector every `HttpClient` is built on.
+///
+/// `GuardedResolver` is always in the stack so that guarded and unguarded clients share
+/// one type; whether it actually filters is a runtime flag. See [`crate::ssrf`].
+pub type VectorHttpConnector = HttpConnector<GuardedResolver>;
+type HttpProxyConnector = ProxyConnector<HttpsConnector<VectorHttpConnector>>;
 
 pub struct HttpClient<B = Body> {
     client: Client<HttpProxyConnector, B>,
     user_agent: HeaderValue,
     proxy_connector: HttpProxyConnector,
+    /// Whether to reject requests whose URI is an IP literal in a restricted range.
+    /// Names are handled by the resolver inside `client`; literals never reach it.
+    ssrf_guard: bool,
 }
 
 impl<B> HttpClient<B>
@@ -103,12 +134,47 @@ where
         HttpClient::new_with_custom_client(tls_settings, proxy_config, &mut Client::builder())
     }
 
+    /// Builds a client for endpoints that come from user configuration.
+    ///
+    /// Connections to loopback, link-local, private, and reserved addresses are rejected
+    /// at resolution time, which is what makes this resistant to DNS rebinding: the
+    /// address that gets validated is the address that gets dialed. Use this for any
+    /// component whose destination URL is attacker-controlled. Do not use it for internal
+    /// plumbing (the `mezmo` sink talks to a ClusterIP, for example), which
+    /// legitimately needs to reach those ranges.
+    pub fn new_guarded(
+        tls_settings: impl Into<MaybeTlsSettings>,
+        proxy_config: &ProxyConfig,
+    ) -> Result<HttpClient<B>, HttpError> {
+        HttpClient::build(
+            tls_settings,
+            proxy_config,
+            &mut Client::builder(),
+            SsrfGuard::Enabled,
+        )
+    }
+
     pub fn new_with_custom_client(
         tls_settings: impl Into<MaybeTlsSettings>,
         proxy_config: &ProxyConfig,
         client_builder: &mut client::Builder,
     ) -> Result<HttpClient<B>, HttpError> {
-        let proxy_connector = build_proxy_connector(tls_settings.into(), proxy_config)?;
+        HttpClient::build(
+            tls_settings,
+            proxy_config,
+            client_builder,
+            SsrfGuard::Disabled,
+        )
+    }
+
+    fn build(
+        tls_settings: impl Into<MaybeTlsSettings>,
+        proxy_config: &ProxyConfig,
+        client_builder: &mut client::Builder,
+        guard: SsrfGuard,
+    ) -> Result<HttpClient<B>, HttpError> {
+        let proxy_connector =
+            build_proxy_connector_with_guard(tls_settings.into(), proxy_config, guard)?;
         let client = client_builder.build(proxy_connector.clone());
 
         let version = crate::get_version();
@@ -120,6 +186,7 @@ where
             client,
             user_agent,
             proxy_connector,
+            ssrf_guard: guard == SsrfGuard::Enabled,
         })
     }
 
@@ -129,6 +196,20 @@ where
     ) -> BoxFuture<'static, Result<http::Response<Body>, HttpError>> {
         let span = tracing::info_span!("http");
         let _enter = span.enter();
+
+        // hyper dials an IP-literal URI directly without consulting the resolver, so the
+        // guard in the connector never sees it. Reject it here instead. There is no
+        // check-to-dial gap to worry about: with no name involved, the literal in the URI
+        // is what gets connected to.
+        if self.ssrf_guard
+            && let Some(host) = request.uri().host()
+            && let Ok(addr) = host.trim_start_matches('[').trim_end_matches(']').parse()
+            && crate::ssrf::is_blocked(addr)
+        {
+            return Box::pin(std::future::ready(Err(HttpError::BlockedAddress {
+                host: host.to_owned(),
+            })));
+        }
 
         default_request_headers(&mut request, &self.user_agent);
         self.maybe_add_proxy_headers(&mut request);
@@ -184,12 +265,20 @@ where
 pub fn build_proxy_connector(
     tls_settings: MaybeTlsSettings,
     proxy_config: &ProxyConfig,
-) -> Result<ProxyConnector<HttpsConnector<HttpConnector>>, HttpError> {
+) -> Result<ProxyConnector<HttpsConnector<VectorHttpConnector>>, HttpError> {
+    build_proxy_connector_with_guard(tls_settings, proxy_config, SsrfGuard::Disabled)
+}
+
+fn build_proxy_connector_with_guard(
+    tls_settings: MaybeTlsSettings,
+    proxy_config: &ProxyConfig,
+    guard: SsrfGuard,
+) -> Result<ProxyConnector<HttpsConnector<VectorHttpConnector>>, HttpError> {
     // Create dedicated TLS connector for the proxied connection with user TLS settings.
     let tls = tls_connector_builder(&tls_settings)
         .context(BuildTlsConnectorSnafu)?
         .build();
-    let https = build_tls_connector(tls_settings)?;
+    let https = build_tls_connector_with_guard(tls_settings, guard)?;
     let mut proxy = ProxyConnector::new(https).unwrap();
     // Make proxy connector aware of user TLS settings by setting the TLS connector:
     // https://github.com/vectordotdev/vector/issues/13683
@@ -202,8 +291,16 @@ pub fn build_proxy_connector(
 
 pub fn build_tls_connector(
     tls_settings: MaybeTlsSettings,
-) -> Result<HttpsConnector<HttpConnector>, HttpError> {
-    let mut http = HttpConnector::new();
+) -> Result<HttpsConnector<VectorHttpConnector>, HttpError> {
+    build_tls_connector_with_guard(tls_settings, SsrfGuard::Disabled)
+}
+
+fn build_tls_connector_with_guard(
+    tls_settings: MaybeTlsSettings,
+    guard: SsrfGuard,
+) -> Result<HttpsConnector<VectorHttpConnector>, HttpError> {
+    let mut http =
+        HttpConnector::new_with_resolver(GuardedResolver::new(guard == SsrfGuard::Enabled));
     http.enforce_http(false);
 
     let tls = tls_connector_builder(&tls_settings).context(BuildTlsConnectorSnafu)?;
@@ -261,6 +358,7 @@ impl<B> Clone for HttpClient<B> {
             client: self.client.clone(),
             user_agent: self.user_agent.clone(),
             proxy_connector: self.proxy_connector.clone(),
+            ssrf_guard: self.ssrf_guard,
         }
     }
 }
@@ -715,7 +813,125 @@ mod tests {
     use tower::ServiceBuilder;
 
     use super::*;
-    use crate::test_util::addr::next_addr;
+    use crate::test_util::{
+        addr::{PortGuard, next_addr},
+        wait_for_tcp,
+    };
+
+    /// Serves 200 on a loopback address. Stands in for any internal service a
+    /// user-supplied endpoint must not be able to reach. The returned guard holds the
+    /// port reservation and must be kept alive for the duration of the test.
+    async fn spawn_loopback_server() -> (PortGuard, SocketAddr) {
+        let (guard, addr) = next_addr();
+        let make_svc = make_service_fn(|_: &AddrStream| async {
+            Ok::<_, Infallible>(tower::service_fn(|_req: Request<Body>| async {
+                Ok::<Response<Body>, Infallible>(Response::new(Body::from("internal")))
+            }))
+        });
+        tokio::spawn(async move {
+            Server::bind(&addr).serve(make_svc).await.unwrap();
+        });
+        wait_for_tcp(addr).await;
+        (guard, addr)
+    }
+
+    /// The whole error chain, since a connector failure surfaces nested inside
+    /// `hyper::Error`.
+    fn error_chain(err: &dyn std::error::Error) -> String {
+        let mut chain = err.to_string();
+        let mut source = err.source();
+        while let Some(err) = source {
+            chain.push_str(&format!(": {err}"));
+            source = err.source();
+        }
+        chain
+    }
+
+    #[tokio::test]
+    async fn guarded_client_blocks_ip_literal() {
+        let (_guard, addr) = spawn_loopback_server().await;
+
+        // An IP-literal URI never reaches the resolver, so this exercises the check in
+        // `send`. This is the shape of the original report's first attempt.
+        let req = Request::get(format!("http://{addr}/"))
+            .body(Body::empty())
+            .unwrap();
+        let err = HttpClient::new_guarded(None, &ProxyConfig::default())
+            .unwrap()
+            .send(req)
+            .await
+            .expect_err("loopback literal must be blocked");
+
+        assert!(matches!(err, HttpError::BlockedAddress { .. }), "{err:?}");
+        // Retrying a blocked address can never succeed.
+        assert!(!err.is_retriable());
+    }
+
+    #[tokio::test]
+    async fn guarded_client_blocks_name_resolving_to_internal_address() {
+        let (_guard, addr) = spawn_loopback_server().await;
+
+        // `localhost` resolves to loopback, which is the same thing a rebinding hostname
+        // does at poll time: the connector asks the resolver, and the answer is internal.
+        // Blocking here is what a save-time check cannot do.
+        let req = Request::get(format!("http://localhost:{}/", addr.port()))
+            .body(Body::empty())
+            .unwrap();
+        let err = HttpClient::new_guarded(None, &ProxyConfig::default())
+            .unwrap()
+            .send(req)
+            .await
+            .expect_err("a name resolving to loopback must be blocked");
+
+        assert!(
+            error_chain(&err).contains("restricted ranges"),
+            "expected the resolver to reject, got: {}",
+            error_chain(&err)
+        );
+    }
+
+    #[tokio::test]
+    async fn unguarded_client_still_reaches_internal_addresses() {
+        let (_guard, addr) = spawn_loopback_server().await;
+
+        // Internal plumbing (the `mezmo` sink dialing a ClusterIP, say) must be
+        // unaffected. This is also the control for the two tests above: it proves they
+        // fail because of the guard and not because the server is unreachable.
+        for uri in [
+            format!("http://{addr}/"),
+            format!("http://localhost:{}/", addr.port()),
+        ] {
+            let req = Request::get(&uri).body(Body::empty()).unwrap();
+            let response = HttpClient::new(None, &ProxyConfig::default())
+                .unwrap()
+                .send(req)
+                .await
+                .unwrap_or_else(|err| panic!("{uri} must be reachable: {err:?}"));
+
+            assert_eq!(response.status(), hyper::StatusCode::OK);
+        }
+    }
+
+    #[tokio::test]
+    async fn guarded_client_reaches_public_addresses() {
+        // The guard must only remove internal destinations. A public name still resolves
+        // and connects; we only assert the guard does not reject it before dialing.
+        let req = Request::get("http://example.com/")
+            .body(Body::empty())
+            .unwrap();
+        let result = HttpClient::new_guarded(None, &ProxyConfig::default())
+            .unwrap()
+            .send(req)
+            .await;
+
+        if let Err(err) = result {
+            let chain = error_chain(&err);
+            assert!(
+                !chain.contains("restricted ranges") && !chain.contains("restricted address"),
+                "a public endpoint must not be blocked by the guard, got: {chain}"
+            );
+        }
+    }
 
     #[test]
     fn test_default_request_headers_defaults() {

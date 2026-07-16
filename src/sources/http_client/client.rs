@@ -30,7 +30,7 @@ use crate::{
     codecs::{Decoder, DecodingConfig},
     config::{SourceConfig, SourceContext},
     format_vrl_diagnostics,
-    http::{Auth, ParamType, ParameterValue, QueryParameterValue, QueryParameters},
+    http::{Auth, ParamType, ParameterValue, QueryParameterValue, QueryParameters, SsrfGuard},
     serde::{default_decoding, default_framing_message_based},
     sources,
     sources::util::{
@@ -135,6 +135,13 @@ pub struct HttpClientConfig {
     #[configurable(metadata(docs::hidden))]
     #[serde(default)]
     pub log_namespace: Option<bool>,
+
+    // `endpoint` is user-supplied, so the destination is untrusted and this is always
+    // `Enabled` in production. It is `serde(skip)` deliberately: a config must not be
+    // able to turn the guard off, or it would hand back the very hole it closes. Tests
+    // that legitimately point the source at a loopback server set it in code.
+    #[serde(skip)]
+    pub ssrf_guard: SsrfGuard,
 }
 
 const fn default_http_method() -> HttpMethod {
@@ -236,6 +243,7 @@ impl Default for HttpClientConfig {
             tls: None,
             auth: None,
             log_namespace: None,
+            ssrf_guard: SsrfGuard::Enabled,
         }
     }
 }
@@ -390,6 +398,7 @@ impl SourceConfig for HttpClientConfig {
             tls,
             proxy: cx.proxy.clone(),
             shutdown: cx.shutdown,
+            ssrf_guard: self.ssrf_guard,
         };
 
         Ok(call(inputs, context, cx.out, self.method).boxed())

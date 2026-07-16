@@ -1,5 +1,4 @@
 use http::Uri;
-use hyper::client::HttpConnector;
 use hyper_openssl::HttpsConnector;
 use hyper_proxy::ProxyConnector;
 use tonic::body::BoxBody;
@@ -16,7 +15,7 @@ use crate::{
         AcknowledgementsConfig, GenerateConfig, Input, ProxyConfig, SinkConfig, SinkContext,
         SinkHealthcheckOptions,
     },
-    http::build_proxy_connector,
+    http::{VectorHttpConnector, build_proxy_connector},
     proto::vector as proto,
     sinks::{
         Healthcheck, VectorSink as VectorSinkType,
@@ -209,7 +208,7 @@ pub fn with_default_scheme(address: &str, tls: bool) -> crate::Result<Uri> {
 fn new_client(
     tls_settings: &MaybeTlsSettings,
     proxy_config: &ProxyConfig,
-) -> crate::Result<hyper::Client<ProxyConnector<HttpsConnector<HttpConnector>>, BoxBody>> {
+) -> crate::Result<hyper::Client<ProxyConnector<HttpsConnector<VectorHttpConnector>>, BoxBody>> {
     let proxy = build_proxy_connector(tls_settings.clone(), proxy_config)?;
 
     Ok(hyper::Client::builder().http2_only(true).build(proxy))

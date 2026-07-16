@@ -116,6 +116,7 @@ pub(crate) mod sink_ext;
 pub mod sinks;
 #[allow(unreachable_pub)]
 pub mod sources;
+pub mod ssrf;
 pub mod stats;
 #[cfg(feature = "api-client")]
 #[allow(unreachable_pub)]

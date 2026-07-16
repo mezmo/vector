@@ -25,7 +25,7 @@ use vector_lib::{
 
 use crate::{
     SourceSender,
-    http::{Auth, HttpClient, QueryParameterValue, QueryParameters},
+    http::{Auth, HttpClient, QueryParameterValue, QueryParameters, SsrfGuard},
     internal_events::{
         EndpointBytesReceived, HttpClientBuildError, HttpClientEventsReceived, HttpClientHttpError,
         HttpClientHttpResponseError, StreamClosedError,
@@ -50,6 +50,12 @@ pub(crate) struct GenericHttpClientInputs {
     pub tls: TlsSettings,
     pub proxy: ProxyConfig,
     pub shutdown: ShutdownSignal,
+    /// Whether to reject connections to internal addresses.
+    ///
+    /// Enable this whenever the URL comes from user configuration: the check happens at
+    /// resolution time, which is what stops a hostname from resolving public for a
+    /// config-time check and internal for the actual poll.
+    pub ssrf_guard: SsrfGuard,
 }
 
 /// The default interval to call the HTTP endpoint if none is configured.
@@ -158,8 +164,11 @@ pub(crate) async fn call<
 ) -> Result<(), ()> {
     // Building the HttpClient should not fail as it is just setting up the client with the
     // proxy and tls settings.
-    let client =
-        HttpClient::new(inputs.tls.clone(), &inputs.proxy).expect("Building HTTP client failed");
+    let client = match inputs.ssrf_guard {
+        SsrfGuard::Enabled => HttpClient::new_guarded(inputs.tls.clone(), &inputs.proxy),
+        SsrfGuard::Disabled => HttpClient::new(inputs.tls.clone(), &inputs.proxy),
+    }
+    .expect("Building HTTP client failed");
     let mut stream = IntervalStream::new(tokio::time::interval(inputs.interval))
         .take_until(inputs.shutdown)
         .map(move |_| stream::iter(inputs.urls.clone()))
