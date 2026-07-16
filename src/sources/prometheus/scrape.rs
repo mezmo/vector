@@ -11,7 +11,7 @@ use super::parser;
 use crate::{
     Result,
     config::{GenerateConfig, SourceConfig, SourceContext, SourceOutput},
-    http::{Auth, QueryParameters},
+    http::{Auth, QueryParameters, SsrfGuard},
     internal_events::PrometheusParseError,
     sources::{
         self,
@@ -159,6 +159,9 @@ impl SourceConfig for PrometheusScrapeConfig {
             tls,
             proxy: cx.proxy.clone(),
             shutdown: cx.shutdown,
+            // Unguarded: scrape targets are routinely internal, and this source is not
+            // exposed as a user-configurable pipeline component. Revisit if it ever is.
+            ssrf_guard: SsrfGuard::Disabled,
         };
 
         Ok(call(inputs, builder, cx.out, HttpMethod::Get).boxed())

@@ -15,12 +15,14 @@ use warp::{Filter, http::HeaderMap};
 use super::HttpClientConfig;
 use crate::{
     components::validation::prelude::*,
-    http::{ParamType, ParameterValue, QueryParameterValue},
+    http::{ParamType, ParameterValue, QueryParameterValue, SsrfGuard},
     serde::{default_decoding, default_framing_message_based},
     sources::util::http::HttpMethod,
     test_util::{
         addr::next_addr,
-        components::{HTTP_PULL_SOURCE_TAGS, run_and_assert_source_compliance},
+        components::{
+            HTTP_PULL_SOURCE_TAGS, run_and_assert_source_compliance, run_and_assert_source_error,
+        },
         test_generate_config, wait_for_tcp,
     },
 };
@@ -78,6 +80,43 @@ impl ValidatableComponent for HttpClientConfig {
 
 register_validatable_component!(HttpClientConfig);
 
+/// The guard is on by default, so a source pointed at an internal address ingests
+/// nothing and reports an error per poll.
+///
+/// Every other test here sets `ssrf_guard: Disabled` to reach its own loopback server.
+/// This one deliberately does not, so the wiring that actually closes VM-713 cannot
+/// regress unnoticed.
+#[tokio::test]
+async fn ssrf_guard_blocks_internal_endpoint_by_default() {
+    let (_guard, in_addr) = next_addr();
+
+    let dummy_endpoint = warp::path!("endpoint").map(|| r#"{"secret":"internal-only"}"#);
+    tokio::spawn(warp::serve(dummy_endpoint).run(in_addr));
+    wait_for_tcp(in_addr).await;
+
+    let config = HttpClientConfig {
+        endpoint: format!("http://{in_addr}/endpoint"),
+        interval: INTERVAL,
+        timeout: TIMEOUT,
+        ..Default::default()
+    };
+
+    // What a config deserialized from a user's pipeline gets.
+    assert_eq!(config.ssrf_guard, SsrfGuard::Enabled);
+
+    let events = run_and_assert_source_error(
+        config,
+        Duration::from_secs(3),
+        &["url", "error_type", "stage"],
+    )
+    .await;
+
+    assert!(
+        events.is_empty(),
+        "an endpoint resolving to a restricted address must not ingest anything, got: {events:?}"
+    );
+}
+
 /// Bytes should be decoded and HTTP header set to text/plain.
 #[tokio::test]
 async fn bytes_decoding() {
@@ -103,6 +142,7 @@ async fn bytes_decoding() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -133,6 +173,7 @@ async fn json_decoding_newline_delimited() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -168,6 +209,7 @@ async fn json_decoding_character_delimited() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -209,6 +251,7 @@ async fn request_query_applied() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 
@@ -321,6 +364,7 @@ async fn request_query_vrl_applied() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 
@@ -403,6 +447,7 @@ async fn request_query_vrl_dynamic_updates() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 
@@ -471,6 +516,7 @@ async fn headers_applied() {
         auth: None,
         tls: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -501,6 +547,7 @@ async fn accept_header_override() {
         auth: None,
         tls: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -538,6 +585,7 @@ async fn post_with_body() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 
@@ -579,6 +627,7 @@ async fn post_without_body() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -609,6 +658,7 @@ async fn post_with_custom_content_type() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -646,6 +696,7 @@ async fn post_with_vrl_body() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 
@@ -687,6 +738,7 @@ async fn query_vrl_compilation_error() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     };
 
     // Attempt to build the source - should fail
@@ -730,6 +782,7 @@ async fn body_vrl_compilation_error() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     };
 
     // Attempt to build the source - should fail

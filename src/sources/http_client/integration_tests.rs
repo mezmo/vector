@@ -14,7 +14,7 @@ use super::{
 use crate::{
     SourceSender,
     config::{ComponentKey, SourceConfig, SourceContext},
-    http::Auth,
+    http::{Auth, SsrfGuard},
     serde::{default_decoding, default_framing_message_based},
     sources::util::http::HttpMethod,
     test_util::components::{COMPONENT_ERROR_TAGS, run_and_assert_source_error},
@@ -60,6 +60,7 @@ async fn invalid_endpoint() {
         auth: None,
         tls: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -80,6 +81,7 @@ async fn collected_logs_bytes() {
         auth: None,
         tls: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
     // panics if not log event
@@ -106,6 +108,7 @@ async fn collected_logs_json() {
         auth: None,
         tls: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
     // panics if not log event
@@ -132,6 +135,7 @@ async fn collected_metrics_native_json() {
         auth: None,
         tls: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 
@@ -163,6 +167,7 @@ async fn collected_trace_native_json() {
         auth: None,
         tls: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 
@@ -189,6 +194,7 @@ async fn unauthorized_no_auth() {
         auth: None,
         tls: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -212,6 +218,7 @@ async fn unauthorized_wrong_auth() {
             password: "morpheus".to_string().into(),
         }),
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -235,6 +242,7 @@ async fn authorized() {
             password: "pass".to_string().into(),
         }),
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -258,6 +266,7 @@ async fn tls_invalid_ca() {
         }),
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -281,6 +290,7 @@ async fn tls_valid() {
         }),
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     })
     .await;
 }
@@ -302,6 +312,7 @@ async fn shutdown() {
         tls: None,
         auth: None,
         log_namespace: None,
+        ssrf_guard: SsrfGuard::Disabled,
     };
 
     // build the context for the source and get a SourceShutdownCoordinator to signal with
