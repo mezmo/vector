@@ -1,5 +1,12 @@
 ## Changelog
 
+## [8.3.1](https://github.com/mezmo/vector/compare/v8.3.0...v8.3.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **http_client source**: Block internal addresses at resolve time [9ee4db2](https://github.com/mezmo/vector/commit/9ee4db29f990687ad51c7b7143bd160430ca0ee8) - Darin Spivey [VM-713](https://logdna.atlassian.net/browse/VM-713)
+
 # [8.3.0](https://github.com/mezmo/vector/compare/v8.2.7...v8.3.0) (2026-07-15)
 
 
