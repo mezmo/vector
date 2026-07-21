@@ -14,6 +14,10 @@ impl Function for SetPipelineStateVariable {
         "set_pipeline_state_variable"
     }
 
+    fn usage(&self) -> &'static str {
+        "Set the named pipeline state variable to the given value and return the value."
+    }
+
     fn parameters(&self) -> &'static [Parameter] {
         &[
             Parameter {

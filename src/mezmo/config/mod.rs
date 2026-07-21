@@ -558,6 +558,7 @@ async fn validate_vrl_transforms(config_builder: &ConfigBuilder) -> Result<(), V
                     enrichment_tables: enrichment_tables.clone(),
                     schema_definitions,
                     merged_schema_definition: merged_definition.clone(),
+                    metrics_storage: Default::default(),
                     mezmo_ctx: mezmo_ctx.clone(),
                     schema: config.schema,
                     extra_context: crate::extra_context::ExtraContext::default(),

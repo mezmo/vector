@@ -27,7 +27,11 @@ impl ExclusiveRoute {
             .routes
             .iter()
             .map(|route| {
-                let condition = route.condition.build(&context.enrichment_tables, None)?;
+                let condition = route.condition.build(
+                    &context.enrichment_tables,
+                    &context.metrics_storage,
+                    None,
+                )?;
                 Ok(ResolvedRoute {
                     name: route.name.clone(),
                     condition,

@@ -1,4 +1,4 @@
-use vector_lib::config::{LogNamespace, clone_input_definitions};
+use vector_lib::config::clone_input_definitions;
 use vector_lib::configurable::configurable_component;
 use vector_lib::lookup::lookup_v2::ConfigTargetPath;
 
@@ -145,9 +145,8 @@ impl TransformConfig for MezmoDatadogAgentParserConfig {
 
     fn outputs(
         &self,
-        _: vector_lib::enrichment::TableRegistry,
+        _: &TransformContext,
         input_definitions: &[(OutputId, schema::Definition)],
-        _: LogNamespace,
     ) -> Vec<TransformOutput> {
         let mut outputs = vec![
             TransformOutput::new(DataType::Log, clone_input_definitions(input_definitions))

@@ -1042,6 +1042,7 @@ mod test {
                 schema_definitions: HashMap::default(),
                 mezmo_ctx: Default::default(),
                 extra_context: Default::default(),
+                metrics_storage: Default::default(),
             })
             .await
             .unwrap();

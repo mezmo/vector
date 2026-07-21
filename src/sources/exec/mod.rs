@@ -15,7 +15,7 @@ use tokio_util::codec::FramedRead;
 use vector_lib::{
     ByteSizeOf, EstimatedJsonEncodedSizeOf, TimeZone,
     codecs::{
-        StreamDecodingError,
+        Decoder, DecodingConfig, StreamDecodingError,
         decoding::{DeserializerConfig, FramingConfig},
     },
     config::{LegacyKey, LogNamespace, log_schema},
@@ -33,7 +33,6 @@ use vrl::{
 
 use crate::{
     SourceSender,
-    codecs::{Decoder, DecodingConfig},
     config::{SourceConfig, SourceContext, SourceOutput},
     event::{Event, VrlTarget},
     internal_events::{
@@ -728,6 +727,7 @@ fn maybe_compile_vrl_script(
     };
     let result = remap_config.compile_vrl_program(
         Default::default(),
+        ctx.metrics_storage.clone(),
         schema::Definition::any(),
         ctx.mezmo_ctx.clone(),
     );
@@ -945,7 +945,7 @@ fn spawn_reader_thread<R: 'static + AsyncRead + Unpin + std::marker::Send>(
                     }
                 }
                 Err(error) => {
-                    // Error is logged by `crate::codecs::Decoder`, no further
+                    // Error is logged by `vector_lib::codecs::Decoder`, no further
                     // handling is needed here.
                     if !error.can_continue() {
                         break;

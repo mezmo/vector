@@ -54,7 +54,13 @@ where
         let exclude = config
             .exclude
             .as_ref()
-            .map(|condition| condition.build(&context.enrichment_tables, context.mezmo_ctx.clone()))
+            .map(|condition| {
+                condition.build(
+                    &context.enrichment_tables,
+                    &context.metrics_storage,
+                    context.mezmo_ctx.clone(),
+                )
+            })
             .transpose()?;
 
         Ok(Self {

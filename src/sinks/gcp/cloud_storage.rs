@@ -162,6 +162,17 @@ pub struct GcsSinkConfig {
     #[serde(default)]
     compression: Compression,
 
+    /// Overrides the MIME type of the created objects.
+    ///
+    /// Directly comparable to the `Content-Type` HTTP header.
+    ///
+    /// If not specified, defaults to the encoder's content type.
+    #[configurable(metadata(
+        docs::examples = "text/plain; charset=utf-8",
+        docs::examples = "application/gzip"
+    ))]
+    content_type: Option<String>,
+
     #[configurable(derived)]
     #[serde(default)]
     batch: BatchConfig<BulkSizeBasedDefaultBatchSettings>,
@@ -210,6 +221,7 @@ fn default_config(encoding: EncodingConfigWithFraming) -> GcsSinkConfig {
         filename_time_format: default_time_format(),
         filename_append_uuid: true,
         filename_extension: Default::default(),
+        content_type: Default::default(),
         encoding,
         compression: Compression::gzip_default(),
         batch: Default::default(),
@@ -410,7 +422,11 @@ impl RequestSettings {
         let acl = config
             .acl
             .map(|acl| HeaderValue::from_str(&to_string(acl)).unwrap());
-        let content_type = HeaderValue::from_str(encoder.content_type()).unwrap();
+        let content_type_str = config
+            .content_type
+            .as_deref()
+            .unwrap_or_else(|| encoder.content_type());
+        let content_type = HeaderValue::from_str(content_type_str)?;
         let content_encoding = config
             .compression
             .content_encoding()
@@ -662,5 +678,51 @@ mod tests {
         let expected = serde_json::to_value(events[0].as_log()).unwrap();
 
         assert_eq!(found, expected, "The payload was correctly reshaped");
+    }
+
+    #[test]
+    fn gcs_content_type_default() {
+        let context = SinkContext::default();
+        let sink_config = GcsSinkConfig {
+            content_type: None,
+            ..default_config((None::<FramingConfig>, TextSerializerConfig::default()).into())
+        };
+
+        let request_settings = request_settings(&sink_config, context);
+        // Should default to encoder's content type which is "text/plain" for text codec
+        assert_eq!(
+            request_settings.content_type.to_str().unwrap(),
+            "text/plain"
+        );
+    }
+
+    #[test]
+    fn gcs_content_type_custom() {
+        let context = SinkContext::default();
+        let sink_config = GcsSinkConfig {
+            content_type: Some("text/plain; charset=utf-8".to_string()),
+            ..default_config((None::<FramingConfig>, TextSerializerConfig::default()).into())
+        };
+
+        let request_settings = request_settings(&sink_config, context);
+        // Should use custom content type
+        assert_eq!(
+            request_settings.content_type.to_str().unwrap(),
+            "text/plain; charset=utf-8"
+        );
+    }
+
+    #[test]
+    fn gcs_content_type_invalid() {
+        let context = SinkContext::default();
+        let sink_config = GcsSinkConfig {
+            // Invalid header value with newline character
+            content_type: Some("text/plain\nInvalid".to_string()),
+            ..default_config((None::<FramingConfig>, TextSerializerConfig::default()).into())
+        };
+
+        let result = RequestSettings::new(&sink_config, context);
+        // Should return an error, not panic
+        assert!(result.is_err());
     }
 }

@@ -106,7 +106,7 @@ impl SlidingAggregateConfig {
         let flush_condition = self
             .flush_condition
             .as_ref()
-            .map(|cond| cond.build(&ctx.enrichment_tables, ctx.mezmo_ctx.clone()))
+            .map(|cond| cond.build(&ctx.enrichment_tables, &ctx.metrics_storage, ctx.mezmo_ctx.clone()))
             .transpose()?;
 
         let window_size_ms = self.window_duration_ms as i64; // ok cast since u32::MAX < i64::MAX

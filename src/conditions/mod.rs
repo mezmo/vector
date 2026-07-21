@@ -1,5 +1,6 @@
 #![allow(missing_docs)]
 use vector_lib::configurable::configurable_component;
+use vector_vrl_metrics::MetricsStorage;
 
 use crate::event::Event;
 use mezmo::MezmoContext;
@@ -121,14 +122,17 @@ impl ConditionConfig {
     pub fn build(
         &self,
         enrichment_tables: &vector_lib::enrichment::TableRegistry,
+        metrics_storage: &MetricsStorage,
         mezmo_ctx: Option<MezmoContext>,
     ) -> crate::Result<Condition> {
         match self {
             ConditionConfig::IsLog => Ok(Condition::IsLog),
             ConditionConfig::IsMetric => Ok(Condition::IsMetric),
             ConditionConfig::IsTrace => Ok(Condition::IsTrace),
-            ConditionConfig::Vrl(x) => x.build(enrichment_tables, mezmo_ctx),
-            ConditionConfig::DatadogSearch(x) => x.build(enrichment_tables, mezmo_ctx),
+            ConditionConfig::Vrl(x) => x.build(enrichment_tables, metrics_storage, mezmo_ctx),
+            ConditionConfig::DatadogSearch(x) => {
+                x.build(enrichment_tables, metrics_storage, mezmo_ctx)
+            }
         }
     }
 }
@@ -157,6 +161,7 @@ pub trait ConditionalConfig: std::fmt::Debug + Send + Sync + dyn_clone::DynClone
     fn build(
         &self,
         enrichment_tables: &vector_lib::enrichment::TableRegistry,
+        metrics_storage: &MetricsStorage,
         mezmo_ctx: Option<MezmoContext>,
     ) -> crate::Result<Condition>;
 }
@@ -197,6 +202,7 @@ impl AnyCondition {
     pub fn build(
         &self,
         enrichment_tables: &vector_lib::enrichment::TableRegistry,
+        metrics_storage: &MetricsStorage,
         mezmo_ctx: Option<MezmoContext>,
     ) -> crate::Result<Condition> {
         match self {
@@ -205,9 +211,9 @@ impl AnyCondition {
                     source: s.clone(),
                     runtime: Default::default(),
                 };
-                vrl_config.build(enrichment_tables, mezmo_ctx)
+                vrl_config.build(enrichment_tables, metrics_storage, mezmo_ctx)
             }
-            AnyCondition::Map(m) => m.build(enrichment_tables, mezmo_ctx),
+            AnyCondition::Map(m) => m.build(enrichment_tables, metrics_storage, mezmo_ctx),
         }
     }
 }

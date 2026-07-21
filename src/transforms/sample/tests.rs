@@ -331,7 +331,7 @@ fn condition_contains(key: &str, needle: &str) -> Condition {
     };
 
     vrl_config
-        .build(&Default::default(), None)
+        .build(&Default::default(), &Default::default(), None)
         .expect("should not fail to build VRL condition")
 }
 

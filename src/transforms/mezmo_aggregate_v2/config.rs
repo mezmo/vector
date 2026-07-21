@@ -1,8 +1,7 @@
 use super::*;
 use crate::conditions::AnyCondition;
 use crate::config::{
-    DataType, GenerateConfig, Input, LogNamespace, OutputId, TransformConfig, TransformContext,
-    TransformOutput,
+    DataType, GenerateConfig, Input, OutputId, TransformConfig, TransformContext, TransformOutput,
 };
 use crate::mezmo::persistence::RocksDBPersistenceConnection;
 use crate::mezmo_env_config;
@@ -11,7 +10,6 @@ use crate::transforms::Transform;
 use crate::transforms::remap::RemapConfig;
 use vector_lib::config::clone_input_definitions;
 use vector_lib::configurable::configurable_component;
-use vector_lib::enrichment::TableRegistry;
 use vrl::path::parse_target_path;
 
 /// Configuration for the `sliding_aggregate` transform.
@@ -45,12 +43,10 @@ impl TransformConfig for SlidingAggregateConfig {
 
     fn outputs(
         &self,
-        enrichment_tables: TableRegistry,
+        context: &TransformContext,
         input_definitions: &[(OutputId, Definition)],
-        global_log_namespace: LogNamespace,
     ) -> Vec<TransformOutput> {
-        self.0
-            .outputs(enrichment_tables, input_definitions, global_log_namespace)
+        self.0.outputs(context, input_definitions)
     }
 }
 
@@ -167,6 +163,7 @@ impl MezmoAggregateV2Config {
         };
         let (program, _, _) = remap_config.compile_vrl_program(
             ctx.enrichment_tables.clone(),
+            ctx.metrics_storage.clone(),
             ctx.merged_schema_definition.clone(),
             ctx.mezmo_ctx.clone(),
         )?;
@@ -179,7 +176,13 @@ impl MezmoAggregateV2Config {
         let flush_condition = self
             .flush_condition
             .as_ref()
-            .map(|cond| cond.build(&ctx.enrichment_tables, ctx.mezmo_ctx.clone()))
+            .map(|cond| {
+                cond.build(
+                    &ctx.enrichment_tables,
+                    &ctx.metrics_storage,
+                    ctx.mezmo_ctx.clone(),
+                )
+            })
             .transpose()?;
 
         let window_size_ms = self.window_duration_ms as i64; // ok cast since u32::MAX < i64::MAX
@@ -240,9 +243,8 @@ impl TransformConfig for MezmoAggregateV2Config {
 
     fn outputs(
         &self,
-        _enrichment_tables: TableRegistry,
+        _: &TransformContext,
         input_definitions: &[(OutputId, Definition)],
-        _global_log_namespace: LogNamespace,
     ) -> Vec<TransformOutput> {
         vec![TransformOutput::new(
             DataType::Log,

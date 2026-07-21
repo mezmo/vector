@@ -132,6 +132,10 @@ impl Function for ParseSplunkHec {
         "parse a string to a Splunk HEC log events"
     }
 
+    fn usage(&self) -> &'static str {
+        "Parse the `value` as one or more newline-delimited Splunk HEC (HTTP Event Collector) JSON events into an array of objects."
+    }
+
     fn parameters(&self) -> &'static [Parameter] {
         &[Parameter {
             keyword: "value",

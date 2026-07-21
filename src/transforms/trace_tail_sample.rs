@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use vector_lib::config::{LogNamespace, OutputId, TransformOutput, log_schema};
+use vector_lib::config::{OutputId, TransformOutput, log_schema};
 use vector_lib::configurable::configurable_component;
 
 use crate::mezmo::persistence::PersistenceConnection;
@@ -111,7 +111,11 @@ impl TransformConfig for TraceTailSampleConfig {
             .map(|c| {
                 let built_condition = c
                     .condition
-                    .build(&context.enrichment_tables, context.mezmo_ctx.clone())
+                    .build(
+                        &context.enrichment_tables,
+                        &context.metrics_storage,
+                        context.mezmo_ctx.clone(),
+                    )
                     .unwrap();
                 (c.output_name.clone(), built_condition)
             })
@@ -129,12 +133,7 @@ impl TransformConfig for TraceTailSampleConfig {
         Input::log()
     }
 
-    fn outputs(
-        &self,
-        _: vector_lib::enrichment::TableRegistry,
-        _: &[(OutputId, Definition)],
-        _: LogNamespace,
-    ) -> Vec<TransformOutput> {
+    fn outputs(&self, _: &TransformContext, _: &[(OutputId, Definition)]) -> Vec<TransformOutput> {
         vec![TransformOutput::new(DataType::Log, HashMap::new())]
     }
 }
@@ -625,7 +624,11 @@ mod test {
             "hello".to_owned(),
             condition_config
                 .condition
-                .build(&Default::default(), Some(test_ctx.clone()))
+                .build(
+                    &Default::default(),
+                    &Default::default(),
+                    Some(test_ctx.clone()),
+                )
                 .unwrap(),
         )];
         let mut sampler = TraceTailSample::new(config, conditions, test_ctx, connection);
@@ -687,7 +690,11 @@ mod test {
             "hello".to_owned(),
             condition_config
                 .condition
-                .build(&Default::default(), Some(test_ctx.clone()))
+                .build(
+                    &Default::default(),
+                    &Default::default(),
+                    Some(test_ctx.clone()),
+                )
                 .unwrap(),
         )];
         let mut sampler = TraceTailSample::new(config, conditions, test_ctx, connection);
@@ -814,7 +821,11 @@ mod test {
             "hello".to_owned(),
             condition_config
                 .condition
-                .build(&Default::default(), Some(test_ctx.clone()))
+                .build(
+                    &Default::default(),
+                    &Default::default(),
+                    Some(test_ctx.clone()),
+                )
                 .unwrap(),
         )];
         let mut sampler = TraceTailSample::new(config, conditions, test_ctx, connection);
@@ -957,7 +968,11 @@ mod test {
             "hello".to_owned(),
             condition_config
                 .condition
-                .build(&Default::default(), Some(test_ctx.clone()))
+                .build(
+                    &Default::default(),
+                    &Default::default(),
+                    Some(test_ctx.clone()),
+                )
                 .unwrap(),
         )];
         let mut sampler = TraceTailSample::new(config, conditions, test_ctx.clone(), connection);
@@ -987,7 +1002,11 @@ mod test {
             "hello".to_owned(),
             condition_config
                 .condition
-                .build(&Default::default(), Some(test_ctx.clone()))
+                .build(
+                    &Default::default(),
+                    &Default::default(),
+                    Some(test_ctx.clone()),
+                )
                 .unwrap(),
         )];
 
@@ -1073,7 +1092,11 @@ mod test {
             "hello".to_owned(),
             condition_config
                 .condition
-                .build(&Default::default(), Some(test_ctx.clone()))
+                .build(
+                    &Default::default(),
+                    &Default::default(),
+                    Some(test_ctx.clone()),
+                )
                 .unwrap(),
         )];
         let mut sampler = TraceTailSample::new(config, conditions, test_ctx.clone(), connection);
