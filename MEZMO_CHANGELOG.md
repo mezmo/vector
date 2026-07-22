@@ -1,5 +1,89 @@
 ## Changelog
 
+# [9.0.0](https://github.com/mezmo/vector/compare/v8.3.1...v9.0.0) (2026-07-22)
+
+
+### Bug Fixes
+
+* **ci**: move BRANCH into env (#24526) [f6e3282](https://github.com/mezmo/vector/commit/f6e3282ca0695bcd5fb7ebc022a1a1025d382905) - GitHub
+* **ci**: respect DISABLE_MOLD in setup action (#24548) [f5632b6](https://github.com/mezmo/vector/commit/f5632b6529ebbb236bfe8aef4831b8c13c66eee8) - GitHub
+* **external docs**: csv enrichment guide incorrect severity (#24539) [9cf8e20](https://github.com/mezmo/vector/commit/9cf8e2071318fd599dd87cf6c6fa878970638c69) - GitHub
+* **host_metrics source**: fix tcp netlink bug (#24441) [473e31c](https://github.com/mezmo/vector/commit/473e31cbbfd7c39fc2d5b0672db6da26e82e28b5) - GitHub
+* **metrics**: absolute to incremental histogram conversion (#24472) [46654ad](https://github.com/mezmo/vector/commit/46654ada788d2718473aa587917e4e5500778532) - GitHub
+* **opentelemetry source**: count individual items in OTLP batches for component_received_events_total metric (#24537) [049748e](https://github.com/mezmo/vector/commit/049748ed86ba014996da6e469a4deacdaa7121e0) - GitHub
+* **opentelemetry source**: emit component_received_event* metrics when use_otlp_decoding is enabled (#24480) [a3a0e3a](https://github.com/mezmo/vector/commit/a3a0e3a61305cd79da209cd287667982e4b047c5) - GitHub
+* **postgres sink**: enable TLS flag (#23536) [d55bb0b](https://github.com/mezmo/vector/commit/d55bb0b7eb7fb0dec08285e2ea42ea41023df4af) - GitHub
+* **sources**: collect headers for logs in opentelemetry source with use_otlp_decoding set to true (#24307) [3749b70](https://github.com/mezmo/vector/commit/3749b70194de509fd0e12534f8affa35c490587b) - GitHub
+* **sources**: do not log TCP connection resets (#24517) [399584f](https://github.com/mezmo/vector/commit/399584f10c498e5edfe9e2aebc1f192d33e5e4e6) - GitHub
+* **website**: VRL functions return types (#24400) [fa499b9](https://github.com/mezmo/vector/commit/fa499b94c26145e127e7d8e955fe07c4732fa0ac) - GitHub
+
+
+### Chores
+
+* **ci**: Add aggregate transform to semantic PR scope list (#24422) [11aa135](https://github.com/mezmo/vector/commit/11aa135eeaeec0b80967725731f483372683ed64) - GitHub
+* **ci**: Add step-security-bot to cla allowlist (#24474) [9d7dd5c](https://github.com/mezmo/vector/commit/9d7dd5cff8dd5944bf6768dbe0ea95ad1dcd35c9) - GitHub
+* **ci**: bump actions/cache from 4.3.0 to 5.0.1 (#24439) [3656b65](https://github.com/mezmo/vector/commit/3656b659a2e7eced25949c10cd4162514289f1b2) - GitHub
+* **ci**: bump cargo deny to 0.18.9 (#24404) [fad6e62](https://github.com/mezmo/vector/commit/fad6e623a97865d0668879e37c03b50df9ec41f2) - GitHub
+* **ci**: bump docker/setup-buildx-action from 3.11.1 to 3.12.0 (#24437) [9c1b1f0](https://github.com/mezmo/vector/commit/9c1b1f0e5cf3e69da9ffe94d2fbb9415d109e16a) - GitHub
+* **ci**: bump github/codeql-action from 4.31.6 to 4.31.9 (#24438) [9e12569](https://github.com/mezmo/vector/commit/9e12569ba9739f4d9c4e05ffbf306e0d9ed48aa3) - GitHub
+* **ci**: bump the artifact group with 2 updates (#24436) [5dcb826](https://github.com/mezmo/vector/commit/5dcb8262810e8158e8d2b17c9dfc0de9e9c4b846) - GitHub
+* **ci**: Harden GitHub Actions token permissions (#24450) [b90c21a](https://github.com/mezmo/vector/commit/b90c21aad276360e75088724aa239a83de39e4ea) - GitHub
+* **ci**: Pin actions to full commit sha (#24538) [22bd2ae](https://github.com/mezmo/vector/commit/22bd2ae74ded0d991376cbbb2e70ee06a773a26e) - GitHub
+* **codecs**: Merge `src/codecs` into `lib/codecs` (#24516) [249657b](https://github.com/mezmo/vector/commit/249657ba198470dc619f4c0e676ab52392b5469c) - GitHub
+* **deps, internal docs**: Add usage method to VRL functions (#24504) [a3bb693](https://github.com/mezmo/vector/commit/a3bb693380ea7f7217737661b082521c5bc31a8e) - GitHub
+* **deps**: bump alpine from 3.22 to 3.23 in /distribution/docker/alpine in the docker-images group (#24426) [a63cde1](https://github.com/mezmo/vector/commit/a63cde11d6fb45ffee0f478e6464b00f54ca3d72) - GitHub
+* **deps**: bump lru to 0.16.3 (#24463) [a5a6b5e](https://github.com/mezmo/vector/commit/a5a6b5e82f3000c3d1284c8a88a7577806b3ef1d) - GitHub
+* **deps**: bump rkyv to 0.7.46 (#24451) [236928a](https://github.com/mezmo/vector/commit/236928a042a71db77b050d5afbb392ad5d4e6cdc) - GitHub
+* **deps**: bump the clap group with 2 updates (#24430) [c0fda7e](https://github.com/mezmo/vector/commit/c0fda7e06efdfed3b60fcc288a531304dafe13c0) - GitHub
+* **deps**: update dependabot.yml to update distroless docker images (#24478) [1a676fd](https://github.com/mezmo/vector/commit/1a676fdad8f18f20382d40e175edecf14beff0bb) - GitHub
+* **dev**: Upgrade to rust 1.92.0 (#24376) [b6b3346](https://github.com/mezmo/vector/commit/b6b334615b1e13e457f663444ea7f402fdcb5ab3) - GitHub
+* **releasing**: prepare v0.53.0 release (#24554) [2b51b40](https://github.com/mezmo/vector/commit/2b51b40a7a0b40996350d73cf46791c7e991fcb6) - GitHub
+* **releasing**: v0.52.0 (#24388) [d5dbab9](https://github.com/mezmo/vector/commit/d5dbab97ba2ba4279b361aa8ec63cd698729ec0b) - GitHub
+* **website deps**: bump lodash from 4.17.21 to 4.17.23 in /website (#24529) [7e0cef1](https://github.com/mezmo/vector/commit/7e0cef1cfe162f870060ae195fa34d6be5a95cc6) - GitHub
+* **website deps**: bump preact from 10.28.0 to 10.28.2 in /website (#24457) [15b6bfa](https://github.com/mezmo/vector/commit/15b6bfa5a764cf5c4bdf28454d234d8798e5ec54) - GitHub
+* **website deps**: bump undici from 7.16.0 to 7.18.2 in /website (#24498) [6fa2b12](https://github.com/mezmo/vector/commit/6fa2b12a04d18eaa61f3d4d985884f933fb3f1c4) - GitHub
+* **website**: Tim.sara/transcend removal (#24419) [0091dad](https://github.com/mezmo/vector/commit/0091dadf96d09cd7baefb1e712e1343563645690) - GitHub
+* **website**: update hugo templates to work with 0.152.2 (#24140) [18676af](https://github.com/mezmo/vector/commit/18676af53de98c931acdea8c54bbf7a09bec0c01) - GitHub
+* **website**: Update to React 19 (#24392) [01cf516](https://github.com/mezmo/vector/commit/01cf516897a00b9bc7f149ab1435415c183dc876) - GitHub
+* **website**: update TypeScript and Node.js dependencies, enable ES modules (#24406) [36a935f](https://github.com/mezmo/vector/commit/36a935f62bcde10ffb6646f1d99e12e6d9ea7fe1) - GitHub
+
+
+### Features
+
+* **ci**: use setup action in Master Merge Queue (#24473) [3c82130](https://github.com/mezmo/vector/commit/3c82130af063148556736a36f4e7015487e06b3e) - GitHub
+* **codecs**: Add syslog encoder (#23777) [5f8ab31](https://github.com/mezmo/vector/commit/5f8ab319b847c10912ee01a204b40a1105616d6f) - GitHub
+* **external docs**: Add VRL crate documentation (#24384) [89bf795](https://github.com/mezmo/vector/commit/89bf79564137976a21a7f4ff138b0b1f54c36a02) - GitHub
+* **gcp_cloud_storage sink**: add content_type option (#24477) [b8a8d7a](https://github.com/mezmo/vector/commit/b8a8d7a4369e72e71771544fba0a3d243e8e4d34) - GitHub
+* **mqtt source**: support multiple mqtt source topics (#23670) [90cf7d0](https://github.com/mezmo/vector/commit/90cf7d044c60e651ff6cec8c3673686cc36f3765) - GitHub
+* **new sink**: add Apache Doris sink support (#23117) [eabdd5e](https://github.com/mezmo/vector/commit/eabdd5e79cd5124fb24d37c91f174de3cc3d5463) - GitHub
+* **vrl**: add functions for internal vector metrics access in VRL (#23430) [acd4a73](https://github.com/mezmo/vector/commit/acd4a737d7f45473c6125791743173027927d4ac) - GitHub
+* **website**: Use X logo instead of twitter (#24534) [4084133](https://github.com/mezmo/vector/commit/4084133347f049558bdb449b73b73df586642e39) - GitHub
+
+
+### Miscellaneous
+
+* Merge pull request #82 from mezmo/pciampini/merge-upstream-0.53.0 [22c4931](https://github.com/mezmo/vector/commit/22c4931f8ff97f3886a5ae2b56b84b2aafa93df1) - GitHub
+* Merge upstream tag 'v0.53.0' into pciampini/merge-upstream-0.53.0 [6bb273b](https://github.com/mezmo/vector/commit/6bb273bc941ff59e590f72065313e2830c6211a8) - Phil Ciampini
+* **clickhouse sink**: Add `ArrowStream` format (#24373) [60fa980](https://github.com/mezmo/vector/commit/60fa98017d861bf88141926ad97705f13aa65f1f) - GitHub
+* **cli**: Shell autocompletion for vector cli (#24414) [a5d7cc3](https://github.com/mezmo/vector/commit/a5d7cc33776f8df7e98ed7f48f38c64e2a974aae) - GitHub
+* **file source**: Clarify glob syntax in file source documentation (#24462) [935f1f7](https://github.com/mezmo/vector/commit/935f1f742a52f70a83672250e3299bf50082f482) - GitHub
+* **observability**: Add `_utilization_mean` buffer metrics (#24453) [4daa1f8](https://github.com/mezmo/vector/commit/4daa1f83a22317df88a6ac025ccb19cdcb5214fe) - GitHub
+* **observability**: Add configuration for buffer utilization EWMA alpha (#24467) [94a2f40](https://github.com/mezmo/vector/commit/94a2f401317257be6c77c0d14b803bad65f0ad4b) - GitHub
+* **observability**: Add metrics to measure total event processing time (#24481) [f5d0c56](https://github.com/mezmo/vector/commit/f5d0c561da72d2f935bb8696c6b22a2d06576068) - GitHub
+* **observability**: Expand internal histogram precision (#24497) [65afcd2](https://github.com/mezmo/vector/commit/65afcd214a1cd887ed41af136c6a68ce57d6175d) - GitHub
+* **observability**: Standardize buffer size metric names (#24493) [3728a4d](https://github.com/mezmo/vector/commit/3728a4de07720ad3c9414a7a70bea62dff319c34) - GitHub
+* **vrl**: consolidate all VRL functions into vector-vrl-functions crate (#24402) [2af657d](https://github.com/mezmo/vector/commit/2af657dfbb7e476d2966d05d5f2edb5c66112b40) - GitHub
+
+
+### Reverts
+
+* **observability**: Add metrics to measure total event processing time (#24546) [6f6b7ab](https://github.com/mezmo/vector/commit/6f6b7ab07af4f4256d272bb8f1910027df98b195) - GitHub
+
+
+### **BREAKING CHANGES**
+
+* **observability:** Expand internal histogram precision (#24497)
+
 ## [8.3.1](https://github.com/mezmo/vector/compare/v8.3.0...v8.3.1) (2026-07-17)
 
 
