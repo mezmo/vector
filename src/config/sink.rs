@@ -17,6 +17,7 @@ use vector_lib::{
     id::Inputs,
     sink::VectorSink,
 };
+use vector_vrl_metrics::MetricsStorage;
 
 use super::{ComponentKey, ProxyConfig, Resource, dot_graph::GraphConfig, schema};
 use crate::{
@@ -277,6 +278,7 @@ pub struct SinkContext {
     pub healthcheck: SinkHealthcheckOptions,
     pub globals: GlobalOptions,
     pub enrichment_tables: vector_lib::enrichment::TableRegistry,
+    pub metrics_storage: MetricsStorage,
     pub proxy: ProxyConfig,
     pub schema: schema::Options,
     pub mezmo_ctx: Option<MezmoContext>,
@@ -294,6 +296,7 @@ impl Default for SinkContext {
             healthcheck: Default::default(),
             globals: Default::default(),
             enrichment_tables: Default::default(),
+            metrics_storage: Default::default(),
             proxy: Default::default(),
             schema: Default::default(),
             mezmo_ctx: None,

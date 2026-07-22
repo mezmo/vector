@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use vector_lib::config::{LogNamespace, TransformOutput};
+use vector_lib::config::TransformOutput;
 use vector_lib::configurable::configurable_component;
 use vector_lib::event::metric::mezmo::to_metric;
 
@@ -49,9 +49,8 @@ impl TransformConfig for LogToMetricConfig {
 
     fn outputs(
         &self,
-        _: vector_lib::enrichment::TableRegistry,
+        _: &TransformContext,
         _: &[(OutputId, schema::Definition)],
-        _: LogNamespace,
     ) -> Vec<TransformOutput> {
         // Converting the log to a metric means we lose all incoming `Definition`s.
         vec![TransformOutput::new(DataType::Metric, HashMap::new())]

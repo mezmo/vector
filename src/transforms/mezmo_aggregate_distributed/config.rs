@@ -5,11 +5,10 @@ use redis::{
 use snafu::prelude::*;
 use std::time::Duration;
 use vector_lib::configurable::configurable_component;
-use vector_lib::enrichment::TableRegistry;
 use vector_lib::{config::clone_input_definitions, configurable::component::GenerateConfig};
 
 use crate::config::{
-    DataType, Input, LogNamespace, OutputId, TransformConfig, TransformContext, TransformOutput,
+    DataType, Input, OutputId, TransformConfig, TransformContext, TransformOutput,
 };
 use crate::mezmo_env_config;
 use crate::schema::Definition;
@@ -209,9 +208,8 @@ impl TransformConfig for MezmoAggregateDistributedConfig {
 
     fn outputs(
         &self,
-        _enrichment_tables: TableRegistry,
+        _: &TransformContext,
         input_definitions: &[(OutputId, Definition)],
-        _global_log_namespace: LogNamespace,
     ) -> Vec<TransformOutput> {
         vec![TransformOutput::new(
             DataType::Log,

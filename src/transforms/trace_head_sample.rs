@@ -1,4 +1,4 @@
-use vector_lib::config::{LogNamespace, OutputId, TransformOutput, log_schema};
+use vector_lib::config::{OutputId, TransformOutput, log_schema};
 use vector_lib::configurable::configurable_component;
 
 use crate::mezmo::persistence::PersistenceConnection;
@@ -94,12 +94,7 @@ impl TransformConfig for TraceHeadSampleConfig {
         Input::log()
     }
 
-    fn outputs(
-        &self,
-        _: vector_lib::enrichment::TableRegistry,
-        _: &[(OutputId, Definition)],
-        _: LogNamespace,
-    ) -> Vec<TransformOutput> {
+    fn outputs(&self, _: &TransformContext, _: &[(OutputId, Definition)]) -> Vec<TransformOutput> {
         vec![TransformOutput::new(DataType::Log, HashMap::new())]
     }
 }

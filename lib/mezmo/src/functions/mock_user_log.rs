@@ -9,6 +9,10 @@ impl Function for MockUserLog {
         "user_log"
     }
 
+    fn usage(&self) -> &'static str {
+        "Mock of `user_log` used by the VRL CLI; emits a standard log line instead of a Mezmo user log."
+    }
+
     fn parameters(&self) -> &'static [Parameter] {
         &[
             Parameter {

@@ -16,8 +16,14 @@ use crossbeam_queue::{ArrayQueue, SegQueue};
 use futures::Stream;
 use metrics::{Gauge, Histogram, gauge, histogram};
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use vector_common::stats::AtomicEwma;
 
 use crate::{InMemoryBufferable, config::MemoryBufferSize};
+
+/// The alpha value for the Exponentially Weighted Moving Average (EWMA) calculation. This is a
+/// measure of how much weight to give to the current value versus the previous values. A value of
+/// 0.9 results in a "half life" of 6-7 measurements.
+pub const DEFAULT_EWMA_ALPHA: f64 = 0.9;
 
 /// Error returned by `LimitedSender::send` when the receiver has disconnected.
 #[derive(Debug, PartialEq, Eq)]
@@ -108,45 +114,74 @@ impl ChannelMetricMetadata {
 struct Metrics {
     histogram: Histogram,
     gauge: Gauge,
+    mean_gauge: Gauge,
+    ewma: Arc<AtomicEwma>,
     // We hold a handle to the max gauge to avoid it being dropped by the metrics collector, but
     // since the value is static, we never need to update it. The compiler detects this as an unused
     // field, so we need to suppress the warning here.
     #[expect(dead_code)]
     max_gauge: Gauge,
+    #[expect(dead_code)]
+    legacy_max_gauge: Gauge,
     #[cfg(test)]
     recorded_values: Arc<Mutex<Vec<usize>>>,
 }
 
 impl Metrics {
     #[expect(clippy::cast_precision_loss)] // We have to convert buffer sizes for a gauge, it's okay to lose precision here.
-    fn new(limit: MemoryBufferSize, metadata: ChannelMetricMetadata) -> Self {
+    fn new(
+        limit: MemoryBufferSize,
+        metadata: ChannelMetricMetadata,
+        ewma_alpha: Option<f64>,
+    ) -> Self {
         let ChannelMetricMetadata { prefix, output } = metadata;
-        let (gauge_suffix, max_value) = match limit {
-            MemoryBufferSize::MaxEvents(max_events) => ("_max_event_size", max_events.get() as f64),
-            MemoryBufferSize::MaxSize(max_bytes) => ("_max_byte_size", max_bytes.get() as f64),
+        let (legacy_suffix, gauge_suffix, max_value) = match limit {
+            MemoryBufferSize::MaxEvents(max_events) => (
+                "_max_event_size",
+                "_max_size_events",
+                max_events.get() as f64,
+            ),
+            MemoryBufferSize::MaxSize(max_bytes) => {
+                ("_max_byte_size", "_max_size_bytes", max_bytes.get() as f64)
+            }
         };
         let max_gauge_name = format!("{prefix}{gauge_suffix}");
+        let legacy_max_gauge_name = format!("{prefix}{legacy_suffix}");
         let histogram_name = format!("{prefix}_utilization");
         let gauge_name = format!("{prefix}_utilization_level");
+        let mean_name = format!("{prefix}_utilization_mean");
+        let ewma = Arc::new(AtomicEwma::new(ewma_alpha.unwrap_or(DEFAULT_EWMA_ALPHA)));
         #[cfg(test)]
         let recorded_values = Arc::new(Mutex::new(Vec::new()));
         if let Some(label_value) = output {
             let max_gauge = gauge!(max_gauge_name, "output" => label_value.clone());
             max_gauge.set(max_value);
+            // DEPRECATED: buffer-bytes-events-metrics
+            let legacy_max_gauge = gauge!(legacy_max_gauge_name, "output" => label_value.clone());
+            legacy_max_gauge.set(max_value);
             Self {
                 histogram: histogram!(histogram_name, "output" => label_value.clone()),
                 gauge: gauge!(gauge_name, "output" => label_value.clone()),
+                mean_gauge: gauge!(mean_name, "output" => label_value.clone()),
                 max_gauge,
+                ewma,
+                legacy_max_gauge,
                 #[cfg(test)]
                 recorded_values,
             }
         } else {
             let max_gauge = gauge!(max_gauge_name);
             max_gauge.set(max_value);
+            // DEPRECATED: buffer-bytes-events-metrics
+            let legacy_max_gauge = gauge!(legacy_max_gauge_name);
+            legacy_max_gauge.set(max_value);
             Self {
                 histogram: histogram!(histogram_name),
                 gauge: gauge!(gauge_name),
+                mean_gauge: gauge!(mean_name),
                 max_gauge,
+                ewma,
+                legacy_max_gauge,
                 #[cfg(test)]
                 recorded_values,
             }
@@ -157,6 +192,8 @@ impl Metrics {
     fn record(&self, value: usize) {
         self.histogram.record(value as f64);
         self.gauge.set(value as f64);
+        let avg = self.ewma.update(value as f64);
+        self.mean_gauge.set(avg);
         #[cfg(test)]
         if let Ok(mut recorded) = self.recorded_values.lock() {
             recorded.push(value);
@@ -186,9 +223,13 @@ impl<T> Clone for Inner<T> {
 }
 
 impl<T: InMemoryBufferable> Inner<T> {
-    fn new(limit: MemoryBufferSize, metric_metadata: Option<ChannelMetricMetadata>) -> Self {
+    fn new(
+        limit: MemoryBufferSize,
+        metric_metadata: Option<ChannelMetricMetadata>,
+        ewma_alpha: Option<f64>,
+    ) -> Self {
         let read_waker = Arc::new(Notify::new());
-        let metrics = metric_metadata.map(|metadata| Metrics::new(limit, metadata));
+        let metrics = metric_metadata.map(|metadata| Metrics::new(limit, metadata, ewma_alpha));
         match limit {
             MemoryBufferSize::MaxEvents(max_events) => Inner {
                 data: Arc::new(ArrayQueue::new(max_events.get())),
@@ -381,8 +422,9 @@ impl<T> Drop for LimitedReceiver<T> {
 pub fn limited<T: InMemoryBufferable + fmt::Debug>(
     limit: MemoryBufferSize,
     metric_metadata: Option<ChannelMetricMetadata>,
+    ewma_alpha: Option<f64>,
 ) -> (LimitedSender<T>, LimitedReceiver<T>) {
-    let inner = Inner::new(limit, metric_metadata);
+    let inner = Inner::new(limit, metric_metadata, ewma_alpha);
 
     let sender = LimitedSender {
         inner: inner.clone(),
@@ -410,7 +452,7 @@ mod tests {
     #[tokio::test]
     async fn send_receive() {
         let limit = MemoryBufferSize::MaxEvents(NonZeroUsize::new(2).unwrap());
-        let (mut tx, mut rx) = limited(limit, None);
+        let (mut tx, mut rx) = limited(limit, None, None);
 
         assert_eq!(2, tx.available_capacity());
 
@@ -442,6 +484,7 @@ mod tests {
         let (mut tx, mut rx) = limited(
             limit,
             Some(ChannelMetricMetadata::new("test_channel", None)),
+            None,
         );
 
         let metrics = tx.inner.metrics.as_ref().unwrap().recorded_values.clone();
@@ -461,7 +504,7 @@ mod tests {
 
         // With this configuration a maximum of exactly 10 messages can fit in the channel
         let limit = MemoryBufferSize::MaxSize(NonZeroUsize::new(max_allowed_bytes).unwrap());
-        let (mut tx, mut rx) = limited(limit, None);
+        let (mut tx, mut rx) = limited(limit, None, None);
 
         assert_eq!(max_allowed_bytes, tx.available_capacity());
 
@@ -495,7 +538,7 @@ mod tests {
     #[test]
     fn sender_waits_for_more_capacity_when_none_available() {
         let limit = MemoryBufferSize::MaxEvents(NonZeroUsize::new(1).unwrap());
-        let (mut tx, mut rx) = limited(limit, None);
+        let (mut tx, mut rx) = limited(limit, None, None);
 
         assert_eq!(1, tx.available_capacity());
 
@@ -557,7 +600,7 @@ mod tests {
     #[test]
     fn sender_waits_for_more_capacity_when_partial_available() {
         let limit = MemoryBufferSize::MaxEvents(NonZeroUsize::new(7).unwrap());
-        let (mut tx, mut rx) = limited(limit, None);
+        let (mut tx, mut rx) = limited(limit, None, None);
 
         assert_eq!(7, tx.available_capacity());
 
@@ -646,7 +689,7 @@ mod tests {
     #[test]
     fn empty_receiver_returns_none_when_last_sender_drops() {
         let limit = MemoryBufferSize::MaxEvents(NonZeroUsize::new(1).unwrap());
-        let (mut tx, mut rx) = limited(limit, None);
+        let (mut tx, mut rx) = limited(limit, None, None);
 
         assert_eq!(1, tx.available_capacity());
 
@@ -689,7 +732,7 @@ mod tests {
     #[test]
     fn receiver_returns_none_once_empty_when_last_sender_drops() {
         let limit = MemoryBufferSize::MaxEvents(NonZeroUsize::new(1).unwrap());
-        let (tx, mut rx) = limited::<Sample>(limit, None);
+        let (tx, mut rx) = limited::<Sample>(limit, None, None);
 
         assert_eq!(1, tx.available_capacity());
 
@@ -719,7 +762,7 @@ mod tests {
     #[test]
     fn oversized_send_allowed_when_empty() {
         let limit = MemoryBufferSize::MaxEvents(NonZeroUsize::new(1).unwrap());
-        let (mut tx, mut rx) = limited(limit, None);
+        let (mut tx, mut rx) = limited(limit, None, None);
 
         assert_eq!(1, tx.available_capacity());
 
@@ -752,7 +795,7 @@ mod tests {
     #[test]
     fn oversized_send_allowed_when_partial_capacity() {
         let limit = MemoryBufferSize::MaxEvents(NonZeroUsize::new(2).unwrap());
-        let (mut tx, mut rx) = limited(limit, None);
+        let (mut tx, mut rx) = limited(limit, None, None);
 
         assert_eq!(2, tx.available_capacity());
 

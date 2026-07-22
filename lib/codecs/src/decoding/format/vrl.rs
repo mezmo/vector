@@ -58,7 +58,9 @@ impl VrlDeserializerConfig {
             external: ExternalEnv::default(),
         };
 
-        let mut functions = vrl::stdlib::all();
+        // vector_vrl_functions::all() now provides the full base set (stdlib,
+        // enrichment, secrets, etc.); append Mezmo's functions on top.
+        let mut functions = vector_vrl_functions::all();
         functions.extend(mezmo_vrl_functions::vrl_functions());
 
         match compile_vrl(

@@ -10,6 +10,10 @@ impl Function for UserLog {
         "user_log"
     }
 
+    fn usage(&self) -> &'static str {
+        "Emit a log message that is surfaced to the user through Mezmo user logging, at the optional `level` (defaulting to info) and optional `rate_limit_secs`, optionally attaching `captured_data`."
+    }
+
     fn parameters(&self) -> &'static [Parameter] {
         &[
             Parameter {

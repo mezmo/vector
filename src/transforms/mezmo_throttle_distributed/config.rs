@@ -21,7 +21,7 @@ use redis::{
 use serde_with::serde_as;
 use snafu::ResultExt;
 use std::time::Duration;
-use vector_lib::config::{LogNamespace, OutputId, TransformOutput, clone_input_definitions};
+use vector_lib::config::{OutputId, TransformOutput, clone_input_definitions};
 use vector_lib::configurable::component::GenerateConfig;
 use vector_lib::configurable::configurable_component;
 
@@ -139,7 +139,13 @@ impl MezmoThrottleDistributedConfig {
         let exclude = self
             .exclude
             .as_ref()
-            .map(|condition| condition.build(&ctx.enrichment_tables, ctx.mezmo_ctx.clone()))
+            .map(|condition| {
+                condition.build(
+                    &ctx.enrichment_tables,
+                    &ctx.metrics_storage,
+                    ctx.mezmo_ctx.clone(),
+                )
+            })
             .transpose()?;
 
         let mezmo_ctx = ctx
@@ -177,9 +183,8 @@ impl TransformConfig for MezmoThrottleDistributedConfig {
 
     fn outputs(
         &self,
-        _: vector_lib::enrichment::TableRegistry,
+        _: &TransformContext,
         input_definitions: &[(OutputId, schema::Definition)],
-        _: LogNamespace,
     ) -> Vec<TransformOutput> {
         // The event is not modified, so the definition is passed through as-is
         vec![TransformOutput::new(

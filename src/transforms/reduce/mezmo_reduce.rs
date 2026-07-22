@@ -30,7 +30,7 @@ use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use futures::{Stream, StreamExt, stream};
 use indexmap::IndexMap;
 use serde_with::serde_as;
-use vector_lib::config::{LogNamespace, OutputId, TransformOutput, log_schema};
+use vector_lib::config::{OutputId, TransformOutput, log_schema};
 use vector_lib::configurable::configurable_component;
 use vector_lib::lookup::lookup_v2::{OwnedSegment, parse_target_path};
 use vector_lib::lookup::owned_value_path;
@@ -213,12 +213,7 @@ impl TransformConfig for MezmoReduceConfig {
         Input::log()
     }
 
-    fn outputs(
-        &self,
-        _: vector_lib::enrichment::TableRegistry,
-        _: &[(OutputId, Definition)],
-        _: LogNamespace,
-    ) -> Vec<TransformOutput> {
+    fn outputs(&self, _: &TransformContext, _: &[(OutputId, Definition)]) -> Vec<TransformOutput> {
         vec![TransformOutput::new(DataType::Log, HashMap::new())]
     }
 }
@@ -514,12 +509,24 @@ impl MezmoReduce {
         let ends_when = config
             .ends_when
             .as_ref()
-            .map(|c| c.build(&cx.enrichment_tables, cx.mezmo_ctx.clone()))
+            .map(|c| {
+                c.build(
+                    &cx.enrichment_tables,
+                    &cx.metrics_storage,
+                    cx.mezmo_ctx.clone(),
+                )
+            })
             .transpose()?;
         let starts_when = config
             .starts_when
             .as_ref()
-            .map(|c| c.build(&cx.enrichment_tables, cx.mezmo_ctx.clone()))
+            .map(|c| {
+                c.build(
+                    &cx.enrichment_tables,
+                    &cx.metrics_storage,
+                    cx.mezmo_ctx.clone(),
+                )
+            })
             .transpose()?;
         let group_by = config
             .group_by

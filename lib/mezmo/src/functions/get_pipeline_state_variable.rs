@@ -13,6 +13,10 @@ impl Function for GetPipelineStateVariable {
         "get_pipeline_state_variable"
     }
 
+    fn usage(&self) -> &'static str {
+        "Return the value of the named pipeline state variable."
+    }
+
     fn parameters(&self) -> &'static [Parameter] {
         &[Parameter {
             keyword: "name",

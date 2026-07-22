@@ -1,5 +1,5 @@
 use vector_lib::{
-    config::{LogNamespace, OutputId, TransformOutput, clone_input_definitions},
+    config::{OutputId, TransformOutput, clone_input_definitions},
     configurable::configurable_component,
     internal_event::{Count, InternalEventHandle as _, Registered},
 };
@@ -43,6 +43,7 @@ impl TransformConfig for FilterConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
         Ok(Transform::function(Filter::new(self.condition.build(
             &context.enrichment_tables,
+            &context.metrics_storage,
             context.mezmo_ctx.clone(),
         )?)))
     }
@@ -53,9 +54,8 @@ impl TransformConfig for FilterConfig {
 
     fn outputs(
         &self,
-        _enrichment_tables: vector_lib::enrichment::TableRegistry,
+        _: &TransformContext,
         input_definitions: &[(OutputId, schema::Definition)],
-        _: LogNamespace,
     ) -> Vec<TransformOutput> {
         vec![TransformOutput::new(
             DataType::all_bits(),

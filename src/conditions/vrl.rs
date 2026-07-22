@@ -1,4 +1,5 @@
 use vector_lib::{TimeZone, compile_vrl, configurable::configurable_component, emit};
+use vector_vrl_metrics::MetricsStorage;
 use vrl::{
     compiler::{
         CompilationResult, CompileConfig, Program, TypeState, VrlRuntime,
@@ -35,6 +36,7 @@ impl ConditionalConfig for VrlConfig {
     fn build(
         &self,
         enrichment_tables: &vector_lib::enrichment::TableRegistry,
+        metrics_storage: &MetricsStorage,
         mezmo_ctx: Option<MezmoContext>,
     ) -> crate::Result<Condition> {
         // TODO(jean): re-add this to VRL
@@ -47,14 +49,10 @@ impl ConditionalConfig for VrlConfig {
         //     },
         // };
 
-        let functions = vrl::stdlib::all()
+        // vector_vrl_functions::all() now provides the full base set (stdlib, enrichment,
+        // dnstap, secrets, and vector-metrics functions); append Mezmo's functions on top.
+        let functions = vector_vrl_functions::all()
             .into_iter()
-            .chain(vector_lib::enrichment::vrl_functions());
-        #[cfg(feature = "sources-dnstap")]
-        let functions = functions.chain(dnstap_parser::vrl_functions());
-
-        let functions = functions
-            .chain(vector_vrl_functions::all())
             .chain(mezmo_vrl_functions::vrl_functions())
             .collect::<Vec<_>>();
 
@@ -62,6 +60,7 @@ impl ConditionalConfig for VrlConfig {
 
         let mut config = CompileConfig::default();
         config.set_custom(enrichment_tables.clone());
+        config.set_custom(metrics_storage.clone());
         if let Some(ctx) = mezmo_ctx {
             config.set_custom(ctx)
         }
@@ -261,13 +260,13 @@ mod test {
 
             assert_eq!(
                 config
-                    .build(&Default::default(), Default::default())
+                    .build(&Default::default(), &Default::default(), None)
                     .map(|_| ())
                     .map_err(|e| e.to_string()),
                 build
             );
 
-            if let Ok(cond) = config.build(&Default::default(), Default::default()) {
+            if let Ok(cond) = config.build(&Default::default(), &Default::default(), None) {
                 assert_eq!(
                     cond.check_with_context(event.clone()).0,
                     check.map_err(|e| e.to_string())

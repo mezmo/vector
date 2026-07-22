@@ -104,7 +104,7 @@ pub(crate) fn create_events_stream(
                 runtime: Default::default(),
             };
 
-            match config.build(&Default::default(), Default::default()) {
+            match config.build(&Default::default(), &Default::default(), None) {
                 Ok(condition) => Some(move |events: EventArray| apply_filter(&condition, events)),
                 Err(err) => {
                     error!(message = "Failed to build tap filter condition.", ?err,);

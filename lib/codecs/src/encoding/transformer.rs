@@ -1,21 +1,21 @@
 #![deny(missing_docs)]
 
-use core::fmt::Debug;
 use std::collections::BTreeMap;
-use vector_lib::codecs::encoding::Serializer;
 
 use chrono::{DateTime, Utc};
+use lookup::{PathPrefix, event_path, lookup_v2::ConfigValuePath};
 use ordered_float::NotNan;
 use serde::{Deserialize, Deserializer};
-use vector_lib::{
-    configurable::configurable_component,
-    event::{LogEvent, MaybeAsLogMut},
-    lookup::{PathPrefix, event_path, lookup_v2::ConfigValuePath},
+use vector_config::configurable_component;
+use vector_core::{
+    event::{Event, LogEvent, MaybeAsLogMut},
     schema::meaning,
+    serde::is_default,
 };
 use vrl::{path::OwnedValuePath, value::Value};
 
-use crate::{event::Event, mezmo::reshape_log_event_by_message, serde::is_default};
+use super::Serializer;
+use mezmo::reshape_log_event_by_message;
 
 /// Transformations to prepare an event for serialization.
 #[configurable_component(no_deser)]
@@ -77,7 +77,7 @@ impl Transformer {
         only_fields: Option<Vec<ConfigValuePath>>,
         except_fields: Option<Vec<ConfigValuePath>>,
         timestamp_format: Option<TimestampFormat>,
-    ) -> Result<Self, crate::Error> {
+    ) -> vector_common::Result<Self> {
         Self::validate_fields(only_fields.as_ref(), except_fields.as_ref())?;
 
         Ok(Self {
@@ -121,7 +121,7 @@ impl Transformer {
     }
 
     /// Get the `Transformer`'s `only_fields`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test"))]
     pub const fn only_fields(&self) -> &Option<Vec<ConfigValuePath>> {
         &self.only_fields
     }
@@ -142,7 +142,7 @@ impl Transformer {
     fn validate_fields(
         only_fields: Option<&Vec<ConfigValuePath>>,
         except_fields: Option<&Vec<ConfigValuePath>>,
-    ) -> crate::Result<()> {
+    ) -> vector_common::Result<()> {
         if let (Some(only_fields), Some(except_fields)) = (only_fields, except_fields)
             && except_fields
                 .iter()
@@ -229,7 +229,8 @@ impl Transformer {
                 }
             }
             for (k, v) in unix_timestamps {
-                log.parse_path_and_insert(k, v).unwrap();
+                log.parse_path_and_insert(k, v)
+                    .expect("timestamp fields must allow insertion");
             }
         } else {
             // root is not an object
@@ -254,7 +255,8 @@ impl Transformer {
                     ts.timestamp_nanos_opt().expect("Timestamp out of range")
                 }),
                 TimestampFormat::UnixFloat => self.format_timestamps(log, |ts| {
-                    NotNan::new(ts.timestamp_micros() as f64 / 1e6).unwrap()
+                    NotNan::new(ts.timestamp_micros() as f64 / 1e6)
+                        .expect("this division will never produce a NaN")
                 }),
                 // RFC3339 is the default serialization of a timestamp.
                 TimestampFormat::Rfc3339 => (),
@@ -266,11 +268,11 @@ impl Transformer {
     ///
     /// Returns `Err` if the new `except_fields` fail validation, i.e. are not mutually exclusive
     /// with `only_fields`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test"))]
     pub fn set_except_fields(
         &mut self,
         except_fields: Option<Vec<ConfigValuePath>>,
-    ) -> crate::Result<()> {
+    ) -> vector_common::Result<()> {
         Self::validate_fields(self.only_fields.as_ref(), except_fields.as_ref())?;
         self.except_fields = except_fields;
         Ok(())
@@ -306,25 +308,20 @@ mod tests {
     use std::{collections::BTreeMap, sync::Arc};
 
     use indoc::indoc;
-    use vector_lib::codecs::encoding::{
-        Serializer,
-        format::{
-            AvroSerializerConfig, GelfSerializer, JsonSerializer, JsonSerializerOptions,
-            LogfmtSerializer, NativeJsonSerializer, RawMessageSerializer, TextSerializer,
-        },
-    };
-    use vector_lib::{
-        btreemap,
+    use lookup::path::parse_target_path;
+    use vector_core::{
         config::{LogNamespace, log_schema},
-        lookup::path::parse_target_path,
+        schema,
     };
-    use vrl::value::Kind;
-
-    use crate::config::schema;
+    use vrl::{btreemap, value::Kind};
 
     use super::*;
+    use crate::MetricTagValues;
+    use crate::encoding::format::{
+        AvroSerializerConfig, GelfSerializer, JsonSerializer, JsonSerializerOptions,
+        LogfmtSerializer, NativeJsonSerializer, RawMessageSerializer, TextSerializer,
+    };
     use assay::assay;
-    use vector_lib::codecs::MetricTagValues;
 
     #[test]
     fn serialize() {
@@ -581,7 +578,7 @@ mod tests {
         transformer = Transformer::new_with_mezmo_reshape(
             Transformer::default(),
             Some(&Serializer::from(GelfSerializer::new(
-                vector_lib::codecs::GelfSerializerConfig::default().options,
+                crate::encoding::format::GelfSerializerConfig::default().options,
             ))),
         );
         assert_eq!(
@@ -668,7 +665,7 @@ mod tests {
             Kind::object(btreemap! {
                 "thing" => Kind::object(btreemap! {
                     "service" => Kind::bytes(),
-                })
+                }),
             }),
             [LogNamespace::Vector],
         );
@@ -708,7 +705,7 @@ mod tests {
             Kind::object(btreemap! {
                 "thing" => Kind::object(btreemap! {
                     "service" => Kind::bytes(),
-                })
+                }),
             }),
             [LogNamespace::Vector],
         );

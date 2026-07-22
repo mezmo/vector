@@ -19,7 +19,7 @@ use tokio_util::codec::FramedRead;
 use vector_lib::{
     EstimatedJsonEncodedSizeOf,
     codecs::{
-        StreamDecodingError,
+        Decoder, DecodingConfig, StreamDecodingError,
         decoding::{DeserializerConfig, FramingConfig},
     },
     config::{LegacyKey, LogNamespace, SourceAcknowledgementsConfig, SourceOutput},
@@ -39,7 +39,6 @@ use vrl::{owned_value_path, path, value::Kind};
 
 use crate::{
     SourceSender,
-    codecs::{Decoder, DecodingConfig},
     config::{SourceConfig, SourceContext},
     event::BatchNotifier,
     event::Value,
@@ -792,7 +791,7 @@ async fn parse_message(
                     }
                 }
                 Err(error) => {
-                    // Error is logged by `crate::codecs`, no further
+                    // Error is logged by `vector_lib::codecs`, no further
                     // handling is needed here.
                     if !error.can_continue() {
                         break;

@@ -7,10 +7,7 @@ use std::{
 use async_stream::stream;
 use futures::{Stream, StreamExt};
 use vector_lib::configurable::configurable_component;
-use vector_lib::{
-    config::LogNamespace,
-    event::{Metric, metric::mezmo::to_metric},
-};
+use vector_lib::event::{Metric, metric::mezmo::to_metric};
 use vector_lib::{
     config::{OutputId, TransformOutput},
     event::metric::mezmo::from_metric,
@@ -58,9 +55,8 @@ impl TransformConfig for AggregateConfig {
 
     fn outputs(
         &self,
-        _: vector_lib::enrichment::TableRegistry,
+        _: &TransformContext,
         _: &[(OutputId, schema::Definition)],
-        _: LogNamespace,
     ) -> Vec<TransformOutput> {
         vec![TransformOutput::new(DataType::Log, HashMap::new())]
     }

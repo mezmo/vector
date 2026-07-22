@@ -215,7 +215,7 @@ fn parse_netlink_messages(
 /// Asynchronously queries the kernel via a Netlink socket for TCP socket info.
 async fn fetch_netlink_inet_headers(addr_family: u8) -> Result<Vec<InetResponseHeader>, TcpError> {
     let unicast_socket: SocketAddr = SocketAddr::new(0, 0);
-    let socket = TokioSocket::new(NETLINK_SOCK_DIAG).context(NetlinkSocketSnafu)?;
+    let mut socket = TokioSocket::new(NETLINK_SOCK_DIAG).context(NetlinkSocketSnafu)?;
 
     let mut inet_req = InetRequest {
         family: addr_family,
@@ -241,10 +241,12 @@ async fn fetch_netlink_inet_headers(addr_family: u8) -> Result<Vec<InetResponseH
         .await
         .context(NetlinkSendSnafu)?;
 
-    let mut receive_buffer = vec![0; 4096];
     let mut inet_resp_hdrs = Vec::with_capacity(32); // Pre-allocate with an estimate
 
-    while let Ok(()) = socket.recv(&mut &mut receive_buffer[..]).await {
+    while let Ok((receive_buffer, _addr)) = socket.recv_from_full().await {
+        if receive_buffer.is_empty() {
+            break;
+        }
         let done = parse_netlink_messages(&receive_buffer, &mut inet_resp_hdrs)?;
         if done {
             break;
