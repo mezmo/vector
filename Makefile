@@ -757,12 +757,16 @@ version: ## Get the current Vector version
 .PHONY:mezmo-build-image
 mezmo-build-image:
 	@echo "Building image us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}"
-	docker build -t "us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}" --build-arg BUILD_VERSION=${BUILD_VERSION} -f distribution/docker/mezmo/Dockerfile --platform=linux/amd64 --progress=plain .
+	docker build -t "us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}" --target release --build-arg BUILD_VERSION=${BUILD_VERSION} -f distribution/docker/mezmo/Dockerfile --platform=linux/amd64 --progress=plain .
+	@echo "Building debug image us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}-debug"
+	docker build -t "us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}-debug" --target release-debug --build-arg BUILD_VERSION=${BUILD_VERSION} -f distribution/docker/mezmo/Dockerfile --platform=linux/amd64 --progress=plain .
 
 .PHONY:mezmo-publish-image
 mezmo-publish-image:
 	@echo "Publishing image us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}"
 	docker push "us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}"
+	@echo "Publishing debug image us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}-debug"
+	docker push "us.gcr.io/logdna-k8s/vector:${BUILD_VERSION}-debug"
 
 .PHONY: git-hooks
 git-hooks: ## Add Vector-local git hooks for commit sign-off
