@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use vector_lib::configurable::configurable_component;
-use vector_lib::enrichment::{Case, Condition, IndexHandle, Table};
+use vector_lib::enrichment::{Case, Condition, Error, IndexHandle, InternalError, Table};
 use vector_lib::mezmo;
 use vrl::value::{KeyString, Value};
 
@@ -162,7 +162,7 @@ impl StateVariables {
     pub fn gather_query_parameters(
         &self,
         conditions: &[Condition],
-    ) -> Result<HashMap<String, String>, String> {
+    ) -> Result<HashMap<String, String>, Error> {
         let mut param_names: HashMap<String, String> = HashMap::new();
 
         for cond in conditions {
@@ -173,16 +173,22 @@ impl StateVariables {
                     let val = value.to_string_lossy().to_string();
                     param_names.insert(key, val);
                 }
-                _ => return Err("Unsupported query condition".to_owned()),
+                _ => return Err(Error::OnlyEqualityConditionAllowed),
             }
         }
 
         if param_names.is_empty() {
-            Err("Conditions for `account_id` and `pipeline_id` are required".to_owned())
+            Err(Error::MissingCondition {
+                kind: "account_id and pipeline_id",
+            })
         } else if !param_names.contains_key("account_id") {
-            Err("Missing required condition, `account_id`".to_owned())
+            Err(Error::MissingRequiredField {
+                field: "account_id",
+            })
         } else if !param_names.contains_key("pipeline_id") {
-            Err("Missing required condition, `pipeline_id`".to_owned())
+            Err(Error::MissingRequiredField {
+                field: "pipeline_id",
+            })
         } else {
             Ok(param_names)
         }
@@ -193,7 +199,7 @@ impl StateVariables {
         &self,
         param_names: &HashMap<String, String>,
         select: Option<&[String]>,
-    ) -> Result<BTreeMap<KeyString, Value>, String> {
+    ) -> Result<BTreeMap<KeyString, Value>, Error> {
         let account_id = param_names
             .get("account_id")
             .expect("Condition field `account_id` not found");
@@ -211,7 +217,11 @@ impl StateVariables {
                     return Ok(BTreeMap::new());
                 }
                 Err(err) => {
-                    return Err(err.to_string());
+                    return Err(Error::Internal {
+                        source: InternalError::FailedToDecode {
+                            details: err.to_string(),
+                        },
+                    });
                 }
             };
 
@@ -249,10 +259,10 @@ impl Table for StateVariables {
         &self,
         _: Case,
         conditions: &'a [Condition<'a>],
-        select: Option<&'a [String]>,
+        select: Option<&[String]>,
         _: Option<&Value>,
         _: Option<IndexHandle>,
-    ) -> Result<BTreeMap<KeyString, Value>, String> {
+    ) -> Result<BTreeMap<KeyString, Value>, Error> {
         let param_names = self.gather_query_parameters(conditions)?;
         let result = self.lookup(&param_names, select)?;
 
@@ -263,16 +273,16 @@ impl Table for StateVariables {
         &self,
         _case: Case,
         _condition: &'a [Condition<'a>],
-        _select: Option<&'a [String]>,
+        _select: Option<&[String]>,
         _wildcard: Option<&Value>,
         _index: Option<IndexHandle>,
-    ) -> Result<Vec<BTreeMap<KeyString, Value>>, String> {
+    ) -> Result<Vec<BTreeMap<KeyString, Value>>, Error> {
         // This can be implemented if/when we look up variables for all pipelines of an account
         Ok(vec![BTreeMap::new()])
     }
 
     /// Not needed for this implementation, but the return value needs to be valid
-    fn add_index(&mut self, _case: Case, _fields: &[&str]) -> Result<IndexHandle, String> {
+    fn add_index(&mut self, _case: Case, _fields: &[&str]) -> Result<IndexHandle, Error> {
         Ok(IndexHandle(0))
     }
 
@@ -329,7 +339,9 @@ mod tests {
         let conditions = vec![];
         let result = state_variables.gather_query_parameters(&conditions);
         assert_eq!(
-            Err("Conditions for `account_id` and `pipeline_id` are required".to_owned()),
+            Err(Error::MissingCondition {
+                kind: "account_id and pipeline_id"
+            }),
             result,
             "No conditions supplied"
         );
@@ -339,7 +351,9 @@ mod tests {
         }];
         let result = state_variables.gather_query_parameters(&conditions);
         assert_eq!(
-            Err("Missing required condition, `pipeline_id`".to_owned()),
+            Err(Error::MissingRequiredField {
+                field: "pipeline_id"
+            }),
             result,
             "Errors if pipeline_id is missing"
         );
@@ -350,7 +364,9 @@ mod tests {
         }];
         let result = state_variables.gather_query_parameters(&conditions);
         assert_eq!(
-            Err("Missing required condition, `account_id`".to_owned()),
+            Err(Error::MissingRequiredField {
+                field: "account_id"
+            }),
             result,
             "Errors if account_id is missing"
         );
@@ -414,7 +430,11 @@ mod tests {
         state_variables.cache.insert(key.clone(), state);
         let result = state_variables.lookup(&param_names, None);
         assert_eq!(
-            Err("expected value at line 3 column 13".to_string()),
+            Err(Error::Internal {
+                source: InternalError::FailedToDecode {
+                    details: "expected value at line 3 column 13".to_string()
+                }
+            }),
             result,
             "Bad JSON"
         );

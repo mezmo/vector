@@ -14,29 +14,34 @@ impl Function for UserLog {
         "Emit a log message that is surfaced to the user through Mezmo user logging, at the optional `level` (defaulting to info) and optional `rate_limit_secs`, optionally attaching `captured_data`."
     }
 
+    fn category(&self) -> &'static str {
+        Category::System.as_ref()
+    }
+
+    fn return_kind(&self) -> u16 {
+        kind::NULL
+    }
+
     fn parameters(&self) -> &'static [Parameter] {
-        &[
-            Parameter {
-                keyword: "value",
-                kind: kind::ANY,
-                required: true,
-            },
-            Parameter {
-                keyword: "level",
-                kind: kind::BYTES,
-                required: false,
-            },
-            Parameter {
-                keyword: "rate_limit_secs",
-                kind: kind::INTEGER,
-                required: false,
-            },
-            Parameter {
-                keyword: "captured_data",
-                kind: kind::ANY,
-                required: false,
-            },
-        ]
+        const PARAMETERS: &[Parameter] = &[
+            Parameter::required("value", kind::ANY, "The message value to log to the user."),
+            Parameter::optional(
+                "level",
+                kind::BYTES,
+                "The log level: debug, info, warn, or error. Defaults to info.",
+            ),
+            Parameter::optional(
+                "rate_limit_secs",
+                kind::INTEGER,
+                "Rate limit for the log message, in seconds.",
+            ),
+            Parameter::optional(
+                "captured_data",
+                kind::ANY,
+                "Optional data to attach to the log message.",
+            ),
+        ];
+        PARAMETERS
     }
 
     fn examples(&self) -> &'static [Example] {

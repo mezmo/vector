@@ -17,12 +17,21 @@ impl Function for GetPipelineStateVariable {
         "Return the value of the named pipeline state variable."
     }
 
+    fn category(&self) -> &'static str {
+        Category::System.as_ref()
+    }
+
+    fn return_kind(&self) -> u16 {
+        kind::NULL
+    }
+
     fn parameters(&self) -> &'static [Parameter] {
-        &[Parameter {
-            keyword: "name",
-            kind: kind::BYTES,
-            required: true,
-        }]
+        const PARAMETERS: &[Parameter] = &[Parameter::required(
+            "name",
+            kind::BYTES,
+            "The name of the pipeline state variable.",
+        )];
+        PARAMETERS
     }
 
     fn examples(&self) -> &'static [Example] {

@@ -18,7 +18,7 @@ mod exclusive_route;
 pub mod filter;
 #[cfg(feature = "transforms-incremental_to_absolute")]
 pub mod incremental_to_absolute;
-#[cfg(any(test, feature = "transforms-log_to_metric"))]
+#[cfg(feature = "transforms-log_to_metric")]
 pub mod log_to_metric;
 #[cfg(feature = "transforms-lua")]
 pub mod lua;

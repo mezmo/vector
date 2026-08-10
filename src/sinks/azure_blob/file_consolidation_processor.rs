@@ -1,7 +1,12 @@
-use azure_storage_blobs::prelude::*;
+use azure_core::http::RequestContent;
+use azure_storage_blob::BlobContainerClient;
+use azure_storage_blob::models::{
+    BlobContainerClientListBlobFlatSegmentOptions, BlockBlobClientCommitBlockListOptions,
+    BlockLookupList, ListBlobsIncludeItem,
+};
 use bytes::{Bytes, BytesMut};
 use flate2::read::GzDecoder;
-use futures::StreamExt;
+use futures::TryStreamExt;
 
 pub use super::config::AzureBlobSinkConfig;
 
@@ -25,9 +30,9 @@ const ONE_MEGABYTE_USIZE: usize = 1024 * 1024;
 const MAX_BLOCKS_IN_PUT_BLOCK: usize = 50_000;
 
 // handles consolidating the small files within AWS into much larger files
-#[derive(Debug)]
+// NOTE: no `#[derive(Debug)]` because the new `BlobContainerClient` does not implement Debug.
 pub struct FileConsolidationProcessor<'a> {
-    container_client: &'a Arc<ContainerClient>,
+    container_client: &'a Arc<BlobContainerClient>,
     container_name: String,
     base_path: String,
     requested_size_bytes: u64,
@@ -42,7 +47,7 @@ pub struct FileConsolidationProcessor<'a> {
 //    so no file size containts are enforced locally for memory issues across the instance
 impl<'a> FileConsolidationProcessor<'a> {
     pub const fn new(
-        container_client: &'a Arc<ContainerClient>,
+        container_client: &'a Arc<BlobContainerClient>,
         container_name: String,
         base_path: String,
         requested_size_bytes: u64,
@@ -118,31 +123,22 @@ impl<'a> FileConsolidationProcessor<'a> {
                         new_file_key.clone(),
                     );
 
-                    if let Some(response) = self
+                    match self
                         .container_client
-                        .blob_client(new_file_key.clone())
-                        .get()
-                        .into_stream()
-                        .next()
+                        .blob_client(new_file_key.as_str())
+                        .exists()
                         .await
                     {
-                        match response {
-                            Ok(_d) => {
-                                info!(
-                                    "container={}, Merged file already exists, file={}",
-                                    self.container_name.clone(),
-                                    new_file_key.clone(),
-                                );
-                                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                            }
-                            Err(_e) => {
-                                // the file doesn't exist, break the loop and move on.
-                                break;
-                            }
+                        Ok(true) => {
+                            info!(
+                                "container={}, Merged file already exists, file={}",
+                                self.container_name.clone(),
+                                new_file_key.clone(),
+                            );
+                            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                         }
-                    } else {
-                        // not response from the stream, assuming file doesn't exist
-                        break;
+                        // the file doesn't exist (or existence can't be confirmed); move on.
+                        Ok(false) | Err(_) => break,
                     }
                 }
                 info!(
@@ -159,7 +155,7 @@ impl<'a> FileConsolidationProcessor<'a> {
                 let mut files_to_delete: Vec<String> = Vec::new();
                 let is_standard_json_file: bool = self.output_format == "json";
 
-                let mut block_parts: Vec<BlobBlockType> = Vec::new();
+                let mut block_parts: Vec<Vec<u8>> = Vec::new();
                 while let Some(file) = upload_file_parts.pop() {
                     let prepend_char: Option<char> =
                         if is_standard_json_file && !files_to_delete.is_empty() {
@@ -193,13 +189,21 @@ impl<'a> FileConsolidationProcessor<'a> {
                         }
                     };
 
-                    // block id is required, must be unique, and has to be a base64 string
+                    // block id is required, must be unique, the same length for each block,
+                    // and <= 64 bytes. A base64-encoded UUID satisfies all of these.
                     let block_id = general_purpose::URL_SAFE_NO_PAD.encode(Uuid::new_v4());
+                    let block_id_bytes = block_id.into_bytes();
+                    let data_len = data.len() as u64;
                     match self
                         .container_client
-                        .blob_client(new_file_key.clone())
-                        .put_block(block_id.clone(), data)
-                        .into_future()
+                        .blob_client(new_file_key.as_str())
+                        .block_blob_client()
+                        .stage_block(
+                            &block_id_bytes,
+                            data_len,
+                            RequestContent::from(data.to_vec()),
+                            None,
+                        )
                         .await
                     {
                         Ok(_response) => {
@@ -225,30 +229,57 @@ impl<'a> FileConsolidationProcessor<'a> {
                     // keep track of the blobs that have been successfully uploaded
                     // note: they're uncommitted right now as they're just uploaded parts
                     files_to_delete.push(file.key.clone());
-                    block_parts.push(BlobBlockType::new_uncommitted(block_id.clone()));
+                    block_parts.push(block_id_bytes);
                 } // end handle individual files
 
                 // complete the file with all the parts
                 if !block_parts.is_empty() {
-                    let mut tags: Tags = Tags::new();
-                    tags.insert("mezmo_pipeline_merged", "true");
+                    // Azure blob index tags are sent as a URL-encoded `key=value&...` string.
+                    // Scope the serializer so it is dropped before the `.await` below (it is not
+                    // `Send`, and this runs inside a spawned task that requires `Send`).
+                    let blob_tags_string = {
+                        let mut tag_ser = url::form_urlencoded::Serializer::new(String::new());
+                        tag_ser.append_pair("mezmo_pipeline_merged", "true");
+                        tag_ser.finish()
+                    };
 
                     let content_type = match self.output_format.as_str() {
-                        "json" => BlobContentType::from("application/json"),
-                        "ndjson" => BlobContentType::from("application/x-ndjson"),
-                        "text" => BlobContentType::from("text/plain"),
-                        _ => BlobContentType::from("application/x-log"),
+                        "json" => "application/json",
+                        "ndjson" => "application/x-ndjson",
+                        "text" => "text/plain",
+                        _ => "application/x-log",
+                    };
+
+                    let block_lookup_list = BlockLookupList {
+                        committed: Some(Vec::new()),
+                        latest: Some(Vec::new()),
+                        uncommitted: Some(block_parts),
+                    };
+
+                    let blocks = match RequestContent::try_from(block_lookup_list) {
+                        Ok(b) => b,
+                        Err(err) => {
+                            error!(
+                                ?err,
+                                "container={}, Failed to encode block list for merge file={}",
+                                self.container_name.clone(),
+                                new_file_key.clone(),
+                            );
+                            continue;
+                        }
+                    };
+
+                    let commit_options = BlockBlobClientCommitBlockListOptions {
+                        blob_tags_string: Some(blob_tags_string),
+                        blob_content_type: Some(content_type.to_string()),
+                        ..Default::default()
                     };
 
                     match self
                         .container_client
-                        .blob_client(new_file_key.clone())
-                        .put_block_list(BlockList {
-                            blocks: block_parts,
-                        })
-                        .tags(tags)
-                        .content_type(content_type)
-                        .into_future()
+                        .blob_client(new_file_key.as_str())
+                        .block_blob_client()
+                        .commit_block_list(blocks, Some(commit_options))
                         .await
                     {
                         Ok(_response) => {
@@ -274,9 +305,8 @@ impl<'a> FileConsolidationProcessor<'a> {
                 for file in files_to_delete {
                     match self
                         .container_client
-                        .blob_client(file.clone())
-                        .delete()
-                        .into_future()
+                        .blob_client(file.as_str())
+                        .delete(None)
                         .await
                     {
                         Ok(_) => {
@@ -359,7 +389,7 @@ fn splice_files_list(
     @@returns: Vector<ConsolidationFile>, the files which can be merged.
 */
 pub async fn get_files_to_consolidate(
-    container_client: &Arc<ContainerClient>,
+    container_client: &Arc<BlobContainerClient>,
     container_name: String,
     base_path: String,
     file_type: String,
@@ -368,18 +398,31 @@ pub async fn get_files_to_consolidate(
 
     // the azure API has the ability to list blobs by tag,
     // but its not yet available in the rust version
-    let mut stream = container_client
-        .list_blobs()
-        .prefix(base_path.clone())
-        .include_tags(true)
-        .into_stream();
+    let list_options = BlobContainerClientListBlobFlatSegmentOptions {
+        prefix: Some(base_path.clone()),
+        include: Some(vec![ListBlobsIncludeItem::Tags]),
+        ..Default::default()
+    };
+    let mut pages = match container_client.list_blobs(Some(list_options)) {
+        Ok(pager) => pager.into_pages(),
+        Err(e) => {
+            error!(
+                ?e,
+                "container={}, base_path={}, Failed to list blobs",
+                container_name.clone(),
+                base_path.clone(),
+            );
+            return Ok(files_to_consolidate);
+        }
+    };
 
-    while let Some(value) = stream.next().await {
+    loop {
         // there's a method on the api to search blobs by particular tags
         // but the results are only for positive results and only include
         // the tags searched and doesn't include the file stats
-        let blobs_response = match value {
-            Ok(b) => b,
+        let page = match pages.try_next().await {
+            Ok(Some(p)) => p,
+            Ok(None) => break,
             Err(e) => {
                 error!(
                     ?e,
@@ -387,36 +430,93 @@ pub async fn get_files_to_consolidate(
                     container_name.clone(),
                     base_path.clone(),
                 );
+                break;
+            }
+        };
+
+        let blobs_response = match page.into_model() {
+            Ok(b) => b,
+            Err(e) => {
+                error!(
+                    ?e,
+                    "container={}, base_path={}, Failed to deserialize the blob listing",
+                    container_name.clone(),
+                    base_path.clone(),
+                );
                 continue;
             }
         };
 
-        let mut blobs: Vec<&Blob> = blobs_response.blobs.blobs().collect();
-        blobs.sort_by(|x, y| y.properties.creation_time.cmp(&x.properties.creation_time));
+        let mut blobs = blobs_response.segment.blob_items;
+        blobs.sort_by(|x, y| {
+            let xt = x.properties.as_ref().and_then(|p| p.creation_time);
+            let yt = y.properties.as_ref().and_then(|p| p.creation_time);
+            yt.cmp(&xt)
+        });
 
         for b in blobs {
-            if let Some(t) = b.tags.clone() {
+            let Some(props) = b.properties.as_ref() else {
+                continue;
+            };
+            let Some(key) = b.name.as_ref().and_then(|n| n.content.clone()) else {
+                continue;
+            };
+
+            // The 0.7 SDK listing model expects a `BlobTags` element but the service
+            // returns `Tags`, so tags never deserialize from the listing response.
+            // When the listing reports a nonzero TagCount without a parsed tag set,
+            // fetch the tags with a per-blob request instead.
+            let tag_set = match b.blob_tags.as_ref().and_then(|t| t.blob_tag_set.clone()) {
+                Some(tags) => Some(tags),
+                None if props.tag_count.unwrap_or(0) > 0 => {
+                    let blob_client = container_client.blob_client(key.as_str());
+                    match blob_client.get_tags(None).await {
+                        Ok(resp) => match resp.into_model() {
+                            Ok(tags) => tags.blob_tag_set,
+                            Err(e) => {
+                                error!(
+                                    ?e,
+                                    "container={}, key={}, Failed to deserialize the blob tags",
+                                    container_name.clone(),
+                                    key.clone(),
+                                );
+                                None
+                            }
+                        },
+                        Err(e) => {
+                            error!(
+                                ?e,
+                                "container={}, key={}, Failed to retrieve the blob tags",
+                                container_name.clone(),
+                                key.clone(),
+                            );
+                            None
+                        }
+                    }
+                }
+                None => None,
+            };
+
+            if let Some(tag_set) = tag_set.as_ref() {
                 // set defaults and resolve via tags
                 let mut mezmo_merged_file = false;
                 let mut mezmo_produced_file = false;
                 let mut can_combine = false;
 
-                for tag in t.tag_set.tags {
-                    match tag.key.as_str() {
-                        "mezmo_pipeline_merged" => mezmo_merged_file = true,
-                        "mezmo_pipeline_azure_sink" => mezmo_produced_file = true,
-                        "mezmo_pipeline_azure_type" => {
-                            can_combine = tag.value.as_str() == file_type;
+                for tag in tag_set {
+                    match tag.key.as_deref() {
+                        Some("mezmo_pipeline_merged") => mezmo_merged_file = true,
+                        Some("mezmo_pipeline_azure_sink") => mezmo_produced_file = true,
+                        Some("mezmo_pipeline_azure_type") => {
+                            can_combine = tag.value.as_deref() == Some(file_type.as_str());
                         }
                         _ => (),
                     }
                 }
 
                 if !mezmo_merged_file && mezmo_produced_file && can_combine {
-                    let compressed =
-                        b.properties.content_encoding.clone().unwrap_or_default() == "gzip";
-                    let size = b.properties.content_length;
-                    let key = b.name.clone();
+                    let compressed = props.content_encoding.clone().unwrap_or_default() == "gzip";
+                    let size = props.content_length.unwrap_or(0);
 
                     files_to_consolidate.push(ConsolidationFile::new(compressed, size, key));
                 }
@@ -442,7 +542,7 @@ pub async fn get_files_to_consolidate(
     @@returns: Bytes, the byte data representing the new file
 */
 async fn download_file_as_bytes(
-    container_client: &Arc<ContainerClient>,
+    container_client: &Arc<BlobContainerClient>,
     container_name: String,
     file: &ConsolidationFile,
     trim_open_bracket: bool,
@@ -452,8 +552,12 @@ async fn download_file_as_bytes(
     let b: Bytes =
         download_bytes(container_client, container_name.clone(), file.key.clone()).await?;
 
+    // The transport auto-decompresses gzip bodies when the reqwest `gzip`
+    // feature is enabled (it is, via azure_core default features), so a blob
+    // whose content-encoding is gzip may arrive already decompressed. Only
+    // decompress when the payload actually carries the gzip magic bytes.
     let mut vec: Vec<u8>;
-    if file.compressed {
+    if file.compressed && b.starts_with(&[0x1f, 0x8b]) {
         vec = decompress_gzip(&b);
     } else {
         vec = b.to_vec();
@@ -469,13 +573,14 @@ async fn download_file_as_bytes(
             }
             if c == '[' {
                 vec.remove(0);
-                break;
             }
+
+            break;
         }
     }
 
-    if trim_close_bracket && !vec.is_empty() {
-        loop {
+    if trim_close_bracket {
+        while !vec.is_empty() {
             let i = vec.len() - 1;
             let c = char::from(vec[i]);
             if c.is_whitespace() {
@@ -513,7 +618,9 @@ fn decompress_gzip(bytes: &Bytes) -> Vec<u8> {
 
     // https://web.mit.edu/rust-lang_v1.25/arch/amd64_ubuntu1404/share/doc/rust/html/std/io/struct.BufReader.html
     let mut vec: Vec<u8> = Vec::new();
-    _ = in_buf.read_to_end(&mut vec);
+    if let Err(e) = in_buf.read_to_end(&mut vec) {
+        error!(?e, "Failed to decompress gzip payload");
+    }
     vec
 }
 
@@ -524,39 +631,42 @@ fn decompress_gzip(bytes: &Bytes) -> Vec<u8> {
     @@returns: the byte data of the file
 */
 async fn download_bytes(
-    container_client: &Arc<ContainerClient>,
+    container_client: &Arc<BlobContainerClient>,
     container_name: String,
     key: String,
 ) -> Result<Bytes, &'static str> {
     static FAILURE: &str = "Failed to download bytes";
 
-    let mut stream = container_client
-        .blob_client(key.clone())
-        .get()
-        .into_stream();
+    let response = match container_client
+        .blob_client(key.as_str())
+        .download(None)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            error!(
+                ?e,
+                "container={}, key={}, Failed to retrieve bytes for the file",
+                container_name.clone(),
+                key.clone(),
+            );
+            return Err(FAILURE);
+        }
+    };
 
-    let mut bytes_mut = BytesMut::with_capacity(0);
-
-    while let Some(response) = stream.next().await {
-        match response {
-            Ok(r) => {
-                let body: Bytes = r.data.collect().await.unwrap();
-                bytes_mut.extend_from_slice(&body);
-            }
-            Err(e) => {
-                error!(
-                    ?e,
-                    "container={}, key={}, Failed to retrieve bytes for the file",
-                    container_name.clone(),
-                    key.clone(),
-                );
-
-                return Err(FAILURE);
-            }
+    let (_status, _headers, body) = response.deconstruct();
+    match body.collect().await {
+        Ok(bytes) => Ok(bytes),
+        Err(e) => {
+            error!(
+                ?e,
+                "container={}, key={}, Failed to read the body for the file",
+                container_name.clone(),
+                key.clone(),
+            );
+            Err(FAILURE)
         }
     }
-
-    Ok(bytes_mut.freeze())
 }
 
 fn group_files_by_directory(

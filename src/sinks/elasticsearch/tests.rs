@@ -366,7 +366,7 @@ async fn handle_metrics() {
     assert_eq!(encoded_lines.len(), 3); // there's an empty line at the end
     assert_eq!(
         encoded_lines.first().unwrap(),
-        r#"{"create":{"_index":"vector","_type":"_doc"}}"#
+        r#"{"create":{"_type":"_doc","_index":"vector"}}"#
     );
     assert!(
         encoded_lines

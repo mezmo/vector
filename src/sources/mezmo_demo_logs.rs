@@ -16,11 +16,10 @@ use snafu::Snafu;
 use std::task::Poll;
 use tokio::sync::OnceCell;
 use tokio::time::{self, Duration};
-use tokio_util::codec::FramedRead;
 use vector_lib::{
     EstimatedJsonEncodedSizeOf, NamedInternalEvent,
     codecs::{
-        StreamDecodingError,
+        DecoderFramedRead, StreamDecodingError,
         decoding::{DeserializerConfig, FramingConfig},
     },
     config::{LogNamespace, SourceOutput},
@@ -368,7 +367,7 @@ async fn mezmo_demo_logs_source(
 
         let line = format.generate_line(n, &mut state);
 
-        let mut stream = FramedRead::new(line.as_bytes(), decoder.clone());
+        let mut stream = DecoderFramedRead::new(line.as_bytes(), decoder.clone());
         while let Some(next) = stream.next().await {
             match next {
                 Ok((events, _byte_size)) => {

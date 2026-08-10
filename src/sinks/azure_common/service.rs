@@ -4,7 +4,8 @@ use std::{
     task::{Context, Poll},
 };
 
-use azure_storage_blobs::prelude::*;
+use azure_core::http::RequestContent;
+use azure_storage_blob::{BlobContainerClient, models::BlockBlobClientUploadOptions};
 use futures::future::BoxFuture;
 use tower::Service;
 use tracing::Instrument;
@@ -13,11 +14,13 @@ use crate::sinks::azure_common::config::{AzureBlobRequest, AzureBlobResponse};
 
 #[derive(Clone)]
 pub(crate) struct AzureBlobService {
-    client: Option<Arc<ContainerClient>>,
+    // Using the new azure_storage_blob container client.
+    // `None` when the client could not be built (e.g. invalid credentials); requests then fail.
+    client: Option<Arc<BlobContainerClient>>,
 }
 
 impl AzureBlobService {
-    pub const fn new(client: Option<Arc<ContainerClient>>) -> AzureBlobService {
+    pub const fn new(client: Option<Arc<BlobContainerClient>>) -> AzureBlobService {
         AzureBlobService { client }
     }
 }
@@ -37,42 +40,45 @@ impl Service<AzureBlobRequest> for AzureBlobService {
         let this = self.clone();
 
         Box::pin(async move {
-            match this.client {
-                None => Err("Invalid connection string".into()),
-                Some(client) => {
-                    let client = client.blob_client(request.metadata.partition_key.as_str());
-                    let byte_size = request.blob_data.len();
+            let Some(client) = this.client else {
+                return Err("Invalid connection string".into());
+            };
+            let blob_client = client.blob_client(request.metadata.partition_key.as_str());
+            let byte_size = request.blob_data.len();
 
-                    let mut tags: Tags = Tags::new();
-
-                    for (key, value) in request.tags.into_iter().flatten() {
-                        tags.insert(key, value);
-                    }
-
-                    let blob = client
-                        .put_block_blob(request.blob_data)
-                        .content_type(request.content_type)
-                        .tags(tags);
-                    let blob = match request.content_encoding {
-                        Some(encoding) => blob.content_encoding(encoding),
-                        None => blob,
-                    };
-
-                    let result = blob
-                        .into_future()
-                        .instrument(info_span!("request").or_current())
-                        .await
-                        .map_err(|err| err.into());
-
-                    result.map(|inner| AzureBlobResponse {
-                        inner,
-                        events_byte_size: request
-                            .request_metadata
-                            .into_events_estimated_json_encoded_byte_size(),
-                        byte_size,
-                    })
+            // Azure blob index tags are sent as a URL-encoded `key=value&...` string.
+            let blob_tags_string = request.tags.as_ref().map(|tags| {
+                let mut ser = url::form_urlencoded::Serializer::new(String::new());
+                for (key, value) in tags {
+                    ser.append_pair(key, value);
                 }
-            }
+                ser.finish()
+            });
+
+            let upload_options = BlockBlobClientUploadOptions {
+                blob_content_type: Some(request.content_type.to_string()),
+                blob_content_encoding: request.content_encoding.map(|e| e.to_string()),
+                blob_tags_string,
+                ..Default::default()
+            };
+
+            let result = blob_client
+                .upload(
+                    RequestContent::from(request.blob_data.to_vec()),
+                    false,
+                    byte_size as u64,
+                    Some(upload_options),
+                )
+                .instrument(info_span!("request").or_current())
+                .await
+                .map_err(|err| err.into());
+
+            result.map(|_resp| AzureBlobResponse {
+                events_byte_size: request
+                    .request_metadata
+                    .into_events_estimated_json_encoded_byte_size(),
+                byte_size,
+            })
         })
     }
 }

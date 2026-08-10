@@ -46,7 +46,7 @@ pub fn compile(
         }
     }
 
-    if let Err(alpha_errors) = validation::check_buffer_utilization_ewma_alpha(&builder) {
+    if let Err(alpha_errors) = validation::check_values(&builder) {
         errors.extend(alpha_errors);
     }
 

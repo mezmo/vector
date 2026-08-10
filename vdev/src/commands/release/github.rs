@@ -17,7 +17,7 @@ impl Cli {
             .into_iter()
             .map(|p| p.into_os_string().into_string())
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow!("failed to turn path into string: {}", e.display()))?;
+            .map_err(|e| anyhow!("failed to turn path into string: {}", e.to_string_lossy()))?;
 
         let version = cargo::get_version()?;
         let mut command = Command::new("gh");
