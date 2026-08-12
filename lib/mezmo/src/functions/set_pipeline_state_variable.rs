@@ -18,19 +18,24 @@ impl Function for SetPipelineStateVariable {
         "Set the named pipeline state variable to the given value and return the value."
     }
 
+    fn category(&self) -> &'static str {
+        Category::System.as_ref()
+    }
+
+    fn return_kind(&self) -> u16 {
+        kind::NULL
+    }
+
     fn parameters(&self) -> &'static [Parameter] {
-        &[
-            Parameter {
-                keyword: "name",
-                kind: kind::BYTES,
-                required: true,
-            },
-            Parameter {
-                keyword: "value",
-                kind: kind::ANY,
-                required: true,
-            },
-        ]
+        const PARAMETERS: &[Parameter] = &[
+            Parameter::required(
+                "name",
+                kind::BYTES,
+                "The name of the pipeline state variable.",
+            ),
+            Parameter::required("value", kind::ANY, "The value to store."),
+        ];
+        PARAMETERS
     }
 
     fn examples(&self) -> &'static [Example] {

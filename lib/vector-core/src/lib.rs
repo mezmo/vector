@@ -39,6 +39,7 @@ pub mod config;
 pub mod event;
 pub mod fanout;
 pub mod ipallowlist;
+pub mod latency;
 pub mod metrics;
 pub mod mezmo;
 pub mod partition;

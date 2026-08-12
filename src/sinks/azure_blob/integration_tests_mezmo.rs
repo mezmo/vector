@@ -8,7 +8,7 @@ use flate2::read::GzEncoder;
 use std::io::Read;
 
 use crate::template::Template;
-use crate::test_util::{random_message_object_events_with_stream, random_string};
+use crate::test_util::{random_message_object_events_with_stream, random_string, trace_init};
 use assay::assay;
 use std::{collections::BTreeMap, thread, time};
 use vector_lib::codecs::{
@@ -37,11 +37,8 @@ async fn azure_blob_mezmo_message_reshaping_does_not_happen() {
     let blobs = config.list_blobs(config.blob_prefix.to_string()).await;
     assert_eq!(blobs.len(), 1);
     assert!(blobs[0].clone().ends_with(".log"));
-    let (blob, blob_lines) = config.get_blob(blobs[0].clone()).await;
-    assert_eq!(
-        blob.properties.content_type,
-        String::from("application/x-ndjson")
-    );
+    let (content_type, _content_encoding, blob_lines) = config.get_blob(blobs[0].clone()).await;
+    assert_eq!(content_type, Some(String::from("application/x-ndjson")));
     let expected = events
         .iter()
         .map(|event| serde_json::to_string(&event.as_log()).unwrap())
@@ -67,11 +64,8 @@ async fn azure_blob_mezmo_message_reshaping_happens() {
     let blobs = config.list_blobs(config.blob_prefix.to_string()).await;
     assert_eq!(blobs.len(), 1);
     assert!(blobs[0].clone().ends_with(".log"));
-    let (blob, blob_lines) = config.get_blob(blobs[0].clone()).await;
-    assert_eq!(
-        blob.properties.content_type,
-        String::from("application/x-ndjson")
-    );
+    let (content_type, _content_encoding, blob_lines) = config.get_blob(blobs[0].clone()).await;
+    assert_eq!(content_type, Some(String::from("application/x-ndjson")));
     let expected = events
         .iter_mut()
         .map(|event| {
@@ -103,22 +97,21 @@ async fn azure_blob_mezmo_tags_are_added() {
     assert!(blobs[0].clone().ends_with(".log"));
 
     let tags = config.get_tags(blobs[0].clone()).await;
-    assert_eq!(tags.tag_set.tags.len(), 2);
+    let tag_set = tags.blob_tag_set.unwrap_or_default();
+    assert_eq!(tag_set.len(), 2);
 
     assert_eq!(
         vec!["tag1".to_owned(), "tag2".to_owned()],
-        tags.tag_set
-            .tags
+        tag_set
             .iter()
-            .map(|t| t.key.clone())
+            .map(|t| t.key.clone().unwrap_or_default())
             .collect::<Vec<_>>()
     );
     assert_eq!(
         vec!["value of tag1".to_owned(), "value of tag2".to_owned()],
-        tags.tag_set
-            .tags
+        tag_set
             .iter()
-            .map(|t| t.value.clone())
+            .map(|t| t.value.clone().unwrap_or_default())
             .collect::<Vec<_>>()
     );
 }
@@ -344,8 +337,8 @@ async fn azure_file_consolidation_process_text_files() {
     assert!(blobs[0].clone().ends_with(".log"));
     assert!(blobs[0].clone().contains("merged"));
 
-    let (blob, blob_lines) = config.get_blob(blobs[0].clone()).await;
-    assert_eq!(blob.properties.content_type, String::from("text/plain"));
+    let (content_type, _content_encoding, blob_lines) = config.get_blob(blobs[0].clone()).await;
+    assert_eq!(content_type, Some(String::from("text/plain")));
     assert_eq!(blob_lines.len(), lines.len());
     assert_eq!(blob_lines, lines);
 }
@@ -427,11 +420,8 @@ async fn azure_file_consolidation_process_json_files() {
     assert!(blobs[0].clone().ends_with(".log"));
     assert!(blobs[0].clone().contains("merged"));
 
-    let (blob, blob_lines) = config.get_blob(blobs[0].clone()).await;
-    assert_eq!(
-        blob.properties.content_type,
-        String::from("application/json")
-    );
+    let (content_type, _content_encoding, blob_lines) = config.get_blob(blobs[0].clone()).await;
+    assert_eq!(content_type, Some(String::from("application/json")));
 
     // all the json files concatinated together as a new json string
     assert_eq!(blob_lines.len(), 1);
@@ -518,11 +508,8 @@ async fn azure_file_consolidation_process_ndjson_files() {
     assert!(blobs[0].clone().ends_with(".log"));
     assert!(blobs[0].clone().contains("merged"));
 
-    let (blob, blob_lines) = config.get_blob(blobs[0].clone()).await;
-    assert_eq!(
-        blob.properties.content_type,
-        String::from("application/x-ndjson")
-    );
+    let (content_type, _content_encoding, blob_lines) = config.get_blob(blobs[0].clone()).await;
+    assert_eq!(content_type, Some(String::from("application/x-ndjson")));
 
     // all the json lines concatinated together as newlines
     assert_eq!(blob_lines.len(), 5);
@@ -531,6 +518,7 @@ async fn azure_file_consolidation_process_ndjson_files() {
 
 #[tokio::test]
 async fn azure_file_consolidation_process_compressed_files() {
+    trace_init();
     let prefix = format!("json/into/blob/{}/compressed-files/", random_string(10));
     let config = get_test_config(Some(prefix.clone()), None).await;
     let output_format = "text".to_owned();
@@ -553,12 +541,13 @@ async fn azure_file_consolidation_process_compressed_files() {
 
         let filename = format!("{}{}.log.gz", prefix.clone(), random_string(10));
 
-        // compress the data
-        let mut ret_vec = [0; 100];
+        // compress the data; read_to_end drains the encoder so the gzip
+        // trailer is included (a single read() produced truncated gzip that
+        // the transport's streaming decompressor rejects)
         let mut bytestring = line.as_bytes();
         let mut gz = GzEncoder::new(&mut bytestring, Compression::fast());
-        let count = gz.read(&mut ret_vec).unwrap();
-        let vec = ret_vec[0..count].to_vec();
+        let mut vec: Vec<u8> = Vec::new();
+        gz.read_to_end(&mut vec).unwrap();
 
         let mut bytes_mut = BytesMut::with_capacity(0);
         bytes_mut.extend_from_slice(&vec);
@@ -614,8 +603,8 @@ async fn azure_file_consolidation_process_compressed_files() {
     assert!(blobs[0].clone().ends_with(".log"));
     assert!(blobs[0].clone().contains("merged"));
 
-    let (blob, blob_lines) = config.get_blob(blobs[0].clone()).await;
-    assert_eq!(blob.properties.content_type, String::from("text/plain"));
+    let (content_type, _content_encoding, blob_lines) = config.get_blob(blobs[0].clone()).await;
+    assert_eq!(content_type, Some(String::from("text/plain")));
 
     // all the json lines concatinated together as newlines
     assert_eq!(blob_lines.len(), 5);
@@ -697,8 +686,8 @@ async fn azure_file_consolidation_process_file_size_limits() {
         assert!(b.clone().ends_with(".log"));
         assert!(b.clone().contains("merged"));
 
-        let (blob, blob_lines) = config.get_blob(b.clone()).await;
-        assert_eq!(blob.properties.content_type, String::from("text/plain"));
+        let (content_type, _content_encoding, blob_lines) = config.get_blob(b.clone()).await;
+        assert_eq!(content_type, Some(String::from("text/plain")));
 
         lines_count += blob_lines.len();
     }

@@ -11,7 +11,7 @@ vrl.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 bytes = { version = "1.5.0", default-features = false, features = ["serde"] }
-enrichment = { path = "../enrichment" }
+enrichment = { path = "../vector-vrl/enrichment" }
 snafu = { version = "0.7.5", default-features = false, features = ["futures"] }
 uuid = { version = "1", default-features = false, features = ["serde", "v4"] }
 vector-config = { path = "../vector-config", default-features = false }

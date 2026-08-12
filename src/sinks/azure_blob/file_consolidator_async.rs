@@ -110,9 +110,13 @@ impl FileConsolidatorAsync {
             Box::new(self.file_consolidation_config.requested_size_bytes);
         let box_output_format = Box::new(self.file_consolidation_config.output_format.clone());
 
+        // The new azure_storage_blob client builder takes a proxy config. File consolidation
+        // runs as a background task without a SinkContext, so use the default (no-proxy) config,
+        // preserving the pre-SDK-migration behavior where consolidation did not use a proxy.
         let build_client = crate::sinks::azure_common::config::build_client(
             box_connection_string.inner().to_string(),
             *box_container_name.clone(),
+            &crate::config::ProxyConfig::default(),
         );
 
         // double check that we were able to build the client
@@ -157,7 +161,7 @@ impl FileConsolidatorAsync {
                 // determine how long this action took to complete and await
                 // the duration necessary to restart on the requested interval
                 let elapsed = start_time.elapsed().as_millis();
-                let diff = process_every_ms - elapsed as u64;
+                let diff = process_every_ms.saturating_sub(elapsed as u64);
                 if diff > 0 {
                     info!(
                         message = "container_name={}, base_path={}, processing time={} ms, restarting in {} ms",

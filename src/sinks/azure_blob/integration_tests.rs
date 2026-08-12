@@ -1,15 +1,16 @@
-use bytes::Bytes;
 use std::{
     collections::BTreeMap,
     io::{BufRead, BufReader},
-    num::NonZeroU32,
     sync::Arc,
 };
 
-use azure_core::http::StatusCode;
-use azure_core_for_storage::prelude::Range;
-use azure_storage_blobs::prelude::*;
-use bytes::{Buf, BytesMut};
+use azure_core::http::{RequestContent, StatusCode};
+use azure_storage_blob::{
+    BlobContainerClient,
+    models::{BlobTags, BlockBlobClientUploadOptions},
+};
+
+use bytes::{Buf, Bytes, BytesMut};
 use flate2::read::GzDecoder;
 use futures::{Stream, StreamExt, stream};
 use vector_lib::{
@@ -40,16 +41,18 @@ async fn azure_blob_healthcheck_passed() {
     let client = azure_common::config::build_client(
         config.connection_string.clone().into(),
         config.container_name.clone(),
+        &crate::config::ProxyConfig::default(),
     )
     .expect("Failed to create client");
 
-    let response = azure_common::config::build_healthcheck(
+    azure_common::config::build_healthcheck(
         config.container_name,
         Some(client),
         SinkContext::default(),
-    );
-
-    response.expect("Failed to pass healthcheck").await.unwrap();
+    )
+    .expect("Failed to build healthcheck")
+    .await
+    .expect("Failed to pass healthcheck");
 }
 
 #[tokio::test]
@@ -62,6 +65,7 @@ async fn azure_blob_healthcheck_unknown_container() {
     let client = azure_common::config::build_client(
         config.connection_string.clone().into(),
         config.container_name.clone(),
+        &crate::config::ProxyConfig::default(),
     )
     .expect("Failed to create client");
 
@@ -94,8 +98,9 @@ async fn azure_blob_insert_lines_into_blob() {
     let blobs = config.list_blobs(blob_prefix).await;
     assert_eq!(blobs.len(), 1);
     assert!(blobs[0].clone().ends_with(".log"));
-    let (blob, blob_lines) = config.get_blob(blobs[0].clone()).await;
-    assert_eq!(blob.properties.content_type, String::from("text/plain"));
+    let (content_type, content_encoding, blob_lines) = config.get_blob(blobs[0].clone()).await;
+    assert_eq!(content_type, Some(String::from("text/plain")));
+    assert_eq!(content_encoding, None);
     assert_eq!(lines, blob_lines);
 }
 
@@ -119,12 +124,9 @@ async fn azure_blob_insert_json_into_blob() {
     let blobs = config.list_blobs(blob_prefix).await;
     assert_eq!(blobs.len(), 1);
     assert!(blobs[0].clone().ends_with(".log"));
-    let (blob, blob_lines) = config.get_blob(blobs[0].clone()).await;
-    assert_eq!(blob.properties.content_encoding, None);
-    assert_eq!(
-        blob.properties.content_type,
-        String::from("application/x-ndjson")
-    );
+    let (content_type, content_encoding, blob_lines) = config.get_blob(blobs[0].clone()).await;
+    assert_eq!(content_encoding, None);
+    assert_eq!(content_type, Some(String::from("application/x-ndjson")));
     let expected = events
         .iter()
         .map(|event| serde_json::to_string(&event.as_log().all_event_fields().unwrap()).unwrap())
@@ -152,14 +154,16 @@ async fn azure_blob_insert_lines_into_blob_gzip() {
     let blobs = config.list_blobs(blob_prefix).await;
     assert_eq!(blobs.len(), 1);
     assert!(blobs[0].clone().ends_with(".log.gz"));
-    let (blob, blob_lines) = config.get_blob(blobs[0].clone()).await;
-    assert_eq!(blob.properties.content_encoding, Some(String::from("gzip")));
-    assert_eq!(blob.properties.content_type, String::from("text/plain"));
+    let (content_type, content_encoding, blob_lines) = config.get_blob(blobs[0].clone()).await;
+    assert_eq!(content_encoding, Some(String::from("gzip")));
+    assert_eq!(content_type, Some(String::from("text/plain")));
     assert_eq!(lines, blob_lines);
 }
 
 #[ignore]
 #[tokio::test]
+// This test will fail with Azurite blob emulator because of this issue:
+// https://github.com/Azure/Azurite/issues/629
 async fn azure_blob_insert_json_into_blob_gzip() {
     let blob_prefix = format!("json-gzip/into/blob/{}", random_string(10));
     let config = AzureBlobSinkConfig::new_emulator().await;
@@ -180,12 +184,9 @@ async fn azure_blob_insert_json_into_blob_gzip() {
     let blobs = config.list_blobs(blob_prefix).await;
     assert_eq!(blobs.len(), 1);
     assert!(blobs[0].clone().ends_with(".log.gz"));
-    let (blob, blob_lines) = config.get_blob(blobs[0].clone()).await;
-    assert_eq!(blob.properties.content_encoding, Some(String::from("gzip")));
-    assert_eq!(
-        blob.properties.content_type,
-        String::from("application/x-ndjson")
-    );
+    let (content_type, content_encoding, blob_lines) = config.get_blob(blobs[0].clone()).await;
+    assert_eq!(content_encoding, Some(String::from("gzip")));
+    assert_eq!(content_type, Some(String::from("application/x-ndjson")));
     let expected = events
         .iter()
         .map(|event| serde_json::to_string(&event.as_log().all_event_fields().unwrap()).unwrap())
@@ -216,7 +217,7 @@ async fn azure_blob_rotate_files_after_the_buffer_size_is_reached() {
     assert_eq!(blobs.len(), 3);
     let response = stream::iter(blobs)
         .fold(Vec::new(), |mut acc, blob| async {
-            let (_, lines) = config.get_blob(blob).await;
+            let (_, _, lines) = config.get_blob(blob).await;
             acc.push(lines);
             acc
         })
@@ -254,6 +255,7 @@ impl AzureBlobSinkConfig {
         let client = azure_common::config::build_client(
             self.connection_string.clone().into(),
             self.container_name.clone(),
+            &crate::config::ProxyConfig::default(),
         )
         .expect("Failed to create client");
 
@@ -272,47 +274,135 @@ impl AzureBlobSinkConfig {
         let client = azure_common::config::build_client(
             self.connection_string.clone().into(),
             self.container_name.clone(),
+            &crate::config::ProxyConfig::default(),
         )
         .unwrap();
-        let response = client
-            .list_blobs()
-            .prefix(prefix)
-            .max_results(NonZeroU32::new(1000).unwrap())
-            .delimiter("/")
-            .include_metadata(true)
-            .into_stream()
-            .next()
-            .await
-            .expect("Failed to fetch blobs")
-            .unwrap();
 
-        response
-            .blobs
-            .blobs()
-            .map(|blob| blob.name.clone())
-            .collect::<Vec<_>>()
+        // Iterate pager results and collect blob names. Filter by prefix server-side.
+        let mut pager = client
+            .list_blobs(None)
+            .expect("Failed to start list blobs pager");
+        let mut names = Vec::new();
+        while let Some(result) = pager.next().await {
+            let item = result.expect("Failed to fetch blobs");
+            if let Some(name) = item.name.and_then(|bn| bn.content)
+                && name.starts_with(&prefix)
+            {
+                names.push(name);
+            }
+        }
+
+        names
     }
 
-    pub async fn get_blob(&self, blob: String) -> (Blob, Vec<String>) {
+    // MEZMO: helper to build a raw container client for file-consolidation tests.
+    pub async fn get_client(&self) -> Arc<BlobContainerClient> {
+        azure_common::config::build_client(
+            self.connection_string.clone().into(),
+            self.container_name.clone(),
+            &crate::config::ProxyConfig::default(),
+        )
+        .unwrap()
+    }
+
+    // MEZMO: helper to upload a blob with a content type, encoding and index tags.
+    pub async fn put_blob(
+        &self,
+        filename: String,
+        content_type: &str,
+        encoding: &str,
+        file_tags: Option<BTreeMap<String, String>>,
+        data: Bytes,
+    ) {
+        let client = self.get_client().await;
+
+        // Azure blob index tags are sent as a URL-encoded `key=value&...` string.
+        let blob_tags_string = file_tags.as_ref().map(|tags| {
+            let mut ser = url::form_urlencoded::Serializer::new(String::new());
+            for (key, value) in tags {
+                ser.append_pair(key, value);
+            }
+            ser.finish()
+        });
+
+        let byte_size = data.len() as u64;
+        let options = BlockBlobClientUploadOptions {
+            blob_content_type: Some(content_type.to_string()),
+            blob_content_encoding: Some(encoding.to_string()),
+            blob_tags_string,
+            ..Default::default()
+        };
+
+        client
+            .blob_client(filename.as_str())
+            .upload(
+                RequestContent::from(data.to_vec()),
+                true,
+                byte_size,
+                Some(options),
+            )
+            .await
+            .unwrap();
+    }
+
+    // MEZMO: helper to read the index tags of a blob.
+    pub async fn get_tags(&self, blob: String) -> BlobTags {
+        let client = self.get_client().await;
+        client
+            .blob_client(blob.as_str())
+            .get_tags(None)
+            .await
+            .unwrap()
+            .into_model()
+            .unwrap()
+    }
+
+    pub async fn get_blob(&self, blob: String) -> (Option<String>, Option<String>, Vec<String>) {
         let client = azure_common::config::build_client(
             self.connection_string.clone().into(),
             self.container_name.clone(),
+            &crate::config::ProxyConfig::default(),
         )
         .unwrap();
-        let response = client
-            .blob_client(blob)
-            .get()
-            .range(Range::new(0, 1024 * 1024))
-            .into_stream()
-            .next()
-            .await
-            .expect("Failed to get blob")
-            .unwrap();
 
-        (
-            response.blob,
-            self.get_blob_content(response.data.collect().await.unwrap().to_vec()),
-        )
+        let blob_client = client.blob_client(&blob);
+
+        // Fetch properties to obtain content-type and content-encoding
+        let props_resp = blob_client
+            .get_properties(None)
+            .await
+            .expect("Failed to get blob properties");
+        let headers = props_resp.headers();
+        let content_type = headers.iter().find_map(|(name, value)| {
+            let key = name.as_str();
+            if key.eq_ignore_ascii_case("content-type") {
+                Some(value.as_str().to_string())
+            } else {
+                None
+            }
+        });
+        let content_encoding = headers.iter().find_map(|(name, value)| {
+            let key = name.as_str();
+            if key.eq_ignore_ascii_case("content-encoding") {
+                Some(value.as_str().to_string())
+            } else {
+                None
+            }
+        });
+
+        // Download blob content (full or first MB as needed)
+        let downloaded = blob_client
+            .download(None)
+            .await
+            .expect("Failed to download blob");
+        let body_bytes = downloaded
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to read blob body");
+        let data = body_bytes.to_vec();
+
+        (content_type, content_encoding, self.get_blob_content(data))
     }
 
     fn get_blob_content(&self, data: Vec<u8>) -> Vec<String> {
@@ -328,72 +418,19 @@ impl AzureBlobSinkConfig {
         }
     }
 
-    pub async fn put_blob(
-        &self,
-        filename: String,
-        content_type: &str,
-        encoding: &str,
-        file_tags: Option<BTreeMap<String, String>>,
-        data: Bytes,
-    ) {
-        let client = azure_common::config::build_client(
-            self.connection_string.inner().to_string(),
-            self.container_name.clone(),
-        )
-        .unwrap();
-
-        let mut tags: Tags = Tags::new();
-        if let Some(file_tags_map) = file_tags {
-            for (key, value) in file_tags_map.iter() {
-                tags.insert(key, value);
-            }
-        }
-
-        client
-            .blob_client(filename.clone())
-            .put_block_blob(data)
-            .content_type(content_type.to_string())
-            .content_encoding(encoding.to_string())
-            .tags(tags)
-            .into_future()
-            .await
-            .unwrap();
-    }
-
-    pub async fn get_tags(&self, blob: String) -> azure_storage_blobs::prelude::Tags {
-        let client = azure_common::config::build_client(
-            self.connection_string.inner().to_string(),
-            self.container_name.clone(),
-        )
-        .unwrap();
-
-        let response = client.blob_client(blob).get_tags().await.unwrap();
-        response.tags
-    }
-
-    pub async fn get_client(&self) -> Arc<ContainerClient> {
-        azure_common::config::build_client(
-            self.connection_string.inner().to_string(),
-            self.container_name.clone(),
-        )
-        .unwrap()
-    }
-
     async fn ensure_container(&self) {
         let client = azure_common::config::build_client(
             self.connection_string.clone().into(),
             self.container_name.clone(),
+            &crate::config::ProxyConfig::default(),
         )
         .unwrap();
-        let request = client
-            .create()
-            .public_access(PublicAccess::None)
-            .into_future();
+        let result = client.create_container(None).await;
 
-        let response = match request.await {
+        let response = match result {
             Ok(_) => Ok(()),
-            Err(error) => match error.as_http_error() {
-                Some(http_error) if http_error.status() as u16 == StatusCode::Conflict => Ok(()),
+            Err(error) => match error.http_status() {
+                Some(StatusCode::Conflict) => Ok(()),
                 _ => Err(error),
             },
         };

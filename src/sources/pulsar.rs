@@ -15,11 +15,10 @@ use pulsar::{
 };
 use regex::Regex;
 use std::time::Duration;
-use tokio_util::codec::FramedRead;
 use vector_lib::{
     EstimatedJsonEncodedSizeOf,
     codecs::{
-        Decoder, DecodingConfig, StreamDecodingError,
+        Decoder, DecoderFramedRead, DecodingConfig, StreamDecodingError,
         decoding::{DeserializerConfig, FramingConfig},
     },
     config::{LegacyKey, LogNamespace, SourceAcknowledgementsConfig, SourceOutput},
@@ -712,7 +711,7 @@ async fn parse_message(
         );
     }
 
-    let mut stream = FramedRead::new(msg.payload.data.as_ref(), decoder.clone());
+    let mut stream = DecoderFramedRead::new(msg.payload.data.as_ref(), decoder.clone());
     let stream = async_stream::stream! {
         while let Some(next) = stream.next().await {
             match next {

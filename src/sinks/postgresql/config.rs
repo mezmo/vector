@@ -55,6 +55,7 @@ impl Default for PostgreSQLSchemaConfig {
 #[configurable_component]
 #[derive(Clone, Debug, PartialEq)]
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
+#[configurable(metadata(docs::enum_tag_description = "The action to take on insert conflicts."))]
 pub enum PostgreSQLConflictsConfig {
     /// Drop conflicting insert values without generating an error.
     Nothing {

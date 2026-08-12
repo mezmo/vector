@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use azure_storage_blobs::prelude::*;
+use azure_storage_blob::BlobContainerClient;
 use tower::ServiceBuilder;
 use vector_lib::{
     codecs::{JsonSerializerConfig, NewlineDelimitedEncoderConfig, encoding::Framer},
@@ -156,6 +156,7 @@ pub struct AzureBlobSinkConfig {
 
     /// allow the customer to specify tags to be added to the document
     #[configurable(derived)]
+    #[configurable(metadata(docs::additional_props_description = "A blob index tag."))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<BTreeMap<String, String>>,
 }
@@ -191,6 +192,7 @@ impl SinkConfig for AzureBlobSinkConfig {
         let client = azure_common::config::build_client(
             self.connection_string.clone().into(),
             self.container_name.clone(),
+            cx.proxy(),
         )
         .map_err(|err| {
             user_log_error!(cx.mezmo_ctx, Value::from(format!("{err}")));
@@ -222,7 +224,7 @@ const DEFAULT_FILENAME_APPEND_UUID: bool = true;
 impl AzureBlobSinkConfig {
     pub fn build_processor(
         &self,
-        client: Option<Arc<ContainerClient>>,
+        client: Option<Arc<BlobContainerClient>>,
         cx: SinkContext,
     ) -> crate::Result<VectorSink> {
         let request_limits = self.request.into_settings();

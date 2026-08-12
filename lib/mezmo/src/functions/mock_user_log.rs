@@ -13,24 +13,29 @@ impl Function for MockUserLog {
         "Mock of `user_log` used by the VRL CLI; emits a standard log line instead of a Mezmo user log."
     }
 
+    fn category(&self) -> &'static str {
+        Category::System.as_ref()
+    }
+
+    fn return_kind(&self) -> u16 {
+        kind::NULL
+    }
+
     fn parameters(&self) -> &'static [Parameter] {
-        &[
-            Parameter {
-                keyword: "value",
-                kind: kind::ANY,
-                required: true,
-            },
-            Parameter {
-                keyword: "level",
-                kind: kind::BYTES,
-                required: false,
-            },
-            Parameter {
-                keyword: "rate_limit_secs",
-                kind: kind::INTEGER,
-                required: false,
-            },
-        ]
+        const PARAMETERS: &[Parameter] = &[
+            Parameter::required("value", kind::ANY, "The message value to log."),
+            Parameter::optional(
+                "level",
+                kind::BYTES,
+                "The log level: debug, info, warn, or error. Defaults to info.",
+            ),
+            Parameter::optional(
+                "rate_limit_secs",
+                kind::INTEGER,
+                "Rate limit for the log message, in seconds.",
+            ),
+        ];
+        PARAMETERS
     }
 
     fn examples(&self) -> &'static [Example] {

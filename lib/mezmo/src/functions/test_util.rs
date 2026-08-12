@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use enrichment::{Case, Condition, IndexHandle, Table, TableRegistry, TableSearch};
+use enrichment::{Case, Condition, Error, IndexHandle, Table, TableRegistry, TableSearch};
 use vrl::{compiler::ProgramInfo, owned_value_path, path::OwnedTargetPath, prelude::*};
 
 // A mock table that we can control for tests. It simulates an enrichment table.
@@ -25,7 +25,7 @@ impl Table for MockStateTable {
         select: Option<&'a [String]>,
         _wildcard: Option<&Value>,
         _index: Option<IndexHandle>,
-    ) -> Result<BTreeMap<KeyString, Value>, String> {
+    ) -> Result<BTreeMap<KeyString, Value>, Error> {
         let state = self.state.lock().unwrap();
         let mut result = BTreeMap::new();
 
@@ -36,7 +36,7 @@ impl Table for MockStateTable {
                 result.insert(key, value);
             }
         } else {
-            return Err("MockStateTable requires a `select` parameter".to_string());
+            return Err(Error::MissingRequiredField { field: "select" });
         }
 
         Ok(result)
@@ -50,11 +50,11 @@ impl Table for MockStateTable {
         _select: Option<&'a [String]>,
         _wildcard: Option<&Value>,
         _index: Option<IndexHandle>,
-    ) -> Result<Vec<BTreeMap<KeyString, Value>>, String> {
+    ) -> Result<Vec<BTreeMap<KeyString, Value>>, Error> {
         unimplemented!()
     }
 
-    fn add_index(&mut self, _case: Case, _fields: &[&str]) -> Result<IndexHandle, String> {
+    fn add_index(&mut self, _case: Case, _fields: &[&str]) -> Result<IndexHandle, Error> {
         Ok(IndexHandle(0))
     }
 

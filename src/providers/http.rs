@@ -22,6 +22,7 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct RequestConfig {
     /// HTTP headers to add to the request.
+    #[configurable(metadata(docs::additional_props_description = "An HTTP header."))]
     #[serde(default)]
     pub headers: IndexMap<String, String>,
 
@@ -63,6 +64,9 @@ pub struct HttpConfig {
     /// Which config format expected to be loaded
     #[configurable(derived)]
     config_format: Format,
+
+    /// Enable environment variable interpolation
+    interpolate_env: bool,
 }
 
 impl Default for HttpConfig {
@@ -74,6 +78,8 @@ impl Default for HttpConfig {
             tls_options: None,
             proxy: Default::default(),
             config_format: Format::default(),
+            // MEZMO: default to enabled to preserve mezmo's prior always-interpolate behavior.
+            interpolate_env: true,
         }
     }
 }
@@ -155,12 +161,19 @@ async fn http_request_to_config_builder(
     payload: &Option<String>,
     proxy: &ProxyConfig,
     config_format: &Format,
+    interpolate_env: bool,
 ) -> BuildResult {
     let config_str = http_request(url, tls_options, headers, payload, proxy)
         .await
         .map_err(|e| vec![e])?;
 
-    config::load_with_env_interpolation(config_str.chunk(), *config_format)
+    // MEZMO: env interpolation is gated on `interpolate_env` (upstream) but implemented via
+    // mezmo's `load_with_env_interpolation` helper. Default is enabled (see `HttpConfig::default`).
+    if interpolate_env {
+        config::load_with_env_interpolation(config_str.chunk(), *config_format)
+    } else {
+        config::load(config_str.chunk(), *config_format)
+    }
 }
 
 /// Polls the HTTP endpoint after/every `poll_interval_secs`, returning a stream of `ConfigBuilder`.
@@ -174,6 +187,7 @@ fn poll_http(
     proxy: ProxyConfig,
     config_format: Format,
     mut loaded_config_hash: String,
+    interpolate_env: bool,
 ) -> impl Stream<Item = signal::SignalTo> {
     let start_time = time::Instant::now();
     let duration = time::Duration::from_secs(poll_interval_secs);
@@ -183,7 +197,7 @@ fn poll_http(
         loop {
             interval.tick().await;
             let uptime_sec = start_time.elapsed().as_secs();
-            match http_request_to_config_builder(&url, tls_options.as_ref(), &headers, &get_current_heartbeat_payload(&mut heartbeat, uptime_sec), &proxy, &config_format).await {
+            match http_request_to_config_builder(&url, tls_options.as_ref(), &headers, &get_current_heartbeat_payload(&mut heartbeat, uptime_sec), &proxy, &config_format, interpolate_env).await {
                 Ok(config_builder) => {
                     let current_hash = config_builder.sha256_hash();
                     // Make sure we only send the reload signal when the config changed
@@ -247,6 +261,7 @@ impl ProviderConfig for HttpConfig {
             &get_current_heartbeat_payload(&mut heartbeat, 0),
             &proxy,
             &config_format,
+            self.interpolate_env,
         )
         .await?;
 
@@ -260,6 +275,7 @@ impl ProviderConfig for HttpConfig {
             proxy.clone(),
             config_format,
             config_builder.sha256_hash(),
+            self.interpolate_env,
         ));
 
         Ok(config_builder)
