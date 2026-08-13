@@ -303,6 +303,7 @@ fn start_remote_task_execution(
     runtime: &Runtime,
     _config: &ApplicationConfig,
 ) -> Result<(), ExitCode> {
+    use serde_json;
     use std::env;
 
     #[cfg(feature = "api")]
@@ -314,6 +315,11 @@ fn start_remote_task_execution(
     if let Some(auth_token) = auth_token {
         let get_endpoint_url = env::var("MEZMO_TASKS_FETCH_ENDPOINT_URL").ok();
         let post_endpoint_url = env::var("MEZMO_TASKS_POST_ENDPOINT_URL").ok();
+        let extra_headers: std::collections::HashMap<String, String> =
+            env::var("MEZMO_REMOTE_TASK_EXTRA_HEADERS")
+                .ok()
+                .and_then(|v| serde_json::from_str(&v).ok())
+                .unwrap_or_default();
         match (get_endpoint_url, post_endpoint_url) {
             (Some(get_endpoint_url), Some(post_endpoint_url)) => {
                 if !api_config.enabled {
@@ -328,6 +334,7 @@ fn start_remote_task_execution(
                         auth_token,
                         get_endpoint_url,
                         post_endpoint_url,
+                        extra_headers,
                         Some(1),
                     )
                     .await;
@@ -340,6 +347,7 @@ fn start_remote_task_execution(
                         auth_token,
                         get_endpoint_url,
                         post_endpoint_url,
+                        extra_headers,
                     )
                     .await;
                 });
