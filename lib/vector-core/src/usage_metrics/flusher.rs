@@ -1,4 +1,4 @@
-use super::{AnnotationMap, AnnotationSet, UsageMetricsKey, UsageMetricsValue};
+use super::{AnnotationMap, AnnotationSet, UsageMetricsKey, UsageMetricsValue, processor_name};
 use crate::mezmo;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -24,8 +24,6 @@ const INSERT_BILLING_QUERY: &str = "INSERT INTO usage_metrics (event_ts, account
 const INSERT_PROFILES_QUERY: &str = "INSERT INTO usage_metrics_by_annotations (ts, account_id, component_id, count, size, annotations) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING";
 
 const DB_MAX_PARALLEL_EXECUTIONS: usize = 8;
-const VECTOR_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 #[async_trait]
 pub(crate) trait MetricsFlusher: Sync {
     async fn save_billing_metrics(&self, metrics: HashMap<UsageMetricsKey, UsageMetricsValue>);
@@ -67,7 +65,7 @@ impl DbFlusher {
                 DbFlusherError::QueryError
             })?;
 
-        let processor_name = format!("app=vector,pod={pod_name},version={VECTOR_VERSION}");
+        let processor_name = processor_name(pod_name);
         Ok(Self {
             conn_str,
             processor_name,
@@ -249,7 +247,7 @@ impl HttpFlusher {
         headers: HashMap<String, String>,
         max_delay: Duration,
     ) -> Self {
-        let processor_name = format!("app=vector,pod={pod_name},version={VECTOR_VERSION}");
+        let processor_name = processor_name(pod_name);
 
         HttpFlusher {
             client: Client::new(),

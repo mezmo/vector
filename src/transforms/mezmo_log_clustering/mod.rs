@@ -18,8 +18,8 @@ use uuid::Uuid;
 use vector_lib::config::{TransformOutput, log_schema};
 use vector_lib::configurable::configurable_component;
 
+use crate::transforms::mezmo_log_clustering::aggregate::aggregate_in_loop;
 use crate::transforms::mezmo_log_clustering::drain::{LocalId, LogClusterStatus};
-use crate::transforms::mezmo_log_clustering::store::save_in_loop;
 use mezmo::MezmoContext;
 use vector_lib::event::LogEvent;
 use vector_lib::usage_metrics::{
@@ -27,6 +27,7 @@ use vector_lib::usage_metrics::{
 };
 use vrl::value::Value;
 
+mod aggregate;
 mod drain;
 mod store;
 
@@ -100,17 +101,17 @@ const fn default_max_log_samples_amount() -> usize {
 
 impl_generate_config_from_default!(MezmoLogClusteringConfig);
 
-type DbTransmitter = UnboundedSender<LogGroupInfo>;
-static ONCE: OnceCell<DbTransmitter> = OnceCell::const_new();
+type AggregateTransmitter = UnboundedSender<LogGroupInfo>;
+static ONCE: OnceCell<AggregateTransmitter> = OnceCell::const_new();
 
 #[async_trait::async_trait]
 #[typetag::serde(name = "mezmo_log_clustering")]
 impl TransformConfig for MezmoLogClusteringConfig {
     async fn build(&self, context: &TransformContext) -> crate::Result<Transform> {
-        // Create a channel with a db connection pool only once
+        // Create the aggregation channel only once.
         let mut account_id = None;
         let mut component_id = None;
-        let db_tx = if self.store_metrics {
+        let aggregate_tx = if self.store_metrics {
             let Some(mezmo_ctx) = context.mezmo_ctx.as_ref() else {
                 return Err("Cannot store log clustering metrics without a component key".into());
             };
@@ -126,10 +127,10 @@ impl TransformConfig for MezmoLogClusteringConfig {
             let tx = ONCE
                 .get_or_init(move || async move {
                     let (tx, rx) = mpsc::unbounded_channel();
-                    // Start saving in the background
+                    // Start aggregating in the background.
                     // This task will be running forever, topology changes should not affect it
                     tokio::spawn(async move {
-                        save_in_loop(rx, store_metrics_flush_interval).await;
+                        aggregate_in_loop(rx, store_metrics_flush_interval).await;
                     });
 
                     tx
@@ -145,7 +146,7 @@ impl TransformConfig for MezmoLogClusteringConfig {
             self,
             account_id,
             component_id,
-            db_tx,
+            aggregate_tx,
         )))
     }
 
@@ -171,7 +172,7 @@ struct MezmoLogClustering {
     transform_status: Option<TransformStatus>,
     account_id: Option<Uuid>,
     component_id: Option<String>,
-    db_tx: Option<DbTransmitter>,
+    aggregate_tx: Option<AggregateTransmitter>,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -197,7 +198,7 @@ impl MezmoLogClustering {
         config: &MezmoLogClusteringConfig,
         account_id: Option<Uuid>,
         component_id: Option<String>,
-        db_tx: Option<DbTransmitter>,
+        aggregate_tx: Option<AggregateTransmitter>,
     ) -> Self {
         let similarity_threshold = if config.similarity_threshold > 1.0
             || config.similarity_threshold < 0.0
@@ -258,7 +259,7 @@ impl MezmoLogClustering {
             transform_status: None,
             account_id,
             component_id,
-            db_tx,
+            aggregate_tx,
             cluster_field: config.cluster_field.clone(),
         }
     }
@@ -370,11 +371,11 @@ impl MezmoLogClustering {
                 info.annotation_set = log.as_map().and_then(get_annotations);
             }
 
-            match self.db_tx.as_ref().expect("can't fail").send(info) {
+            match self.aggregate_tx.as_ref().expect("can't fail").send(info) {
                 Ok(()) => {
                     self.parser.mark_cluster_samples_as_stored(local_id);
                 }
-                Err(_) => error!("Db channel closed"),
+                Err(_) => error!("Log clustering aggregation channel closed"),
             };
         } else if status == TransformStatus::AnnotateEvent {
             let mut cluster = BTreeMap::new();

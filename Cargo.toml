@@ -695,6 +695,7 @@ sources-logs-mezmo = [
   "sources-aws_s3",
   "sources-datadog_agent",
   "sources-demo_logs",
+  "sources-mezmo_analytics",
   "sources-mezmo_demo_logs",
   "sources-exec",
   "sources-fluent",
@@ -754,6 +755,7 @@ sources-host_metrics = ["heim/cpu", "heim/host", "heim/memory", "heim/net"]
 sources-http_client = ["sources-utils-http-client"]
 sources-http_server = ["sources-utils-http", "sources-utils-http-headers", "sources-utils-http-query"]
 sources-internal_logs = []
+sources-mezmo_analytics = []
 sources-mezmo_pipeline_state_variable_change = []
 sources-mezmo_user_logs = ["sources-internal_logs"]
 sources-internal_metrics = []

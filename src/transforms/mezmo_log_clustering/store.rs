@@ -1,29 +1,24 @@
 use crate::internal_events::mezmo_log_clustering::MezmoLogClusteringStore;
-use crate::transforms::mezmo_log_clustering::{
-    ComponentInfo, LocalId, LogGroupAggregateInfo, LogGroupInfo,
-};
+use crate::transforms::mezmo_log_clustering::{ComponentInfo, LocalId, LogGroupAggregateInfo};
 use chrono::Utc;
 use deadpool_postgres::Object;
 use futures_util::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use std::vec::IntoIter;
 use tokio::sync::Mutex;
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::time::sleep;
 use tokio_postgres::Statement;
 use tokio_postgres::types::{Json, ToSql};
 use vector_lib::mezmo;
 
-const MAX_NEW_TEMPLATES_QUEUED: usize = 100;
 const DB_MAX_PARALLEL_EXECUTIONS: usize = 8;
 
 const INSERT_USAGE_QUERY: &str = "INSERT INTO usage_metrics_log_cluster (ts, component_id, log_cluster_id, count, size) VALUES ($1, $2, $3, $4, $5)";
 const INSERT_LOG_CLUSTER_QUERY: &str = "INSERT INTO log_clusters (ts, account_id, component_id, log_cluster_id, template, first_seen_at, annotations) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING";
 const INSERT_LOG_CLUSTER_SAMPLES_QUERY: &str = "INSERT INTO log_clusters_samples (ts, account_id, component_id, log_cluster_id, sample) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING";
 
-async fn init_db_pool() -> crate::Result<String> {
+pub(super) async fn init_db_pool() -> crate::Result<String> {
     let conn_str = match mezmo::postgres::get_connection_string("metrics") {
         Ok(conn_str) => conn_str,
         Err(err) => {
@@ -55,74 +50,7 @@ async fn init_db_pool() -> crate::Result<String> {
     Ok(conn_str)
 }
 
-pub(crate) async fn save_in_loop(mut rx: UnboundedReceiver<LogGroupInfo>, agg_window: Duration) {
-    let conn_str = match init_db_pool().await {
-        Ok(conn_str) => conn_str,
-        Err(err) => {
-            error!(message = "There was error initializing log clustering db client", %err);
-            error!("No log clustering data will be stored in the db");
-            // Dequeue and ignore
-            while let Some(_) = rx.recv().await {
-                // Do nothing
-            }
-            return;
-        }
-    };
-
-    info!("Starting to store log clustering data in metrics db");
-
-    let mut finished = false;
-    while !finished {
-        let mut aggregated: HashMap<ComponentInfo, HashMap<LocalId, LogGroupAggregateInfo>> =
-            HashMap::new();
-        let timeout = sleep(agg_window);
-        tokio::pin!(timeout);
-        let mut new_templates = 0;
-
-        loop {
-            tokio::select! {
-                _ = &mut timeout => {
-                    // Break the inner loop, start a new timer
-                    break;
-                },
-                Some(info) = rx.recv() => {
-                    let map = aggregated.entry(info.key).or_default();
-                    if info.template.is_some() {
-                        new_templates += 1;
-                    }
-                    let aggregated_info = map.entry(info.local_id).or_default();
-                    aggregated_info.cluster_id = info.cluster_id;
-                    aggregated_info.count += 1;
-                    aggregated_info.size += info.size;
-
-                    // Template and annotations are conditionally sent
-                    // Make sure we don't blindly overwrite the existing value
-                    if info.template.is_some() {
-                        aggregated_info.template = info.template;
-                    }
-                    if info.annotation_set.is_some() {
-                        aggregated_info.annotation_set = info.annotation_set;
-                    }
-
-                    info.samples.iter().for_each(|s| aggregated_info.samples.push(s.clone()));
-
-                    if new_templates > MAX_NEW_TEMPLATES_QUEUED {
-                        break;
-                    }
-                },
-                else => {
-                    // Channel closed
-                    finished = true;
-                    break;
-                }
-            }
-        }
-
-        save(&conn_str, aggregated).await;
-    }
-}
-
-async fn save(
+pub(super) async fn save(
     conn_str: &str,
     aggregated: HashMap<ComponentInfo, HashMap<LocalId, LogGroupAggregateInfo>>,
 ) {
