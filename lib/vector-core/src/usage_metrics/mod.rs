@@ -1,3 +1,4 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::hash_map::Entry;
@@ -18,8 +19,8 @@ use vrl::value::{KeyString, Value};
 
 use crate::{
     config::log_schema,
-    event::EventArray,
-    event::{MetricValue, array::EventContainer},
+    event::{EventArray, LogEvent, MetricValue, array::EventContainer},
+    mezmo::analytics::{self, AnalyticsEventBatch, AnalyticsOutput},
     usage_metrics::flusher::HttpFlusher,
 };
 use flusher::{DbFlusher, MetricsFlusher, StdErrFlusher};
@@ -30,6 +31,7 @@ const DEFAULT_FLUSH_INTERVAL_SECS: u64 = 20;
 const DEFAULT_PROFILE_FLUSH_INTERVAL: Duration = Duration::from_secs(60);
 const BASE_ARRAY_SIZE: usize = 8; // Add some overhead to the array and object size
 const BASE_BTREE_SIZE: usize = 8;
+const VECTOR_VERSION: &str = env!("CARGO_PKG_VERSION");
 static INTERNAL_TRANSFORM: ComponentKind = ComponentKind::Transform { internal: true };
 
 mod flusher;
@@ -63,6 +65,23 @@ pub enum ComponentKind {
     Source { internal: bool },
     Sink,
     Transform { internal: bool },
+}
+
+impl ComponentKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Source { .. } => "source",
+            Self::Sink => "sink",
+            Self::Transform { .. } => "transform",
+        }
+    }
+
+    fn is_internal(&self) -> bool {
+        match self {
+            Self::Source { internal } | Self::Transform { internal } => *internal,
+            Self::Sink => false,
+        }
+    }
 }
 
 impl FromStr for ComponentKind {
@@ -260,6 +279,129 @@ impl AnnotationSet {
 }
 
 type AnnotationMap = HashMap<AnnotationSet, UsageMetricsValue>;
+
+fn usage_event(
+    key: &UsageMetricsKey,
+    timestamp: chrono::DateTime<Utc>,
+    processor: &Value,
+) -> LogEvent {
+    let pipeline_id = key
+        .pipeline_id
+        .as_ref()
+        .map_or(Value::Null, |value| Value::from(value.clone()));
+
+    LogEvent::from(Value::Object(BTreeMap::from([
+        ("timestamp".into(), Value::Timestamp(timestamp)),
+        ("account_id".into(), Value::from(key.account_id.clone())),
+        ("pipeline_id".into(), pipeline_id),
+        ("component_id".into(), Value::from(key.component_id.clone())),
+        (
+            "component_type".into(),
+            Value::from(key.component_type.clone()),
+        ),
+        (
+            "component_kind".into(),
+            Value::from(key.component_kind.as_str()),
+        ),
+        (
+            "internal".into(),
+            Value::from(key.component_kind.is_internal()),
+        ),
+        ("processor".into(), processor.clone()),
+    ])))
+}
+
+fn processor_name(pod_name: &str) -> String {
+    format!("app=vector,pod={pod_name},version={VECTOR_VERSION}")
+}
+
+fn usage_metrics_events(metrics: &HashMap<UsageMetricsKey, UsageMetricsValue>) -> Vec<LogEvent> {
+    let timestamp = Utc::now();
+    let pod_name = env::var("POD_NAME").unwrap_or_else(|_| "not-set".to_owned());
+    let processor = Value::from(processor_name(&pod_name));
+    metrics
+        .iter()
+        .map(|(key, value)| {
+            let mut event = usage_event(key, timestamp, &processor);
+            event.insert("total_count", value.total_count as i64);
+            event.insert("total_size", value.total_size as i64);
+            event
+        })
+        .collect()
+}
+
+fn annotation_event(
+    mut event: LogEvent,
+    annotation: &AnnotationSet,
+    value: &UsageMetricsValue,
+) -> LogEvent {
+    event.insert("count", value.total_count as i64);
+    event.insert("size", value.total_size as i64);
+    event.insert(
+        "annotations",
+        Value::from(
+            serde_json::to_value(annotation).expect("annotation sets should always serialize"),
+        ),
+    );
+    event
+}
+
+fn usage_metrics_by_annotations_events(
+    metrics: &HashMap<UsageMetricsKey, AnnotationMap>,
+) -> Vec<LogEvent> {
+    let timestamp = Utc::now();
+    let pod_name = env::var("POD_NAME").unwrap_or_else(|_| "not-set".to_owned());
+    let processor = Value::from(processor_name(&pod_name));
+    let event_count = metrics.values().map(HashMap::len).sum();
+    let mut events = Vec::with_capacity(event_count);
+
+    for (key, annotations) in metrics {
+        let mut annotations = annotations.iter();
+        let Some((first_annotation, first_annotation_value)) = annotations.next() else {
+            continue;
+        };
+        let base_event = usage_event(key, timestamp, &processor);
+
+        for (annotation, value) in annotations {
+            events.push(annotation_event(base_event.clone(), annotation, value));
+        }
+        events.push(annotation_event(
+            base_event,
+            first_annotation,
+            first_annotation_value,
+        ));
+    }
+
+    events
+}
+
+fn publish_usage_metrics(metrics: &HashMap<UsageMetricsKey, UsageMetricsValue>) {
+    analytics::publish(|| {
+        let events = usage_metrics_events(metrics);
+        if events.is_empty() {
+            None
+        } else {
+            Some(AnalyticsEventBatch::new(
+                AnalyticsOutput::UsageMetrics,
+                events,
+            ))
+        }
+    });
+}
+
+fn publish_usage_metrics_by_annotations(metrics: &HashMap<UsageMetricsKey, AnnotationMap>) {
+    analytics::publish(|| {
+        let events = usage_metrics_by_annotations_events(metrics);
+        if events.is_empty() {
+            None
+        } else {
+            Some(AnalyticsEventBatch::new(
+                AnalyticsOutput::UsageMetricsByAnnotations,
+                events,
+            ))
+        }
+    });
+}
 
 /// Represents aggregated size and count information for events
 #[derive(Debug, Default)]
@@ -787,11 +929,15 @@ fn start_publishing_metrics_with_flusher(
                     billing_events_count
                 );
 
+                publish_usage_metrics(&aggregated_billing);
+
                 // Flush billing metrics in the foreground
                 flusher.save_billing_metrics(aggregated_billing).await;
             }
 
             if start_profile.elapsed() > profile_agg_window && !aggregated_profiles.is_empty() {
+                publish_usage_metrics_by_annotations(&aggregated_profiles);
+
                 // Flush aggregated profiles
                 let flusher = Arc::clone(&flusher);
 
@@ -1328,5 +1474,60 @@ mod tests {
                 ),
             ])
         );
+    }
+
+    #[test]
+    fn creates_storage_neutral_analytics_events() {
+        let key = UsageMetricsKey {
+            account_id: "account".into(),
+            pipeline_id: Some("pipeline".into()),
+            component_id: "component".into(),
+            component_type: "http".into(),
+            component_kind: ComponentKind::Source { internal: false },
+        };
+        let metrics = HashMap::from([(
+            key.clone(),
+            UsageMetricsValue {
+                total_count: 2,
+                total_size: 20,
+            },
+        )]);
+
+        let event = usage_metrics_events(&metrics)
+            .pop()
+            .expect("one usage metrics event");
+        assert_eq!(event.get("account_id"), Some(&Value::from("account")));
+        assert_eq!(event.get("pipeline_id"), Some(&Value::from("pipeline")));
+        assert_eq!(event.get("component_id"), Some(&Value::from("component")));
+        assert_eq!(event.get("component_type"), Some(&Value::from("http")));
+        assert_eq!(event.get("component_kind"), Some(&Value::from("source")));
+        assert_eq!(event.get("internal"), Some(&Value::from(false)));
+        assert_eq!(event.get("total_count"), Some(&Value::from(2)));
+        assert_eq!(event.get("total_size"), Some(&Value::from(20)));
+        assert!(event.get("processor").is_some());
+        assert!(event.get("timestamp").is_some());
+
+        let profiles = HashMap::from([(
+            key,
+            HashMap::from([(
+                AnnotationSet {
+                    app: Some("api".into()),
+                    host: None,
+                    level: Some("error".into()),
+                    log_type: None,
+                },
+                UsageMetricsValue {
+                    total_count: 1,
+                    total_size: 10,
+                },
+            )]),
+        )]);
+        let event = usage_metrics_by_annotations_events(&profiles)
+            .pop()
+            .expect("one annotated usage event");
+        assert_eq!(event.get("annotations.app"), Some(&Value::from("api")));
+        assert_eq!(event.get("annotations.level"), Some(&Value::from("error")));
+        assert_eq!(event.get("count"), Some(&Value::from(1)));
+        assert_eq!(event.get("size"), Some(&Value::from(10)));
     }
 }

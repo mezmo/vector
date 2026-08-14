@@ -56,6 +56,8 @@ pub mod kafka;
 pub mod kubernetes_logs;
 #[cfg(feature = "sources-logstash")]
 pub mod logstash;
+#[cfg(feature = "sources-mezmo_analytics")]
+pub mod mezmo_analytics;
 #[cfg(feature = "sources-mezmo_demo_logs")]
 pub mod mezmo_demo_logs;
 #[cfg(feature = "sources-mezmo_pipeline_state_variable_change")]
