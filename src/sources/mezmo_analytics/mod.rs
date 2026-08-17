@@ -3,9 +3,15 @@ mod config;
 pub use config::MezmoAnalyticsConfig;
 
 use futures::{StreamExt, future::try_join_all};
-use vector_lib::{event::Event, mezmo::analytics::AnalyticsSubscription};
+use vector_lib::{
+    EstimatedJsonEncodedSizeOf, event::Event, mezmo::analytics::AnalyticsSubscription,
+};
 
-use crate::{SourceSender, internal_events::StreamClosedError, shutdown::ShutdownSignal};
+use crate::{
+    SourceSender,
+    internal_events::{InternalLogsBytesReceived, InternalLogsEventsReceived, StreamClosedError},
+    shutdown::ShutdownSignal,
+};
 
 async fn forward_output(
     subscription: AnalyticsSubscription,
@@ -17,6 +23,13 @@ async fn forward_output(
     while let Some(batch) = batches.next().await {
         let (output, events) = batch.into_parts();
         let count = events.len();
+        let byte_size = events.estimated_json_encoded_size_of().get();
+
+        emit!(InternalLogsBytesReceived { byte_size });
+        emit!(InternalLogsEventsReceived {
+            count,
+            byte_size: byte_size.into(),
+        });
 
         if out
             .send_batch_named(output.as_str(), events.into_iter().map(Event::Log))
@@ -55,7 +68,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::config::SourceConfig;
+    use crate::{
+        config::SourceConfig,
+        test_util::components::{SOURCE_TAGS, SOURCE_TESTS, init_test},
+    };
 
     #[test]
     fn generates_config() {
@@ -85,6 +101,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn forwards_batches_to_their_named_output() {
+        init_test();
         let (mut out, _default_rx) = SourceSender::new_test();
         let mut usage_rx = out
             .add_outputs(EventStatus::Delivered, "usage_metrics".to_owned())
@@ -116,6 +133,7 @@ mod tests {
         drop(trigger_shutdown);
         shutdown_done.await;
         assert_eq!(source.await.expect("source task should complete"), Ok(()));
+        SOURCE_TESTS.assert(&SOURCE_TAGS);
     }
 
     #[tokio::test]

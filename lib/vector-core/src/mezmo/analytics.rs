@@ -4,8 +4,9 @@ use std::sync::OnceLock;
 
 use futures::{Stream, StreamExt, future::ready};
 use tokio::sync::broadcast::{self, Receiver, Sender};
-use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use tracing::warn;
+use vector_common::internal_event::{self, ComponentEventsDropped, UNINTENTIONAL};
 
 use crate::event::LogEvent;
 
@@ -39,7 +40,7 @@ impl AnalyticsOutput {
     }
 
     /// Returns every named output in declaration order.
-    pub const fn all() -> [Self; 5] {
+    pub const fn all() -> [Self; ANALYTICS_OUTPUT_COUNT] {
         [
             Self::UsageMetrics,
             Self::UsageMetricsByAnnotations,
@@ -131,8 +132,12 @@ impl AnalyticsSubscription {
         BroadcastStream::new(self.receiver).filter_map(|received| {
             ready(match received {
                 Ok(batch) => Some(batch),
-                Err(error) => {
+                Err(error @ BroadcastStreamRecvError::Lagged(dropped_batches)) => {
                     warn!(message = "Mezmo analytics source lagged behind.", %error);
+                    internal_event::emit(ComponentEventsDropped::<UNINTENTIONAL> {
+                        count: usize::try_from(dropped_batches).unwrap_or(usize::MAX),
+                        reason: "Mezmo analytics source lagged behind.",
+                    });
                     None
                 }
             })
