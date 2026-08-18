@@ -1,5 +1,17 @@
 ## Changelog
 
+# [10.1.0](https://github.com/mezmo/vector/compare/v10.0.0...v10.1.0) (2026-08-18)
+
+
+### Chores
+
+* Emit standard vector internal events [3ffe3be](https://github.com/mezmo/vector/commit/3ffe3befe9c158bf4b9c57999d786ce374fd9c84) - kwabena [LOG-24349](https://logdna.atlassian.net/browse/LOG-24349)
+
+
+### Features
+
+* Add mezmo_analytics source [83c9931](https://github.com/mezmo/vector/commit/83c993115ddd103f68f17f5edf11803465cdcf33) - kwabena [LOG-23218](https://logdna.atlassian.net/browse/LOG-23218)
+
 # [10.0.0](https://github.com/mezmo/vector/compare/v9.0.0...v10.0.0) (2026-08-12)
 
 
