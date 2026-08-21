@@ -231,20 +231,28 @@ async fn azure_blob_rotate_files_after_the_buffer_size_is_reached() {
 impl AzureBlobSinkConfig {
     pub async fn new_emulator() -> AzureBlobSinkConfig {
         let address = std::env::var("AZURE_ADDRESS").unwrap_or_else(|_| "localhost".into());
+        // MEZMO: allow pointing the suite at a real storage account. Azurite does not
+        // reproduce the service's response shapes or URL handling faithfully enough to
+        // catch every regression in the consolidation code.
+        let connection_string = std::env::var("AZURE_STORAGE_CONNECTION_STRING").unwrap_or_else(|_| {
+            format!("UseDevelopmentStorage=true;DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://{address}:10000/devstoreaccount1;QueueEndpoint=http://{address}:10001/devstoreaccount1;TableEndpoint=http://{address}:10002/devstoreaccount1;")
+        });
+        let container_name =
+            std::env::var("AZURE_STORAGE_CONTAINER").unwrap_or_else(|_| "logs".to_string());
         let config = AzureBlobSinkConfig {
-            connection_string: format!("UseDevelopmentStorage=true;DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://{address}:10000/devstoreaccount1;QueueEndpoint=http://{address}:10001/devstoreaccount1;TableEndpoint=http://{address}:10002/devstoreaccount1;").into(),
-                container_name: "logs".to_string(),
-                blob_prefix: Default::default(),
-                blob_time_format: None,
-                blob_append_uuid: None,
-                encoding: (None::<FramingConfig>, TextSerializerConfig::default()).into(),
-                compression: Compression::None,
-                batch: Default::default(),
-                request: TowerRequestConfig::default(),
-                acknowledgements: Default::default(),
-                file_consolidation_config: Default::default(),
-                tags: Default::default(),
-            };
+            connection_string: connection_string.into(),
+            container_name,
+            blob_prefix: Default::default(),
+            blob_time_format: None,
+            blob_append_uuid: None,
+            encoding: (None::<FramingConfig>, TextSerializerConfig::default()).into(),
+            compression: Compression::None,
+            batch: Default::default(),
+            request: TowerRequestConfig::default(),
+            acknowledgements: Default::default(),
+            file_consolidation_config: Default::default(),
+            tags: Default::default(),
+        };
 
         config.ensure_container().await;
 
