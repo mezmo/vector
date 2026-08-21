@@ -1,5 +1,17 @@
 ## Changelog
 
+## [10.1.1](https://github.com/mezmo/vector/compare/v10.1.0...v10.1.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* **azure**: file consolidation regresssion [84712c4](https://github.com/mezmo/vector/commit/84712c48875366b1e236dd7dff0a3a46be4a24d2) - Phil Ciampini [LOG-24305](https://logdna.atlassian.net/browse/LOG-24305)
+
+
+### Miscellaneous
+
+* Merge pull request #86 from mezmo/pciampini/azure-regression [dce2763](https://github.com/mezmo/vector/commit/dce276324b5350512bcfd37af5e4358bfac76157) - GitHub
+
 # [10.1.0](https://github.com/mezmo/vector/compare/v10.0.0...v10.1.0) (2026-08-18)
 
 
