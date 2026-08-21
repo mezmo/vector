@@ -399,7 +399,9 @@ pub async fn get_files_to_consolidate(
     // the azure API has the ability to list blobs by tag,
     // but its not yet available in the rust version
     let list_options = BlobContainerClientListBlobFlatSegmentOptions {
-        prefix: Some(base_path.clone()),
+        // An empty prefix means the whole container; sending `prefix=` would
+        // still be signed as a parameter by the service.
+        prefix: (!base_path.is_empty()).then(|| base_path.clone()),
         include: Some(vec![ListBlobsIncludeItem::Tags]),
         ..Default::default()
     };

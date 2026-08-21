@@ -5,6 +5,7 @@ use azure_core::error::Error as AzureCoreError;
 
 use crate::mezmo::user_trace::UserLoggingResponse;
 use crate::sinks::azure_common::connection_string::{Auth, ParsedConnectionString};
+use crate::sinks::azure_common::query_normalization_policy::QueryNormalizationPolicy;
 use crate::sinks::azure_common::shared_key_policy::SharedKeyAuthorizationPolicy;
 use azure_core::http::Url;
 use azure_storage_blob::{BlobContainerClient, BlobContainerClientOptions};
@@ -175,6 +176,11 @@ pub fn build_client(
 
     // Prepare options; attach Shared Key policy if needed
     let mut options = BlobContainerClientOptions::default();
+    // MEZMO: normalize request URLs before any signing policy sees them
+    options
+        .client_options
+        .per_call_policies
+        .push(Arc::new(QueryNormalizationPolicy));
     match parsed.auth() {
         Auth::Sas { .. } | Auth::None => {
             // No extra policy; SAS is in the URL already (or anonymous)

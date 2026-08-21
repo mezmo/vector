@@ -8,7 +8,9 @@ use flate2::read::GzEncoder;
 use std::io::Read;
 
 use crate::template::Template;
-use crate::test_util::{random_message_object_events_with_stream, random_string, trace_init};
+use crate::test_util::{
+    random_lines_with_stream, random_message_object_events_with_stream, random_string, trace_init,
+};
 use assay::assay;
 use std::{collections::BTreeMap, thread, time};
 use vector_lib::codecs::{
@@ -261,6 +263,85 @@ async fn azure_file_consolidation_process_tag_filters() {
                 .unwrap();
         assert_eq!(files.len(), formats[f]);
     }
+}
+
+// Mirrors qa-e2e-pipeline tests/destination/cloud_storage_consolidation.spec.js:
+// text encoding, a prefix containing a space, tags applied through the sink
+// config, and several large files written by the sink itself rather than
+// seeded with put_blob.
+#[tokio::test]
+async fn azure_file_consolidation_process_e2e_shape() {
+    trace_init();
+
+    let epoch_ms = time::SystemTime::now()
+        .duration_since(time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let prefix = format!("pw-consolidation {epoch_ms}/");
+    let output_format = "text".to_owned();
+
+    let mut tags: BTreeMap<String, String> = BTreeMap::new();
+    tags.insert("mezmo_pipeline_azure_sink".to_owned(), "true".to_owned());
+    tags.insert(
+        "mezmo_pipeline_azure_type".to_owned(),
+        output_format.clone(),
+    );
+
+    let config = AzureBlobSinkConfig {
+        blob_prefix: Template::try_from(prefix.clone()).unwrap(),
+        tags: Some(tags),
+        ..AzureBlobSinkConfig::new_emulator().await
+    };
+
+    let mut expected_lines = 0;
+    for _ in 0..3 {
+        let (lines, stream) = random_lines_with_stream(100, 8000, None);
+        expected_lines += lines.len();
+        config.run_assert(stream).await;
+
+        // distinct second-granularity timestamps in the blob keys and creation times
+        thread::sleep(time::Duration::from_millis(1100));
+    }
+
+    let blobs = config.list_blobs(prefix.clone()).await;
+    assert_eq!(blobs.len(), 3);
+
+    let client = config.get_client().await;
+    let container_name = config.container_name.clone();
+
+    let files = get_files_to_consolidate(
+        &client,
+        container_name.clone(),
+        prefix.clone(),
+        output_format.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(files.len(), 3);
+
+    let fcp = FileConsolidationProcessor::new(
+        &client,
+        container_name.clone(),
+        prefix.clone(),
+        75_000_000,
+        output_format.clone(),
+    );
+    fcp.run().await;
+
+    let blobs = config.list_blobs(prefix.clone()).await;
+    assert_eq!(
+        blobs.len(),
+        1,
+        "expected a single merged blob, got {blobs:?}"
+    );
+    assert!(blobs[0].contains("merged_"));
+
+    let (content_type, _content_encoding, blob_lines) = config.get_blob(blobs[0].clone()).await;
+    assert_eq!(content_type, Some(String::from("text/plain")));
+    // the consolidator joins text files with a newline, so file boundaries
+    // produce empty lines that consumers skip
+    let non_empty = blob_lines.iter().filter(|l| !l.is_empty()).count();
+    assert_eq!(non_empty, expected_lines);
 }
 
 #[tokio::test]

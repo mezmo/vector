@@ -37,7 +37,8 @@ use openssl::{hash::MessageDigest, pkey::PKey, sign::Signer};
 /// - We set x-ms-date, leaving the standard Date field empty in the signature.
 /// - If Content-Length header is present with "0", the canonicalized value must be the empty string.
 /// - Canonicalized headers include all x-ms-* headers (lowercased, sorted).
-/// - Canonicalized resource is "/{account}{path}\n" + sorted lowercase query params.
+/// - Canonicalized resource is "/{account}{path}\n" + sorted lowercase query params,
+///   parsed the way the service parses them (see `append_canonicalized_resource`).
 ///
 #[derive(Debug)]
 pub struct SharedKeyAuthorizationPolicy {
@@ -283,25 +284,147 @@ fn append_canonicalized_resource(s: &mut String, account: &str, url: &Url) -> Az
 
     // Canonicalized query: lowercase names, sort by name, join multi-values by comma, each line "name:value\n"
     // https://learn.microsoft.com/en-us/rest/api/storageservices/authorize-with-shared-key#shared-key-format-for-2009-09-19-and-later
-    if url.query().is_some() {
+    //
+    // MEZMO: the service parses the query string like .NET's
+    // HttpUtility.ParseQueryString and signs every parameter it finds, so:
+    // - an explicit empty value is kept: `prefix=` signs as `prefix:`
+    // - a token without `=` is stored under an empty name with the token as
+    //   its value: the SDK's list request appends `&flat`, which signs as `:flat`
+    // - an empty token (`&&` or a trailing `&`) is an empty value under the
+    //   empty name and signs as `:`, but an entirely empty query (a bare `?`)
+    //   contributes nothing
+    // Dropping any of them produces a 403 from the real service, while Azurite
+    // ignores all of them and rejects a signature that includes them. That is
+    // why `QueryNormalizationPolicy` removes such tokens before signing; this
+    // function stays faithful to the service regardless.
+    if let Some(query) = url.query().filter(|query| !query.is_empty()) {
         let mut qp_map: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        for (name, value) in url.query_pairs() {
-            let key_l = name.to_ascii_lowercase();
-            let v = value.to_string();
-            if v.is_empty() {
-                continue;
-            }
-            qp_map.entry(key_l).or_default().push(v);
+        for token in query.split('&') {
+            let (name, value) = canonical_query_pair(token);
+            qp_map
+                .entry(name.to_ascii_lowercase())
+                .or_default()
+                .push(value);
         }
         for (k, mut vals) in qp_map {
             vals.sort();
-            let mut line = String::new();
-            let _ = write!(&mut line, "\n{}:", k);
-            let joined = vals.join(",");
-            line.push_str(&joined);
-            s.push_str(&line);
+            let _ = write!(s, "\n{}:{}", k, vals.join(","));
         }
     }
 
     Ok(())
+}
+
+/// Splits one raw `application/x-www-form-urlencoded` query token into the
+/// decoded (name, value) pair the service uses for signing.
+fn canonical_query_pair(token: &str) -> (String, String) {
+    let (name, value) = url::form_urlencoded::parse(token.as_bytes())
+        .next()
+        .map(|(name, value)| (name.into_owned(), value.into_owned()))
+        .unwrap_or_default();
+    if token.contains('=') {
+        (name, value)
+    } else {
+        (String::new(), name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use azure_core::http::Method;
+
+    use super::*;
+
+    fn canonicalized_resource(url: &str) -> String {
+        let url = Url::parse(url).unwrap();
+        let mut s = String::new();
+        append_canonicalized_resource(&mut s, "account", &url).unwrap();
+        s
+    }
+
+    #[test]
+    fn canonicalized_resource_without_query() {
+        assert_eq!(
+            canonicalized_resource(
+                "https://account.blob.core.windows.net/container/dir%2Ffile.log"
+            ),
+            "/account/container/dir%2Ffile.log"
+        );
+        // Verified against the service: a bare `?` must not sign a `:` line.
+        assert_eq!(
+            canonicalized_resource("https://account.blob.core.windows.net/container?"),
+            "/account/container"
+        );
+    }
+
+    #[test]
+    fn canonicalized_resource_signs_key_only_and_empty_valued_params() {
+        // Mirrors the string the service echoed back for the SDK's list request:
+        // `?comp=list&flat&restype=container&include=tags&prefix=`
+        assert_eq!(
+            canonicalized_resource(
+                "https://account.blob.core.windows.net/container?comp=list&flat&restype=container&include=tags&prefix="
+            ),
+            "/account/container\n:flat\ncomp:list\ninclude:tags\nprefix:\nrestype:container"
+        );
+    }
+
+    #[test]
+    fn canonicalized_resource_signs_empty_tokens_as_nameless_empty_values() {
+        // Verified against the service: a listing with `&&` or a trailing `&`
+        // is accepted only when the canonicalized resource carries the `:` line.
+        assert_eq!(
+            canonicalized_resource(
+                "https://account.blob.core.windows.net/container?comp=list&&restype=container&maxresults=1"
+            ),
+            "/account/container\n:\ncomp:list\nmaxresults:1\nrestype:container"
+        );
+        assert_eq!(
+            canonicalized_resource(
+                "https://account.blob.core.windows.net/container?comp=list&restype=container&"
+            ),
+            "/account/container\n:\ncomp:list\nrestype:container"
+        );
+    }
+
+    #[test]
+    fn canonicalized_resource_decodes_lowercases_and_sorts() {
+        assert_eq!(
+            canonicalized_resource(
+                "https://account.blob.core.windows.net/container?Prefix=pw-consolidation+123%2F&comp=list&include=tags&include=metadata"
+            ),
+            "/account/container\ncomp:list\ninclude:metadata,tags\nprefix:pw-consolidation 123/"
+        );
+    }
+
+    #[test]
+    fn string_to_sign_for_list_request_matches_service() {
+        let policy = SharedKeyAuthorizationPolicy::new(
+            "account".to_owned(),
+            "ZmFrZS10ZXN0LWFjY291bnQta2V5".to_owned(),
+            "2025-11-05".to_owned(),
+        )
+        .unwrap();
+        let url = Url::parse(
+            "https://account.blob.core.windows.net/container?comp=list&flat&restype=container",
+        )
+        .unwrap();
+        let mut request = Request::new(url, Method::Get);
+        request.insert_header("accept", "application/xml");
+        request.insert_header("content-type", "application/xml");
+        request.insert_header("x-ms-client-request-id", "req-id");
+
+        let sts = policy
+            .build_string_to_sign(&request, "Fri, 21 Aug 2026 12:59:27 GMT", "2025-11-05")
+            .unwrap();
+
+        assert_eq!(
+            sts,
+            "GET\n\n\n\n\napplication/xml\n\n\n\n\n\n\n\
+             x-ms-client-request-id:req-id\n\
+             x-ms-date:Fri, 21 Aug 2026 12:59:27 GMT\n\
+             x-ms-version:2025-11-05\n\
+             /account/container\n:flat\ncomp:list\nrestype:container"
+        );
+    }
 }
