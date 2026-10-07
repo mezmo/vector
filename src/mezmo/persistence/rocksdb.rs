@@ -38,6 +38,12 @@ const ROCKSDB_BLOCK_CACHE_SIZE: usize = 1024 * 500;
 // are subject to the same TTL.
 const ROCKSDB_TTL_SECS: u64 = 90_000; // 25 hours
 
+// Expired records are only removed from disk when the files holding them are compacted.
+// Periodic compaction recompacts files once they are older than the TTL, so space used by
+// expired records is reclaimed even when write volume is too low to trigger compaction.
+// The floor keeps databases with a short TTL from being recompacted too often.
+const PERIODIC_COMPACTION_MIN_SECS: u64 = 60 * 60; // 1 hour
+
 // Global registry of RocksDB connections.
 // Connections/databases are partitioned by account. Each component for a given account
 // will operate on a reference to the same DB connection.
@@ -243,6 +249,7 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
                 db_opts.set_log_file_time_to_roll(60 * 60 * 24); // 1 day
                 db_opts.set_keep_log_file_num(max_log_file_num);
                 db_opts.set_max_log_file_size(max_log_file_size);
+                db_opts.set_periodic_compaction_seconds(ttl_secs.max(PERIODIC_COMPACTION_MIN_SECS));
 
                 let db = DB::open_with_ttl(&db_opts, &path, Duration::from_secs(ttl_secs))?;
                 let conn = Arc::new(RocksDBConnection { db, db_opts });
