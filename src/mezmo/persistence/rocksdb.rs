@@ -51,12 +51,20 @@ const ROCKSDB_STATS_DUMP_PERIOD_SECS: u32 = 600; // 10 minutes
 // Databases are named after the pod that opened them, so databases created under a previous
 // pod name, or for accounts that no longer have stateful components, are never opened again.
 // When a base path is first used, databases under it that have not been modified for at least
-// the minimum age (or the TTL, if greater) are removed.
+// the minimum age, or their own TTL if greater, are removed.
 const STALE_DB_CLEANUP_ENABLED_ENV_VAR: &str = "ROCKSDB_STALE_DB_CLEANUP_ENABLED";
 const STALE_DB_CLEANUP_ENABLED_DEFAULT: bool = true;
 
 const STALE_DB_MIN_AGE_SECS_ENV_VAR: &str = "ROCKSDB_STALE_DB_MIN_AGE_SECS";
 const STALE_DB_MIN_AGE_SECS_DEFAULT: u64 = ROCKSDB_TTL_SECS * 2;
+
+// File in each database directory recording the TTL the database was opened with, so the
+// stale database cleanup can use each database's own retention period. RocksDB ignores files
+// in its directory that it does not recognize.
+const TTL_FILE_NAME: &str = "TTL_SECS";
+
+// Suffix given to a stale database directory while it is being removed.
+const DELETING_SUFFIX: &str = ".deleting";
 
 // Global registry of RocksDB connections.
 // Connections/databases are partitioned by account. Each component for a given account
@@ -265,10 +273,15 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
                         .expect("Could not acquire lock on RocksDB stale database cleanup paths")
                         .insert(PathBuf::from(base_path))
                 {
-                    let min_age = Duration::from_secs(stale_db_min_age_secs.max(ttl_secs));
-                    remove_stale_databases(Path::new(base_path), min_age, |db_path| {
-                        db_path == path || registry.contains_key(db_path.to_string_lossy().as_ref())
-                    });
+                    remove_stale_databases(
+                        Path::new(base_path),
+                        Duration::from_secs(stale_db_min_age_secs),
+                        Duration::from_secs(ttl_secs),
+                        |db_path| {
+                            db_path == path
+                                || registry.contains_key(db_path.to_string_lossy().as_ref())
+                        },
+                    );
                 }
 
                 let cache = Cache::new_lru_cache(ROCKSDB_BLOCK_CACHE_SIZE);
@@ -289,6 +302,13 @@ impl PersistenceConnection for RocksDBPersistenceConnection {
                 db_opts.set_stats_dump_period_sec(ROCKSDB_STATS_DUMP_PERIOD_SECS);
 
                 let db = DB::open_with_ttl(&db_opts, &path, Duration::from_secs(ttl_secs))?;
+                if let Err(error) = std::fs::write(path.join(TTL_FILE_NAME), ttl_secs.to_string()) {
+                    warn!(
+                        message = "Unable to record RocksDB database TTL.",
+                        path = %path.display(),
+                        %error,
+                    );
+                }
                 let conn = Arc::new(RocksDBConnection { db, db_opts });
                 registry.insert(path.to_string_lossy().to_string(), Arc::clone(&conn));
                 conn
@@ -348,13 +368,24 @@ fn namespaced_key(mezmo_ctx: &MezmoContext, key: &str) -> String {
     format!("{}:{}", mezmo_ctx.component_id(), key)
 }
 
-/// Removes RocksDB databases directly under `base_path` that have not been modified for at
-/// least `min_age`, skipping any database for which `in_use` returns true.
+/// Removes RocksDB databases directly under `base_path` that are no longer in use, skipping any
+/// database for which `in_use` returns true.
 ///
 /// Only directories with a `.db` extension that contain a RocksDB `CURRENT` file are
-/// considered. A database open in another process writes to its LOG file every
-/// [ROCKSDB_STATS_DUMP_PERIOD_SECS], so it is never idle for long enough to be removed.
-fn remove_stale_databases(base_path: &Path, min_age: Duration, in_use: impl Fn(&Path) -> bool) {
+/// considered. A database is removed once it has not been modified for at least `min_age`, or
+/// its recorded TTL if greater, so none of its records are still valid. Databases without a
+/// recorded TTL use `default_ttl`.
+///
+/// A database open in another process is skipped because RocksDB holds a lock on it, which is
+/// taken here before the database is checked. The database is renamed before it is removed, so
+/// a process that opens it during removal creates a new database instead of using a partially
+/// removed one.
+fn remove_stale_databases(
+    base_path: &Path,
+    min_age: Duration,
+    default_ttl: Duration,
+    in_use: impl Fn(&Path) -> bool,
+) {
     let entries = match std::fs::read_dir(base_path) {
         Ok(entries) => entries,
         Err(error) => {
@@ -367,36 +398,114 @@ fn remove_stale_databases(base_path: &Path, min_age: Duration, in_use: impl Fn(&
         }
     };
 
-    let now = SystemTime::now();
     for entry in entries.flatten() {
         let db_path = entry.path();
+        if is_deleting_database(&db_path) {
+            // Left behind by a removal that did not complete.
+            remove_database(&db_path, None);
+            continue;
+        }
         if !is_rocksdb_database(&db_path) || in_use(&db_path) {
             continue;
         }
 
+        let Some(lock) = try_lock_database(&db_path) else {
+            continue;
+        };
+
         // Skip the database if its age can't be determined.
-        let Some(idle) =
-            last_modified(&db_path).and_then(|modified| now.duration_since(modified).ok())
+        let Some(idle) = last_modified(&db_path)
+            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
         else {
             continue;
         };
-        if idle < min_age {
+        let ttl = recorded_ttl(&db_path).unwrap_or(default_ttl);
+        if idle < min_age.max(ttl) {
             continue;
         }
 
-        match std::fs::remove_dir_all(&db_path) {
-            Ok(()) => info!(
-                message = "Removed stale RocksDB database.",
-                path = %db_path.display(),
-                idle_secs = idle.as_secs(),
-            ),
-            Err(error) => warn!(
+        let Some(file_name) = db_path.file_name() else {
+            continue;
+        };
+        let mut deleting_name = std::ffi::OsString::from(".");
+        deleting_name.push(file_name);
+        deleting_name.push(DELETING_SUFFIX);
+        let deleting_path = db_path.with_file_name(deleting_name);
+
+        if let Err(error) = std::fs::rename(&db_path, &deleting_path) {
+            warn!(
                 message = "Unable to remove stale RocksDB database.",
                 path = %db_path.display(),
                 %error,
-            ),
+            );
+            continue;
         }
+        drop(lock);
+        remove_database(&deleting_path, Some(idle));
     }
+}
+
+fn remove_database(path: &Path, idle: Option<Duration>) {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => info!(
+            message = "Removed stale RocksDB database.",
+            path = %path.display(),
+            idle_secs = idle.map(|idle| idle.as_secs()),
+        ),
+        Err(error) => warn!(
+            message = "Unable to remove stale RocksDB database.",
+            path = %path.display(),
+            %error,
+        ),
+    }
+}
+
+fn is_deleting_database(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            name.starts_with('.') && name.ends_with(&format!(".db{DELETING_SUFFIX}"))
+        })
+        && path.is_dir()
+}
+
+/// Takes the lock that RocksDB holds on a database while it is open: an `fcntl` write lock on
+/// its `LOCK` file. Returns `None` if another process holds it. The lock is released when the
+/// returned file is dropped.
+///
+/// `fcntl` locks belong to the process, and closing any descriptor for the file releases them,
+/// so this must not be used on a database that is open in this process.
+#[cfg(unix)]
+fn try_lock_database(db_path: &Path) -> Option<std::fs::File> {
+    use nix::fcntl::{FcntlArg, fcntl};
+    use nix::libc;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(db_path.join("LOCK"))
+        .ok()?;
+
+    // SAFETY: `flock` is a plain C struct for which all zeroes is a valid value.
+    let mut lock: libc::flock = unsafe { std::mem::zeroed() };
+    lock.l_type = libc::F_WRLCK as libc::c_short;
+    lock.l_whence = libc::SEEK_SET as libc::c_short;
+    fcntl(&file, FcntlArg::F_SETLK(&lock)).ok()?;
+
+    Some(file)
+}
+
+/// Without a way to check for a lock held by another process, no database is removed.
+#[cfg(not(unix))]
+const fn try_lock_database(_db_path: &Path) -> Option<std::fs::File> {
+    None
+}
+
+fn recorded_ttl(db_path: &Path) -> Option<Duration> {
+    let ttl_secs = std::fs::read_to_string(db_path.join(TTL_FILE_NAME)).ok()?;
+    ttl_secs.trim().parse().ok().map(Duration::from_secs)
 }
 
 fn is_rocksdb_database(path: &Path) -> bool {
@@ -445,6 +554,13 @@ mod tests {
         let db_path = base_path.join(name);
         std::fs::create_dir_all(&db_path).unwrap();
         std::fs::write(db_path.join("CURRENT"), "MANIFEST-000001\n").unwrap();
+        std::fs::write(db_path.join("LOCK"), "").unwrap();
+        db_path
+    }
+
+    fn create_db_dir_with_ttl(base_path: &Path, name: &str, ttl: Duration) -> PathBuf {
+        let db_path = create_db_dir(base_path, name);
+        std::fs::write(db_path.join(TTL_FILE_NAME), ttl.as_secs().to_string()).unwrap();
         db_path
     }
 
@@ -469,7 +585,7 @@ mod tests {
         let tmp_dir = tempdir().expect("Could not create temp dir");
         let stale = create_db_dir(tmp_dir.path(), "account.old-pod.db");
 
-        remove_stale_databases(tmp_dir.path(), Duration::ZERO, |_| false);
+        remove_stale_databases(tmp_dir.path(), Duration::ZERO, Duration::ZERO, |_| false);
 
         assert!(!stale.exists(), "stale database was not removed");
     }
@@ -479,7 +595,9 @@ mod tests {
         let tmp_dir = tempdir().expect("Could not create temp dir");
         let in_use = create_db_dir(tmp_dir.path(), "account.current-pod.db");
 
-        remove_stale_databases(tmp_dir.path(), Duration::ZERO, |path| path == in_use);
+        remove_stale_databases(tmp_dir.path(), Duration::ZERO, Duration::ZERO, |path| {
+            path == in_use
+        });
 
         assert!(in_use.exists(), "in-use database was removed");
     }
@@ -489,7 +607,12 @@ mod tests {
         let tmp_dir = tempdir().expect("Could not create temp dir");
         let recent = create_db_dir(tmp_dir.path(), "account.other-pod.db");
 
-        remove_stale_databases(tmp_dir.path(), Duration::from_secs(60 * 60), |_| false);
+        remove_stale_databases(
+            tmp_dir.path(),
+            Duration::from_secs(60 * 60),
+            Duration::ZERO,
+            |_| false,
+        );
 
         assert!(recent.exists(), "recently modified database was removed");
     }
@@ -508,7 +631,7 @@ mod tests {
         let file = base_path.join("file.db");
         std::fs::write(&file, "").unwrap();
 
-        remove_stale_databases(base_path, Duration::ZERO, |_| false);
+        remove_stale_databases(base_path, Duration::ZERO, Duration::ZERO, |_| false);
 
         assert!(not_rocksdb.exists(), "non-RocksDB directory was removed");
         assert!(
@@ -521,7 +644,131 @@ mod tests {
     #[test]
     fn test_remove_stale_databases_missing_base_path() {
         let tmp_dir = tempdir().expect("Could not create temp dir");
-        remove_stale_databases(&tmp_dir.path().join("missing"), Duration::ZERO, |_| false);
+        remove_stale_databases(
+            &tmp_dir.path().join("missing"),
+            Duration::ZERO,
+            Duration::ZERO,
+            |_| false,
+        );
+    }
+
+    #[test]
+    fn test_remove_stale_databases_uses_recorded_ttl() {
+        const HOUR: Duration = Duration::from_secs(60 * 60);
+        let tmp_dir = tempdir().expect("Could not create temp dir");
+        let base_path = tmp_dir.path();
+
+        let unexpired = create_db_dir_with_ttl(base_path, "long-ttl.old-pod.db", HOUR * 24 * 7);
+        set_db_dir_age(&unexpired, HOUR * 24 * 3);
+        let expired = create_db_dir_with_ttl(base_path, "short-ttl.old-pod.db", HOUR);
+        set_db_dir_age(&expired, HOUR * 24 * 3);
+        let unrecorded = create_db_dir(base_path, "unrecorded-ttl.old-pod.db");
+        set_db_dir_age(&unrecorded, HOUR * 24 * 3);
+
+        remove_stale_databases(base_path, HOUR * 50, HOUR * 24 * 4, |_| false);
+
+        assert!(unexpired.exists(), "database within its TTL was removed");
+        assert!(!expired.exists(), "database past its TTL was not removed");
+        assert!(
+            unrecorded.exists(),
+            "database within the default TTL was removed"
+        );
+    }
+
+    #[test]
+    fn test_remove_stale_databases_removes_incomplete_removals() {
+        let tmp_dir = tempdir().expect("Could not create temp dir");
+        let deleting = tmp_dir.path().join(".account.old-pod.db.deleting");
+        std::fs::create_dir_all(&deleting).unwrap();
+
+        remove_stale_databases(tmp_dir.path(), Duration::MAX, Duration::MAX, |_| false);
+
+        assert!(!deleting.exists(), "incomplete removal was not cleaned up");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_remove_stale_databases_keeps_locked_by_other_process() {
+        use nix::libc;
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+
+        let tmp_dir = tempdir().expect("Could not create temp dir");
+        let locked = create_db_dir(tmp_dir.path(), "account.other-process.db");
+        let lock_path = CString::new(locked.join("LOCK").as_os_str().as_bytes()).unwrap();
+
+        // SAFETY: the child process only makes async-signal-safe calls before exiting.
+        let (child, ready, release) = unsafe {
+            let mut ready = [0; 2];
+            let mut release = [0; 2];
+            assert_eq!(libc::pipe(ready.as_mut_ptr()), 0);
+            assert_eq!(libc::pipe(release.as_mut_ptr()), 0);
+            let mut lock: libc::flock = std::mem::zeroed();
+            lock.l_type = libc::F_WRLCK as libc::c_short;
+            lock.l_whence = libc::SEEK_SET as libc::c_short;
+
+            let child = libc::fork();
+            assert!(child >= 0, "fork failed");
+            if child == 0 {
+                // Hold the lock the same way RocksDB does until the parent releases it.
+                let fd = libc::open(lock_path.as_ptr(), libc::O_RDWR);
+                let locked = u8::from(fd >= 0 && libc::fcntl(fd, libc::F_SETLK, &lock) == 0);
+                libc::write(ready[1], (&raw const locked).cast(), 1);
+                let mut buf = 0u8;
+                libc::read(release[0], (&raw mut buf).cast(), 1);
+                libc::_exit(0);
+            }
+            (child, ready, release)
+        };
+
+        let mut child_locked = 0u8;
+        // SAFETY: reads one byte from a pipe created above.
+        unsafe { libc::read(ready[0], (&raw mut child_locked).cast(), 1) };
+        assert_eq!(child_locked, 1, "child process failed to lock the database");
+
+        remove_stale_databases(tmp_dir.path(), Duration::ZERO, Duration::ZERO, |_| false);
+        let kept_while_locked = locked.exists();
+
+        // SAFETY: writes one byte to a pipe created above and waits for the child to exit.
+        unsafe {
+            libc::write(release[1], [0u8].as_ptr().cast(), 1);
+            libc::waitpid(child, std::ptr::null_mut(), 0);
+            for fd in ready.into_iter().chain(release) {
+                libc::close(fd);
+            }
+        }
+
+        assert!(
+            kept_while_locked,
+            "database locked by another process was removed"
+        );
+
+        remove_stale_databases(tmp_dir.path(), Duration::ZERO, Duration::ZERO, |_| false);
+        assert!(!locked.exists(), "database was not removed once unlocked");
+    }
+
+    #[assay(env = [("POD_NAME", "vector-test0-0")])]
+    fn test_new_connection_uses_each_database_ttl() {
+        const HOUR: Duration = Duration::from_secs(60 * 60);
+        let tmp_dir = tempdir().expect("Could not create temp dir");
+        let base_path = tmp_dir.path();
+
+        // Saved by a previous run for another account with a longer TTL than this one.
+        let unexpired = create_db_dir_with_ttl(base_path, "other.old-pod.db", HOUR * 24 * 7);
+        set_db_dir_age(&unexpired, HOUR * 24 * 3);
+
+        let ctx = test_mezmo_context();
+        let ttl_secs = 300;
+        RocksDBPersistenceConnection::new_with_ttl(base_path.to_str().unwrap(), &ctx, ttl_secs)
+            .unwrap();
+
+        assert!(unexpired.exists(), "database within its TTL was removed");
+        let db_path = base_path.join(format!("{}.vector-test0-0.db", ctx.account_id().unwrap()));
+        assert_eq!(
+            recorded_ttl(&db_path),
+            Some(Duration::from_secs(ttl_secs)),
+            "TTL was not recorded"
+        );
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
