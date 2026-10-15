@@ -888,7 +888,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let (_, stream) = generate_metrics_with_stream(generator, gen_settings.len(), Some(batch));
@@ -958,7 +962,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let (_, stream) = generate_metrics_with_stream(generator, gen_settings.len(), Some(batch));
@@ -1057,7 +1065,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let (_, stream) = generate_metrics_with_stream(generator, gen_settings.len(), Some(batch));
@@ -1119,7 +1131,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let (_, stream) = generate_metrics_with_stream(generator, gen_settings.len(), Some(batch));

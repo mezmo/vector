@@ -76,6 +76,36 @@ generated: components: sinks: new_relic: configuration: {
 			}
 		}
 	}
+	cache: {
+		description: """
+			Configuration for the cache of each cumulative metric series' previous point, used to
+			convert cumulative metrics into the deltas the Metrics API requires.
+
+			By default, a series is evicted after 180 seconds without an update. Its next point only
+			becomes a new baseline and is not sent.
+			"""
+		required: false
+		type: object: options: {
+			max_bytes: {
+				description: "The maximum size in bytes of the events in the metrics normalizer cache, excluding cache overhead."
+				required:    false
+				type: uint: unit: "bytes"
+			}
+			max_events: {
+				description: "The maximum number of events of the metrics normalizer cache"
+				required:    false
+				type: uint: unit: "events"
+			}
+			time_to_live: {
+				description: "The maximum age of a metric not being updated before it is evicted from the metrics normalizer cache."
+				required:    false
+				type: uint: {
+					default: 180
+					unit:    "seconds"
+				}
+			}
+		}
+	}
 	compression: {
 		description: """
 			Compression configuration.

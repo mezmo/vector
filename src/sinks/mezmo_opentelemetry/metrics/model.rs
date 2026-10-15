@@ -1360,7 +1360,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let mut metrics: Vec<OpentelemetryMetricsModel> = vec![];
@@ -1444,7 +1448,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let mut metrics: Vec<OpentelemetryMetricsModel> = vec![];
@@ -1530,7 +1538,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let mut metrics: Vec<OpentelemetryMetricsModel> = vec![];
@@ -1597,7 +1609,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let mut metrics: Vec<OpentelemetryMetricsModel> = vec![];
@@ -1670,7 +1686,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let mut metrics: Vec<OpentelemetryMetricsModel> = vec![];
@@ -1769,7 +1789,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let mut metrics: Vec<OpentelemetryMetricsModel> = vec![];
@@ -1886,7 +1910,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let mut metrics: Vec<OpentelemetryMetricsModel> = vec![];
@@ -1958,7 +1986,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let mut metrics: Vec<OpentelemetryMetricsModel> = vec![];
@@ -2021,7 +2053,11 @@ mod test {
                 uniq_id,
             );
             let log = event.as_log();
-            Event::Metric(to_metric(log).expect("Failed to convert log to metric"))
+            Event::Metric(
+                to_metric(log)
+                    .expect("Failed to convert log to metric")
+                    .expect("Metric has a value"),
+            )
         };
 
         let config = OpentelemetryMetricConfig {

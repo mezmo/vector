@@ -74,7 +74,7 @@ impl FunctionTransform for LogToMetric {
 
         match to_metric(&event.into_log()) {
             Ok(metric) => {
-                buffer = Some(Event::Metric(metric));
+                buffer = metric.map(Event::Metric);
             }
             Err(err) => {
                 handle_transform_error(&self.mezmo_ctx, err);
@@ -86,6 +86,21 @@ impl FunctionTransform for LogToMetric {
             output.push(event);
         }
     }
+}
+
+/// Runs events through this transform, for sink tests that check what a destination receives
+/// from OpenTelemetry metric envelopes.
+#[cfg(all(
+    test,
+    any(feature = "sinks-new_relic", feature = "sinks-datadog_metrics")
+))]
+pub(crate) fn log_to_metric(events: Vec<Event>) -> Vec<Event> {
+    let mut transform = LogToMetric::new(LogToMetricConfig::default(), None);
+    let mut output = OutputBuffer::with_capacity(events.len());
+    for event in events {
+        transform.transform(&mut output, event);
+    }
+    output.drain().collect()
 }
 
 #[cfg(test)]

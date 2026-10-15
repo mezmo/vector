@@ -6,9 +6,12 @@ use vector_lib::sensitive_string::SensitiveString;
 
 use super::{
     NewRelicApiResponse, NewRelicApiService, NewRelicEncoder, NewRelicSink, NewRelicSinkError,
-    healthcheck, service::NewRelicApiRequest,
+    healthcheck, normalizer::NewRelicNormalizerSettings, service::NewRelicApiRequest,
 };
-use crate::{http::HttpClient, sinks::prelude::*};
+use crate::{
+    http::HttpClient,
+    sinks::{prelude::*, util::buffer::metrics::NormalizerConfig},
+};
 
 /// New Relic region.
 #[configurable_component]
@@ -104,6 +107,15 @@ pub struct NewRelicConfig {
     #[serde(default)]
     pub request: TowerRequestConfig,
 
+    /// Configuration for the cache of each cumulative metric series' previous point, used to
+    /// convert cumulative metrics into the deltas the Metrics API requires.
+    ///
+    /// By default, a series is evicted after 180 seconds without an update. Its next point only
+    /// becomes a new baseline and is not sent.
+    #[configurable(derived)]
+    #[serde(default)]
+    pub cache: NormalizerConfig<NewRelicNormalizerSettings>,
+
     #[configurable(derived)]
     #[serde(
         default,
@@ -141,6 +153,7 @@ impl SinkConfig for NewRelicConfig {
             .limit_max_events(self.batch.max_events.unwrap_or(100))?
             .into_batcher_settings()?;
 
+        let normalizer_config = self.cache.validate()?;
         let request_limits = self.request.into_settings();
         let tls_settings = TlsSettings::from_options(None)?;
         let client = HttpClient::new(tls_settings, &cx.proxy)?;
@@ -161,6 +174,7 @@ impl SinkConfig for NewRelicConfig {
             credentials,
             compression: self.compression,
             batcher_settings,
+            normalizer_config,
         };
 
         Ok((super::VectorSink::from_event_streamsink(sink), healthcheck))

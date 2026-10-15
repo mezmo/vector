@@ -467,7 +467,8 @@ impl TaskTransform<Event> for MezmoAggregateDistributed {
                             // Only support Mezmo metric-shaped LogEvents. Warn the user if a non-metric
                             // shape is provided, drop the event and move on.
                             let metric = match to_metric(event.as_log()) {
-                                Ok(metric) => metric,
+                                Ok(Some(metric)) => metric,
+                                Ok(None) => continue,
                                 Err(err) => {
                                     emit!(MezmoAggregateDistributedRecordFailed {
                                         drop_reason: "Invalid metric event",
