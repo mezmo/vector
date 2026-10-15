@@ -8,6 +8,9 @@ use crate::sinks::util::{
 mod normalize;
 pub use self::normalize::*;
 
+mod otel_cumulative;
+pub use self::otel_cumulative::*;
+
 mod split;
 pub use self::split::*;
 

@@ -9,17 +9,20 @@ use crate::{
     },
     metrics::AgentDDSketch,
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use lookup::PathPrefix;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::num::NonZeroU32;
 
+use super::otel;
+
 #[derive(Debug)]
 pub enum TransformError {
     FieldNotFound { field: String },
     FieldInvalidType { field: String },
+    FieldInvalidValue { field: String, reason: String },
     InvalidMetricType { type_name: String },
     FieldNull { field: String },
     ParseIntOverflow { field: String },
@@ -39,6 +42,9 @@ impl Display for TransformError {
             }
             TransformError::FieldInvalidType { field } => {
                 write!(f, "Field '{field}' type is not valid")
+            }
+            TransformError::FieldInvalidValue { field, reason } => {
+                write!(f, "Field '{field}' value is not valid: {reason}")
             }
             TransformError::InvalidMetricType { type_name } => {
                 write!(f, "Metric type '{type_name}' is not supported")
@@ -379,18 +385,28 @@ fn get_property<'a>(
     }
 }
 
-/// # Errors
-///
-/// Will return `Err` if any field transformations fail
-pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
-    let timestamp = log_schema()
+pub(super) fn event_timestamp(log: &LogEvent) -> DateTime<Utc> {
+    log_schema()
         .timestamp_key()
         .and_then(|path| {
             log.get((lookup::PathPrefix::Event, path))
                 .and_then(Value::as_timestamp)
                 .copied()
         })
-        .or_else(|| Some(Utc::now()));
+        .unwrap_or_else(Utc::now)
+}
+
+/// Returns `None` for an OpenTelemetry data point that records no value.
+///
+/// # Errors
+///
+/// Will return `Err` if any field transformations fail
+pub fn to_metric(log: &LogEvent) -> Result<Option<Metric>, TransformError> {
+    if otel::is_native_otel(log) {
+        return otel::to_metric(log);
+    }
+
+    let timestamp = Some(event_timestamp(log));
 
     let metadata = log.metadata().clone();
     let user_metadata = match log.get((PathPrefix::Event, log_schema().user_metadata_key())) {
@@ -472,7 +488,7 @@ pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
     let value = parse_value(type_name.as_ref(), value_object)?;
     let arbitrary = parse_arbitrary(value_object, user_metadata);
 
-    Ok(Metric::from_parts(
+    Ok(Some(Metric::from_parts(
         MetricSeries {
             name: MetricName {
                 name: name.into(),
@@ -490,7 +506,7 @@ pub fn to_metric(log: &LogEvent) -> Result<Metric, TransformError> {
             arbitrary,
         },
         metadata,
-    ))
+    )))
 }
 
 fn from_buckets(buckets: &[Bucket]) -> Value {
@@ -695,7 +711,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(&to_metric(&expected).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap().unwrap());
 
         assert_eq!(expected, actual);
     }
@@ -727,7 +743,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let metric = to_metric(&expected).unwrap();
+        let metric = to_metric(&expected).unwrap().unwrap();
         let actual = from_metric(&metric);
 
         assert_eq!(expected, actual);
@@ -758,7 +774,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(&to_metric(&expected).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap().unwrap());
 
         // note: presently we materialize a MetricValue::Gauge. This causes
         // the resulting metric to have 'type' 'guage'. This "makes it work"
@@ -792,7 +808,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(&to_metric(&expected).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap().unwrap());
 
         assert_eq!(expected, actual);
     }
@@ -821,7 +837,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(&to_metric(&expected).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap().unwrap());
 
         assert_eq!(expected, actual);
     }
@@ -875,7 +891,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(&to_metric(&expected).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap().unwrap());
 
         assert_eq!(expected, actual);
     }
@@ -929,7 +945,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(&to_metric(&expected).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap().unwrap());
 
         assert_eq!(expected, actual);
     }
@@ -964,7 +980,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let actual = from_metric(&to_metric(&expected).unwrap());
+        let actual = from_metric(&to_metric(&expected).unwrap().unwrap());
 
         assert_eq!(expected, actual);
     }
@@ -1001,7 +1017,7 @@ mod tests {
         .unwrap()
         .into();
 
-        let metric = to_metric(&expected).unwrap();
+        let metric = to_metric(&expected).unwrap().unwrap();
 
         match metric.value() {
             crate::event::metric::MetricValue::Sketch { sketch } => match sketch {

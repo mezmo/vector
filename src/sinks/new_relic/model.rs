@@ -15,7 +15,13 @@ use vector_lib::{
 use vrl::event_path;
 
 use super::NewRelicSinkError;
-use crate::event::{Event, LogEvent, MetricKind, MetricValue, Value};
+use crate::event::{
+    Event, LogEvent, Metric, MetricKind, MetricValue, Value,
+    metric::{
+        Quantile,
+        mezmo::{attribute_tag_value, otel_metric_context, otel_sum_reported},
+    },
+};
 
 #[derive(Debug)]
 pub(super) enum NewRelicApiModel {
@@ -42,16 +48,183 @@ pub(super) struct MetricData {
     pub interval_ms: Option<i64>,
     pub name: String,
     pub r#type: &'static str,
-    pub value: f64,
+    pub value: MetricDataValue,
     pub timestamp: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attributes: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub(super) enum MetricDataValue {
+    Number(f64),
+    Summary(SummaryValue),
+}
+
+/// The `summary` type has no buckets or quantiles, only these four values.
+#[derive(Debug, Serialize)]
+pub(super) struct SummaryValue {
+    pub count: u64,
+    pub sum: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+}
+
+enum SkipReason {
+    MissingInterval,
+    NanValue,
+    NoObservations,
+    NoSum,
+    UnsupportedType,
 }
 
 impl MetricsApiModel {
     pub(super) const fn new(metrics: Vec<MetricData>) -> Self {
         Self([MetricDataStore { metrics }])
     }
+}
+
+fn required_interval(metric: &Metric) -> Result<Option<i64>, SkipReason> {
+    metric
+        .interval_ms()
+        .map(|interval_ms| Some(i64::from(interval_ms.get())))
+        .ok_or(SkipReason::MissingInterval)
+}
+
+const fn number_value(value: f64) -> Result<MetricDataValue, SkipReason> {
+    if value.is_nan() {
+        Err(SkipReason::NanValue)
+    } else {
+        Ok(MetricDataValue::Number(value))
+    }
+}
+
+const fn summary_value(
+    count: u64,
+    sum: f64,
+    min: Option<f64>,
+    max: Option<f64>,
+) -> Result<MetricDataValue, SkipReason> {
+    // New Relic requires a positive count, and a window without observations has nothing to say.
+    if count == 0 {
+        return Err(SkipReason::NoObservations);
+    }
+    if sum.is_nan() {
+        return Err(SkipReason::NanValue);
+    }
+    Ok(MetricDataValue::Summary(SummaryValue {
+        count,
+        sum,
+        min,
+        max,
+    }))
+}
+
+fn arbitrary_f64(metric: &Metric, key: &str) -> Option<f64> {
+    match metric.arbitrary_value().value.get(key) {
+        Some(Value::Float(value)) => Some(value.into_inner()),
+        _ => None,
+    }
+}
+
+fn quantile_value(quantiles: &[Quantile], quantile: f64) -> Option<f64> {
+    quantiles
+        .iter()
+        .find(|candidate| candidate.quantile == quantile)
+        .map(|candidate| candidate.value)
+}
+
+/// Absolute counters, histograms and summaries reach this point only when the sink's normalizer
+/// passes them through unchanged; absolute counters keep their historical `gauge` mapping.
+fn metric_value(
+    metric: &Metric,
+) -> Result<(MetricDataValue, &'static str, Option<i64>), SkipReason> {
+    match (metric.value(), metric.kind()) {
+        (MetricValue::Counter { value }, MetricKind::Incremental) => {
+            let interval_ms = required_interval(metric)?;
+            Ok((number_value(*value)?, "count", interval_ms))
+        }
+        (MetricValue::Counter { value }, MetricKind::Absolute)
+        | (MetricValue::Gauge { value }, _) => Ok((number_value(*value)?, "gauge", None)),
+        (MetricValue::AggregatedHistogram { count, sum, .. }, MetricKind::Incremental) => {
+            let interval_ms = required_interval(metric)?;
+            // The placeholder sum of 0 would be published as a measured one.
+            if !otel_sum_reported(metric.arbitrary_value()) {
+                return Err(SkipReason::NoSum);
+            }
+            let value = summary_value(
+                *count,
+                *sum,
+                arbitrary_f64(metric, "min"),
+                arbitrary_f64(metric, "max"),
+            )?;
+            Ok((value, "summary", interval_ms))
+        }
+        (
+            MetricValue::AggregatedSummary {
+                quantiles,
+                count,
+                sum,
+            },
+            MetricKind::Incremental,
+        ) => {
+            let interval_ms = required_interval(metric)?;
+            let value = summary_value(
+                *count,
+                *sum,
+                quantile_value(quantiles, 0.0),
+                quantile_value(quantiles, 1.0),
+            )?;
+            Ok((value, "summary", interval_ms))
+        }
+        _ => Err(SkipReason::UnsupportedType),
+    }
+}
+
+/// Places the OpenTelemetry context the way New Relic's own OTLP intake does: data point
+/// attributes win over scope attributes, which win over resource attributes, and the
+/// metric-level fields win over all of them.
+///
+/// Reference: https://docs.newrelic.com/docs/opentelemetry/best-practices/opentelemetry-best-practices-metrics/
+fn metric_attributes(metric: &Metric) -> Option<BTreeMap<String, String>> {
+    let mut attributes: BTreeMap<String, String> = metric
+        .tags()
+        .map(|tags| {
+            tags.iter_single()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if let Some(context) = otel_metric_context(metric) {
+        let is_data_point_attribute = |key: &str| {
+            context
+                .data_point_attributes
+                .is_some_and(|attributes| attributes.contains_key(key))
+        };
+        for (key, value) in context.scope_attributes.into_iter().flatten() {
+            if !is_data_point_attribute(key.as_str())
+                && let Some(value) = attribute_tag_value(value)
+            {
+                attributes.insert(key.to_string(), value);
+            }
+        }
+        let metric_fields = [
+            ("otel.library.name", context.scope_name),
+            ("otel.library.version", context.scope_version),
+            ("unit", context.unit),
+            ("description", context.description),
+        ];
+        for (key, value) in metric_fields {
+            if let Some(value) = value {
+                attributes.insert(key.to_string(), value.into_owned());
+            }
+        }
+    }
+
+    (!attributes.is_empty()).then_some(attributes)
 }
 
 impl TryFrom<Vec<Event>> for MetricsApiModel {
@@ -61,6 +234,8 @@ impl TryFrom<Vec<Event>> for MetricsApiModel {
         let mut num_non_metric_events = 0;
         let mut num_missing_interval = 0;
         let mut num_nan_value = 0;
+        let mut num_no_observations = 0;
+        let mut num_no_sum = 0;
         let mut num_unsupported_metric_type = 0;
 
         let metric_array: Vec<_> = buf_events
@@ -71,43 +246,28 @@ impl TryFrom<Vec<Event>> for MetricsApiModel {
                     return None;
                 };
 
-                // Generate Value::Object() from BTreeMap<String, String>
-                let (series, data, _) = metric.into_parts();
-
-                // We only handle gauge and counter metrics
-                // Extract value & type and set type-related attributes
-                let (value, metric_type, interval_ms) = match (data.value, &data.kind) {
-                    (MetricValue::Counter { value }, MetricKind::Incremental) => {
-                        let Some(interval_ms) = data.time.interval_ms else {
-                            // Incremental counter without an interval is worthless, skip this metric
-                            num_missing_interval += 1;
-                            return None;
-                        };
-                        (value, "count", Some(interval_ms.get() as i64))
-                    }
-                    (MetricValue::Counter { value }, MetricKind::Absolute)
-                    | (MetricValue::Gauge { value }, _) => (value, "gauge", None),
-                    _ => {
-                        // Unsupported metric type
-                        num_unsupported_metric_type += 1;
+                let (value, metric_type, interval_ms) = match metric_value(&metric) {
+                    Ok(converted) => converted,
+                    Err(reason) => {
+                        match reason {
+                            SkipReason::MissingInterval => num_missing_interval += 1,
+                            SkipReason::NanValue => num_nan_value += 1,
+                            SkipReason::NoObservations => num_no_observations += 1,
+                            SkipReason::NoSum => num_no_sum += 1,
+                            SkipReason::UnsupportedType => num_unsupported_metric_type += 1,
+                        }
                         return None;
                     }
                 };
 
-                // Set name, type, value, timestamp, and attributes
-                if value.is_nan() {
-                    num_nan_value += 1;
-                    return None;
-                };
-
-                let timestamp = data.time.timestamp.unwrap_or_else(Utc::now);
+                let timestamp = metric.timestamp().unwrap_or_else(Utc::now);
                 Some(MetricData {
                     interval_ms,
-                    name: series.name.name,
+                    name: metric.name().to_string(),
                     r#type: metric_type,
                     value,
                     timestamp: timestamp.timestamp_millis(),
-                    attributes: series.tags.map(|tags| tags.into_iter_single().collect()),
+                    attributes: metric_attributes(&metric),
                 })
             })
             .collect();
@@ -124,6 +284,18 @@ impl TryFrom<Vec<Event>> for MetricsApiModel {
                 reason: "unsupported metric type"
             });
         }
+        if num_no_observations > 0 {
+            emit!(ComponentEventsDropped::<INTENTIONAL> {
+                count: num_no_observations,
+                reason: "summary without observations"
+            });
+        }
+        if num_no_sum > 0 {
+            emit!(ComponentEventsDropped::<INTENTIONAL> {
+                count: num_no_sum,
+                reason: "histogram without sum"
+            });
+        }
         if num_nan_value > 0 {
             emit!(ComponentEventsDropped::<UNINTENTIONAL> {
                 count: num_nan_value,
@@ -133,7 +305,7 @@ impl TryFrom<Vec<Event>> for MetricsApiModel {
         if num_missing_interval > 0 {
             emit!(ComponentEventsDropped::<UNINTENTIONAL> {
                 count: num_missing_interval,
-                reason: "incremental counter missing interval"
+                reason: "incremental metric missing interval"
             });
         }
 

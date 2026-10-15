@@ -1,3 +1,5 @@
+mod exponential;
+mod otel;
 mod vector;
 
 use crate::config::log_schema;
@@ -11,6 +13,11 @@ use crate::event::{
     metric::{MetricKind, TagValue},
 };
 
+pub use exponential::{ExponentialBuckets, ExponentialHistogram};
+pub use otel::{
+    OtelMetricContext, attribute_tag_value, mark_otel_sum_absent, otel_metric_context,
+    otel_start_time, otel_sum_reported, set_otel_start_time,
+};
 pub use vector::{TransformError, from_metric, to_metric};
 
 pub fn from_f64_or_zero(value: f64) -> Value {

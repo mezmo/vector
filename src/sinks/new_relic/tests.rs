@@ -762,3 +762,578 @@ async fn component_spec_compliance_traces() {
     let (sink, event) = trace_sink().await;
     run_and_assert_sink_compliance(sink, stream::once(ready(event)), &SINK_TAGS).await;
 }
+
+mod otel_metrics {
+    use std::num::NonZeroU32;
+
+    use futures::StreamExt;
+    use hyper::StatusCode;
+    use serde_json::{Value as JsonValue, json};
+    use vector_lib::{
+        event::metric::{Bucket, Quantile, mezmo::to_metric},
+        finalization::{BatchNotifier, BatchStatus},
+    };
+
+    use super::super::{
+        NewRelicConfig, model::MetricsApiModel, normalizer::NewRelicMetricsNormalizer,
+    };
+    use crate::{
+        config::{SinkConfig, SinkContext},
+        event::{Event, Metric, MetricKind, MetricValue},
+        sinks::util::{buffer::metrics::MetricNormalizer, test::build_test_server_status},
+        test_util::{
+            addr::next_addr,
+            mezmo_otel::{TIME_SECONDS, envelope, envelope_metric, nanos},
+        },
+    };
+
+    fn cumulative_counter(seconds: i64, start: i64, value: &str) -> Metric {
+        envelope_metric(
+            "requests",
+            json!({
+                "type": "sum", "timeUnixNano": nanos(seconds), "startTimeUnixNano": nanos(start),
+                "value": value, "valueType": "int", "aggregationTemporality": 2,
+                "isMonotonic": true,
+            }),
+        )
+    }
+
+    fn scoped_cumulative_counter(scope: &str, seconds: i64, value: &str) -> Metric {
+        let mut log = envelope(
+            "requests",
+            json!({
+                "type": "sum", "timeUnixNano": nanos(seconds),
+                "startTimeUnixNano": nanos(TIME_SECONDS - 3600), "value": value,
+                "valueType": "int", "aggregationTemporality": 2, "isMonotonic": true,
+            }),
+        )
+        .into_log();
+        log.insert("message.scope.name", scope);
+        to_metric(&log).unwrap().unwrap()
+    }
+
+    fn cumulative_histogram(seconds: i64, counts: [&str; 3], count: &str, sum: f64) -> Metric {
+        envelope_metric(
+            "http.server.duration",
+            json!({
+                "type": "histogram", "timeUnixNano": nanos(seconds),
+                "startTimeUnixNano": nanos(TIME_SECONDS - 3600),
+                "count": count, "sum": sum, "min": 0.5, "max": 30,
+                "bucketCounts": counts, "explicitBounds": [5, 10],
+                "aggregationTemporality": 2,
+            }),
+        )
+    }
+
+    fn cumulative_summary(seconds: i64, count: &str, sum: f64) -> Metric {
+        envelope_metric(
+            "rpc.latency",
+            json!({
+                "type": "summary", "timeUnixNano": nanos(seconds), "count": count, "sum": sum,
+                "quantileValues": [
+                    {"quantile": 0.0, "value": 0.5},
+                    {"quantile": 0.5, "value": 2.0},
+                    {"quantile": 1.0, "value": 4.0},
+                ],
+            }),
+        )
+    }
+
+    fn normalizer() -> MetricNormalizer<NewRelicMetricsNormalizer> {
+        MetricNormalizer::default()
+    }
+
+    fn first_metric(metric: Metric) -> JsonValue {
+        let events = vec![Event::Metric(metric)];
+        let model = serde_json::to_value(MetricsApiModel::try_from(events).unwrap()).unwrap();
+        model[0]["metrics"][0].clone()
+    }
+
+    #[test]
+    fn cumulative_counter_becomes_delta_count() {
+        let mut normalizer = normalizer();
+
+        assert!(
+            normalizer
+                .normalize(cumulative_counter(TIME_SECONDS, TIME_SECONDS - 3600, "10"))
+                .is_none()
+        );
+        let delta = normalizer
+            .normalize(cumulative_counter(
+                TIME_SECONDS + 60,
+                TIME_SECONDS - 3600,
+                "25",
+            ))
+            .unwrap();
+
+        assert_eq!(delta.kind(), MetricKind::Incremental);
+        assert_eq!(delta.value(), &MetricValue::Counter { value: 15.0 });
+        assert_eq!(delta.interval_ms(), NonZeroU32::new(60_000));
+        assert_eq!(first_metric(delta)["type"], "count");
+    }
+
+    #[test]
+    fn new_start_time_is_a_reset() {
+        let mut normalizer = normalizer();
+        normalizer.normalize(cumulative_counter(TIME_SECONDS, TIME_SECONDS - 3600, "10"));
+
+        let delta = normalizer
+            .normalize(cumulative_counter(
+                TIME_SECONDS + 60,
+                TIME_SECONDS + 30,
+                "4",
+            ))
+            .unwrap();
+
+        assert_eq!(delta.value(), &MetricValue::Counter { value: 4.0 });
+        assert_eq!(delta.interval_ms(), NonZeroU32::new(30_000));
+    }
+
+    #[test]
+    fn restart_overlapping_previous_point_only_becomes_baseline() {
+        let mut normalizer = normalizer();
+        normalizer.normalize(cumulative_counter(TIME_SECONDS, TIME_SECONDS - 3600, "10"));
+
+        assert!(
+            normalizer
+                .normalize(cumulative_counter(
+                    TIME_SECONDS + 60,
+                    TIME_SECONDS - 30,
+                    "40"
+                ))
+                .is_none()
+        );
+        let delta = normalizer
+            .normalize(cumulative_counter(
+                TIME_SECONDS + 120,
+                TIME_SECONDS - 30,
+                "45",
+            ))
+            .unwrap();
+
+        assert_eq!(delta.value(), &MetricValue::Counter { value: 5.0 });
+        assert_eq!(delta.interval_ms(), NonZeroU32::new(60_000));
+    }
+
+    #[test]
+    fn scopes_keep_separate_baselines() {
+        let mut normalizer = normalizer();
+        normalizer.normalize(scoped_cumulative_counter("a", TIME_SECONDS, "10"));
+        normalizer.normalize(scoped_cumulative_counter("b", TIME_SECONDS, "100"));
+
+        let delta_a = normalizer
+            .normalize(scoped_cumulative_counter("a", TIME_SECONDS + 60, "15"))
+            .unwrap();
+        let delta_b = normalizer
+            .normalize(scoped_cumulative_counter("b", TIME_SECONDS + 60, "130"))
+            .unwrap();
+
+        assert_eq!(delta_a.value(), &MetricValue::Counter { value: 5.0 });
+        assert_eq!(delta_b.value(), &MetricValue::Counter { value: 30.0 });
+    }
+
+    #[test]
+    fn late_point_does_not_replace_baseline() {
+        let start = TIME_SECONDS - 3600;
+        let mut normalizer = normalizer();
+        normalizer.normalize(cumulative_counter(TIME_SECONDS + 60, start, "10"));
+        normalizer.normalize(cumulative_counter(TIME_SECONDS + 120, start, "20"));
+
+        assert!(
+            normalizer
+                .normalize(cumulative_counter(TIME_SECONDS + 90, start, "15"))
+                .is_none()
+        );
+        assert!(
+            normalizer
+                .normalize(cumulative_counter(TIME_SECONDS + 120, start, "20"))
+                .is_none()
+        );
+        let delta = normalizer
+            .normalize(cumulative_counter(TIME_SECONDS + 180, start, "30"))
+            .unwrap();
+
+        assert_eq!(delta.value(), &MetricValue::Counter { value: 10.0 });
+        assert_eq!(delta.interval_ms(), NonZeroU32::new(60_000));
+    }
+
+    #[test]
+    fn baseline_does_not_hold_acknowledgements() {
+        let start = TIME_SECONDS - 3600;
+        let mut normalizer = normalizer();
+        let (first_batch, mut first_receiver) = BatchNotifier::new_with_receiver();
+        let (second_batch, mut second_receiver) = BatchNotifier::new_with_receiver();
+        let first = cumulative_counter(TIME_SECONDS, start, "10").with_batch_notifier(&first_batch);
+        let second =
+            cumulative_counter(TIME_SECONDS + 60, start, "25").with_batch_notifier(&second_batch);
+        drop((first_batch, second_batch));
+
+        assert!(normalizer.normalize(first).is_none());
+        assert_eq!(first_receiver.try_recv(), Ok(BatchStatus::Delivered));
+
+        drop(normalizer.normalize(second).unwrap());
+        assert_eq!(second_receiver.try_recv(), Ok(BatchStatus::Delivered));
+    }
+
+    #[test]
+    fn non_otel_absolute_counter_keeps_gauge_mapping() {
+        let counter = Metric::new(
+            "legacy",
+            MetricKind::Absolute,
+            MetricValue::Counter { value: 10.0 },
+        );
+
+        let passed = normalizer().normalize(counter.clone()).unwrap();
+
+        assert_eq!(passed, counter);
+        assert_eq!(first_metric(passed)["type"], "gauge");
+    }
+
+    #[test]
+    fn cumulative_histogram_becomes_delta_summary_without_extremes() {
+        let mut normalizer = normalizer();
+        normalizer.normalize(cumulative_histogram(
+            TIME_SECONDS,
+            ["1", "2", "3"],
+            "6",
+            10.0,
+        ));
+
+        let delta = normalizer
+            .normalize(cumulative_histogram(
+                TIME_SECONDS + 60,
+                ["2", "3", "5"],
+                "10",
+                18.0,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            delta.value(),
+            &MetricValue::AggregatedHistogram {
+                buckets: Vec::new(),
+                count: 4,
+                sum: 8.0,
+            }
+        );
+        assert_eq!(
+            first_metric(delta),
+            json!({
+                "name": "http.server.duration",
+                "type": "summary",
+                "value": {"count": 4, "sum": 8.0},
+                "interval.ms": 60_000,
+                "timestamp": (TIME_SECONDS + 60) * 1000,
+                "attributes": first_metric(cumulative_counter(TIME_SECONDS, 0, "1"))["attributes"],
+            })
+        );
+    }
+
+    fn histogram_without_sum(seconds: i64, temporality: u8, count: &str) -> Metric {
+        envelope_metric(
+            "http.server.duration",
+            json!({
+                "type": "histogram", "timeUnixNano": nanos(seconds),
+                "startTimeUnixNano": nanos(TIME_SECONDS - 3600), "count": count,
+                "bucketCounts": [count, "0"], "explicitBounds": [5],
+                "aggregationTemporality": temporality,
+            }),
+        )
+    }
+
+    #[test]
+    fn histogram_without_sum_is_dropped() {
+        let delta = histogram_without_sum(TIME_SECONDS, 1, "3");
+
+        assert!(MetricsApiModel::try_from(vec![Event::Metric(delta)]).is_err());
+    }
+
+    #[test]
+    fn histogram_delta_from_point_without_sum_is_dropped() {
+        let mut normalizer = normalizer();
+        normalizer.normalize(histogram_without_sum(TIME_SECONDS, 2, "3"));
+
+        let delta = normalizer
+            .normalize(cumulative_histogram(
+                TIME_SECONDS + 60,
+                ["5", "0", "0"],
+                "5",
+                1000.0,
+            ))
+            .unwrap();
+
+        assert!(MetricsApiModel::try_from(vec![Event::Metric(delta)]).is_err());
+    }
+
+    #[test]
+    fn histogram_bucket_layout_change_keeps_delta() {
+        let histogram = |seconds: i64, bounds: serde_json::Value, counts: &[&str], count, sum| {
+            envelope_metric(
+                "http.server.duration",
+                json!({
+                    "type": "histogram", "timeUnixNano": nanos(seconds),
+                    "startTimeUnixNano": nanos(TIME_SECONDS - 3600),
+                    "count": count, "sum": sum, "bucketCounts": counts,
+                    "explicitBounds": bounds, "aggregationTemporality": 2,
+                }),
+            )
+        };
+        let mut normalizer = normalizer();
+        normalizer.normalize(histogram(TIME_SECONDS, json!([5]), &["2", "1"], "3", 9.0));
+
+        let delta = normalizer
+            .normalize(histogram(
+                TIME_SECONDS + 60,
+                json!([5, 50]),
+                &["2", "1", "1"],
+                "4",
+                109.0,
+            ))
+            .unwrap();
+
+        assert_eq!(
+            first_metric(delta)["value"],
+            json!({"count": 1, "sum": 100.0})
+        );
+    }
+
+    #[test]
+    fn reset_histogram_keeps_extremes() {
+        let mut normalizer = normalizer();
+        normalizer.normalize(cumulative_histogram(
+            TIME_SECONDS,
+            ["1", "2", "3"],
+            "6",
+            10.0,
+        ));
+
+        let reset = envelope_metric(
+            "http.server.duration",
+            json!({
+                "type": "histogram", "timeUnixNano": nanos(TIME_SECONDS + 60),
+                "startTimeUnixNano": nanos(TIME_SECONDS + 30),
+                "count": "2", "sum": 7, "min": 3, "max": 4,
+                "bucketCounts": ["1", "1", "0"], "explicitBounds": [5, 10],
+                "aggregationTemporality": 2,
+            }),
+        );
+        let output = first_metric(normalizer.normalize(reset).unwrap());
+
+        assert_eq!(
+            output["value"],
+            json!({"count": 2, "sum": 7.0, "min": 3.0, "max": 4.0})
+        );
+        assert_eq!(output["interval.ms"], 30_000);
+    }
+
+    #[test]
+    fn histogram_going_backwards_without_start_time_is_withheld() {
+        let histogram = |count, seconds| {
+            Metric::new(
+                "h",
+                MetricKind::Absolute,
+                MetricValue::AggregatedHistogram {
+                    buckets: vec![Bucket {
+                        upper_limit: 1.0,
+                        count,
+                    }],
+                    count,
+                    sum: 1.0,
+                },
+            )
+            .with_timestamp(chrono::DateTime::from_timestamp(seconds, 0))
+        };
+        let mut normalizer = normalizer();
+        normalizer.normalize(histogram(5, TIME_SECONDS));
+
+        assert!(
+            normalizer
+                .normalize(histogram(2, TIME_SECONDS + 60))
+                .is_none()
+        );
+        assert!(
+            normalizer
+                .normalize(histogram(3, TIME_SECONDS + 120))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn cumulative_summary_becomes_delta_summary() {
+        let mut normalizer = normalizer();
+        normalizer.normalize(cumulative_summary(TIME_SECONDS, "4", 10.0));
+
+        let delta = normalizer
+            .normalize(cumulative_summary(TIME_SECONDS + 60, "6", 16.0))
+            .unwrap();
+
+        let output = first_metric(delta);
+        assert_eq!(output["type"], "summary");
+        assert_eq!(output["value"], json!({"count": 2, "sum": 6.0}));
+        assert_eq!(output["interval.ms"], 60_000);
+    }
+
+    #[test]
+    fn delta_histogram_keeps_extremes() {
+        let histogram = envelope_metric(
+            "http.server.duration",
+            json!({
+                "type": "histogram", "timeUnixNano": nanos(TIME_SECONDS),
+                "startTimeUnixNano": nanos(TIME_SECONDS - 60),
+                "count": "4", "sum": 20, "min": 1, "max": 9,
+                "bucketCounts": ["4"], "aggregationTemporality": 1,
+            }),
+        );
+
+        let output = first_metric(normalizer().normalize(histogram).unwrap());
+
+        assert_eq!(
+            output["value"],
+            json!({"count": 4, "sum": 20.0, "min": 1.0, "max": 9.0})
+        );
+        assert_eq!(output["interval.ms"], 60_000);
+    }
+
+    #[test]
+    fn summary_without_observations_is_skipped() {
+        let empty = Metric::new(
+            "empty",
+            MetricKind::Incremental,
+            MetricValue::AggregatedSummary {
+                quantiles: vec![Quantile {
+                    quantile: 0.5,
+                    value: 1.0,
+                }],
+                count: 0,
+                sum: 0.0,
+            },
+        )
+        .with_interval_ms(NonZeroU32::new(1000));
+
+        assert!(MetricsApiModel::try_from(vec![Event::Metric(empty)]).is_err());
+    }
+
+    #[test]
+    fn otel_context_becomes_attributes() {
+        let gauge = envelope_metric(
+            "queue.depth",
+            json!({"type": "gauge", "timeUnixNano": nanos(TIME_SECONDS), "value": 3.5}),
+        );
+
+        assert_eq!(
+            first_metric(gauge)["attributes"],
+            json!({
+                "service.name": "checkout",
+                "k8s.pod.uid": "7",
+                "http.route": "/cart",
+                "scope.attr": "s",
+                "otel.library.name": "io.opentelemetry.http",
+                "otel.library.version": "1.2.0",
+                "unit": "ms",
+                "description": "A description",
+            })
+        );
+    }
+
+    #[cfg(feature = "transforms-mezmo_log_to_metric")]
+    #[tokio::test]
+    async fn envelopes_through_log_to_metric_produce_request_body() {
+        use crate::{test_util::mezmo_otel::envelope, transforms::mezmo_log_to_metric};
+
+        let counter = |seconds: i64, value: &str| {
+            envelope(
+                "requests",
+                json!({
+                    "type": "sum", "timeUnixNano": nanos(seconds),
+                    "startTimeUnixNano": nanos(TIME_SECONDS - 3600), "value": value,
+                    "valueType": "int", "aggregationTemporality": 2, "isMonotonic": true,
+                }),
+            )
+        };
+        let summary = |seconds: i64, count: &str, sum: f64| {
+            envelope(
+                "rpc.latency",
+                json!({
+                    "type": "summary", "timeUnixNano": nanos(seconds), "count": count,
+                    "sum": sum, "quantileValues": [{"value": 0.5}, {"quantile": 1.0, "value": 4.0}],
+                }),
+            )
+        };
+        let metrics = mezmo_log_to_metric::log_to_metric(vec![
+            envelope(
+                "queue.depth",
+                json!({"type": "gauge", "timeUnixNano": nanos(TIME_SECONDS), "value": 3.5}),
+            ),
+            counter(TIME_SECONDS, "10"),
+            summary(TIME_SECONDS, "4", 10.0),
+            envelope(
+                "http.server.duration",
+                json!({
+                    "type": "histogram", "timeUnixNano": nanos(TIME_SECONDS),
+                    "startTimeUnixNano": nanos(TIME_SECONDS - 60), "count": "4", "sum": 20,
+                    "min": 1, "max": 9, "bucketCounts": ["1", "3"], "explicitBounds": [5],
+                    "aggregationTemporality": 1,
+                }),
+            ),
+            counter(TIME_SECONDS + 60, "25"),
+            summary(TIME_SECONDS + 60, "6", 16.0),
+        ]);
+        assert_eq!(metrics.len(), 6, "every envelope converts to a metric");
+
+        let (_guard, addr) = next_addr();
+        let mut config: NewRelicConfig = toml::from_str(
+            r#"
+                license_key = "key"
+                account_id = "1"
+                api = "metrics"
+                compression = "none"
+            "#,
+        )
+        .unwrap();
+        config.override_uri = Some(format!("http://{addr}").parse().unwrap());
+        let (sink, _) = config.build(SinkContext::default()).await.unwrap();
+        let (rx, _trigger, server) = build_test_server_status(addr, StatusCode::ACCEPTED);
+        tokio::spawn(server);
+
+        sink.run_events(metrics).await.unwrap();
+
+        let (_, body) = rx.take(1).collect::<Vec<_>>().await.remove(0);
+        let body: JsonValue = serde_json::from_slice(&body).unwrap();
+        let mut sent = body[0]["metrics"].as_array().unwrap().clone();
+        sent.sort_by_key(|metric| metric["name"].as_str().unwrap().to_string());
+        let attributes = json!({
+            "service.name": "checkout",
+            "k8s.pod.uid": "7",
+            "http.route": "/cart",
+            "scope.attr": "s",
+            "otel.library.name": "io.opentelemetry.http",
+            "otel.library.version": "1.2.0",
+            "unit": "ms",
+            "description": "A description",
+        });
+        let time_ms = TIME_SECONDS * 1000;
+        assert_eq!(
+            JsonValue::Array(sent),
+            json!([
+                {
+                    "name": "http.server.duration", "type": "summary",
+                    "value": {"count": 4, "sum": 20.0, "min": 1.0, "max": 9.0},
+                    "interval.ms": 60_000, "timestamp": time_ms, "attributes": attributes,
+                },
+                {
+                    "name": "queue.depth", "type": "gauge", "value": 3.5,
+                    "timestamp": time_ms, "attributes": attributes,
+                },
+                {
+                    "name": "requests", "type": "count", "value": 15.0,
+                    "interval.ms": 60_000, "timestamp": time_ms + 60_000, "attributes": attributes,
+                },
+                {
+                    "name": "rpc.latency", "type": "summary",
+                    "value": {"count": 2, "sum": 6.0},
+                    "interval.ms": 60_000, "timestamp": time_ms + 60_000, "attributes": attributes,
+                },
+            ])
+        );
+    }
+}

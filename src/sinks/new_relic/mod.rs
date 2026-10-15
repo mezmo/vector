@@ -2,6 +2,7 @@ mod config;
 mod encoding;
 mod healthcheck;
 mod model;
+mod normalizer;
 mod service;
 mod sink;
 

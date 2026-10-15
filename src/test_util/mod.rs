@@ -69,6 +69,8 @@ pub mod integration;
 #[cfg(test)]
 pub mod metrics;
 #[cfg(test)]
+pub mod mezmo_otel;
+#[cfg(test)]
 pub mod mock;
 
 #[macro_export]

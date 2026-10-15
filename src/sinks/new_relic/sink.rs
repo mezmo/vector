@@ -3,9 +3,19 @@ use std::{fmt::Debug, sync::Arc};
 use async_trait::async_trait;
 use bytes::Bytes;
 
-use super::{NewRelicApiRequest, NewRelicCredentials, NewRelicEncoder};
+use futures::future::ready;
+
+use super::{
+    NewRelicApi, NewRelicApiRequest, NewRelicCredentials, NewRelicEncoder,
+    normalizer::{NewRelicMetricsNormalizer, NewRelicNormalizerSettings},
+};
 use crate::{
-    http::get_http_scheme_from_uri, internal_events::SinkRequestBuildError, sinks::prelude::*,
+    http::get_http_scheme_from_uri,
+    internal_events::SinkRequestBuildError,
+    sinks::{
+        prelude::*,
+        util::buffer::metrics::{MetricNormalizer, NormalizerConfig},
+    },
 };
 
 #[derive(Debug)]
@@ -105,6 +115,7 @@ pub struct NewRelicSink<S> {
     pub credentials: Arc<NewRelicCredentials>,
     pub compression: Compression,
     pub batcher_settings: BatcherSettings,
+    pub normalizer_config: NormalizerConfig<NewRelicNormalizerSettings>,
 }
 
 impl<S> NewRelicSink<S>
@@ -121,8 +132,19 @@ where
             credentials: Arc::clone(&self.credentials),
         };
         let protocol = get_http_scheme_from_uri(&self.credentials.get_uri());
+        let normalizer_config = self.normalizer_config;
+        let mut normalizer = (self.credentials.api == NewRelicApi::Metrics)
+            .then(|| MetricNormalizer::with_config(NewRelicMetricsNormalizer, normalizer_config));
 
         input
+            .filter_map(move |event| {
+                ready(match (&mut normalizer, event) {
+                    (Some(normalizer), Event::Metric(metric)) => {
+                        normalizer.normalize(metric).map(Event::Metric)
+                    }
+                    (_, event) => Some(event),
+                })
+            })
             .batched(self.batcher_settings.as_byte_size_config())
             .request_builder(default_request_builder_concurrency_limit(), request_builder)
             .filter_map(
