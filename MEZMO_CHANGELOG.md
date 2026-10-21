@@ -1,5 +1,17 @@
 ## Changelog
 
+## [10.1.2](https://github.com/mezmo/vector/compare/v10.1.1...v10.1.2) (2026-10-21)
+
+
+### Bug Fixes
+
+* **mezmo_log_to_metric**: Convert native OTel metric envelopes [7f915e0](https://github.com/mezmo/vector/commit/7f915e09f5ce2bbf6c5d4fa3a9fd89a8a6efc4a5) - Phil Ciampini [LOG-25034](https://logdna.atlassian.net/browse/LOG-25034)
+
+
+### Miscellaneous
+
+* Merge pull request #88 from mezmo/pciampini/LOG-25034-otel-to-metric [56d3e15](https://github.com/mezmo/vector/commit/56d3e15e115836d1002f5f406dd57841ea25b2eb) - GitHub [LOG-25034](https://logdna.atlassian.net/browse/LOG-25034)
+
 ## [10.1.1](https://github.com/mezmo/vector/compare/v10.1.0...v10.1.1) (2026-08-21)
 
 
