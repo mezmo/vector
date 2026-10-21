@@ -1951,8 +1951,9 @@ mod tests {
             ]))
         );
 
-        let metric =
-            to_metric(&metrics[0].clone().into_log()).expect("Failed to convert lot to metric");
+        let metric = to_metric(&metrics[0].clone().into_log())
+            .expect("Failed to convert lot to metric")
+            .expect("Metric has a value");
 
         assert_eq!(metric.value(), &MetricValue::Gauge { value: 10.0 });
         assert_eq!(metric.kind(), MetricKind::Absolute);
@@ -2154,8 +2155,9 @@ mod tests {
             ]))
         );
 
-        let metric =
-            to_metric(&metrics[0].clone().into_log()).expect("Failed to convert lot to metric");
+        let metric = to_metric(&metrics[0].clone().into_log())
+            .expect("Failed to convert lot to metric")
+            .expect("Metric has a value");
 
         assert_eq!(metric.value(), &MetricValue::Counter { value: 10.0 });
         assert_eq!(metric.kind(), MetricKind::Incremental);
@@ -2357,8 +2359,9 @@ mod tests {
             ]))
         );
 
-        let metric =
-            to_metric(&metrics[0].clone().into_log()).expect("Failed to convert lot to metric");
+        let metric = to_metric(&metrics[0].clone().into_log())
+            .expect("Failed to convert lot to metric")
+            .expect("Metric has a value");
 
         assert_eq!(metric.value(), &MetricValue::Gauge { value: 10.0 });
         assert_eq!(metric.kind(), MetricKind::Absolute);
@@ -2676,8 +2679,9 @@ mod tests {
             ]))
         );
 
-        let metric =
-            to_metric(&metrics[0].clone().into_log()).expect("Failed to convert lot to metric");
+        let metric = to_metric(&metrics[0].clone().into_log())
+            .expect("Failed to convert lot to metric")
+            .expect("Metric has a value");
 
         assert_eq!(
             metric.value(),
@@ -3027,8 +3031,9 @@ mod tests {
             ]))
         );
 
-        let metric =
-            to_metric(&metrics[0].clone().into_log()).expect("Failed to convert lot to metric");
+        let metric = to_metric(&metrics[0].clone().into_log())
+            .expect("Failed to convert lot to metric")
+            .expect("Metric has a value");
 
         assert_eq!(
             metric.value(),

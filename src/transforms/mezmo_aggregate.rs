@@ -92,7 +92,7 @@ impl Aggregate {
     fn record(&mut self, event: Event) {
         let event = to_metric(&event.into_log());
         match event {
-            Ok(event) => {
+            Ok(Some(event)) => {
                 let (series, data, metadata) = event.into_parts();
                 match data.kind {
                     metric::MetricKind::Incremental => match self.map.entry(series) {
@@ -118,6 +118,7 @@ impl Aggregate {
 
                 emit!(MezmoAggregateEventRecorded);
             }
+            Ok(None) => {}
             Err(err) => {
                 handle_transform_error(&self.mezmo_ctx, err);
             }

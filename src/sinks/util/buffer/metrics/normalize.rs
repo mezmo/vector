@@ -686,6 +686,16 @@ impl MetricSet {
         }
     }
 
+    /// Returns the stored entry for a series without changing its recency. Expired entries are
+    /// only swept periodically, so one past its time to live is treated as already gone.
+    pub fn peek(&self, series: &MetricSeries) -> Option<&MetricEntry> {
+        let entry = self.inner.peek(series)?;
+        let expired = self
+            .ttl_policy()
+            .is_some_and(|policy| entry.is_expired(policy.ttl, Instant::now()));
+        (!expired).then_some(entry)
+    }
+
     /// Removes a series from the cache.
     ///
     /// If the series existed and was removed, returns true.  Otherwise, false.
@@ -703,5 +713,31 @@ impl MetricSet {
 impl Default for MetricSet {
     fn default() -> Self {
         Self::new(MetricSetSettings::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vector_lib::event::MetricValue;
+
+    use super::*;
+
+    #[test]
+    fn peek_skips_expired_entries() {
+        let ttl = Duration::from_secs(60);
+        let mut set = MetricSet::with_policies(None, Some(TtlPolicy::new(ttl)));
+        let metric = Metric::new(
+            "requests",
+            MetricKind::Absolute,
+            MetricValue::Counter { value: 1.0 },
+        );
+        let series = metric.series().clone();
+        set.insert_update(metric);
+        assert!(set.peek(&series).is_some());
+
+        // The sweep has not run yet, so the expired entry is still in the cache.
+        set.inner.get_mut(&series).unwrap().timestamp = Instant::now().checked_sub(ttl);
+
+        assert!(set.peek(&series).is_none());
     }
 }

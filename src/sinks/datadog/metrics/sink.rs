@@ -9,7 +9,10 @@ use futures_util::{
 };
 use tower::Service;
 use vector_lib::{
-    event::{Event, Metric, MetricValue},
+    event::{
+        Event, Metric, MetricValue,
+        metric::mezmo::{attribute_tag_value, otel_metric_context},
+    },
     partition::Partitioner,
     sink::StreamSink,
     stream::{BatcherSettings, DriverResponse},
@@ -27,6 +30,41 @@ use crate::{
         request_builder::default_request_builder_concurrency_limit,
     },
 };
+
+/// Tags metrics converted from OTLP with their instrumentation scope, as Datadog's own OTLP
+/// intake does. Resource and data point attributes are already tags and keep precedence over
+/// scope attributes with the same key.
+///
+/// Reference: datadog-agent
+/// `pkg/opentelemetry-mapping-go/otlp/metrics/internal/instrumentationscope/metadata.go`
+pub(super) fn add_otel_scope_tags(mut metric: Metric) -> Metric {
+    let Some(context) = otel_metric_context(&metric) else {
+        return metric;
+    };
+    let scope_fields = [
+        ("instrumentation_scope", context.scope_name),
+        ("instrumentation_scope_version", context.scope_version),
+    ]
+    .into_iter()
+    .filter_map(|(key, value)| Some((key.to_string(), value?.into_owned())))
+    .collect::<Vec<_>>();
+    let scope_attributes = context
+        .scope_attributes
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, value)| Some((key.to_string(), attribute_tag_value(value)?)))
+        .collect::<Vec<_>>();
+
+    for (key, value) in scope_fields {
+        metric.replace_tag(key, value);
+    }
+    for (key, value) in scope_attributes {
+        if metric.tags().and_then(|tags| tags.get(&key)).is_none() {
+            metric.replace_tag(key, value);
+        }
+    }
+    metric
+}
 
 /// Partitions metrics based on which Datadog API endpoint that they are sent to.
 ///
@@ -90,6 +128,7 @@ where
         input
             // Convert `Event` to `Metric` so we don't have to deal with constant conversions.
             .filter_map(|event| ready(event.try_into_metric()))
+            .map(add_otel_scope_tags)
             // Split aggregated summaries into individual metrics for count, sum, and the quantiles, which lets us
             // ensure that aggregated summaries effectively make it through normalization, as we can't actually
             // normalize them and so they would be dropped during normalization otherwise.

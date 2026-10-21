@@ -285,6 +285,35 @@ impl AgentDDSketch {
         })
     }
 
+    /// Replaces the summary statistics estimated from the bins with exact values reported by the
+    /// source, as the Datadog agent does for OpenTelemetry histograms. Without a reported sum the
+    /// estimated one is kept.
+    pub fn set_exact_stats(
+        &mut self,
+        count: u32,
+        sum: Option<f64>,
+        min: Option<f64>,
+        max: Option<f64>,
+    ) {
+        self.count = count;
+        if let Some(sum) = sum {
+            self.sum = sum;
+        }
+        self.avg = if count == 0 {
+            0.0
+        } else {
+            self.sum / f64::from(count)
+        };
+        if let Some(min) = min {
+            self.min = min;
+            self.max = self.max.max(min);
+        }
+        if let Some(max) = max {
+            self.max = max;
+            self.min = self.min.min(max);
+        }
+    }
+
     pub fn gamma(&self) -> f64 {
         self.config.gamma_v
     }
@@ -545,7 +574,9 @@ impl AgentDDSketch {
         self.insert_key_counts(vec![(key, n)]);
     }
 
-    fn insert_interpolate_bucket(&mut self, lower: f64, upper: f64, count: u32) {
+    /// Spreads `count` samples over the bins between `lower` and `upper`, for sources that report
+    /// both bounds of a bucket rather than only its upper limit.
+    pub fn insert_interpolate_bucket(&mut self, lower: f64, upper: f64, count: u32) {
         // Find the keys for the bins where the lower bound and upper bound would end up, and
         // collect all of the keys in between, inclusive.
         let lower_key = self.config.key(lower);
