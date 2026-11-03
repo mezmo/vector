@@ -2158,26 +2158,6 @@
        type = "vrl"
        source = '[.a, .b, .c] == [3, 2, 3]'
 
- [transforms.remap_function_get_hostname]
-   inputs = []
-   type = "remap"
-   source = """
-     .a = get_hostname!()
-   """
- [[tests]]
-   name = "remap_function_get_hostname"
-   [tests.input]
-     insert_at = "remap_function_get_hostname"
-     type = "log"
-     [tests.input.log_fields]
-   [[tests.outputs]]
-     extract_from = "remap_function_get_hostname"
-     [[tests.outputs.conditions]]
-       type = "vrl"
-       source = '''
-         .a != ""
-       '''
-
  [transforms.remap_function_get_timezone_name]
    inputs = []
    type = "remap"
@@ -2224,27 +2204,6 @@
          .none == "foobarbaz" &&
          .from_split == "big__bad__booper"
        '''
-
-[transforms.remap_function_reverse_dns]
-  inputs = []
-  type = "remap"
-  source = """
-    .host = reverse_dns!(.ip)
-  """
-[[tests]]
-  name = "remap_function_reverse_dns"
-  [tests.input]
-    insert_at = "remap_function_reverse_dns"
-    type = "log"
-    [tests.input.log_fields]
-      ip = "127.0.0.1"
-  [[tests.outputs]]
-    extract_from = "remap_function_reverse_dns"
-    [[tests.outputs.conditions]]
-      "type" = "vrl"
-      source = '''
-        .host == "localhost"
-      '''
 
 [enrichment_tables.test]
 type = "file"

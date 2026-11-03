@@ -766,6 +766,24 @@ mod tests {
         )
     }
 
+    #[test]
+    fn disabled_vrl_functions_do_not_compile() {
+        for name in mezmo_vrl_functions::DISABLED_VRL_FUNCTIONS {
+            let config = RemapConfig {
+                source: Some(format!(".x = {name}()")),
+                ..Default::default()
+            };
+
+            // "undefined function", not just any error: an argument error would
+            // mean the function is still in the set.
+            let err = remap(config).unwrap_err().to_string();
+            assert!(
+                err.contains("call to undefined function"),
+                "{name} still compiles in remap: {err}"
+            );
+        }
+    }
+
     fn get_field_string(event: &Event, field: &str) -> String {
         event
             .as_log()
