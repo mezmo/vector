@@ -1,5 +1,17 @@
 ## Changelog
 
+## [10.1.3](https://github.com/mezmo/vector/compare/v10.1.2...v10.1.3) (2026-11-04)
+
+
+### Bug Fixes
+
+* **sinks**: reject all-zero ids on native otel spans [385450c](https://github.com/mezmo/vector/commit/385450c037bd0e63721e83a66d6f6527c411329d) - Phil Ciampini [LOG-25287](https://logdna.atlassian.net/browse/LOG-25287)
+
+
+### Miscellaneous
+
+* Merge pull request #90 from mezmo/pciampini/LOG-25287 [0a17e7e](https://github.com/mezmo/vector/commit/0a17e7ea27b61f4041995ec0b1d6d5e350988df7) - GitHub [LOG-25287](https://logdna.atlassian.net/browse/LOG-25287)
+
 ## [10.1.2](https://github.com/mezmo/vector/compare/v10.1.1...v10.1.2) (2026-10-21)
 
 
