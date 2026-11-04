@@ -8,7 +8,13 @@ pub fn encode(model: OpentelemetryResourceMetrics) -> Result<Vec<u8>, Openteleme
     // Metric model to Protobuf encoding
     // https://github.com/open-telemetry/opentelemetry-rust/blob/936c46639aa1521bf49dbffba49bbd9795f8ea58/opentelemetry-otlp/src/exporter/http/metrics.rs#L52-L61
 
-    let req: ExportMetricsServiceRequest = (&model.0).into();
+    let resource_metrics = model
+        .0
+        .iter()
+        .map(ExportMetricsServiceRequest::from)
+        .flat_map(|request| request.resource_metrics)
+        .collect();
+    let req = ExportMetricsServiceRequest { resource_metrics };
 
     let mut buf = vec![];
     req.encode(&mut buf).map_err(OpentelemetrySinkError::from)?;
