@@ -1,5 +1,12 @@
 ## Changelog
 
+## [10.1.4](https://github.com/mezmo/vector/compare/v10.1.3...v10.1.4) (2026-11-04)
+
+
+### Bug Fixes
+
+* **vrl**: Disallow env, host, and file access functions [5d816ec](https://github.com/mezmo/vector/commit/5d816ec23235572500b698e80f9df7e50116eba1) - Darin Spivey [LOG-25266](https://logdna.atlassian.net/browse/LOG-25266)
+
 ## [10.1.3](https://github.com/mezmo/vector/compare/v10.1.2...v10.1.3) (2026-11-04)
 
 
