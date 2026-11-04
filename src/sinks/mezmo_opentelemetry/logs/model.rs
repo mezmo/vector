@@ -8,14 +8,15 @@ use opentelemetry::{
     logs::{AnyValue as OtlpAnyValue, LogRecord, Severity},
     trace::{SpanContext, TraceState},
 };
+use opentelemetry_proto::tonic::logs::v1::SeverityNumber;
 use opentelemetry_sdk::export::logs::LogData;
 use std::borrow::Cow;
 
 use crate::sinks::mezmo_opentelemetry::{
     models::{
         OpentelemetryModelMatch, OpentelemetryModelType, OpentelemetryResource, OpentelemetryScope,
-        OpentelemetrySpanId, OpentelemetryTraceFlags, OpentelemetryTraceId,
-        value_to_otlp_any_value, value_to_system_time,
+        OpentelemetrySpanId, OpentelemetryTraceFlags, OpentelemetryTraceId, native_enum_number,
+        native_envelope, native_time, value_to_otlp_any_value, value_to_system_time,
     },
     sink::OpentelemetrySinkError,
 };
@@ -26,6 +27,10 @@ pub struct OpentelemetryLogsModel(pub LogData);
 impl OpentelemetryModelMatch for OpentelemetryLogsModel {
     fn maybe_match(event: &Event) -> Option<OpentelemetryModelType> {
         if let Some(log) = event.maybe_as_log() {
+            if native_envelope(log, "log").is_some() {
+                return Some(OpentelemetryModelType::Logs);
+            }
+
             let message = log.get_message();
             let metadata = log.get((PathPrefix::Event, log_schema().user_metadata_key()));
 
@@ -57,6 +62,96 @@ impl OpentelemetryLogsModel {
     pub const fn new(log: LogData) -> Self {
         Self(log)
     }
+
+    fn from_native(message: &Value, record: &Value) -> Self {
+        let mut record_builder = LogRecord::builder();
+
+        if let Some(body) = record.get("body") {
+            record_builder = record_builder.with_body(value_to_otlp_any_value(body.clone()));
+        }
+
+        if let Some(value) = record.get("attributes")
+            && let OtlpAnyValue::Map(attrs) = value_to_otlp_any_value(value.clone())
+        {
+            record_builder = record_builder.with_attributes(attrs.into_iter().collect::<Vec<_>>());
+        }
+
+        if let Some(timestamp) = native_time(record.get("timeUnixNano")) {
+            record_builder = record_builder.with_timestamp(timestamp);
+        }
+
+        if let Some(timestamp) = native_time(record.get("observedTimeUnixNano")) {
+            record_builder = record_builder.with_observed_timestamp(timestamp);
+        }
+
+        let raw_trace_id = record.get("traceId");
+        let raw_span_id = record.get("spanId");
+
+        if raw_trace_id.or(raw_span_id).is_some() {
+            let trace_id: OpentelemetryTraceId = raw_trace_id.into();
+            let span_id: OpentelemetrySpanId = raw_span_id.into();
+            let trace_flags: OpentelemetryTraceFlags = record.get("flags").into();
+            let context = SpanContext::new(
+                trace_id.into(),
+                span_id.into(),
+                trace_flags.into(),
+                false,
+                TraceState::NONE,
+            );
+
+            record_builder = record_builder.with_span_context(&context);
+        }
+
+        if let Some(Value::Bytes(bytes)) = record.get("severityText") {
+            let severity_text = String::from_utf8_lossy(bytes).into_owned();
+            record_builder = record_builder.with_severity_text(Cow::from(severity_text));
+        }
+
+        // droppedAttributesCount is not read: the opentelemetry 0.22 LogRecord has no field for
+        // it, so it is always encoded as 0.
+        let mut log_record = record_builder.build();
+
+        let severity_number = native_enum_number(record.get("severityNumber"), |name| {
+            SeverityNumber::from_str_name(name).map(i32::from)
+        });
+        log_record.severity_number = severity_number.and_then(severity_from_number);
+
+        Self::new(LogData {
+            record: log_record,
+            resource: Cow::Owned(OpentelemetryResource::from_native(message).into()),
+            instrumentation: OpentelemetryScope::from_native(message).into(),
+        })
+    }
+}
+
+const fn severity_from_number(number: i64) -> Option<Severity> {
+    match number {
+        1 => Some(Severity::Trace),
+        2 => Some(Severity::Trace2),
+        3 => Some(Severity::Trace3),
+        4 => Some(Severity::Trace4),
+        5 => Some(Severity::Debug),
+        6 => Some(Severity::Debug2),
+        7 => Some(Severity::Debug3),
+        8 => Some(Severity::Debug4),
+        9 => Some(Severity::Info),
+        10 => Some(Severity::Info2),
+        11 => Some(Severity::Info3),
+        12 => Some(Severity::Info4),
+        13 => Some(Severity::Warn),
+        14 => Some(Severity::Warn2),
+        15 => Some(Severity::Warn3),
+        16 => Some(Severity::Warn4),
+        17 => Some(Severity::Error),
+        18 => Some(Severity::Error2),
+        19 => Some(Severity::Error3),
+        20 => Some(Severity::Error4),
+        21 => Some(Severity::Fatal),
+        22 => Some(Severity::Fatal2),
+        23 => Some(Severity::Fatal3),
+        24 => Some(Severity::Fatal4),
+        _ => None,
+    }
 }
 
 impl TryFrom<Event> for OpentelemetryLogsModel {
@@ -64,6 +159,10 @@ impl TryFrom<Event> for OpentelemetryLogsModel {
 
     fn try_from(buf_event: Event) -> Result<Self, Self::Error> {
         let log = &buf_event.into_log();
+
+        if let Some((message, record)) = native_envelope(log, "log") {
+            return Ok(Self::from_native(message, record));
+        }
 
         let mut record_builder = LogRecord::builder();
 
@@ -121,33 +220,7 @@ impl TryFrom<Event> for OpentelemetryLogsModel {
             };
 
             if let Some(Value::Integer(number)) = metadata.get("severity_number") {
-                severity_number = match *number {
-                    1 => Some(Severity::Trace),
-                    2 => Some(Severity::Trace2),
-                    3 => Some(Severity::Trace3),
-                    4 => Some(Severity::Trace4),
-                    5 => Some(Severity::Debug),
-                    6 => Some(Severity::Debug2),
-                    7 => Some(Severity::Debug3),
-                    8 => Some(Severity::Debug4),
-                    9 => Some(Severity::Info),
-                    10 => Some(Severity::Info2),
-                    11 => Some(Severity::Info3),
-                    12 => Some(Severity::Info4),
-                    13 => Some(Severity::Warn),
-                    14 => Some(Severity::Warn2),
-                    15 => Some(Severity::Warn3),
-                    16 => Some(Severity::Warn4),
-                    17 => Some(Severity::Error),
-                    18 => Some(Severity::Error2),
-                    19 => Some(Severity::Error3),
-                    20 => Some(Severity::Error4),
-                    21 => Some(Severity::Fatal),
-                    22 => Some(Severity::Fatal2),
-                    23 => Some(Severity::Fatal3),
-                    24 => Some(Severity::Fatal4),
-                    _ => None,
-                };
+                severity_number = severity_from_number(*number);
             };
         }
 
@@ -172,12 +245,12 @@ mod test {
 
     use crate::event::Value;
     use chrono::DateTime;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashMap};
     use std::time::SystemTime;
-    use vector_lib::event::{Event, LogEvent};
+    use vector_lib::event::{Event, EventMetadata, LogEvent, ObjectMap};
 
     use opentelemetry::{
-        InstrumentationLibrary,
+        InstrumentationLibrary, Key, KeyValue,
         logs::{AnyValue as OtlpAnyValue, LogRecord, Severity, TraceContext},
         trace::{SpanId, TraceFlags, TraceId},
     };
@@ -340,5 +413,190 @@ mod test {
         assert_eq!(trace_context.span_id, SpanId::from_bytes(span_id));
         assert!(trace_context.trace_flags.is_some());
         assert_eq!(trace_context.trace_flags.unwrap(), TraceFlags::SAMPLED);
+    }
+
+    const NATIVE_TRACE_ID: &str = "5f467fe7bf42676c05e20ba4a90e448e";
+    const NATIVE_SPAN_ID: &str = "4c721bf33e3caf8f";
+
+    fn native_log_event(record: ObjectMap) -> Event {
+        Event::Log(LogEvent::from_map(
+            btreemap! {
+                "message" => btreemap! {
+                    "type" => "log",
+                    "resource" => btreemap! {
+                        "attributes" => btreemap! { "service.name" => "checkout" },
+                    },
+                    "scope" => btreemap! {
+                        "name" => "checkout.logger",
+                        "version" => "1.4.0",
+                        "attributes" => btreemap! { "scope.attr" => "scoped" },
+                    },
+                    "record" => record,
+                },
+            },
+            EventMetadata::default(),
+        ))
+    }
+
+    fn native_log_attributes() -> Value {
+        Value::from(btreemap! {
+            "str" => "bar",
+            "int" => 100,
+            "flt" => 1.5,
+            "bool" => true,
+            "list" => vec![Value::from("a"), Value::from(1)],
+            "map" => btreemap! { "k" => "x" },
+        })
+    }
+
+    fn native_log_record(record: ObjectMap) -> LogData {
+        OpentelemetryLogsModel::try_from(native_log_event(record))
+            .expect("native log cannot be converted to a model")
+            .0
+    }
+
+    fn assert_native_log_attributes(record: &LogRecord) {
+        let attributes = record
+            .attributes
+            .clone()
+            .expect("attributes should be set")
+            .into_iter()
+            .collect::<HashMap<Key, OtlpAnyValue>>();
+        let list = vec![OtlpAnyValue::from("a".to_string()), OtlpAnyValue::Int(1)];
+        let map = HashMap::from([(Key::new("k"), OtlpAnyValue::from("x".to_string()))]);
+
+        assert_eq!(
+            attributes,
+            HashMap::from([
+                (Key::new("str"), OtlpAnyValue::from("bar".to_string())),
+                (Key::new("int"), OtlpAnyValue::Int(100)),
+                (Key::new("flt"), OtlpAnyValue::Double(1.5)),
+                (Key::new("bool"), OtlpAnyValue::Boolean(true)),
+                (Key::new("list"), OtlpAnyValue::ListAny(list)),
+                (Key::new("map"), OtlpAnyValue::Map(map)),
+            ])
+        );
+    }
+
+    fn nanos(nanos: u64) -> SystemTime {
+        SystemTime::UNIX_EPOCH + std::time::Duration::from_nanos(nanos)
+    }
+
+    #[test]
+    fn test_otlp_sink_log_model_matcher_matches_native_log() {
+        let event = native_log_event(btreemap! { "body" => "hello" });
+
+        assert_eq!(
+            OpentelemetryLogsModel::maybe_match(&event),
+            Some(OpentelemetryModelType::Logs)
+        );
+    }
+
+    #[test]
+    fn test_otlp_sink_native_log_to_log_model() {
+        let log_data = native_log_record(btreemap! {
+            "body" => "payment accepted",
+            "attributes" => native_log_attributes(),
+            "timeUnixNano" => "1792065600000000000",
+            "observedTimeUnixNano" => 1_792_065_600_000_000_123_i64,
+            "severityNumber" => 17,
+            "severityText" => "ERROR",
+            "traceId" => NATIVE_TRACE_ID,
+            "spanId" => NATIVE_SPAN_ID,
+            "flags" => 1,
+            "droppedAttributesCount" => 2,
+        });
+        let record = &log_data.record;
+
+        assert_eq!(
+            record.body,
+            Some(OtlpAnyValue::from("payment accepted".to_string()))
+        );
+        assert_native_log_attributes(record);
+        assert_eq!(record.timestamp, Some(nanos(1_792_065_600_000_000_000)));
+        assert_eq!(record.observed_timestamp, nanos(1_792_065_600_000_000_123));
+        assert_eq!(record.severity_number, Some(Severity::Error));
+        assert_eq!(record.severity_text, Some(Cow::from("ERROR")));
+
+        let trace_context = record
+            .trace_context
+            .as_ref()
+            .expect("trace context should be set");
+        assert_eq!(
+            trace_context.trace_id,
+            TraceId::from_hex(NATIVE_TRACE_ID).unwrap()
+        );
+        assert_eq!(
+            trace_context.span_id,
+            SpanId::from_hex(NATIVE_SPAN_ID).unwrap()
+        );
+        assert_eq!(trace_context.trace_flags, Some(TraceFlags::SAMPLED));
+
+        assert_eq!(
+            log_data.resource.get(Key::new("service.name")),
+            Some("checkout".into())
+        );
+        assert_eq!(log_data.instrumentation.name, "checkout.logger");
+        assert_eq!(log_data.instrumentation.version, Some(Cow::from("1.4.0")));
+        assert_eq!(
+            log_data.instrumentation.attributes,
+            vec![KeyValue::new("scope.attr", "scoped")]
+        );
+    }
+
+    #[test]
+    fn test_otlp_sink_native_log_without_severity_or_trace_context() {
+        let log_data = native_log_record(btreemap! {
+            "body" => "payment accepted",
+            "attributes" => native_log_attributes(),
+            "timeUnixNano" => "1792065600000000000",
+            "observedTimeUnixNano" => "1792065600000000123",
+        });
+        let record = &log_data.record;
+
+        assert_eq!(
+            record.body,
+            Some(OtlpAnyValue::from("payment accepted".to_string()))
+        );
+        assert_native_log_attributes(record);
+        assert_eq!(record.timestamp, Some(nanos(1_792_065_600_000_000_000)));
+        assert_eq!(record.observed_timestamp, nanos(1_792_065_600_000_000_123));
+        assert!(record.severity_number.is_none());
+        assert!(record.severity_text.is_none());
+        assert!(record.trace_context.is_none());
+    }
+
+    #[test]
+    fn test_otlp_sink_native_log_severity_number() {
+        for (severity_number, expected) in [
+            (Value::from("SEVERITY_NUMBER_TRACE"), Some(Severity::Trace)),
+            (
+                Value::from("SEVERITY_NUMBER_TRACE2"),
+                Some(Severity::Trace2),
+            ),
+            (Value::from("SEVERITY_NUMBER_DEBUG"), Some(Severity::Debug)),
+            (Value::from("SEVERITY_NUMBER_INFO"), Some(Severity::Info)),
+            (Value::from("SEVERITY_NUMBER_WARN3"), Some(Severity::Warn3)),
+            (Value::from("SEVERITY_NUMBER_ERROR"), Some(Severity::Error)),
+            (
+                Value::from("SEVERITY_NUMBER_FATAL4"),
+                Some(Severity::Fatal4),
+            ),
+            (Value::from("SEVERITY_NUMBER_UNSPECIFIED"), None),
+            (Value::from("SEVERITY_NUMBER_LOUD"), None),
+            (Value::from(9), Some(Severity::Info)),
+            (Value::from(25), None),
+        ] {
+            let record = native_log_record(btreemap! {
+                "body" => "hello",
+                "severityNumber" => severity_number.clone(),
+            })
+            .record;
+
+            assert_eq!(
+                record.severity_number, expected,
+                "severityNumber {severity_number}"
+            );
+        }
     }
 }

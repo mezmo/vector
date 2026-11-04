@@ -660,90 +660,105 @@ impl TryFrom<(&MezmoMetric, &OpentelemetryMetricConfig)> for OpentelemetryDataPo
     }
 }
 
+/// One `ResourceMetrics` per distinct resource in the batch.
 #[derive(Debug)]
-pub struct OpentelemetryResourceMetrics(pub ResourceMetrics);
+pub struct OpentelemetryResourceMetrics(pub Vec<ResourceMetrics>);
 
 impl TryFrom<Vec<OpentelemetryMetricsModel>> for OpentelemetryResourceMetrics {
     type Error = OpentelemetrySinkError;
 
     fn try_from(models: Vec<OpentelemetryMetricsModel>) -> Result<Self, Self::Error> {
-        let mut scope_metrics = Vec::new();
-
-        if models.is_empty() {
-            return Ok(Self(ResourceMetrics {
-                resource: Resource::empty(),
-                scope_metrics,
-            }));
-        }
-
-        let mut scope_group = OpentelemetryScopeGroup::new(models[0].resource.clone());
+        let mut scope_groups: Vec<OpentelemetryScopeGroup> = vec![];
 
         for model in &models {
-            scope_group.insert(model);
+            match scope_groups
+                .iter_mut()
+                .find(|scope_group| scope_group.resource == model.resource)
+            {
+                Some(scope_group) => {
+                    scope_group.insert(model);
+                }
+                None => {
+                    let mut scope_group = OpentelemetryScopeGroup::new(model.resource.clone());
+                    scope_group.insert(model);
+                    scope_groups.push(scope_group);
+                }
+            }
         }
 
-        for scope_metric in scope_group.scopes.values() {
-            let scope = &scope_metric.scope;
+        let resource_metrics = scope_groups
+            .into_iter()
+            .map(resource_metrics_from_scope_group)
+            .collect();
 
-            let mut metrics: Vec<Metric> = vec![];
+        Ok(Self(resource_metrics))
+    }
+}
 
-            for metric in scope_metric.metrics.values() {
-                let data: Box<dyn Aggregation> = match metric.kind.as_str() {
-                    "gauge" => Box::new(Gauge {
-                        data_points: metric
-                            .data_points
-                            .iter()
-                            .filter_map(|data_point| match data_point {
-                                OpentelemetryDataPoint::Gauge(v) => Some(v.clone()),
-                                _ => None,
-                            })
-                            .collect::<Vec<DataPoint<f64>>>(),
-                    }),
-                    "sum" => Box::new(Sum {
-                        data_points: metric
-                            .data_points
-                            .iter()
-                            .filter_map(|data_point| match data_point {
-                                OpentelemetryDataPoint::Sum(v) => Some(v.clone()),
-                                _ => None,
-                            })
-                            .collect::<Vec<DataPoint<f64>>>(),
-                        temporality: metric.temporality.unwrap_or(Temporality::Cumulative),
-                        is_monotonic: metric.is_monotonic.unwrap_or(true),
-                    }),
-                    "histogram" => Box::new(Histogram {
-                        data_points: metric
-                            .data_points
-                            .iter()
-                            .filter_map(|data_point| match data_point {
-                                OpentelemetryDataPoint::Histogram(v) => Some(v.clone()),
-                                _ => None,
-                            })
-                            .collect::<Vec<HistogramDataPoint<f64>>>(),
-                        // Maybe we should set Temporality::Delta by default
-                        temporality: metric.temporality.unwrap_or(Temporality::Cumulative),
-                    }),
-                    &_ => todo!(),
-                };
+fn resource_metrics_from_scope_group(scope_group: OpentelemetryScopeGroup) -> ResourceMetrics {
+    let mut scope_metrics = Vec::new();
 
-                metrics.push(Metric {
-                    name: metric.name.clone().into(),
-                    description: metric.description.clone().into(),
-                    unit: Unit::new(Cow::from(metric.unit.clone())),
-                    data,
-                });
-            }
+    for scope_metric in scope_group.scopes.values() {
+        let scope = &scope_metric.scope;
 
-            scope_metrics.push(ScopeMetrics {
-                scope: (*scope).clone().into(),
-                metrics,
+        let mut metrics: Vec<Metric> = vec![];
+
+        for metric in scope_metric.metrics.values() {
+            let data: Box<dyn Aggregation> = match metric.kind.as_str() {
+                "gauge" => Box::new(Gauge {
+                    data_points: metric
+                        .data_points
+                        .iter()
+                        .filter_map(|data_point| match data_point {
+                            OpentelemetryDataPoint::Gauge(v) => Some(v.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<DataPoint<f64>>>(),
+                }),
+                "sum" => Box::new(Sum {
+                    data_points: metric
+                        .data_points
+                        .iter()
+                        .filter_map(|data_point| match data_point {
+                            OpentelemetryDataPoint::Sum(v) => Some(v.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<DataPoint<f64>>>(),
+                    temporality: metric.temporality.unwrap_or(Temporality::Cumulative),
+                    is_monotonic: metric.is_monotonic.unwrap_or(true),
+                }),
+                "histogram" => Box::new(Histogram {
+                    data_points: metric
+                        .data_points
+                        .iter()
+                        .filter_map(|data_point| match data_point {
+                            OpentelemetryDataPoint::Histogram(v) => Some(v.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<HistogramDataPoint<f64>>>(),
+                    // Maybe we should set Temporality::Delta by default
+                    temporality: metric.temporality.unwrap_or(Temporality::Cumulative),
+                }),
+                &_ => todo!(),
+            };
+
+            metrics.push(Metric {
+                name: metric.name.clone().into(),
+                description: metric.description.clone().into(),
+                unit: Unit::new(Cow::from(metric.unit.clone())),
+                data,
             });
         }
 
-        Ok(Self(ResourceMetrics {
-            resource: scope_group.resource.into(),
-            scope_metrics,
-        }))
+        scope_metrics.push(ScopeMetrics {
+            scope: (*scope).clone().into(),
+            metrics,
+        });
+    }
+
+    ResourceMetrics {
+        resource: Resource::from(scope_group.resource),
+        scope_metrics,
     }
 }
 
@@ -1388,7 +1403,11 @@ mod test {
         ];
         let expected_span_id: [u8; 8] = [76, 114, 27, 243, 62, 60, 175, 143];
 
-        for scope_metrics in resource_metrics.0.scope_metrics {
+        for scope_metrics in resource_metrics
+            .0
+            .into_iter()
+            .flat_map(|resource| resource.scope_metrics)
+        {
             for metric in scope_metrics.metrics {
                 if let Some(gauge) = metric.data.as_any().downcast_ref::<Gauge<f64>>() {
                     assert_eq!(gauge.data_points.len(), 3);
@@ -1476,7 +1495,11 @@ mod test {
         ];
         let expected_span_id: [u8; 8] = [76, 114, 27, 243, 62, 60, 175, 143];
 
-        for scope_metrics in resource_metrics.0.scope_metrics {
+        for scope_metrics in resource_metrics
+            .0
+            .into_iter()
+            .flat_map(|resource| resource.scope_metrics)
+        {
             for metric in scope_metrics.metrics {
                 if let Some(sum) = metric.data.as_any().downcast_ref::<Sum<f64>>() {
                     assert_eq!(sum.data_points.len(), 3);
@@ -1566,7 +1589,11 @@ mod test {
         ];
         let expected_span_id: [u8; 8] = [76, 114, 27, 243, 62, 60, 175, 143];
 
-        for scope_metrics in resource_metrics.0.scope_metrics {
+        for scope_metrics in resource_metrics
+            .0
+            .into_iter()
+            .flat_map(|resource| resource.scope_metrics)
+        {
             for metric in scope_metrics.metrics {
                 if let Some(sum) = metric.data.as_any().downcast_ref::<Sum<f64>>() {
                     assert_eq!(sum.data_points.len(), 3);
@@ -1630,7 +1657,11 @@ mod test {
         let resource_metrics = OpentelemetryResourceMetrics::try_from(metrics)
             .expect("Failed to convert metrics to OpentelemetryResourceMetrics");
 
-        for scope_metrics in resource_metrics.0.scope_metrics {
+        for scope_metrics in resource_metrics
+            .0
+            .into_iter()
+            .flat_map(|resource| resource.scope_metrics)
+        {
             for metric in scope_metrics.metrics {
                 if let Some(gauge) = metric.data.as_any().downcast_ref::<Gauge<f64>>() {
                     assert_eq!(gauge.data_points.len(), 3);
@@ -1714,7 +1745,11 @@ mod test {
         ];
         let expected_span_id: [u8; 8] = [76, 114, 27, 243, 62, 60, 175, 143];
 
-        for scope_metrics in resource_metrics.0.scope_metrics {
+        for scope_metrics in resource_metrics
+            .0
+            .into_iter()
+            .flat_map(|resource| resource.scope_metrics)
+        {
             for metric in scope_metrics.metrics {
                 if let Some(histogram) = metric.data.as_any().downcast_ref::<Histogram<f64>>() {
                     assert_eq!(histogram.data_points.len(), 3);
@@ -1810,7 +1845,11 @@ mod test {
         let resource_metrics = OpentelemetryResourceMetrics::try_from(metrics)
             .expect("Failed to convert metrics to OpentelemetryResourceMetrics");
 
-        for scope_metrics in resource_metrics.0.scope_metrics {
+        for scope_metrics in resource_metrics
+            .0
+            .into_iter()
+            .flat_map(|resource| resource.scope_metrics)
+        {
             for metric in scope_metrics.metrics {
                 if let Some(histogram) = metric.data.as_any().downcast_ref::<Histogram<f64>>() {
                     assert_eq!(histogram.data_points.len(), 3);
@@ -1931,7 +1970,11 @@ mod test {
         let resource_metrics = OpentelemetryResourceMetrics::try_from(metrics)
             .expect("Failed to convert metrics to OpentelemetryResourceMetrics");
 
-        for scope_metrics in resource_metrics.0.scope_metrics {
+        for scope_metrics in resource_metrics
+            .0
+            .into_iter()
+            .flat_map(|resource| resource.scope_metrics)
+        {
             for metric in scope_metrics.metrics {
                 if let Some(sum) = metric.data.as_any().downcast_ref::<Sum<f64>>() {
                     assert_eq!(sum.data_points.len(), 2);
@@ -2007,7 +2050,11 @@ mod test {
         let resource_metrics = OpentelemetryResourceMetrics::try_from(metrics)
             .expect("Failed to convert metrics to OpentelemetryResourceMetrics");
 
-        for scope_metrics in resource_metrics.0.scope_metrics {
+        for scope_metrics in resource_metrics
+            .0
+            .into_iter()
+            .flat_map(|resource| resource.scope_metrics)
+        {
             for metric in scope_metrics.metrics {
                 if let Some(sum) = metric.data.as_any().downcast_ref::<Sum<f64>>() {
                     assert_eq!(sum.data_points.len(), 1);
@@ -2170,5 +2217,65 @@ mod test {
         for (input, expected) in name_map.iter() {
             assert_eq!(get_word_unit_from_name(input, false), expected.to_string());
         }
+    }
+
+    #[test]
+    fn test_otlp_sink_metric_models_group_by_resource() {
+        let config = OpentelemetryMetricConfig {
+            buckets: default_histogram_buckets(),
+        };
+
+        // Native metrics carry no resource uniq_id, so one batch can hold several resources.
+        let mut models = vec![];
+        for idx in 0..4 {
+            let service = if idx % 2 == 0 { "even" } else { "odd" };
+            let event = metric_event_generator(
+                idx,
+                TestMetricGenerator::Gauge,
+                "absolute",
+                false,
+                None,
+                None,
+            );
+            let metric = to_metric(event.as_log())
+                .expect("Failed to convert log to metric")
+                .expect("Metric has a value");
+            let event = Event::Metric(metric);
+            let mut model = OpentelemetryMetricsModel::try_from((event, &config))
+                .expect("Metric event cannot be converted to a model");
+            let attributes = Value::from(btreemap! { "service.name" => service });
+            model.resource = OpentelemetryResource {
+                attributes: Some(&attributes).into(),
+                schema_url: Cow::from(""),
+            };
+            models.push(model);
+        }
+
+        let resource_metrics = OpentelemetryResourceMetrics::try_from(models)
+            .expect("Failed to convert metrics to OpentelemetryResourceMetrics");
+
+        let service_key = opentelemetry::Key::new("service.name");
+        let mut values_by_service = vec![];
+        for resource in resource_metrics.0 {
+            let service = resource.resource.get(service_key.clone());
+            let mut values = vec![];
+            for scope_metrics in resource.scope_metrics {
+                for metric in scope_metrics.metrics {
+                    let gauge = metric.data.as_any().downcast_ref::<Gauge<f64>>();
+                    let gauge = gauge.expect("metric should be a gauge");
+                    values.extend(gauge.data_points.iter().map(|point| point.value));
+                }
+            }
+            values_by_service.push((service.map(|service| service.to_string()), values));
+        }
+        values_by_service.sort_by(|a, b| a.0.cmp(&b.0));
+
+        assert_eq!(
+            values_by_service,
+            vec![
+                (Some("even".to_string()), vec![0.0, 22.0]),
+                (Some("odd".to_string()), vec![11.0, 33.0]),
+            ]
+        );
     }
 }

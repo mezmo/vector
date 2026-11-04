@@ -253,7 +253,9 @@ impl RequestBuilder<(OpentelemetryModelType, Vec<Event>)> for OpentelemetryReque
 
         // Remove events which failed to be converted to a model
         // to be able to get correct finalizers further ahead.
-        for i in dropped_events_indeces {
+        // The indices were collected in ascending order, so removing from the back keeps the
+        // ones still to be removed valid.
+        for i in dropped_events_indeces.into_iter().rev() {
             events.remove(i);
         }
 
@@ -360,5 +362,105 @@ where
 {
     async fn run(self: Box<Self>, input: BoxStream<'_, Event>) -> Result<(), ()> {
         self.run_inner(input).await
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use crate::sinks::mezmo_opentelemetry::default_histogram_buckets;
+    use vector_lib::{
+        event::{EventMetadata, LogEvent, ObjectMap},
+        finalization::BatchNotifier,
+    };
+
+    const TRACE_ID: &str = "5f467fe7bf42676c05e20ba4a90e448e";
+
+    fn native_event(signal: &str, record: ObjectMap) -> Event {
+        Event::Log(LogEvent::from_map(
+            btreemap! {
+                "message" => btreemap! {
+                    "type" => signal,
+                    "resource" => btreemap! {
+                        "attributes" => btreemap! { "service.name" => "checkout" },
+                    },
+                    "scope" => btreemap! { "name" => "checkout.scope" },
+                    "record" => record,
+                },
+            },
+            EventMetadata::default(),
+        ))
+    }
+
+    fn native_span(name: &str, trace_id: Option<&str>, batch: &BatchNotifier) -> Event {
+        let mut record: ObjectMap = btreemap! {
+            "name" => name,
+            "spanId" => "4c721bf33e3caf8f",
+        };
+        if let Some(trace_id) = trace_id {
+            record.insert("traceId".into(), trace_id.into());
+        }
+
+        native_event("trace", record).with_batch_notifier(batch)
+    }
+
+    #[test]
+    fn test_split_input_removes_only_failed_events() {
+        let request_builder = OpentelemetryRequestBuilder {
+            encoder: OpentelemetryEncoder,
+            compression: Compression::None,
+            metric_config: OpentelemetryMetricConfig {
+                buckets: default_histogram_buckets(),
+            },
+            mezmo_ctx: None,
+        };
+
+        let (batch, _receiver) = BatchNotifier::new_with_receiver();
+        // The first and third spans have no traceId, so they fail conversion.
+        let events = vec![
+            native_span("first", None, &batch),
+            native_span("second", Some(TRACE_ID), &batch),
+            native_span("third", None, &batch),
+        ];
+        // split_input measures the kept events after taking their finalizers.
+        let mut expected_event = events[1].clone();
+        expected_event.take_finalizers();
+        let expected_metadata_builder = RequestMetadataBuilder::from_event(&expected_event);
+
+        let model_type = OpentelemetryModelType::Traces {
+            partitioner_key: [0; 8],
+        };
+        let ((_, finalizers), metadata_builder, model) =
+            request_builder.split_input((model_type, events));
+
+        match model {
+            Ok(OpentelemetryModel::Traces(traces)) => {
+                assert_eq!(traces.len(), 1);
+                assert_eq!(traces[0].0.name, "second");
+            }
+            Ok(_) => panic!("expected trace models"),
+            Err(error) => panic!("trace batch failed: {error}"),
+        }
+
+        assert_eq!(finalizers.len(), 1);
+        let request_size = NonZeroUsize::new(1).unwrap();
+        let metadata = metadata_builder.with_request_size(request_size);
+        let expected_metadata = expected_metadata_builder.with_request_size(request_size);
+        assert_eq!(metadata.event_count(), 1);
+        assert_eq!(
+            metadata.events_byte_size(),
+            expected_metadata.events_byte_size()
+        );
+    }
+
+    #[test]
+    fn test_native_metric_envelope_is_unknown() {
+        let event = native_event("metric", btreemap! { "name" => "requests" });
+
+        assert_eq!(
+            OpentelemetryTypePartitioner.partition(&event),
+            OpentelemetryModelType::Unknown
+        );
     }
 }

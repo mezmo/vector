@@ -119,7 +119,46 @@ pub fn value_to_system_time(value: &Value) -> SystemTime {
     }
 }
 
-#[derive(Debug, Clone)]
+/// The `(message, record)` of a native OpenTelemetry event of the given signal type, which the
+/// OpenTelemetry source writes as `.message.{type, resource, scope, record}`.
+pub fn native_envelope<'a>(log: &'a LogEvent, signal: &str) -> Option<(&'a Value, &'a Value)> {
+    let message = log.get_message()?;
+    let is_signal = message
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|message_type| message_type == signal);
+
+    match message.get("record") {
+        Some(record @ Value::Object(_)) if is_signal => Some((message, record)),
+        _ => None,
+    }
+}
+
+/// Native times are nanoseconds since the epoch, written as decimal strings because they
+/// exceed the integer range JSON holds exactly.
+pub fn native_time(value: Option<&Value>) -> Option<SystemTime> {
+    let nanos = match value? {
+        Value::Integer(nanos) => u64::try_from(*nanos).ok()?,
+        value @ Value::Bytes(_) => value.as_str()?.parse::<u64>().ok()?,
+        _ => return None,
+    };
+
+    Some(SystemTime::UNIX_EPOCH + Duration::from_nanos(nanos))
+}
+
+/// OTLP/JSON writes an enum either as its number or as its name.
+pub fn native_enum_number(
+    value: Option<&Value>,
+    from_name: impl Fn(&str) -> Option<i32>,
+) -> Option<i64> {
+    match value? {
+        Value::Integer(number) => Some(*number),
+        value @ Value::Bytes(_) => from_name(&value.as_str()?).map(i64::from),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct OpentelemetryResource {
     pub attributes: OpentelemetryAttributes,
     pub schema_url: Cow<'static, str>,
@@ -224,7 +263,7 @@ impl From<OpentelemetryTraceFlags> for TraceFlags {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct OpentelemetryAttributes(Vec<KeyValue>);
 
 impl From<Option<&Value>> for OpentelemetryAttributes {
@@ -270,6 +309,15 @@ impl From<&LogEvent> for OpentelemetryResource {
         OpentelemetryResource {
             attributes: OpentelemetryAttributes(attributes),
             schema_url,
+        }
+    }
+}
+
+impl OpentelemetryResource {
+    pub fn from_native(message: &Value) -> Self {
+        Self {
+            attributes: message.get("resource.attributes").into(),
+            schema_url: Cow::from(""),
         }
     }
 }
@@ -361,6 +409,22 @@ impl From<&LogEvent> for OpentelemetryScope {
             version,
             schema_url,
             attributes: OpentelemetryAttributes(attributes),
+        }
+    }
+}
+
+impl OpentelemetryScope {
+    pub fn from_native(message: &Value) -> Self {
+        let string = |path: &str| {
+            let value = message.get(path).and_then(Value::as_str)?;
+            Some(Cow::from(value.into_owned()))
+        };
+
+        Self {
+            name: string("scope.name").unwrap_or_default(),
+            version: string("scope.version"),
+            schema_url: None,
+            attributes: message.get("scope.attributes").into(),
         }
     }
 }
