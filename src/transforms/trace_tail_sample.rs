@@ -75,6 +75,16 @@ const fn default_ttl_secs() -> u64 {
     DEFAULT_TTL_SECS
 }
 
+/// Replaces a TTL below the minimum with the default. This must be applied before the
+/// persistence connection is opened, since a TTL of 0 means records never expire.
+const fn effective_ttl_secs(ttl_secs: u64) -> u64 {
+    if ttl_secs < MINIMUM_TTL_SECS {
+        DEFAULT_TTL_SECS
+    } else {
+        ttl_secs
+    }
+}
+
 impl TraceTailSampleConfig {
     pub fn new(config: &TraceTailSampleConfig) -> Self {
         TraceTailSampleConfig {
@@ -101,8 +111,11 @@ impl TransformConfig for TraceTailSampleConfig {
         } else {
             sample_path
         };
-        let persistence =
-            RocksDBPersistenceConnection::new_with_ttl(&base_path, &mezmo_ctx, self.ttl_secs)?;
+        let persistence = RocksDBPersistenceConnection::new_with_ttl(
+            &base_path,
+            &mezmo_ctx,
+            effective_ttl_secs(self.ttl_secs),
+        )?;
 
         //build all the conditions from their configs to be used in evaluations
         let conditions = self
@@ -166,9 +179,7 @@ impl TraceTailSample {
     }
 
     fn intialize(&mut self) {
-        if self.config.ttl_secs < MINIMUM_TTL_SECS {
-            self.config.ttl_secs = DEFAULT_TTL_SECS;
-        }
+        self.config.ttl_secs = effective_ttl_secs(self.config.ttl_secs);
 
         // initialize all the counts for the conditionals
         // based on previous runs and setup the output rates map
@@ -465,6 +476,13 @@ mod test {
             default_config.state_persistence_base_path, None,
             "default state_persistence_base_path is correct"
         );
+    }
+
+    #[test]
+    fn effective_ttl_secs_applies_minimum() {
+        assert_eq!(effective_ttl_secs(0), DEFAULT_TTL_SECS);
+        assert_eq!(effective_ttl_secs(MINIMUM_TTL_SECS - 1), DEFAULT_TTL_SECS);
+        assert_eq!(effective_ttl_secs(MINIMUM_TTL_SECS), MINIMUM_TTL_SECS);
     }
 
     #[assay(env = [("POD_NAME", "vector-test0-0")])]
