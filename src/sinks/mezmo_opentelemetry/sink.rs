@@ -370,9 +370,14 @@ mod test {
     use super::*;
 
     use crate::sinks::mezmo_opentelemetry::default_histogram_buckets;
+    use chrono::Utc;
     use vector_lib::{
-        event::{EventMetadata, LogEvent, ObjectMap},
+        event::{
+            EventMetadata, LogEvent, Metric, MetricKind, MetricValue, ObjectMap,
+            metric::MetricSketch,
+        },
         finalization::BatchNotifier,
+        metrics::AgentDDSketch,
     };
 
     const TRACE_ID: &str = "5f467fe7bf42676c05e20ba4a90e448e";
@@ -452,6 +457,53 @@ mod test {
             metadata.events_byte_size(),
             expected_metadata.events_byte_size()
         );
+    }
+
+    #[test]
+    fn test_split_input_drops_only_sketch_metrics() {
+        let request_builder = OpentelemetryRequestBuilder {
+            encoder: OpentelemetryEncoder,
+            compression: Compression::None,
+            metric_config: OpentelemetryMetricConfig {
+                buckets: default_histogram_buckets(),
+            },
+            mezmo_ctx: None,
+        };
+
+        let (batch, _receiver) = BatchNotifier::new_with_receiver();
+        let metric = |value| {
+            Event::Metric(
+                Metric::new("cpu_usage", MetricKind::Absolute, value)
+                    .with_timestamp(Some(Utc::now()))
+                    .with_batch_notifier(&batch),
+            )
+        };
+        let events = vec![
+            metric(MetricValue::Sketch {
+                sketch: MetricSketch::AgentDDSketch(AgentDDSketch::with_agent_defaults()),
+            }),
+            metric(MetricValue::Gauge { value: 1.0 }),
+        ];
+
+        let model_type = OpentelemetryTypePartitioner.partition(&events[0]);
+        assert_eq!(
+            model_type,
+            OpentelemetryTypePartitioner.partition(&events[1])
+        );
+        let ((_, finalizers), _, model) = request_builder.split_input((model_type, events));
+
+        let Ok(OpentelemetryModel::Metrics(resource_metrics)) = model else {
+            panic!("expected metric models");
+        };
+        let names: Vec<String> = resource_metrics
+            .0
+            .iter()
+            .flat_map(|resource| &resource.scope_metrics)
+            .flat_map(|scope| &scope.metrics)
+            .map(|metric| metric.name.to_string())
+            .collect();
+        assert_eq!(names, ["cpu_usage"]);
+        assert_eq!(finalizers.len(), 1);
     }
 
     #[test]

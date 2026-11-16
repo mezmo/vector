@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+use chrono::Utc;
+
 use crate::sinks::mezmo_opentelemetry::{
     config::OpentelemetryMetricConfig,
     models::{
@@ -25,7 +27,7 @@ use vector_lib::{
     config::log_schema,
     event::{
         Event, KeyString, MetricKind, MetricValue, StatisticKind, Value,
-        metric::{Metric as MezmoMetric, samples_to_buckets},
+        metric::{Bucket, Metric as MezmoMetric, samples_to_buckets},
     },
 };
 
@@ -289,6 +291,25 @@ fn sanitize_name(name: &str, unit_word: &str) -> String {
     name.chars().take(name.len() - unit_word.len()).collect()
 }
 
+// An incremental metric carries only what was observed since the last flush.
+const fn temporality_from_kind(kind: MetricKind) -> Temporality {
+    match kind {
+        MetricKind::Incremental => Temporality::Delta,
+        MetricKind::Absolute => Temporality::Cumulative,
+    }
+}
+
+// OTLP explicit-bucket histograms carry one more count than bounds: the last
+// count is the implicit overflow bucket above the largest bound. Vector buckets
+// have no overflow bucket, so it is whatever the buckets do not account for.
+fn otlp_buckets(buckets: &[Bucket], count: u64) -> (Vec<f64>, Vec<u64>) {
+    let bounds = buckets.iter().map(|bucket| bucket.upper_limit).collect();
+    let mut bucket_counts: Vec<u64> = buckets.iter().map(|bucket| bucket.count).collect();
+    let bucketed: u64 = bucket_counts.iter().sum();
+    bucket_counts.push(count.saturating_sub(bucketed));
+    (bounds, bucket_counts)
+}
+
 #[derive(Debug)]
 pub struct OpentelemetryMetricsModel {
     pub name: String,
@@ -303,31 +324,72 @@ pub struct OpentelemetryMetricsModel {
 
 impl OpentelemetryModelMatch for OpentelemetryMetricsModel {
     fn maybe_match(event: &Event) -> Option<OpentelemetryModelType> {
-        if let Some(metric) = event.clone().try_into_metric() {
-            match metric.value() {
-                // Skip Summary and Sketch metrics
-                MetricValue::Distribution {
-                    statistic: StatisticKind::Summary,
-                    ..
-                }
-                | MetricValue::AggregatedSummary { .. }
-                | MetricValue::Sketch { .. } => {
-                    return None;
-                }
-                _ => {
-                    let arbitrary = metric.arbitrary_value().value();
-                    let user_metadata = get_object(arbitrary, log_schema().user_metadata_key());
-                    let resource = get_object(&user_metadata, "resource");
-                    let partitioner_key: OpentelemetrySpanId = resource.get("uniq_id").into();
+        // Unsupported metric values (Sketch) still match here so the per-event
+        // conversion error names their type instead of the generic Unknown error.
+        let metric = event.clone().try_into_metric()?;
+        let arbitrary = metric.arbitrary_value().value();
+        let user_metadata = get_object(arbitrary, log_schema().user_metadata_key());
+        let resource = get_object(&user_metadata, "resource");
+        let partitioner_key: OpentelemetrySpanId = resource.get("uniq_id").into();
 
-                    return Some(OpentelemetryModelType::Metrics {
-                        partitioner_key: partitioner_key.into(),
-                    });
-                }
+        Some(OpentelemetryModelType::Metrics {
+            partitioner_key: partitioner_key.into(),
+        })
+    }
+}
+
+impl OpentelemetryMetricsModel {
+    // One summary is several OTLP time series with their own names, so it is
+    // split here, where the name is known, rather than in the data point.
+    fn split_summary(self) -> Vec<Self> {
+        let OpentelemetryDataPoint::Summary {
+            quantiles,
+            sum,
+            count,
+        } = &self.data_point
+        else {
+            return vec![self];
+        };
+
+        let series = |name: String, unit: String, data_point: OpentelemetryDataPoint| {
+            let is_sum = matches!(data_point, OpentelemetryDataPoint::Sum(..));
+            Self {
+                name,
+                description: self.description.clone(),
+                unit,
+                temporality: if is_sum { self.temporality } else { None },
+                is_monotonic: is_sum.then_some(true),
+                data_point,
+                scope: self.scope.clone(),
+                resource: self.resource.clone(),
             }
-        }
+        };
 
-        None
+        quantiles
+            .iter()
+            .map(|quantile| {
+                series(
+                    self.name.clone(),
+                    self.unit.clone(),
+                    OpentelemetryDataPoint::Gauge(quantile.clone()),
+                )
+            })
+            .chain([
+                // Sum and count only grow between resets, so they are counters,
+                // unlike the quantiles, which are point-in-time values.
+                series(
+                    format!("{}_sum", self.name),
+                    self.unit.clone(),
+                    OpentelemetryDataPoint::Sum(sum.clone()),
+                ),
+                // A count is dimensionless, so it does not inherit the parent unit.
+                series(
+                    format!("{}_count", self.name),
+                    String::new(),
+                    OpentelemetryDataPoint::Sum(count.clone()),
+                ),
+            ])
+            .collect()
     }
 }
 
@@ -366,29 +428,33 @@ impl TryFrom<(Event, &OpentelemetryMetricConfig)> for OpentelemetryMetricsModel 
             None
         };
 
+        // Native names were derived when only incremental sums counted as
+        // monotonic. Keeping that guess means no existing series is renamed.
+        let is_counter = is_monotonic.unwrap_or_else(|| {
+            matches!(data_point, OpentelemetryDataPoint::Sum(..))
+                && metric.kind() == MetricKind::Incremental
+        });
+
         match data_point {
             OpentelemetryDataPoint::Sum(..) => {
                 if is_monotonic.is_none() {
-                    is_monotonic = match metric.kind() {
-                        MetricKind::Incremental => Some(true),
-                        MetricKind::Absolute => Some(false),
-                    };
+                    // A counter only grows between resets, whatever its kind.
+                    is_monotonic = Some(matches!(metric.value(), MetricValue::Counter { .. }));
                 }
 
                 if temporality.is_none() {
-                    temporality = Some(Temporality::Cumulative);
+                    temporality = Some(temporality_from_kind(metric.kind()));
                 }
             }
-            OpentelemetryDataPoint::Histogram(..) => {
+            OpentelemetryDataPoint::Histogram(..) | OpentelemetryDataPoint::Summary { .. } => {
                 if temporality.is_none() {
-                    temporality = Some(Temporality::Cumulative);
+                    temporality = Some(temporality_from_kind(metric.kind()));
                 }
             }
             OpentelemetryDataPoint::Gauge(..) => {}
         };
 
         let mut unit_word = String::new();
-        let is_counter = is_monotonic.unwrap_or(false);
 
         let name = if let Some(Value::Bytes(bytes)) = arbitrary.get("name") {
             String::from_utf8_lossy(bytes).into_owned()
@@ -423,6 +489,11 @@ pub enum OpentelemetryDataPoint {
     Gauge(DataPoint<f64>),
     Sum(DataPoint<f64>),
     Histogram(HistogramDataPoint<f64>),
+    Summary {
+        quantiles: Vec<DataPoint<f64>>,
+        sum: DataPoint<f64>,
+        count: DataPoint<f64>,
+    },
 }
 
 impl From<&OpentelemetryDataPoint> for String {
@@ -431,6 +502,7 @@ impl From<&OpentelemetryDataPoint> for String {
             OpentelemetryDataPoint::Gauge(..) => "gauge".into(),
             OpentelemetryDataPoint::Sum(..) => "sum".into(),
             OpentelemetryDataPoint::Histogram(..) => "histogram".into(),
+            OpentelemetryDataPoint::Summary { .. } => "summary".into(),
         }
     }
 }
@@ -441,6 +513,9 @@ impl TryFrom<(&MezmoMetric, &OpentelemetryMetricConfig)> for OpentelemetryDataPo
     fn try_from(input: (&MezmoMetric, &OpentelemetryMetricConfig)) -> Result<Self, Self::Error> {
         let (metric, metric_config) = input;
 
+        // Untimed metrics, such as StatsD distributions, are sent as of now.
+        let timestamp = Value::Timestamp(metric.timestamp().unwrap_or_else(Utc::now));
+
         let arbitrary = metric.arbitrary_value().value();
         let user_metadata = get_object(arbitrary, log_schema().user_metadata_key());
         // If an event is an aggregation result it shouldn't be considered as OTLP event
@@ -450,22 +525,31 @@ impl TryFrom<(&MezmoMetric, &OpentelemetryMetricConfig)> for OpentelemetryDataPo
 
         let start_time = match arbitrary.get("start_time_unix") {
             Some(time) => Some(value_to_system_time(time)),
-            None => Some(value_to_system_time(&Value::Timestamp(
-                metric.timestamp().unwrap(),
-            ))),
+            None => Some(value_to_system_time(&timestamp)),
         };
 
         let time = match arbitrary.get("time_unix") {
             Some(time) => Some(value_to_system_time(time)),
-            None => Some(value_to_system_time(&Value::Timestamp(
-                metric.timestamp().unwrap(),
-            ))),
+            None => Some(value_to_system_time(&timestamp)),
         };
 
-        let attributes = get_object(&user_metadata, "attributes")
+        let mut attributes = get_object(&user_metadata, "attributes")
             .iter()
             .map(|(key, value)| KeyValue::new(key.to_string(), value_to_otlp_value(value.clone())))
             .collect::<Vec<KeyValue>>();
+
+        // Native metrics carry their labels only as tags. OTLP events already
+        // carry them as attributes, which win when both name the same key.
+        if !is_otlp_event && let Some(tags) = metric.tags() {
+            for (key, value) in tags.iter_single() {
+                if !attributes
+                    .iter()
+                    .any(|attribute| attribute.key.as_str() == key)
+                {
+                    attributes.push(KeyValue::new(key.to_string(), value.to_string()));
+                }
+            }
+        }
 
         let mut exemplars: Vec<Exemplar<f64>> = Vec::new();
 
@@ -481,9 +565,7 @@ impl TryFrom<(&MezmoMetric, &OpentelemetryMetricConfig)> for OpentelemetryDataPo
 
                     let time = match exemplar.get("time_unix") {
                         Some(time) => value_to_system_time(time),
-                        None => {
-                            value_to_system_time(&Value::Timestamp(metric.timestamp().unwrap()))
-                        }
+                        None => value_to_system_time(&timestamp),
                     };
 
                     let value = get_float(exemplar, "value")?;
@@ -563,21 +645,12 @@ impl TryFrom<(&MezmoMetric, &OpentelemetryMetricConfig)> for OpentelemetryDataPo
                 }))
             }
             MetricValue::Distribution {
-                statistic: StatisticKind::Histogram,
+                statistic: StatisticKind::Histogram | StatisticKind::Summary,
                 samples,
             } => {
                 // convert distributions into aggregated histograms
                 let (buckets, count, sum) = samples_to_buckets(samples, &metric_config.buckets);
-
-                let mut bounds: Vec<f64> = vec![];
-                let mut bucket_counts: Vec<u64> = vec![];
-
-                for bucket in buckets {
-                    bounds.push(bucket.upper_limit);
-                    bucket_counts.push(bucket.count);
-                }
-
-                bounds.push(0 as f64);
+                let (bounds, bucket_counts) = otlp_buckets(&buckets, count);
 
                 Ok(Self::Histogram(HistogramDataPoint {
                     attributes: attributes.as_slice().into(),
@@ -597,10 +670,7 @@ impl TryFrom<(&MezmoMetric, &OpentelemetryMetricConfig)> for OpentelemetryDataPo
                 count,
                 sum,
             } => {
-                let mut bounds: Vec<f64> = vec![];
-                let mut bucket_counts: Vec<u64> = vec![];
-
-                if is_otlp_event && original_type == "histogram" {
+                let (bounds, bucket_counts) = if is_otlp_event && original_type == "histogram" {
                     let parsed_bounds: Result<Vec<f64>, Self::Error> =
                         get_property(arbitrary, "explicit_bounds")?
                             .as_array()
@@ -612,7 +682,6 @@ impl TryFrom<(&MezmoMetric, &OpentelemetryMetricConfig)> for OpentelemetryDataPo
                             .iter()
                             .map(|value| parse_float(value, "explicit_bounds"))
                             .collect();
-                    bounds = parsed_bounds?;
 
                     let parsed_bucket_counts: Result<Vec<u64>, Self::Error> =
                         get_property(arbitrary, "bucket_counts")?
@@ -621,15 +690,10 @@ impl TryFrom<(&MezmoMetric, &OpentelemetryMetricConfig)> for OpentelemetryDataPo
                             .iter()
                             .map(|value| parse_u64(value, "bucket_counts"))
                             .collect();
-                    bucket_counts = parsed_bucket_counts?;
+                    (parsed_bounds?, parsed_bucket_counts?)
                 } else {
-                    for bucket in buckets {
-                        bounds.push(bucket.upper_limit);
-                        bucket_counts.push(bucket.count);
-                    }
-
-                    bounds.push(0 as f64);
-                }
+                    otlp_buckets(buckets, *count)
+                };
 
                 Ok(Self::Histogram(HistogramDataPoint {
                     attributes: attributes.as_slice().into(),
@@ -644,17 +708,38 @@ impl TryFrom<(&MezmoMetric, &OpentelemetryMetricConfig)> for OpentelemetryDataPo
                     exemplars,
                 }))
             }
-            MetricValue::Distribution {
-                statistic: StatisticKind::Summary,
-                ..
-            } => Err(Self::Error::new(
-                "Summary metric type does is not supported",
-            )),
-            MetricValue::AggregatedSummary { .. } => Err(Self::Error::new(
-                "Summary metric type does is not supported",
-            )),
+            MetricValue::AggregatedSummary {
+                quantiles,
+                count,
+                sum,
+            } => {
+                let point = |value: f64, attributes: &[KeyValue], start_time| DataPoint {
+                    attributes: attributes.into(),
+                    start_time,
+                    time,
+                    value,
+                    exemplars: vec![],
+                };
+                // Falling back to the event time would claim the sum and count
+                // were reset at every point, so an unknown start stays unset.
+                let counter_start_time = arbitrary.get("start_time_unix").map(value_to_system_time);
+
+                Ok(Self::Summary {
+                    quantiles: quantiles
+                        .iter()
+                        .map(|quantile| {
+                            let mut attributes = attributes.clone();
+                            attributes
+                                .push(KeyValue::new("quantile", quantile.quantile.to_string()));
+                            point(quantile.value, &attributes, start_time)
+                        })
+                        .collect(),
+                    sum: point(*sum, &attributes, counter_start_time),
+                    count: point(*count as f64, &attributes, counter_start_time),
+                })
+            }
             MetricValue::Sketch { .. } => {
-                Err(Self::Error::new("Sketch metric type does is not supported"))
+                Err(Self::Error::new("Sketch metric type is not supported"))
             }
         }
     }
@@ -670,17 +755,20 @@ impl TryFrom<Vec<OpentelemetryMetricsModel>> for OpentelemetryResourceMetrics {
     fn try_from(models: Vec<OpentelemetryMetricsModel>) -> Result<Self, Self::Error> {
         let mut scope_groups: Vec<OpentelemetryScopeGroup> = vec![];
 
-        for model in &models {
+        for model in models
+            .into_iter()
+            .flat_map(OpentelemetryMetricsModel::split_summary)
+        {
             match scope_groups
                 .iter_mut()
                 .find(|scope_group| scope_group.resource == model.resource)
             {
                 Some(scope_group) => {
-                    scope_group.insert(model);
+                    scope_group.insert(&model);
                 }
                 None => {
                     let mut scope_group = OpentelemetryScopeGroup::new(model.resource.clone());
-                    scope_group.insert(model);
+                    scope_group.insert(&model);
                     scope_groups.push(scope_group);
                 }
             }
@@ -902,8 +990,11 @@ mod test {
     use std::time::SystemTime;
     use vector_lib::config::log_schema;
     use vector_lib::event::metric::mezmo::{from_f64_or_zero, to_metric};
+    use vector_lib::event::metric::{MetricSketch, Quantile, Sample};
     use vector_lib::event::{Event, LogEvent};
     use vector_lib::lookup::PathPrefix;
+    use vector_lib::metric_tags;
+    use vector_lib::metrics::AgentDDSketch;
 
     #[derive(Debug, Clone)]
     enum TestMetricGenerator {
@@ -1863,10 +1954,13 @@ mod test {
                         assert_eq!(
                             data_point.bounds,
                             [
-                                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 0.0
+                                0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0
                             ]
                         );
-                        assert_eq!(data_point.bucket_counts, [0, 0, 0, 0, 0, 0, 0, 3, 3, 2, 0]);
+                        assert_eq!(
+                            data_point.bucket_counts,
+                            [0, 0, 0, 0, 0, 0, 0, 3, 3, 2, 0, 0]
+                        );
 
                         assert_eq!(data_point.exemplars.len(), 0);
                     }
@@ -2069,50 +2163,520 @@ mod test {
         }
     }
 
-    #[tokio::test]
-    async fn test_otlp_sink_event_to_metric_model_unsupported_events() {
-        let gen_settings = vec![
-            (
-                &TestMetricGenerator::AggregatedSummary,
-                "absolute",
-                false,
-                None,
-                None,
-            ),
-            (
-                &TestMetricGenerator::DistributionSummary,
-                "absolute",
-                false,
-                None,
-                None,
-            ),
-        ];
+    fn generated_metric(metric_type: TestMetricGenerator, otlp_type: Option<&str>) -> MezmoMetric {
+        let uniq_id = otlp_type.map(|_| [76, 114, 27, 243, 62, 60, 175, 143]);
+        let event = metric_event_generator(
+            0,
+            metric_type,
+            "absolute",
+            otlp_type.is_some(),
+            otlp_type,
+            uniq_id,
+        );
+        to_metric(event.as_log())
+            .expect("Failed to convert log to metric")
+            .expect("Metric has a value")
+    }
 
-        let generator = |idx| {
-            let (metric_type, metric_kind, otlp_event, original_otlp_type, uniq_id) =
-                gen_settings[idx];
-            let event = metric_event_generator(
-                idx,
-                metric_type.clone(),
-                metric_kind,
-                otlp_event,
-                original_otlp_type,
-                uniq_id,
-            );
-            let log = event.as_log();
-            Event::Metric(
-                to_metric(log)
-                    .expect("Failed to convert log to metric")
-                    .expect("Metric has a value"),
-            )
+    // Runs the metric through the same conversion and grouping the sink uses and
+    // returns the OTLP metrics of its single resource and scope by name.
+    fn otlp_metrics_by_name(metric: MezmoMetric) -> HashMap<String, Metric> {
+        let config = OpentelemetryMetricConfig {
+            buckets: default_histogram_buckets(),
         };
+        let model = OpentelemetryMetricsModel::try_from((Event::Metric(metric), &config))
+            .expect("Metric event cannot be converted to a model");
+        let resource_metrics = OpentelemetryResourceMetrics::try_from(vec![model])
+            .expect("Failed to convert metrics to OpentelemetryResourceMetrics");
+
+        let [resource] = <[ResourceMetrics; 1]>::try_from(resource_metrics.0)
+            .expect("expected a single resource");
+        let [scope] =
+            <[ScopeMetrics; 1]>::try_from(resource.scope_metrics).expect("expected a single scope");
+
+        scope
+            .metrics
+            .into_iter()
+            .map(|metric| (metric.name.to_string(), metric))
+            .collect()
+    }
+
+    fn gauge_points(metric: &Metric) -> &[DataPoint<f64>] {
+        &metric
+            .data
+            .as_any()
+            .downcast_ref::<Gauge<f64>>()
+            .expect("metric should be a gauge")
+            .data_points
+    }
+
+    fn sum_data(metric: &Metric) -> &Sum<f64> {
+        metric
+            .data
+            .as_any()
+            .downcast_ref::<Sum<f64>>()
+            .expect("metric should be a sum")
+    }
+
+    fn assert_attributes<T>(actual: &T, expected: &[KeyValue])
+    where
+        T: for<'a> From<&'a [KeyValue]> + PartialEq + std::fmt::Debug,
+    {
+        assert_eq!(*actual, T::from(expected));
+    }
+
+    #[test]
+    fn test_otlp_sink_aggregated_summary_expands_to_gauges() {
+        let metric = generated_metric(TestMetricGenerator::AggregatedSummary, Some("summary"))
+            .with_value(MetricValue::AggregatedSummary {
+                quantiles: vec![
+                    Quantile {
+                        quantile: 0.5,
+                        value: 1.5,
+                    },
+                    Quantile {
+                        quantile: 0.99,
+                        value: f64::NAN,
+                    },
+                    Quantile {
+                        quantile: 0.005,
+                        value: 0.25,
+                    },
+                ],
+                count: 7,
+                sum: 12.5,
+            });
+        let metrics = otlp_metrics_by_name(metric);
+
+        let mut names: Vec<&str> = metrics.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            [
+                "system.filesystem.usage",
+                "system.filesystem.usage_count",
+                "system.filesystem.usage_sum"
+            ]
+        );
+
+        let expected_time =
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_nanos(1_579_134_612_000_000_011);
+        let foo = KeyValue::new("foo", "bar");
+
+        let quantiles = &metrics["system.filesystem.usage"];
+        assert_eq!(quantiles.description, "test_description");
+        assert_eq!(quantiles.unit.as_str(), "GiBy/s");
+        let points = gauge_points(quantiles);
+        assert_eq!(points.len(), 3);
+        for (point, (quantile, value)) in
+            points
+                .iter()
+                .zip([("0.5", 1.5), ("0.99", f64::NAN), ("0.005", 0.25)])
+        {
+            assert_attributes(
+                &point.attributes,
+                &[foo.clone(), KeyValue::new("quantile", quantile)],
+            );
+            assert_eq!(point.value.is_nan(), value.is_nan());
+            if !value.is_nan() {
+                assert_eq!(point.value, value);
+            }
+            assert_eq!(point.start_time, Some(expected_time));
+            assert_eq!(point.time, Some(expected_time));
+        }
+
+        for (name, unit, value) in [
+            ("system.filesystem.usage_sum", "GiBy/s", 12.5),
+            ("system.filesystem.usage_count", "", 7.0),
+        ] {
+            let metric = &metrics[name];
+            assert_eq!(metric.description, "test_description");
+            assert_eq!(metric.unit.as_str(), unit);
+            let sum = sum_data(metric);
+            assert!(sum.is_monotonic);
+            assert_eq!(sum.temporality, Temporality::Cumulative);
+            let points = &sum.data_points;
+            assert_eq!(points.len(), 1);
+            assert_eq!(points[0].value, value);
+            assert_attributes(&points[0].attributes, std::slice::from_ref(&foo));
+            assert_eq!(points[0].start_time, Some(expected_time));
+            assert_eq!(points[0].time, Some(expected_time));
+        }
+    }
+
+    #[test]
+    fn test_otlp_sink_aggregated_summary_without_quantiles() {
+        let metric = generated_metric(TestMetricGenerator::AggregatedSummary, None).with_value(
+            MetricValue::AggregatedSummary {
+                quantiles: vec![],
+                count: 0,
+                sum: 0.0,
+            },
+        );
+        let metrics = otlp_metrics_by_name(metric);
+
+        let mut names: Vec<&str> = metrics.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            [
+                "system_filesystem_usage__count",
+                "system_filesystem_usage__sum"
+            ]
+        );
+
+        for (name, unit) in [
+            ("system_filesystem_usage__sum", "GiBy/s"),
+            ("system_filesystem_usage__count", ""),
+        ] {
+            let metric = &metrics[name];
+            assert_eq!(metric.unit.as_str(), unit);
+            let sum = sum_data(metric);
+            assert!(sum.is_monotonic);
+            assert_eq!(sum.temporality, Temporality::Cumulative);
+            assert_eq!(sum.data_points[0].value, 0.0);
+            // A native summary carries no start time, and the event time is not one.
+            assert_eq!(sum.data_points[0].start_time, None);
+            assert!(sum.data_points[0].time.is_some());
+        }
+    }
+
+    #[test]
+    fn test_otlp_sink_native_aggregated_histogram_has_overflow_bucket() {
+        // Shaped like a Prometheus scrape, whose +Inf bucket the source drops.
+        let metric = MezmoMetric::new(
+            "request_duration",
+            MetricKind::Absolute,
+            MetricValue::AggregatedHistogram {
+                buckets: vec![
+                    Bucket {
+                        upper_limit: 1.0,
+                        count: 2,
+                    },
+                    Bucket {
+                        upper_limit: 5.0,
+                        count: 3,
+                    },
+                ],
+                count: 9,
+                sum: 40.0,
+            },
+        );
+        let config = OpentelemetryMetricConfig {
+            buckets: default_histogram_buckets(),
+        };
+        let model = OpentelemetryMetricsModel::try_from((Event::Metric(metric), &config))
+            .expect("Metric event cannot be converted to a model");
+
+        assert_eq!(model.temporality, Some(Temporality::Cumulative));
+        let OpentelemetryDataPoint::Histogram(histogram) = model.data_point else {
+            panic!("an aggregated histogram should convert to a histogram");
+        };
+        assert_eq!(histogram.bounds, [1.0, 5.0]);
+        assert_eq!(histogram.bucket_counts, [2, 3, 4]);
+    }
+
+    #[test]
+    fn test_otlp_sink_native_counter_temporality_follows_kind() {
+        let config = OpentelemetryMetricConfig {
+            buckets: default_histogram_buckets(),
+        };
+        // Shaped like a StatsD `c` flush and a Prometheus counter scrape.
+        for (kind, expected) in [
+            (MetricKind::Incremental, Temporality::Delta),
+            (MetricKind::Absolute, Temporality::Cumulative),
+        ] {
+            let metric = MezmoMetric::new("requests", kind, MetricValue::Counter { value: 3.0 });
+            let model = OpentelemetryMetricsModel::try_from((Event::Metric(metric), &config))
+                .expect("Metric event cannot be converted to a model");
+
+            assert!(matches!(model.data_point, OpentelemetryDataPoint::Sum(..)));
+            assert_eq!(model.temporality, Some(expected));
+            assert_eq!(model.is_monotonic, Some(true));
+        }
+    }
+
+    #[test]
+    fn test_otlp_sink_native_summary_keeps_tags() {
+        // Shaped like a Prometheus summary, whose labels are tags.
+        let metric = MezmoMetric::new(
+            "request_duration",
+            MetricKind::Absolute,
+            MetricValue::AggregatedSummary {
+                quantiles: vec![Quantile {
+                    quantile: 0.5,
+                    value: 1.5,
+                }],
+                count: 4,
+                sum: 6.0,
+            },
+        )
+        .with_tags(Some(metric_tags!("route" => "/a")));
+        let metrics = otlp_metrics_by_name(metric);
+        let route = KeyValue::new("route", "/a");
+
+        assert_attributes(
+            &gauge_points(&metrics["request_duration"])[0].attributes,
+            &[route.clone(), KeyValue::new("quantile", "0.5")],
+        );
+        for name in ["request_duration_sum", "request_duration_count"] {
+            assert_attributes(
+                &sum_data(&metrics[name]).data_points[0].attributes,
+                std::slice::from_ref(&route),
+            );
+        }
+    }
+
+    #[test]
+    fn test_otlp_sink_native_metric_attributes_win_over_tags() {
+        // Shaped like an aggregate of OTLP metrics, which is no longer an OTLP
+        // event but still carries metadata attributes.
+        let mut event =
+            metric_event_generator(0, TestMetricGenerator::Gauge, "absolute", false, None, None);
+        event.as_mut_log().insert(
+            (PathPrefix::Event, log_schema().user_metadata_key()),
+            Value::from(btreemap! { "attributes" => btreemap! { "foo" => "attribute" } }),
+        );
+        let metric = to_metric(event.as_log())
+            .expect("Failed to convert log to metric")
+            .expect("Metric has a value")
+            .with_tags(Some(metric_tags!("foo" => "tag", "host" => "a")));
+        let metrics = otlp_metrics_by_name(metric);
+
+        let [(_, gauge)] =
+            <[(String, Metric); 1]>::try_from(metrics.into_iter().collect::<Vec<_>>())
+                .expect("expected a single metric");
+        assert_attributes(
+            &gauge_points(&gauge)[0].attributes,
+            &[
+                KeyValue::new("foo", "attribute"),
+                KeyValue::new("host", "a"),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_otlp_sink_otlp_metric_ignores_tags() {
+        let metric = generated_metric(TestMetricGenerator::Gauge, Some("gauge"))
+            .with_tags(Some(metric_tags!("foo" => "tag", "extra" => "x")));
+        let metrics = otlp_metrics_by_name(metric);
+
+        assert_attributes(
+            &gauge_points(&metrics["system.filesystem.usage"])[0].attributes,
+            &[KeyValue::new("foo", "bar")],
+        );
+    }
+
+    #[test]
+    fn test_otlp_sink_absolute_counter_is_monotonic_without_renaming() {
+        let config = OpentelemetryMetricConfig {
+            buckets: default_histogram_buckets(),
+        };
+        let metric = MezmoMetric::new(
+            "http_requests_total",
+            MetricKind::Absolute,
+            MetricValue::Counter { value: 3.0 },
+        );
+        let model = OpentelemetryMetricsModel::try_from((Event::Metric(metric), &config))
+            .expect("Metric event cannot be converted to a model");
+
+        assert_eq!(model.is_monotonic, Some(true));
+        assert_eq!(model.name, "http_requests_total");
+        assert_eq!(model.unit, "");
+    }
+
+    #[test]
+    fn test_otlp_sink_incremental_aggregated_summary_is_delta() {
+        let metric = MezmoMetric::new(
+            "request_duration",
+            MetricKind::Incremental,
+            MetricValue::AggregatedSummary {
+                quantiles: vec![Quantile {
+                    quantile: 0.5,
+                    value: 1.5,
+                }],
+                count: 4,
+                sum: 6.0,
+            },
+        );
+        let metrics = otlp_metrics_by_name(metric);
+
+        for name in ["request_duration_sum", "request_duration_count"] {
+            let sum = sum_data(&metrics[name]);
+            assert!(sum.is_monotonic);
+            assert_eq!(sum.temporality, Temporality::Delta);
+        }
+        assert_eq!(gauge_points(&metrics["request_duration"]).len(), 1);
+    }
+
+    #[test]
+    fn test_otlp_sink_distribution_summary_matches_distribution_histogram() {
+        let custom_buckets = vec![1.0, 2.5];
+        for buckets in [default_histogram_buckets(), custom_buckets] {
+            let config = OpentelemetryMetricConfig { buckets };
+            let base = generated_metric(TestMetricGenerator::DistributionSummary, None);
+            let MetricValue::Distribution { samples, .. } = base.value().clone() else {
+                panic!("generator should emit a distribution");
+            };
+            let histogram_metric = base.clone().with_value(MetricValue::Distribution {
+                samples,
+                statistic: StatisticKind::Histogram,
+            });
+            let model = |metric| {
+                OpentelemetryMetricsModel::try_from((Event::Metric(metric), &config))
+                    .expect("Metric event cannot be converted to a model")
+            };
+            let summary = model(base);
+            let histogram = model(histogram_metric);
+
+            assert_eq!(summary.name, histogram.name);
+            assert_eq!(summary.unit, histogram.unit);
+            assert_eq!(summary.description, histogram.description);
+            assert_eq!(summary.temporality, Some(Temporality::Cumulative));
+            assert_eq!(summary.temporality, histogram.temporality);
+
+            let (
+                OpentelemetryDataPoint::Histogram(summary),
+                OpentelemetryDataPoint::Histogram(histogram),
+            ) = (summary.data_point, histogram.data_point)
+            else {
+                panic!("both distributions should convert to histograms");
+            };
+            assert_eq!(summary.bounds, histogram.bounds);
+            assert_eq!(summary.bucket_counts, histogram.bucket_counts);
+            assert_eq!(summary.count, histogram.count);
+            assert_eq!(summary.sum, histogram.sum);
+            assert_eq!(summary.min, histogram.min);
+            assert_eq!(summary.max, histogram.max);
+            assert_eq!(summary.start_time, histogram.start_time);
+            assert_eq!(summary.time, histogram.time);
+
+            assert_eq!(summary.count, 8);
+            assert_eq!(summary.sum, 15.0);
+            assert_eq!(summary.bounds, config.buckets);
+            assert_eq!(summary.bucket_counts.len(), summary.bounds.len() + 1);
+            assert_eq!(summary.bucket_counts.iter().sum::<u64>(), summary.count);
+            if config.buckets == default_histogram_buckets() {
+                assert_eq!(summary.bucket_counts, [0, 0, 0, 0, 0, 0, 0, 3, 3, 2, 0, 0]);
+            } else {
+                // The 3.0 samples are above the largest bound.
+                assert_eq!(summary.bucket_counts, [3, 3, 2]);
+            }
+        }
+    }
+
+    #[test]
+    fn test_otlp_sink_distribution_summary_empty_and_nan_samples() {
+        let config = OpentelemetryMetricConfig {
+            buckets: vec![1.0, 2.5],
+        };
+        let histogram = |samples| {
+            let metric = generated_metric(TestMetricGenerator::DistributionSummary, None)
+                .with_value(MetricValue::Distribution {
+                    samples,
+                    statistic: StatisticKind::Summary,
+                });
+            match OpentelemetryDataPoint::try_from((&metric, &config)) {
+                Ok(OpentelemetryDataPoint::Histogram(histogram)) => histogram,
+                other => panic!("expected a histogram, got {other:?}"),
+            }
+        };
+
+        let empty = histogram(vec![]);
+        assert_eq!(empty.count, 0);
+        assert_eq!(empty.sum, 0.0);
+        assert_eq!(empty.bucket_counts, [0, 0, 0]);
+
+        let with_nan = histogram(vec![
+            Sample {
+                value: f64::NAN,
+                rate: 2,
+            },
+            Sample {
+                value: 1.0,
+                rate: 1,
+            },
+        ]);
+        assert_eq!(with_nan.count, 3);
+        assert!(with_nan.sum.is_nan());
+        // NaN is not below any bound, so it lands in the overflow bucket.
+        assert_eq!(with_nan.bucket_counts, [1, 0, 2]);
+    }
+
+    #[test]
+    fn test_otlp_sink_sketch_error_names_type() {
+        let metric =
+            generated_metric(TestMetricGenerator::Gauge, None).with_value(MetricValue::Sketch {
+                sketch: MetricSketch::AgentDDSketch(AgentDDSketch::with_agent_defaults()),
+            });
+        let event = Event::Metric(metric);
+
+        assert!(matches!(
+            OpentelemetryMetricsModel::maybe_match(&event),
+            Some(OpentelemetryModelType::Metrics { .. })
+        ));
 
         let config = OpentelemetryMetricConfig {
             buckets: default_histogram_buckets(),
         };
-        for event in generate_events(generator, gen_settings.len()) {
-            assert!(OpentelemetryMetricsModel::try_from((event.clone(), &config)).is_err());
-        }
+        let error = OpentelemetryMetricsModel::try_from((event, &config))
+            .expect_err("sketches are not supported");
+        assert!(error.to_string().contains("Sketch"));
+    }
+
+    #[test]
+    fn test_otlp_sink_untimed_sketch_returns_error() {
+        let metric = MezmoMetric::new(
+            "cpu_usage",
+            MetricKind::Absolute,
+            MetricValue::Sketch {
+                sketch: MetricSketch::AgentDDSketch(AgentDDSketch::with_agent_defaults()),
+            },
+        );
+        assert!(metric.timestamp().is_none());
+
+        let config = OpentelemetryMetricConfig {
+            buckets: default_histogram_buckets(),
+        };
+        let error = OpentelemetryMetricsModel::try_from((Event::Metric(metric), &config))
+            .expect_err("sketches are not supported");
+        assert!(error.to_string().contains("Sketch"));
+    }
+
+    #[test]
+    fn test_otlp_sink_untimed_distribution_summary_is_sent_as_of_now() {
+        // Shaped like the StatsD source's `latency:3|d`, which carries no timestamp.
+        let metric = MezmoMetric::new(
+            "latency",
+            MetricKind::Incremental,
+            MetricValue::Distribution {
+                samples: vec![Sample {
+                    value: 3.0,
+                    rate: 1,
+                }],
+                statistic: StatisticKind::Summary,
+            },
+        );
+        assert!(metric.timestamp().is_none());
+
+        let config = OpentelemetryMetricConfig {
+            buckets: vec![1.0, 5.0],
+        };
+        let before = SystemTime::now();
+        let model = OpentelemetryMetricsModel::try_from((Event::Metric(metric), &config))
+            .expect("an untimed summary should convert");
+        let after = SystemTime::now();
+
+        let OpentelemetryDataPoint::Histogram(histogram) = model.data_point else {
+            panic!("a distribution summary should convert to a histogram");
+        };
+        assert_eq!(histogram.count, 1);
+        assert_eq!(histogram.sum, 3.0);
+        assert_eq!(histogram.bucket_counts, [0, 1, 0]);
+        assert_eq!(histogram.start_time, histogram.time);
+        // Each StatsD flush carries only the samples since the last flush.
+        assert_eq!(model.temporality, Some(Temporality::Delta));
+        assert!(before <= histogram.time && histogram.time <= after);
     }
 
     #[tokio::test]
