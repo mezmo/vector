@@ -1,5 +1,17 @@
 ## Changelog
 
+## [10.1.5](https://github.com/mezmo/vector/compare/v10.1.4...v10.1.5) (2026-11-17)
+
+
+### Bug Fixes
+
+* **sinks**: send otel summary metrics and fix metric temporality [6bd5f86](https://github.com/mezmo/vector/commit/6bd5f86574fd0ed360b435a7a851681f2465c269) - Phil Ciampini [LOG-25444](https://logdna.atlassian.net/browse/LOG-25444)
+
+
+### Miscellaneous
+
+* Merge pull request #91 from mezmo/pciampini/LOG-25444 [0ecd23b](https://github.com/mezmo/vector/commit/0ecd23b722eb204dd4a5de4dd914c4389de760cf) - GitHub [LOG-25444](https://logdna.atlassian.net/browse/LOG-25444)
+
 ## [10.1.4](https://github.com/mezmo/vector/compare/v10.1.3...v10.1.4) (2026-11-04)
 
 
