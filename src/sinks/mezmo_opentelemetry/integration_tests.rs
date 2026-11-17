@@ -1080,8 +1080,7 @@ mod test {
     }
 
     #[tokio::test]
-    #[should_panic]
-    async fn test_opentelemetry_sink_metric_endpoint_unsupported_events() {
+    async fn test_opentelemetry_sink_metric_endpoint_summary_events() {
         let config = indoc! {r#"
             endpoint = "opentelemetry-endpoint"
             compression = "gzip"
@@ -1100,7 +1099,7 @@ mod test {
 
         let (sink, _) = config.build(cx).await.unwrap();
 
-        let (batch, _) = BatchNotifier::new_with_receiver();
+        let (batch, receiver) = BatchNotifier::new_with_receiver();
 
         let gen_settings = vec![
             (
@@ -1141,5 +1140,7 @@ mod test {
         let (_, stream) = generate_metrics_with_stream(generator, gen_settings.len(), Some(batch));
 
         run_and_assert_sink_compliance(sink, stream, &SINK_TAGS).await;
+
+        assert_eq!(receiver.await, BatchStatus::Delivered);
     }
 }
